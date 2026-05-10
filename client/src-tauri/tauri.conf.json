@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TorrSyncPlayer",
+  "version": "0.1.0",
+  "identifier": "com.torrsyncplayer.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "TorrSyncPlayer",
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": null,
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "targets": ["app"],
+    "identifier": "com.torrsyncplayer.app",
+    "icon": ["icons/icon.ico"],
+    "resources": [],
+    "description": "TorrSyncPlayer",
+    "shortDescription": "Sync video via torrent",
+    "category": "Video"
+  }
+}

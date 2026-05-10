@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "shell:default",
+    "websocket:default",
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPCACHE" },
+        { "path": "$APPCACHE/*" },
+        { "path": "$APPCACHE/**/*" }
+      ]
+    }
+  ]
+}
