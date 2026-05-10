@@ -50,8 +50,8 @@ jobs:
             artifact_path: client/src-tauri/target/release/bundle/appimage/*.AppImage
           - os: windows-latest
             artifact_name: TorrSyncPlayer-EXE
-            bundle_target: app
-            artifact_path: client/src-tauri/target/release/bundle/app/*.exe
+            bundle_target: nsis
+            artifact_path: client/src-tauri/target/release/bundle/nsis/*.exe
     runs-on: ${{ matrix.os }}
     defaults:
       run:
