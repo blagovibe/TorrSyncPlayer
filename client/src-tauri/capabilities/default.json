@@ -6,16 +6,6 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "shell:default",
-    "websocket:default",
-    "fs:default",
-    {
-      "identifier": "fs:scope",
-      "allow": [
-        { "path": "$APPCACHE" },
-        { "path": "$APPCACHE/*" },
-        { "path": "$APPCACHE/**/*" }
-      ]
-    }
+    "shell:default"
   ]
 }
