@@ -19,6 +19,7 @@ export default defineConfig(async () => ({
       crypto: "crypto-browserify",
       stream: "stream-browserify",
       buffer: "buffer/",
+      process: "process/browser",
       util: "util/",
       "bittorrent-dht": fileURLToPath(new URL("./src/shims/bittorrent-dht.ts", import.meta.url)),
     },
@@ -29,7 +30,7 @@ export default defineConfig(async () => ({
     "process.browser": "true",
   },
   optimizeDeps: {
-    include: ["webtorrent"],
+    include: ["buffer", "process", "webtorrent"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

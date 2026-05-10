@@ -1,5 +1,3 @@
-import WebTorrent from "webtorrent";
-
 interface TorrentFile {
   name: string;
   streamTo: (videoElement: HTMLVideoElement) => Promise<void>;
@@ -21,9 +19,10 @@ type TorrentEvents = {
 };
 
 type EventKey = keyof TorrentEvents;
+type TorrentClient = { add: (magnetLink: string) => TorrentInstance; destroy: () => void };
 
 export class TorrentService {
-  private client: { add: (magnetLink: string) => TorrentInstance; destroy: () => void };
+  private client: TorrentClient | null = null;
   private activeTorrent: TorrentInstance | null = null;
   private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
@@ -32,10 +31,6 @@ export class TorrentService {
     error: new Set(),
   };
 
-  constructor() {
-    this.client = new WebTorrent();
-  }
-
   on<K extends EventKey>(event: K, callback: TorrentEvents[K]): () => void {
     this.listeners[event].add(callback);
     return () => this.listeners[event].delete(callback);
@@ -43,9 +38,10 @@ export class TorrentService {
 
   async addMagnet(magnetLink: string): Promise<TorrentInstance> {
     this.clearActiveTorrent();
+    const client = await this.getClient();
 
     return new Promise<TorrentInstance>((resolve, reject) => {
-      const torrent = this.client.add(magnetLink);
+      const torrent = client.add(magnetLink);
       this.activeTorrent = torrent;
 
       torrent.on("download", () => {
@@ -102,7 +98,15 @@ export class TorrentService {
 
   destroy(): void {
     this.clearActiveTorrent();
-    this.client.destroy();
+    this.client?.destroy();
+  }
+
+  private async getClient(): Promise<TorrentClient> {
+    if (!this.client) {
+      const { default: WebTorrent } = await import("webtorrent");
+      this.client = new WebTorrent() as TorrentClient;
+    }
+    return this.client;
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<TorrentEvents[K]>) {

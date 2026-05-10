@@ -54,11 +54,11 @@ describe("TorrentService", () => {
     service.on("ready", ready);
 
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
+    await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
     await torrent.emit("download");
     await torrent.emit("ready");
 
     await expect(result).resolves.toBe(torrent);
-    expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test");
     expect(progress).toHaveBeenCalledWith(0.35);
     expect(speed).toHaveBeenCalledWith(2048);
     expect(ready).toHaveBeenCalledWith(torrent, torrent.files[1]);
@@ -72,6 +72,7 @@ describe("TorrentService", () => {
     service.on("error", error);
 
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
+    await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
     await torrent.emit("ready");
 
     await expect(result).rejects.toThrow("No supported video file found in torrent");
@@ -88,13 +89,14 @@ describe("TorrentService", () => {
     service.on("error", error);
 
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
+    await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
     await torrent.emit("error", new Error("tracker failed"));
 
     await expect(result).rejects.toThrow("tracker failed");
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: "tracker failed" }));
   });
 
-  it("streams selected files and destroys the torrent client", async () => {
+  it("streams selected files without creating the torrent client", async () => {
     const service = new TorrentService();
     const file = createTorrent([{ name: "movie.mkv" }]).files[0];
     const video = {
@@ -108,6 +110,6 @@ describe("TorrentService", () => {
     expect(video.removeAttribute).toHaveBeenCalledWith("src");
     expect(video.load).toHaveBeenCalledOnce();
     expect(file.streamTo).toHaveBeenCalledWith(video);
-    expect(destroyMock).toHaveBeenCalledOnce();
+    expect(destroyMock).not.toHaveBeenCalled();
   });
 });
