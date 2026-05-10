@@ -1,109 +1,132 @@
-name: Build TorrSyncPlayer
+name: Build and Release TorrSyncPlayer
 
 on:
   push:
     branches: [main, master]
+    tags:
+      - 'v*'
   pull_request:
     branches: [main, master]
-  release:
-    types: [published]
+  workflow_dispatch:
 
 jobs:
-  # ---------- Linux (AppImage) ----------
-  build-linux:
+  checks:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Unit tests
+        run: npm run test
+
+  build:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: TorrSyncPlayer-AppImage
+            bundle_target: appimage
+            artifact_path: client/src-tauri/target/release/bundle/appimage/*.AppImage
+          - os: windows-latest
+            artifact_name: TorrSyncPlayer-EXE
+            bundle_target: app
+            artifact_path: client/src-tauri/target/release/bundle/app/*.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: client
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install system dependencies for AppImage
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev librsvg2-dev patchelf libssl-dev
+          WEBKIT_PKG="libwebkit2gtk-4.1-dev"
+          JSC_PKG="libjavascriptcoregtk-4.1-dev"
+          if ! apt-cache show "$WEBKIT_PKG" >/dev/null 2>&1; then
+            WEBKIT_PKG="libwebkit2gtk-4.0-dev"
+            JSC_PKG="libjavascriptcoregtk-4.0-dev"
+          fi
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            "$WEBKIT_PKG" \
+            "$JSC_PKG" \
+            libsoup-3.0-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev
 
-      - name: Install Rust & Tauri (Linux)
-        uses: tauri-apps/action@v0
-        with:
-          toolchain: stable
-          target: x86_64-unknown-linux-gnu
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --locked
-
-      - name: Install Node.js & npm
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
-      - name: Clean node_modules
-        run: rm -rf client/node_modules
-
-      - name: Install frontend dependencies
-        working-directory: client
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend (Vite)
-        working-directory: client
-        run: npm run build
+      - name: Build bundle
+        run: npx tauri build --bundles ${{ matrix.bundle_target }}
 
-      - name: Build AppImage with Tauri
-        working-directory: client
-        env:
-          TAURI_PLATFORM: linux
-        run: |
-          cargo tauri build --bundles appimage
-
-      - name: Upload AppImage artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v4
         with:
           name: TorrSyncPlayer-AppImage
-          path: client/src-tauri/target/release/bundle/appimage/*.AppImage
+          path: artifacts/linux
 
-  # ---------- Windows (portable EXE) ----------
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust & Tauri (Windows)
-        uses: tauri-apps/action@v0
-        with:
-          toolchain: stable
-          target: x86_64-pc-windows-msvc
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --locked
-
-      - name: Install Node.js & npm
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
-
-      - name: Clean node_modules
-        run: rm -rf client/node_modules
-
-      - name: Install frontend dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Build frontend (Vite)
-        working-directory: client
-        run: npm run build
-
-      - name: Build portable EXE with Tauri
-        working-directory: client
-        env:
-          TAURI_PLATFORM: windows
-        run: |
-          cargo tauri build --bundles app
-
-      - name: Upload EXE artifact
-        uses: actions/upload-artifact@v4
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v4
         with:
           name: TorrSyncPlayer-EXE
-          path: client/src-tauri/target/release/bundle/app/*.exe
+          path: artifacts/windows
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/linux/*.AppImage
+            artifacts/windows/*.exe

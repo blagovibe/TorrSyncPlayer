@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Peer, PeerRole } from "../App";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
@@ -5,7 +6,7 @@ import VideoPlayer from "./VideoPlayer";
 import { RefObject } from "react";
 
 interface RoomPageProps {
-  roomCode: string;
+  peerId: string;
   peerRole: PeerRole | null;
   peers: Peer[];
   isConnected: boolean;
@@ -14,10 +15,14 @@ interface RoomPageProps {
   videoRef: RefObject<HTMLVideoElement | null>;
   onLoadMagnet: () => void;
   onLeaveRoom: () => void;
+  isLoadingTorrent: boolean;
+  downloadSpeed: string;
+  bufferingProgress: number;
+  torrentError: string | null;
 }
 
 function RoomPage({
-  roomCode,
+  peerId,
   peerRole,
   peers,
   isConnected,
@@ -26,7 +31,24 @@ function RoomPage({
   videoRef,
   onLoadMagnet,
   onLeaveRoom,
+  isLoadingTorrent,
+  downloadSpeed,
+  bufferingProgress,
+  torrentError,
 }: RoomPageProps) {
+  const [copied, setCopied] = useState(false);
+
+  const copyPeerId = async () => {
+    if (!peerId) return;
+    try {
+      await navigator.clipboard.writeText(peerId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
   return (
     <section className="room-page">
       <div className="room-layout">
@@ -41,23 +63,27 @@ function RoomPage({
               onChange={(event) => onMagnetLinkChange(event.target.value)}
               placeholder="magnet:?xt=urn:btih:..."
             />
-            <button type="button" onClick={onLoadMagnet}>
-              Load Torrent
+            <button type="button" onClick={onLoadMagnet} disabled={isLoadingTorrent}>
+              {isLoadingTorrent ? "Loading..." : "Load Torrent"}
             </button>
+            {torrentError && <p className="error-text">{torrentError}</p>}
           </div>
         </div>
         <RoomInfo
-          roomCode={roomCode}
+          peerId={peerId}
           peerRole={peerRole}
           peers={peers}
+          isConnected={isConnected}
           onLeaveRoom={onLeaveRoom}
+          onCopyPeerId={copyPeerId}
+          copied={copied}
         />
       </div>
       <StatusBar
         isConnected={isConnected}
         peerCount={peers.length}
-        downloadSpeed="0 MB/s"
-        bufferingProgress={12}
+        downloadSpeed={downloadSpeed}
+        bufferingProgress={bufferingProgress}
       />
     </section>
   );

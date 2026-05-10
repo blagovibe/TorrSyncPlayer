@@ -178,7 +178,7 @@ export class SignalingService {
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<SignalingEvents[K]>) {
     for (const callback of this.listeners[event]) {
-      callback(...args);
+      (callback as (...eventArgs: Parameters<SignalingEvents[K]>) => void)(...args);
     }
   }
 }

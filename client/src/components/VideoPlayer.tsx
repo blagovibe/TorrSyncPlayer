@@ -97,9 +97,8 @@ function VideoPlayer({ videoRef: externalVideoRef }: VideoPlayerProps) {
   return (
     <section className="video-player" onMouseMove={resetHideTimer}>
       <video
-        ref={videoRef}
+        ref={videoRef as RefObject<HTMLVideoElement>}
         className="video-element"
-        src=""
         onClick={() => void togglePlay()}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
@@ -163,10 +162,6 @@ function VideoPlayer({ videoRef: externalVideoRef }: VideoPlayerProps) {
         >
           Fullscreen
         </button>
-      </div>
-
-      <div className="video-placeholder">
-        WebTorrent stream slot (coming soon)
       </div>
       <div className="video-progress" style={{ width: `${progress}%` }} />
     </section>

@@ -5,22 +5,26 @@ type SyncEvents = {
   sync_play: (message: SyncMessage) => void;
   sync_pause: (message: SyncMessage) => void;
   sync_seek: (message: SyncMessage) => void;
+  outbound_sync: (message: SyncMessage) => void;
 };
 
 type EventKey = keyof SyncEvents;
 type Role = "master" | "slave";
 
 export class SyncService {
-  private readonly signaling: SignalingService;
+  private readonly signaling: Pick<SignalingService, "sendSync">;
   private readonly video: HTMLVideoElement;
   private readonly role: Role;
+  private readonly cleanups: Array<() => void> = [];
   private listeners: { [K in EventKey]: Set<SyncEvents[K]> } = {
     sync_play: new Set(),
     sync_pause: new Set(),
     sync_seek: new Set(),
+    outbound_sync: new Set(),
   };
+  private suppressNextEventSync: Partial<Record<"play" | "pause" | "seeked", boolean>> = {};
 
-  constructor(signaling: SignalingService, video: HTMLVideoElement, role: Role) {
+  constructor(signaling: Pick<SignalingService, "sendSync">, video: HTMLVideoElement, role: Role) {
     this.signaling = signaling;
     this.video = video;
     this.role = role;
@@ -35,24 +39,37 @@ export class SyncService {
     return () => this.listeners[event].delete(callback);
   }
 
+  dispose(): void {
+    for (const cleanup of this.cleanups) {
+      cleanup();
+    }
+    this.cleanups.length = 0;
+    for (const callbacks of Object.values(this.listeners)) {
+      callbacks.clear();
+    }
+  }
+
   play(): void {
     void this.video.play();
     if (this.role === "master") {
-      this.signaling.sendSync("play", this.video.currentTime);
+      this.suppressNextEventSync.play = true;
+      this.sendMasterSync("play", this.video.currentTime);
     }
   }
 
   pause(): void {
     this.video.pause();
     if (this.role === "master") {
-      this.signaling.sendSync("pause", this.video.currentTime);
+      this.suppressNextEventSync.pause = true;
+      this.sendMasterSync("pause", this.video.currentTime);
     }
   }
 
   seek(timestamp: number): void {
     this.video.currentTime = timestamp;
     if (this.role === "master") {
-      this.signaling.sendSync("seek", timestamp);
+      this.suppressNextEventSync.seeked = true;
+      this.sendMasterSync("seek", timestamp);
     }
   }
 
@@ -87,20 +104,50 @@ export class SyncService {
   }
 
   private bindMasterEvents(): void {
-    this.video.addEventListener("play", () => {
-      this.signaling.sendSync("play", this.video.currentTime);
-    });
-    this.video.addEventListener("pause", () => {
-      this.signaling.sendSync("pause", this.video.currentTime);
-    });
-    this.video.addEventListener("seeked", () => {
-      this.signaling.sendSync("seek", this.video.currentTime);
+    const onPlay = () => {
+      if (this.suppressNextEventSync.play) {
+        this.suppressNextEventSync.play = false;
+        return;
+      }
+      this.sendMasterSync("play", this.video.currentTime);
+    };
+    const onPause = () => {
+      if (this.suppressNextEventSync.pause) {
+        this.suppressNextEventSync.pause = false;
+        return;
+      }
+      this.sendMasterSync("pause", this.video.currentTime);
+    };
+    const onSeeked = () => {
+      if (this.suppressNextEventSync.seeked) {
+        this.suppressNextEventSync.seeked = false;
+        return;
+      }
+      this.sendMasterSync("seek", this.video.currentTime);
+    };
+
+    this.video.addEventListener("play", onPlay);
+    this.video.addEventListener("pause", onPause);
+    this.video.addEventListener("seeked", onSeeked);
+    this.cleanups.push(
+      () => this.video.removeEventListener("play", onPlay),
+      () => this.video.removeEventListener("pause", onPause),
+      () => this.video.removeEventListener("seeked", onSeeked),
+    );
+  }
+
+  private sendMasterSync(action: SyncMessage["action"], position: number): void {
+    this.signaling.sendSync(action, position);
+    this.emit("outbound_sync", {
+      action,
+      position,
+      server_ts: Date.now(),
     });
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<SyncEvents[K]>) {
     for (const callback of this.listeners[event]) {
-      callback(...args);
+      (callback as (...eventArgs: Parameters<SyncEvents[K]>) => void)(...args);
     }
   }
 }

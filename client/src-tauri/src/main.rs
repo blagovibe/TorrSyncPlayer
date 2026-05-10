@@ -2,8 +2,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use client_lib::models::{PeerInfo, RoomInfo, Settings, TorrentInfo};
+use client_lib::sync_engine::{PlaybackRole, SyncEngine, SyncState};
+use std::sync::Mutex;
 use tokio_tungstenite::connect_async;
 use uuid::Uuid;
+
+static SYNC_ENGINE: Mutex<SyncEngine> = Mutex::new(SyncEngine::new(PlaybackRole::Slave));
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -97,6 +101,32 @@ fn parse_magnet_name(magnet_link: &str) -> Option<String> {
     None
 }
 
+#[tauri::command]
+fn init_sync_engine(role: String) -> Result<String, String> {
+    let playback_role = match role.as_str() {
+        "master" => PlaybackRole::Master,
+        "slave" => PlaybackRole::Slave,
+        _ => return Err("invalid role, expected 'master' or 'slave'".to_string()),
+    };
+
+    let mut engine = SYNC_ENGINE.lock().map_err(|e| e.to_string())?;
+    *engine = SyncEngine::new(playback_role);
+    Ok(format!("sync engine initialized as {}", role))
+}
+
+#[tauri::command]
+fn apply_sync_state(state: SyncState) -> Result<(), String> {
+    let mut engine = SYNC_ENGINE.lock().map_err(|e| e.to_string())?;
+    engine.apply_sync(state);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_sync_position() -> Result<f64, String> {
+    let engine = SYNC_ENGINE.lock().map_err(|e| e.to_string())?;
+    Ok(engine.get_adjusted_position())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -107,7 +137,10 @@ fn main() {
             join_room,
             load_magnet,
             get_settings,
-            save_settings
+            save_settings,
+            init_sync_engine,
+            apply_sync_state,
+            get_sync_position
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

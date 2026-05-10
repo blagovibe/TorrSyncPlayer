@@ -133,7 +133,7 @@ export class PeerService {
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<PeerEvents[K]>) {
     for (const callback of this.listeners[event]) {
-      callback(...args);
+      (callback as (...eventArgs: Parameters<PeerEvents[K]>) => void)(...args);
     }
   }
 }

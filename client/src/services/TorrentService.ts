@@ -1,17 +1,33 @@
-import WebTorrent, { File, Torrent } from "webtorrent";
+import WebTorrent from "webtorrent";
+
+interface TorrentFile {
+  name: string;
+  streamTo: (videoElement: HTMLVideoElement) => Promise<void>;
+}
+
+interface TorrentInstance {
+  files: TorrentFile[];
+  progress: number;
+  downloadSpeed: number;
+  on: (event: "download" | "ready" | "error", callback: (error?: Error) => void) => void;
+  destroy?: (callback?: (error?: Error) => void) => void;
+}
 
 type TorrentEvents = {
   progress: (progress: number) => void;
-  ready: (torrent: Torrent, videoFile: File) => void;
+  speed: (bytesPerSecond: number) => void;
+  ready: (torrent: TorrentInstance, videoFile: TorrentFile) => void;
   error: (error: Error) => void;
 };
 
 type EventKey = keyof TorrentEvents;
 
 export class TorrentService {
-  private client: WebTorrent.Instance;
+  private client: { add: (magnetLink: string) => TorrentInstance; destroy: () => void };
+  private activeTorrent: TorrentInstance | null = null;
   private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
+    speed: new Set(),
     ready: new Set(),
     error: new Set(),
   };
@@ -25,12 +41,16 @@ export class TorrentService {
     return () => this.listeners[event].delete(callback);
   }
 
-  async addMagnet(magnetLink: string): Promise<Torrent> {
-    return new Promise<Torrent>((resolve, reject) => {
+  async addMagnet(magnetLink: string): Promise<TorrentInstance> {
+    this.clearActiveTorrent();
+
+    return new Promise<TorrentInstance>((resolve, reject) => {
       const torrent = this.client.add(magnetLink);
+      this.activeTorrent = torrent;
 
       torrent.on("download", () => {
         this.emit("progress", torrent.progress);
+        this.emit("speed", torrent.downloadSpeed);
       });
 
       torrent.on("ready", async () => {
@@ -45,14 +65,15 @@ export class TorrentService {
         }
       });
 
-      torrent.on("error", (error: Error) => {
-        this.emit("error", error);
-        reject(error);
+      torrent.on("error", (error?: Error) => {
+        const normalized = this.normalizeError(error);
+        this.emit("error", normalized);
+        reject(normalized);
       });
     });
   }
 
-  getVideoFile(torrent: Torrent): File {
+  getVideoFile(torrent: TorrentInstance): TorrentFile {
     const videoExtensions = [".mp4", ".webm", ".mkv"];
     const videoFile = torrent.files.find((file) =>
       videoExtensions.some((ext) => file.name.toLowerCase().endsWith(ext)),
@@ -65,17 +86,28 @@ export class TorrentService {
     return videoFile;
   }
 
-  async streamToVideo(file: File, videoElement: HTMLVideoElement): Promise<void> {
+  async streamToVideo(file: TorrentFile, videoElement: HTMLVideoElement): Promise<void> {
+    videoElement.removeAttribute("src");
+    videoElement.load();
     await file.streamTo(videoElement);
   }
 
+  clearActiveTorrent(): void {
+    const torrent = this.activeTorrent;
+    this.activeTorrent = null;
+    if (torrent?.destroy) {
+      torrent.destroy();
+    }
+  }
+
   destroy(): void {
+    this.clearActiveTorrent();
     this.client.destroy();
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<TorrentEvents[K]>) {
     for (const callback of this.listeners[event]) {
-      callback(...args);
+      (callback as (...eventArgs: Parameters<TorrentEvents[K]>) => void)(...args);
     }
   }
 
