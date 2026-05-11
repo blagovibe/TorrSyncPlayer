@@ -2,9 +2,8 @@ name: Build and Release TorrSyncPlayer
 
 on:
   push:
-    branches: [main, master]
-    tags:
-      - 'v*'
+    branches:
+      - '**'
   pull_request:
     branches: [main, master]
   workflow_dispatch:
@@ -90,12 +89,26 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release tag
+        run: |
+          RELEASE_TAG="push-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "Automated release for ${{ github.sha }}"
+          git push origin "$RELEASE_TAG"
+
       - name: Download AppImage artifact
         uses: actions/download-artifact@v4
         with:
@@ -111,6 +124,8 @@ jobs:
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
             artifacts/linux/*.AppImage
