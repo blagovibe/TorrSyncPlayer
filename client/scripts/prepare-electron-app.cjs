@@ -58,7 +58,12 @@ const stagedPackage = {
 
 fs.writeFileSync(path.join(stageDir, "package.json"), `${JSON.stringify(stagedPackage, null, 2)}\n`);
 
-execFileSync("npm", ["ci", "--omit=dev", "--no-audit", "--fund=false"], {
+const npmCli = process.env.npm_execpath;
+if (!npmCli) {
+  throw new Error("npm_execpath is not set. Run this script through npm run electron:build.");
+}
+
+execFileSync(process.execPath, [npmCli, "ci", "--omit=dev", "--no-audit", "--fund=false"], {
   cwd: stageDir,
   stdio: "inherit",
 });
