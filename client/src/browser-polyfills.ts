@@ -1,15 +1,17 @@
 import { Buffer } from "buffer";
 
-type BrowserGlobal = typeof globalThis & {
+type BrowserProcess = {
+  browser?: boolean;
+  env: Record<string, string | undefined>;
+  nextTick?: (callback: (...args: unknown[]) => void, ...args: unknown[]) => void;
+  version?: string;
+};
+
+type BrowserGlobal = Omit<typeof globalThis, "global" | "process"> & {
   Buffer?: typeof Buffer;
-  global?: typeof globalThis;
+  global?: BrowserGlobal;
   mozRTCPeerConnection?: typeof RTCPeerConnection;
-  process?: {
-    browser?: boolean;
-    env: Record<string, string | undefined>;
-    nextTick?: (callback: (...args: unknown[]) => void, ...args: unknown[]) => void;
-    version?: string;
-  };
+  process?: BrowserProcess;
   webkitRTCIceCandidate?: typeof RTCIceCandidate;
   webkitRTCPeerConnection?: typeof RTCPeerConnection;
   webkitRTCSessionDescription?: typeof RTCSessionDescription;

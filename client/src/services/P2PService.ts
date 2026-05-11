@@ -14,6 +14,8 @@ type EventKey = keyof P2PEvents;
 
 const PEER_ID_LENGTH = 6;
 const PEER_ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+export const WEBRTC_UNAVAILABLE_MESSAGE =
+  "WebRTC data channels are not available in the current desktop runtime. Use the Electron build, which ships Chromium with WebRTC support.";
 
 function generatePeerId(): string {
   let id = "";
@@ -21,6 +23,54 @@ function generatePeerId(): string {
     id += PEER_ID_CHARS.charAt(Math.floor(Math.random() * PEER_ID_CHARS.length));
   }
   return id;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+export function getWebRTCSupportIssue(): string | null {
+  if (typeof RTCPeerConnection === "undefined") {
+    return "RTCPeerConnection is not exposed by the current WebView";
+  }
+
+  let testConnection: RTCPeerConnection | null = null;
+  let testChannel: RTCDataChannel | null = null;
+  try {
+    testConnection = new RTCPeerConnection({ iceServers: [] });
+    if (typeof testConnection.createDataChannel !== "function") {
+      return "RTCDataChannel is not exposed by the current WebView";
+    }
+
+    testChannel = testConnection.createDataChannel("_torrsync_webrtc_test");
+    return null;
+  } catch (error) {
+    return `RTCPeerConnection failed to initialize: ${getErrorMessage(error)}`;
+  } finally {
+    testChannel?.close();
+    testConnection?.close();
+  }
+}
+
+function createWebRTCUnavailableError(issue: string): Error {
+  return new Error(`${WEBRTC_UNAVAILABLE_MESSAGE} (${issue})`);
+}
+
+function normalizePeerError(error: unknown): Error {
+  const peerError = error as { type?: string; message?: string };
+  const message = peerError.message ?? getErrorMessage(error);
+
+  if (
+    peerError.type === "browser-incompatible" ||
+    message.includes("The current browser does not support WebRTC")
+  ) {
+    return createWebRTCUnavailableError("PeerJS could not initialize WebRTC data channels");
+  }
+
+  return error instanceof Error ? error : new Error(message);
 }
 
 export class P2PService {
@@ -134,6 +184,12 @@ export class P2PService {
         return;
       }
 
+      const webRTCSupportIssue = getWebRTCSupportIssue();
+      if (webRTCSupportIssue) {
+        reject(createWebRTCUnavailableError(webRTCSupportIssue));
+        return;
+      }
+
       if (this.role === "host") {
         this.peer = new Peer(`torrsync-${this.peerId}`, {
           debug: 1,
@@ -157,12 +213,13 @@ export class P2PService {
       });
 
       this.peer.on("error", (err) => {
+        const error = normalizePeerError(err);
         console.error("PeerJS error:", err);
-        this.emit("error", new Error(String(err)));
+        this.emit("error", error);
         if (err.type === "peer-unavailable") {
           reject(new Error("Peer not found"));
         } else {
-          reject(err);
+          reject(error);
         }
       });
 

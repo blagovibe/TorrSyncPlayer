@@ -1,12 +1,16 @@
 {
   "name": "torrsyncplayer",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.5",
   "type": "module",
   "description": "Root command shim for the TorrSyncPlayer client app.",
   "scripts": {
     "dev": "npm --prefix client run dev",
+    "electron:dev": "npm --prefix client run electron:dev",
     "build": "npm --prefix client run build",
+    "electron:build": "npm --prefix client run electron:build",
+    "electron:build:linux": "npm --prefix client run electron:build:linux",
+    "electron:build:win": "npm --prefix client run electron:build:win",
     "preview": "npm --prefix client run preview",
     "lint": "npm --prefix client run lint",
     "type-check": "npm --prefix client run type-check",
