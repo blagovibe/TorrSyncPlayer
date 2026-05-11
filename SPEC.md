@@ -7,19 +7,19 @@
 ### Ключевые возможности
 - Потоковое воспроизведение видео через WebTorrent
 - Синхронизация воспроизведения между несколькими клиентами
-- Сигналинг-сервер для координации пиров
+- PeerJS signaling для координации пиров
 - Децентрализованная архитектура (P2P)
 
 ## 2. Архитектура
 
 ### Компоненты
 1. **Tauri Desktop App** — клиентское приложение (React + Rust)
-2. **Signaling Server** — сервер на Go для обмена SDP/ICE кандидатами
+2. **Signaling** — текущая реализация клиента использует PeerJS для broker/signaling; in-repo сервер не требуется для локальной сборки клиента
 3. **WebTorrent** — библиотека для P2P стриминга
 
 ### Схема взаимодействия
 ```
-[Client A] <---> [Signaling Server] <---> [Client B]
+[Client A] <---> [PeerJS signaling broker] <---> [Client B]
     |                                            |
     +------------ P2P (WebRTC) -----------------+
     |                                            |
@@ -57,18 +57,18 @@
 - Latency compensation для корректировки
 
 ### 4.3 Сигналинг
-- WebSocket-соединение с сервером
-- Обмен SDP offer/answer
-- Обмен ICE кандидатами
-- Room-based система (room ID для группы)
+- Текущий runtime использует PeerJS-сигналинг из `client/src/services/P2PService.ts`
+- Обмен данными синхронизации идёт через WebRTC data channel после установки P2P-соединения
+- Room code в UI соответствует PeerJS peer id хоста
+- Будущий self-hosted signaling server должен быть Go-модулем в `server/`, если проект вернётся к собственному WebSocket signaling
 
 ## 5. Технический стек
 
 - **Frontend**: React 18 + TypeScript + Vite
 - **Desktop**: Tauri 2.x (Rust)
-- **Backend**: Go (сигналинг-сервер)
+- **Signaling**: PeerJS в текущем клиенте; Go-сервер зарезервирован как будущий self-hosted вариант
 - **P2P**: WebTorrent + WebRTC
-- **Styling**: CSS Modules / Tailwind
+- **Styling**: CSS
 
 ## 6. Критерии приёмки
 

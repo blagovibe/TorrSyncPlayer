@@ -1,6 +1,8 @@
-# Tauri + React + Typescript
+# TorrSyncPlayer Client
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+This is the active TorrSyncPlayer application: React, TypeScript, Vite, Tauri, PeerJS, and WebTorrent.
+
+From the repository root, `npm run <script>` delegates to this package. CI also runs from this directory and uses `client/package-lock.json`.
 
 ## Recommended IDE Setup
 
@@ -8,9 +10,8 @@ This template should help get you started developing with Tauri, React and Types
 
 ## Build Windows EXE (portable)
 
-1. Install the Windows target:
-   - `rustup target add x86_64-pc-windows-gnu`
+1. Build from a Windows environment with the Tauri prerequisites installed, or use CI on `windows-latest`.
 2. From project root run:
    - `npm run tauri:build:win`
-3. Output EXE path:
-   - `client/src-tauri/target/release/bundle/app/TorrSyncPlayer.exe`
+3. Output portable EXE:
+   - `client/src-tauri/target/release/client.exe`

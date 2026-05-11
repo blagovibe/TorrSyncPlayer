@@ -9,8 +9,12 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+env:
+  NODE_VERSION: 20
+
 jobs:
   checks:
+    name: Client checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
@@ -38,7 +42,11 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      - name: Web build
+        run: npm run build
+
   build:
+    name: Tauri ${{ matrix.artifact_name }}
     needs: checks
     strategy:
       fail-fast: false
@@ -46,12 +54,12 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_name: TorrSyncPlayer-AppImage
-            bundle_target: appimage
+            build_command: npx tauri build --bundles appimage --ci
             artifact_path: client/src-tauri/target/release/bundle/appimage/*.AppImage
           - os: windows-latest
             artifact_name: TorrSyncPlayer-Portable-EXE
-            bundle_target: app
-            artifact_path: client/src-tauri/target/release/bundle/app/*.exe
+            build_command: npx tauri build --no-bundle --ci
+            artifact_path: client/src-tauri/target/release/client.exe
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -67,35 +75,42 @@ jobs:
           sudo apt-get update
           WEBKIT_PKG="libwebkit2gtk-4.1-dev"
           JSC_PKG="libjavascriptcoregtk-4.1-dev"
+          SOUP_PKG="libsoup-3.0-dev"
           if ! apt-cache show "$WEBKIT_PKG" >/dev/null 2>&1; then
             WEBKIT_PKG="libwebkit2gtk-4.0-dev"
             JSC_PKG="libjavascriptcoregtk-4.0-dev"
+            SOUP_PKG="libsoup2.4-dev"
           fi
           sudo apt-get install -y \
             libgtk-3-dev \
             "$WEBKIT_PKG" \
             "$JSC_PKG" \
-            libsoup-3.0-dev \
+            "$SOUP_PKG" \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
             libssl-dev
 
-      - name: Setup Rust
+      - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> target
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build bundle
-        run: npx tauri build --bundles ${{ matrix.bundle_target }}
+      - name: Build Tauri artifact
+        run: ${{ matrix.build_command }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

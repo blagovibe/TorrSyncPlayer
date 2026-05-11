@@ -1,7 +1,7 @@
 {
   "name": "client",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,8 +11,8 @@
     "test": "PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:build:win": "tauri build --bundles app",
-    "tauri:build:linux": "tauri build --bundles appimage"
+    "tauri:build:win": "tauri build --no-bundle --ci",
+    "tauri:build:linux": "tauri build --bundles appimage --ci"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

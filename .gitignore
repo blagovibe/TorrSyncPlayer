@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Local agent/tooling state
+.aionrs/
+.opencode/
+
+# Generated local artifacts
+/logs.zip
+/package-lock.json
+/src-tauri/target/
+/client/src-tauri/target/
+/server/node_modules/
