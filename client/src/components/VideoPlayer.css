@@ -1,19 +1,186 @@
 .video-player {
   position: relative;
-  background: #000;
-  border-radius: 8px;
+  background:
+    radial-gradient(circle at top, rgba(233, 69, 96, 0.25), transparent 35%),
+    linear-gradient(160deg, rgba(10, 16, 36, 0.96), rgba(3, 6, 14, 1));
+  border: 1px solid rgba(233, 69, 96, 0.18);
+  border-radius: 16px;
   overflow: hidden;
   min-height: 360px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
 }
 
 .video-element {
   width: 100%;
   height: 100%;
   min-height: 360px;
-  background: #000;
+  background: transparent;
+}
+
+.audio-mode .video-element {
+  opacity: 0.08;
+}
+
+.video-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  text-align: center;
+  color: rgba(234, 234, 234, 0.9);
+  pointer-events: none;
+}
+
+.placeholder-art {
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.5), transparent 28%),
+    linear-gradient(140deg, rgba(233, 69, 96, 0.95), rgba(78, 133, 255, 0.8));
+  box-shadow: 0 18px 44px rgba(233, 69, 96, 0.3);
+}
+
+.placeholder-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.placeholder-copy {
+  max-width: 340px;
+  font-size: 0.92rem;
+  color: rgba(234, 234, 234, 0.72);
+}
+
+.video-legend {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(6, 10, 24, 0.72);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(234, 234, 234, 0.12);
+}
+
+.video-kind {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.video-kind.video {
+  background: rgba(78, 133, 255, 0.24);
+  color: #a9cbff;
+}
+
+.video-kind.audio {
+  background: rgba(233, 69, 96, 0.24);
+  color: #ffb2c0;
+}
+
+.video-title {
+  max-width: min(45vw, 520px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+  color: rgba(234, 234, 234, 0.9);
+}
+
+.audio-track-panel {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 74px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(6, 10, 24, 0.72);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(234, 234, 234, 0.12);
+}
+
+.audio-track-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.audio-track-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(234, 234, 234, 0.85);
+}
+
+.audio-track-status {
+  font-size: 0.8rem;
+  color: rgba(234, 234, 234, 0.65);
+}
+
+.audio-track-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.audio-track-button {
+  min-width: 180px;
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(234, 234, 234, 0.12);
+  background: rgba(15, 24, 48, 0.88);
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.audio-track-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(233, 69, 96, 0.35);
+}
+
+.audio-track-button.active {
+  border-color: rgba(233, 69, 96, 0.75);
+  background: linear-gradient(135deg, rgba(233, 69, 96, 0.22), rgba(15, 24, 48, 0.98));
+}
+
+.audio-track-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.audio-track-meta {
+  font-size: 0.78rem;
+  color: rgba(234, 234, 234, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.audio-track-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(234, 234, 234, 0.7);
 }
 
 .video-controls {
@@ -25,8 +192,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(0, 0, 0, 0.65);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(2, 6, 18, 0.88));
   transition: opacity 0.2s ease;
+  z-index: 1;
 }
 
 .video-controls.hidden {
@@ -54,4 +222,17 @@
   bottom: 0;
   height: 3px;
   background: var(--accent);
+  z-index: 1;
+}
+
+@media (max-width: 900px) {
+  .audio-track-panel {
+    bottom: 82px;
+    left: 12px;
+    right: 12px;
+  }
+
+  .audio-track-button {
+    min-width: 100%;
+  }
 }
