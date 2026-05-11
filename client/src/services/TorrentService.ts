@@ -41,6 +41,12 @@ type EventKey = keyof TorrentEvents;
 type TorrentSource = string | Uint8Array;
 type TorrentClient = { add: (torrentSource: TorrentSource) => TorrentInstance; destroy: () => void };
 
+const WEBTORRENT_WEBRTC_TRACKERS = [
+  "wss://tracker.btorrent.xyz",
+  "wss://tracker.openwebtorrent.com",
+  "wss://tracker.webtorrent.dev",
+];
+
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
   ".mkv",
@@ -292,7 +298,11 @@ export class TorrentService {
   private async getClient(): Promise<TorrentClient> {
     if (!this.client) {
       const { default: WebTorrent } = await import("webtorrent");
-      this.client = new WebTorrent() as TorrentClient;
+      this.client = new WebTorrent({
+        tracker: {
+          announce: WEBTORRENT_WEBRTC_TRACKERS,
+        },
+      }) as TorrentClient;
     }
     return this.client;
   }

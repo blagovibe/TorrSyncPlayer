@@ -3,6 +3,7 @@ let cancellable = false;
 
 const listener = (event) => {
   const { url } = event.request;
+  if (event.request.method !== "GET") return null;
   if (!url.includes(self.registration.scope + "webtorrent/")) return null;
   if (url.includes(self.registration.scope + "webtorrent/keepalive/")) return new Response();
   if (url.includes(self.registration.scope + "webtorrent/cancel/")) {

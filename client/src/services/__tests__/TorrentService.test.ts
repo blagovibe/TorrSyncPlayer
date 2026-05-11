@@ -4,18 +4,19 @@ import { TorrentService } from "../TorrentService";
 type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers";
 type TorrentCallback = (...args: unknown[]) => void | Promise<void>;
 
-const { addMock, createServerMock, destroyMock } = vi.hoisted(() => ({
+const { addMock, createServerMock, destroyMock, webTorrentMock } = vi.hoisted(() => ({
   addMock: vi.fn(),
   createServerMock: vi.fn(),
   destroyMock: vi.fn(),
-}));
-
-vi.mock("webtorrent", () => ({
-  default: vi.fn(() => ({
+  webTorrentMock: vi.fn(() => ({
     add: addMock,
     createServer: createServerMock,
     destroy: destroyMock,
   })),
+}));
+
+vi.mock("webtorrent", () => ({
+  default: webTorrentMock,
 }));
 
 function createTorrent(
@@ -246,5 +247,26 @@ describe("TorrentService", () => {
     await torrent.emit("metadata");
 
     await expect(result).resolves.toBe(torrent);
+  });
+
+  it("enables browser WebTorrent trackers for peer discovery", async () => {
+    const torrent = createTorrent([{ name: "movie.webm" }]);
+    addMock.mockReturnValue(torrent);
+    const service = new TorrentService();
+
+    const result = service.addMagnet("magnet:?xt=urn:btih:test");
+    await vi.waitFor(() => expect(webTorrentMock).toHaveBeenCalled());
+    await torrent.emit("metadata");
+
+    await expect(result).resolves.toBe(torrent);
+    expect(webTorrentMock).toHaveBeenCalledWith({
+      tracker: {
+        announce: [
+          "wss://tracker.btorrent.xyz",
+          "wss://tracker.openwebtorrent.com",
+          "wss://tracker.webtorrent.dev",
+        ],
+      },
+    });
   });
 });

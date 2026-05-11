@@ -79,11 +79,13 @@ function App() {
   };
 
   const playMediaFile = async (mediaFile: TorrentMediaFile) => {
-    if (!videoRef.current) {
+    const mediaElement = videoRef.current;
+    if (!mediaElement) {
       throw new Error("Media player is not ready");
     }
 
-    await torrentService.streamToMedia(mediaFile.file, videoRef.current);
+    await torrentService.streamToMedia(mediaFile.file, mediaElement);
+    void mediaElement.play().catch(() => undefined);
     setSelectedMediaIndex(mediaFile.index);
     setSelectedMediaLabel(mediaFile.name);
     setSelectedMediaKind(mediaFile.kind);
