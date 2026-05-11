@@ -19,10 +19,6 @@ fs.mkdirSync(stageDir, { recursive: true });
 fs.cpSync(path.join(projectDir, "dist"), path.join(stageDir, "dist"), { recursive: true });
 fs.cpSync(path.join(projectDir, "electron"), path.join(stageDir, "electron"), { recursive: true });
 fs.cpSync(path.join(projectDir, "package-lock.json"), path.join(stageDir, "package-lock.json"));
-fs.writeFileSync(
-  path.join(stageDir, "electron-builder.before-build.cjs"),
-  "module.exports = async function beforeBuild() { return false; };\n",
-);
 
 const stagedPackage = {
   ...sourcePackage,
@@ -37,7 +33,8 @@ const stagedPackage = {
     },
     files: ["**/*"],
     asar: true,
-    beforeBuild: "electron-builder.before-build.cjs",
+    npmRebuild: false,
+    nodeGypRebuild: false,
     artifactName: "${productName}-${version}-${os}-${arch}.${ext}",
     linux: {
       target: ["AppImage"],
