@@ -183,6 +183,22 @@
   color: rgba(234, 234, 234, 0.7);
 }
 
+.playback-message {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+  max-width: min(340px, calc(100% - 32px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(233, 69, 96, 0.18);
+  border: 1px solid rgba(233, 69, 96, 0.35);
+  color: #ffdbe2;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  backdrop-filter: blur(12px);
+}
+
 .video-controls {
   position: absolute;
   left: 0;

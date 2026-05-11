@@ -50,6 +50,9 @@ describe("TorrentService", () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    if (typeof window !== "undefined") {
+      delete (window as Window & { torrsyncElectronTorrent?: unknown }).torrsyncElectronTorrent;
+    }
   });
 
   it("emits progress and resolves with the first supported video file when metadata is ready", async () => {
@@ -180,9 +183,134 @@ describe("TorrentService", () => {
 
     expect(video.pause).toHaveBeenCalledOnce();
     expect(video.removeAttribute).toHaveBeenCalledWith("src");
-    expect(video.load).toHaveBeenCalledOnce();
+    expect(video.load).toHaveBeenCalledTimes(2);
     expect(file.streamTo).toHaveBeenCalledWith(video);
     expect(destroyMock).not.toHaveBeenCalled();
+  });
+
+  it("uses direct stream URLs when the backend provides them", async () => {
+    const service = new TorrentService();
+    const file = {
+      name: "movie.mkv",
+      length: 1024,
+      streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie.mkv",
+      streamTo: vi.fn(),
+    } as unknown as Parameters<TorrentService["streamToMedia"]>[0];
+    const setSrc = vi.fn();
+    const video = ({
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      pause: vi.fn(),
+    } as unknown) as HTMLVideoElement & { src?: string };
+
+    Object.defineProperty(video, "src", {
+      configurable: true,
+      set: setSrc,
+    });
+
+    await service.streamToMedia(file, video);
+
+    expect(setSrc).toHaveBeenCalledWith("http://127.0.0.1:4321/webtorrent/hash/movie.mkv");
+    expect(file.streamTo).not.toHaveBeenCalled();
+    expect(video.load).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the Electron backend and keeps refreshed file stats aligned by source index", async () => {
+    const initialSnapshot = {
+      files: [
+        {
+          index: 0,
+          name: "movie-a.mp4",
+          length: 1_000,
+          kind: "video",
+          extension: ".mp4",
+          progress: 0.1,
+          streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-a.mp4",
+        },
+        {
+          index: 1,
+          name: "movie-b.mp4",
+          length: 2_000,
+          kind: "video",
+          extension: ".mp4",
+          progress: 0.2,
+          streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-b.mp4",
+        },
+      ],
+      progress: 0.1,
+      downloadSpeed: 100,
+      numPeers: 2,
+    };
+    const refreshedSnapshot = {
+      files: [
+        {
+          index: 1,
+          name: "movie-b.mp4",
+          length: 2_000,
+          kind: "video",
+          extension: ".mp4",
+          progress: 0.75,
+          streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-b-updated.mp4",
+        },
+        {
+          index: 0,
+          name: "movie-a.mp4",
+          length: 1_000,
+          kind: "video",
+          extension: ".mp4",
+          progress: 0.5,
+          streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-a-updated.mp4",
+        },
+      ],
+      progress: 0.5,
+      downloadSpeed: 300,
+      numPeers: 4,
+    };
+    const backend = {
+      addMagnet: vi.fn().mockResolvedValue(initialSnapshot),
+      addTorrentFile: vi.fn(),
+      getStats: vi.fn().mockResolvedValue(refreshedSnapshot),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.stubGlobal("window", {
+      clearInterval,
+      setInterval,
+      torrsyncElectronTorrent: backend,
+    });
+
+    const service = new TorrentService();
+    const progress = vi.fn();
+    const peerCount = vi.fn();
+    service.on("progress", progress);
+    service.on("peerCount", peerCount);
+
+    const torrent = await service.addMagnet("magnet:?xt=urn:btih:test");
+    await vi.waitFor(() => expect(backend.getStats).toHaveBeenCalled());
+
+    expect(service.isElectronBackendEnabled()).toBe(true);
+    expect(backend.addMagnet).toHaveBeenCalledWith("magnet:?xt=urn:btih:test");
+    expect(progress).toHaveBeenCalledWith(0.5);
+    expect(peerCount).toHaveBeenCalledWith(4);
+    expect(torrent.files[0]).toEqual(
+      expect.objectContaining({
+        index: 0,
+        name: "movie-a.mp4",
+        progress: 0.5,
+        streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-a-updated.mp4",
+      }),
+    );
+    expect(torrent.files[1]).toEqual(
+      expect.objectContaining({
+        index: 1,
+        name: "movie-b.mp4",
+        progress: 0.75,
+        streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-b-updated.mp4",
+      }),
+    );
+
+    await service.clearActiveTorrentForAdd();
+    expect(backend.clear).toHaveBeenCalled();
   });
 
   it("waits for an activated service worker before creating the stream server", async () => {
@@ -233,6 +361,7 @@ describe("TorrentService", () => {
     expect(createServerMock).toHaveBeenCalledWith({ controller: readyRegistration });
     expect(file.streamTo).toHaveBeenCalledWith(video);
     expect(file.blob).not.toHaveBeenCalled();
+    expect(video.load).toHaveBeenCalledTimes(2);
   });
 
   it("accepts a torrent file payload", async () => {

@@ -1,8 +1,11 @@
 type MediaKind = "video" | "audio";
 
 interface TorrentFile {
+  index?: number;
   name: string;
   length?: number;
+  progress?: number;
+  streamUrl?: string;
   streamTo: (mediaElement: HTMLMediaElement) => Promise<void>;
   blob?: () => Promise<Blob>;
 }
@@ -21,7 +24,7 @@ interface TorrentInstance {
   progress: number;
   downloadSpeed: number;
   numPeers: number;
-  on: (
+  on?: (
     event: "download" | "metadata" | "ready" | "error" | "wire" | "noPeers",
     callback: (...args: any[]) => void,
   ) => void;
@@ -40,6 +43,16 @@ type TorrentEvents = {
 type EventKey = keyof TorrentEvents;
 type TorrentSource = string | Uint8Array;
 type TorrentClient = { add: (torrentSource: TorrentSource) => TorrentInstance; destroy: () => void };
+type ElectronTorrentBackend = {
+  addMagnet: (magnetLink: string) => Promise<TorrentInstance>;
+  addTorrentFile: (torrentFile: Uint8Array) => Promise<TorrentInstance>;
+  getStats: () => Promise<TorrentInstance | null>;
+  clear: () => Promise<void>;
+};
+
+type WindowWithElectronTorrent = Window & {
+  torrsyncElectronTorrent?: ElectronTorrentBackend;
+};
 
 const WEBTORRENT_WEBRTC_TRACKERS = [
   "wss://tracker.btorrent.xyz",
@@ -98,10 +111,14 @@ function formatBytes(size: number): string {
 
 export class TorrentService {
   private client: TorrentClient | null = null;
+  private readonly electronBackend: ElectronTorrentBackend | null = this.getElectronBackend();
   private activeTorrent: TorrentInstance | null = null;
   private activeObjectUrl: string | null = null;
   private streamServerReady = false;
   private streamServerPromise: Promise<void> | null = null;
+  private backendStatsTimer: number | null = null;
+  private backendStatsInFlight = false;
+  private backendCleanupPromise: Promise<void> = Promise.resolve();
   private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
     speed: new Set(),
@@ -122,6 +139,10 @@ export class TorrentService {
 
   async addTorrentFile(torrentFile: Uint8Array): Promise<TorrentInstance> {
     return this.addTorrentSource(torrentFile);
+  }
+
+  isElectronBackendEnabled(): boolean {
+    return this.electronBackend !== null;
   }
 
   getPlayableMediaFiles(torrent: TorrentInstance): TorrentMediaFile[] {
@@ -164,12 +185,22 @@ export class TorrentService {
   }
 
   private async addTorrentSource(torrentSource: TorrentSource): Promise<TorrentInstance> {
-    this.clearActiveTorrent();
+    await this.clearActiveTorrentForAdd();
+
+    if (this.electronBackend) {
+      return this.addElectronTorrentSource(torrentSource);
+    }
+
     const client = await this.getClient();
 
     return new Promise<TorrentInstance>((resolve, reject) => {
       const torrent = client.add(torrentSource);
       this.activeTorrent = torrent;
+      const torrentEvents = torrent.on;
+      if (!torrentEvents) {
+        reject(new Error("Torrent client event API is unavailable"));
+        return;
+      }
       let isResolved = false;
       let isRejected = false;
 
@@ -193,19 +224,19 @@ export class TorrentService {
         reject(error);
       };
 
-      torrent.on("download", () => {
+      torrentEvents("download", () => {
         this.emit("progress", torrent.progress);
         this.emit("speed", torrent.downloadSpeed);
         emitPeerCount();
       });
 
-      torrent.on("wire", (wire: { on?: (event: string, callback: () => void) => void }) => {
+      torrentEvents("wire", (wire: { on?: (event: string, callback: () => void) => void }) => {
         emitPeerCount();
         wire?.on?.("close", emitPeerCount);
       });
-      torrent.on("noPeers", emitPeerCount);
+      torrentEvents("noPeers", emitPeerCount);
 
-      torrent.on("metadata", () => {
+      torrentEvents("metadata", () => {
         try {
           const videoFile = this.getPreferredMediaFile(torrent);
           this.emit("metadata", torrent, videoFile);
@@ -220,7 +251,7 @@ export class TorrentService {
         }
       });
 
-      torrent.on("ready", async () => {
+      torrentEvents("ready", async () => {
         if (isRejected) {
           return;
         }
@@ -238,12 +269,35 @@ export class TorrentService {
         }
       });
 
-      torrent.on("error", (error?: Error) => {
+      torrentEvents("error", (error?: Error) => {
         const normalized = this.normalizeError(error);
         this.emit("error", normalized);
         settleReject(normalized);
       });
     });
+  }
+
+  private async addElectronTorrentSource(torrentSource: TorrentSource): Promise<TorrentInstance> {
+    const backend = this.electronBackend;
+    if (!backend) {
+      throw new Error("Electron torrent backend is unavailable");
+    }
+
+    try {
+      const torrent =
+        typeof torrentSource === "string"
+          ? await backend.addMagnet(torrentSource)
+          : await backend.addTorrentFile(torrentSource);
+
+      this.activeTorrent = torrent;
+      this.emitTorrentStats(torrent);
+      this.startBackendStatsPolling();
+      return torrent;
+    } catch (error) {
+      const normalized = this.normalizeError(error);
+      this.emit("error", normalized);
+      throw normalized;
+    }
   }
 
   getVideoFile(torrent: TorrentInstance): TorrentFile {
@@ -256,10 +310,17 @@ export class TorrentService {
     mediaElement.removeAttribute("src");
     mediaElement.load();
 
+    if (file.streamUrl) {
+      mediaElement.src = file.streamUrl;
+      mediaElement.load();
+      return;
+    }
+
     await this.ensureStreamServer();
 
     try {
       await file.streamTo(mediaElement);
+      mediaElement.load();
       return;
     } catch (error) {
       if (!this.isMissingServerError(error) || !file.blob) {
@@ -279,20 +340,32 @@ export class TorrentService {
   }
 
   clearActiveTorrent(): void {
+    void this.clearActiveTorrentForAdd();
+  }
+
+  async clearActiveTorrentForAdd(): Promise<void> {
     const torrent = this.activeTorrent;
     this.activeTorrent = null;
+    this.stopBackendStatsPolling();
     this.revokeActiveObjectUrl();
+    if (this.electronBackend) {
+      this.backendCleanupPromise = this.electronBackend.clear().catch(() => undefined);
+      await this.backendCleanupPromise;
+      return;
+    }
+
     if (torrent?.destroy) {
       torrent.destroy();
     }
   }
 
   destroy(): void {
-    this.clearActiveTorrent();
+    void this.clearActiveTorrentForAdd();
     this.client?.destroy();
     this.client = null;
     this.streamServerReady = false;
     this.streamServerPromise = null;
+    this.stopBackendStatsPolling();
   }
 
   private async getClient(): Promise<TorrentClient> {
@@ -305,6 +378,76 @@ export class TorrentService {
       }) as TorrentClient;
     }
     return this.client;
+  }
+
+  private getElectronBackend(): ElectronTorrentBackend | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    return (window as WindowWithElectronTorrent).torrsyncElectronTorrent ?? null;
+  }
+
+  private startBackendStatsPolling(): void {
+    this.stopBackendStatsPolling();
+    this.backendStatsTimer = window.setInterval(() => {
+      void this.refreshBackendStats();
+    }, 500);
+    void this.refreshBackendStats();
+  }
+
+  private stopBackendStatsPolling(): void {
+    if (this.backendStatsTimer !== null) {
+      clearInterval(this.backendStatsTimer);
+      this.backendStatsTimer = null;
+    }
+    this.backendStatsInFlight = false;
+  }
+
+  private async refreshBackendStats(): Promise<void> {
+    if (this.backendStatsInFlight || !this.electronBackend || !this.activeTorrent) {
+      return;
+    }
+
+    this.backendStatsInFlight = true;
+    try {
+      const snapshot = await this.electronBackend.getStats();
+      if (!snapshot || !this.activeTorrent) {
+        return;
+      }
+
+      this.mergeTorrentSnapshot(this.activeTorrent, snapshot);
+      this.emitTorrentStats(this.activeTorrent);
+    } catch (error) {
+      this.emit("error", this.normalizeError(error));
+    } finally {
+      this.backendStatsInFlight = false;
+    }
+  }
+
+  private mergeTorrentSnapshot(target: TorrentInstance, snapshot: TorrentInstance): void {
+    target.progress = snapshot.progress ?? target.progress;
+    target.downloadSpeed = snapshot.downloadSpeed ?? target.downloadSpeed;
+    target.numPeers = snapshot.numPeers ?? target.numPeers;
+
+    const filesByIndex = new Map(
+      snapshot.files.map((file, index) => [typeof file.index === "number" ? file.index : index, file]),
+    );
+    for (const [index, file] of target.files.entries()) {
+      const snapshotFile = filesByIndex.get(index);
+      if (!snapshotFile) {
+        continue;
+      }
+      file.progress = snapshotFile.progress ?? file.progress;
+      file.length = snapshotFile.length ?? file.length;
+      file.streamUrl = snapshotFile.streamUrl ?? file.streamUrl;
+    }
+  }
+
+  private emitTorrentStats(torrent: TorrentInstance): void {
+    this.emit("progress", torrent.progress);
+    this.emit("speed", torrent.downloadSpeed);
+    this.emit("peerCount", torrent.numPeers ?? 0);
   }
 
   private async ensureStreamServer(): Promise<void> {

@@ -34,6 +34,18 @@ function formatSpeed(bytesPerSecond: number): string {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
+function isPlaybackBlockedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeDomException = error as { name?: string; message?: string };
+  return (
+    maybeDomException.name === "NotAllowedError" ||
+    maybeDomException.message?.includes("play() failed because the user didn't interact") === true
+  );
+}
+
 function App() {
   const [currentView, setCurrentView] = useState<View>("home");
   const [peerId, setPeerId] = useState("");
@@ -53,7 +65,9 @@ function App() {
   const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null);
   const [selectedMediaLabel, setSelectedMediaLabel] = useState<string | null>(null);
   const [selectedMediaKind, setSelectedMediaKind] = useState<TorrentMediaFile["kind"] | null>(null);
+  const [selectedMediaFile, setSelectedMediaFile] = useState<TorrentMediaFile | null>(null);
   const [torrentPeerCount, setTorrentPeerCount] = useState(0);
+  const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -75,7 +89,9 @@ function App() {
     setSelectedMediaIndex(null);
     setSelectedMediaLabel(null);
     setSelectedMediaKind(null);
+    setSelectedMediaFile(null);
     setTorrentPeerCount(0);
+    setPlaybackNotice(null);
   };
 
   const playMediaFile = async (mediaFile: TorrentMediaFile) => {
@@ -85,10 +101,21 @@ function App() {
     }
 
     await torrentService.streamToMedia(mediaFile.file, mediaElement);
-    void mediaElement.play().catch(() => undefined);
+    setSelectedMediaFile(mediaFile);
     setSelectedMediaIndex(mediaFile.index);
     setSelectedMediaLabel(mediaFile.name);
     setSelectedMediaKind(mediaFile.kind);
+
+    try {
+      await mediaElement.play();
+      setPlaybackNotice(null);
+    } catch (error) {
+      if (isPlaybackBlockedError(error)) {
+        setPlaybackNotice("Autoplay was blocked. Press Play in the player to start the movie.");
+      } else {
+        throw error;
+      }
+    }
   };
 
   const loadTorrentSource = async (loader: () => Promise<unknown>) => {
@@ -105,7 +132,9 @@ function App() {
     setSelectedMediaIndex(null);
     setSelectedMediaLabel(null);
     setSelectedMediaKind(null);
+    setSelectedMediaFile(null);
     setTorrentPeerCount(0);
+    setPlaybackNotice(null);
 
     try {
       const torrent = (await loader()) as Awaited<ReturnType<typeof torrentService.addMagnet>>;
@@ -275,6 +304,7 @@ function App() {
     setIsConnected(false);
     setIsConnecting(false);
     setConnectionError(null);
+    setPlaybackNotice(null);
     resetTorrentState();
   };
 
@@ -301,6 +331,25 @@ function App() {
       console.error("Torrent file load failed:", error);
     }
   };
+
+  const selectedMediaBufferProgress = Math.round(
+    (selectedMediaFile?.file.progress ?? (selectedMediaIndex !== null ? 0 : torrentProgress / 100)) * 100,
+  );
+
+  const torrentPeerHint =
+    torrentService.isElectronBackendEnabled()
+      ? torrentPeerCount > 0
+        ? `${torrentPeerCount} BitTorrent peer${torrentPeerCount === 1 ? "" : "s"} in the swarm`
+        : "Waiting for BitTorrent peers"
+      : torrentPeerCount > 0
+        ? `${torrentPeerCount} WebRTC peer${torrentPeerCount === 1 ? "" : "s"} in the swarm`
+        : "Waiting for WebRTC-compatible peers";
+
+  const bufferHint = selectedMediaFile
+    ? selectedMediaBufferProgress >= 100
+      ? "Selected file is fully buffered."
+      : "Selected file is buffering from the swarm."
+    : "Load a torrent and pick a movie to see file buffering progress.";
 
   useEffect(() => {
     const offTorrentError = torrentService.on("error", (error) => {
@@ -381,6 +430,8 @@ function App() {
           onMagnetLinkChange={setMagnetLink}
           onTorrentFileChange={setTorrentFile}
           videoRef={videoRef}
+          playbackNotice={playbackNotice}
+          onPlaybackStarted={() => setPlaybackNotice(null)}
           onLoadMagnet={() => void handleLoadMagnet()}
           onLoadTorrentFile={() => void handleLoadTorrentFile()}
           onSelectMediaFile={async (mediaFile) => {
@@ -389,6 +440,7 @@ function App() {
             }
             setIsLoadingTorrent(true);
             setTorrentError(null);
+            setPlaybackNotice(null);
             try {
               await playMediaFile(mediaFile);
             } catch (error) {
@@ -401,8 +453,10 @@ function App() {
           onLeaveRoom={handleLeaveRoom}
           isLoadingTorrent={isLoadingTorrent}
           downloadSpeed={downloadSpeed}
-          bufferingProgress={torrentProgress}
+          bufferingProgress={selectedMediaBufferProgress}
           torrentError={torrentError}
+          torrentPeerHint={torrentPeerHint}
+          bufferHint={bufferHint}
         />
       )}
     </main>

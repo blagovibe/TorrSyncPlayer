@@ -21,6 +21,8 @@ interface RoomPageProps {
   onMagnetLinkChange: (value: string) => void;
   onTorrentFileChange: (file: File | null) => void;
   videoRef: RefObject<HTMLVideoElement | null>;
+  playbackNotice: string | null;
+  onPlaybackStarted: () => void;
   onLoadMagnet: () => void;
   onLoadTorrentFile: () => void;
   onSelectMediaFile: (file: TorrentMediaFile) => void;
@@ -29,6 +31,8 @@ interface RoomPageProps {
   downloadSpeed: string;
   bufferingProgress: number;
   torrentError: string | null;
+  torrentPeerHint: string;
+  bufferHint: string;
 }
 
 function RoomPage({
@@ -46,6 +50,8 @@ function RoomPage({
   onMagnetLinkChange,
   onTorrentFileChange,
   videoRef,
+  playbackNotice,
+  onPlaybackStarted,
   onLoadMagnet,
   onLoadTorrentFile,
   onSelectMediaFile,
@@ -54,6 +60,8 @@ function RoomPage({
   downloadSpeed,
   bufferingProgress,
   torrentError,
+  torrentPeerHint,
+  bufferHint,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
 
@@ -76,6 +84,8 @@ function RoomPage({
             videoRef={videoRef}
             mediaLabel={selectedMediaLabel}
             mediaKind={selectedMediaKind}
+            statusMessage={playbackNotice}
+            onPlaybackStart={onPlaybackStarted}
           />
           <div className="panel">
             <label htmlFor="room-magnet">Magnet link</label>
@@ -177,6 +187,8 @@ function RoomPage({
         torrentPeerCount={torrentPeerCount}
         downloadSpeed={downloadSpeed}
         bufferingProgress={bufferingProgress}
+        torrentPeerHint={torrentPeerHint}
+        bufferHint={bufferHint}
       />
       </section>
   );

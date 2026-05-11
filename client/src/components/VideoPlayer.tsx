@@ -14,6 +14,8 @@ interface VideoPlayerProps {
   videoRef?: RefObject<HTMLVideoElement | null>;
   mediaLabel?: string | null;
   mediaKind?: "video" | "audio" | null;
+  statusMessage?: string | null;
+  onPlaybackStart?: () => void;
 }
 
 interface AudioTrackSnapshot {
@@ -36,7 +38,13 @@ type VideoWithAudioTracks = HTMLVideoElement & {
   audioTracks?: AudioTrackListLike;
 };
 
-function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: VideoPlayerProps) {
+function VideoPlayer({
+  videoRef: externalVideoRef,
+  mediaLabel,
+  mediaKind,
+  statusMessage,
+  onPlaybackStart,
+}: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
   const hideTimerRef = useRef<number | null>(null);
@@ -188,6 +196,8 @@ function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: Vide
       <video
         ref={videoRef as RefObject<HTMLVideoElement>}
         className="video-element"
+        preload="auto"
+        playsInline
         onClick={() => void togglePlay()}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => {
@@ -195,7 +205,10 @@ function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: Vide
           syncAudioTracks();
         }}
         onPause={() => setIsPlaying(false)}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setIsPlaying(true);
+          onPlaybackStart?.();
+        }}
       />
 
       {hasSelectedMedia && (
@@ -248,6 +261,12 @@ function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: Vide
               here.
             </p>
           )}
+        </div>
+      )}
+
+      {statusMessage && (
+        <div className="playback-message" role="status" aria-live="polite">
+          {statusMessage}
         </div>
       )}
 

@@ -3,6 +3,8 @@ interface StatusBarProps {
   torrentPeerCount: number;
   downloadSpeed: string;
   bufferingProgress: number;
+  torrentPeerHint: string;
+  bufferHint: string;
 }
 
 function StatusBar({
@@ -10,6 +12,8 @@ function StatusBar({
   torrentPeerCount,
   downloadSpeed,
   bufferingProgress,
+  torrentPeerHint,
+  bufferHint,
 }: StatusBarProps) {
   return (
     <footer className="status-bar panel">
@@ -19,11 +23,15 @@ function StatusBar({
           {isConnected ? "connected" : "disconnected"}
         </strong>
       </span>
-      <span>Torrent peers: {torrentPeerCount}</span>
+      <span>Swarm peers: {torrentPeerCount}</span>
       <span>Speed: {downloadSpeed}</span>
       <span>Buffer: {bufferingProgress}%</span>
       <div className="buffer-bar" aria-hidden>
         <div style={{ width: `${bufferingProgress}%` }} />
+      </div>
+      <div className="status-notes">
+        <span className="status-note">{torrentPeerHint}</span>
+        <span className="status-note">{bufferHint}</span>
       </div>
     </footer>
   );
