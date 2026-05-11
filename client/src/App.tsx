@@ -3,7 +3,7 @@ import HomePage from "./components/HomePage";
 import RoomPage from "./components/RoomPage";
 import P2PService from "./services/P2PService";
 import SyncService from "./services/SyncService";
-import TorrentService from "./services/TorrentService";
+import TorrentService, { type TorrentMediaFile } from "./services/TorrentService";
 
 import "./App.css";
 
@@ -44,10 +44,15 @@ function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [magnetLink, setMagnetLink] = useState("");
+  const [torrentFile, setTorrentFile] = useState<File | null>(null);
   const [isLoadingTorrent, setIsLoadingTorrent] = useState(false);
   const [torrentProgress, setTorrentProgress] = useState(0);
   const [downloadSpeed, setDownloadSpeed] = useState("0 B/s");
   const [torrentError, setTorrentError] = useState<string | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<TorrentMediaFile[]>([]);
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null);
+  const [selectedMediaLabel, setSelectedMediaLabel] = useState<string | null>(null);
+  const [selectedMediaKind, setSelectedMediaKind] = useState<TorrentMediaFile["kind"] | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -57,6 +62,65 @@ function App() {
   const disposeSyncService = () => {
     syncServiceRef.current?.dispose();
     syncServiceRef.current = null;
+  };
+
+  const resetTorrentState = () => {
+    setIsLoadingTorrent(false);
+    setTorrentProgress(0);
+    setDownloadSpeed("0 B/s");
+    setTorrentError(null);
+    setTorrentFile(null);
+    setMediaFiles([]);
+    setSelectedMediaIndex(null);
+    setSelectedMediaLabel(null);
+    setSelectedMediaKind(null);
+  };
+
+  const playMediaFile = async (mediaFile: TorrentMediaFile) => {
+    if (!videoRef.current) {
+      throw new Error("Media player is not ready");
+    }
+
+    await torrentService.streamToMedia(mediaFile.file, videoRef.current);
+    setSelectedMediaIndex(mediaFile.index);
+    setSelectedMediaLabel(mediaFile.name);
+    setSelectedMediaKind(mediaFile.kind);
+  };
+
+  const loadTorrentSource = async (loader: () => Promise<unknown>) => {
+    if (!videoRef.current) {
+      setTorrentError("Media player is not ready");
+      return;
+    }
+
+    setIsLoadingTorrent(true);
+    setTorrentError(null);
+    setTorrentProgress(0);
+    setDownloadSpeed("0 B/s");
+    setMediaFiles([]);
+    setSelectedMediaIndex(null);
+    setSelectedMediaLabel(null);
+    setSelectedMediaKind(null);
+
+    try {
+      const torrent = (await loader()) as Awaited<ReturnType<typeof torrentService.addMagnet>>;
+      const playableMediaFiles = torrentService.getPlayableMediaFiles(torrent);
+      setMediaFiles(playableMediaFiles);
+
+      if (playableMediaFiles.length === 0) {
+        throw new Error("No supported video or audio file found in torrent");
+      }
+
+      const preferredMediaFile = torrentService.getPreferredMediaFile(torrent);
+      await playMediaFile(preferredMediaFile);
+      setTorrentProgress(100);
+      setIsLoadingTorrent(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load torrent";
+      setTorrentError(message);
+      setIsLoadingTorrent(false);
+      throw error;
+    }
   };
 
   const initializeP2PService = async (role: "host" | "guest") => {
@@ -207,29 +271,30 @@ function App() {
     setIsConnected(false);
     setIsConnecting(false);
     setConnectionError(null);
-    setIsLoadingTorrent(false);
-    setTorrentProgress(0);
-    setDownloadSpeed("0 B/s");
-    setTorrentError(null);
+    resetTorrentState();
   };
 
   const handleLoadMagnet = async () => {
     if (!magnetLink.trim() || !videoRef.current) {
       return;
     }
-    setIsLoadingTorrent(true);
-    setTorrentError(null);
-    setTorrentProgress(0);
-    setDownloadSpeed("0 B/s");
     try {
-      const torrent = await torrentService.addMagnet(magnetLink.trim());
-      const file = torrentService.getVideoFile(torrent);
-      await torrentService.streamToVideo(file, videoRef.current);
+      await loadTorrentSource(() => torrentService.addMagnet(magnetLink.trim()));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load torrent";
-      setTorrentError(message);
-    } finally {
-      setIsLoadingTorrent(false);
+      console.error("Torrent load failed:", error);
+    }
+  };
+
+  const handleLoadTorrentFile = async () => {
+    if (!torrentFile || !videoRef.current) {
+      return;
+    }
+
+    try {
+      const torrentBytes = new Uint8Array(await torrentFile.arrayBuffer());
+      await loadTorrentSource(() => torrentService.addTorrentFile(torrentBytes));
+    } catch (error) {
+      console.error("Torrent file load failed:", error);
     }
   };
 
@@ -303,9 +368,31 @@ function App() {
           peers={peers}
           isConnected={isConnected}
           magnetLink={magnetLink}
+          torrentFileName={torrentFile?.name ?? null}
+          mediaFiles={mediaFiles}
+          selectedMediaIndex={selectedMediaIndex}
+          selectedMediaLabel={selectedMediaLabel}
+          selectedMediaKind={selectedMediaKind}
           onMagnetLinkChange={setMagnetLink}
+          onTorrentFileChange={setTorrentFile}
           videoRef={videoRef}
           onLoadMagnet={() => void handleLoadMagnet()}
+          onLoadTorrentFile={() => void handleLoadTorrentFile()}
+          onSelectMediaFile={async (mediaFile) => {
+            if (!videoRef.current) {
+              return;
+            }
+            setIsLoadingTorrent(true);
+            setTorrentError(null);
+            try {
+              await playMediaFile(mediaFile);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Unable to play selected media";
+              setTorrentError(message);
+            } finally {
+              setIsLoadingTorrent(false);
+            }
+          }}
           onLeaveRoom={handleLeaveRoom}
           isLoadingTorrent={isLoadingTorrent}
           downloadSpeed={downloadSpeed}

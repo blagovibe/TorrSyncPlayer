@@ -1,8 +1,12 @@
 :root {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
+  --bg-primary: #08111f;
+  --bg-secondary: rgba(11, 20, 35, 0.82);
+  --bg-secondary-strong: #101b2f;
   --accent: #e94560;
-  --text: #eaeaea;
+  --accent-soft: rgba(233, 69, 96, 0.16);
+  --text: #f3f5fb;
+  --muted: rgba(243, 245, 251, 0.72);
+  --line: rgba(243, 245, 251, 0.12);
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
@@ -12,7 +16,11 @@
 
 body {
   margin: 0;
-  background: var(--bg-primary);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(233, 69, 96, 0.22), transparent 28%),
+    radial-gradient(circle at 85% 15%, rgba(78, 133, 255, 0.16), transparent 26%),
+    linear-gradient(180deg, #08111f, #050913 64%, #03050b);
   color: var(--text);
 }
 
@@ -37,18 +45,65 @@ body {
 .app-logo {
   margin: 0;
   font-size: 2rem;
+  letter-spacing: -0.03em;
 }
 
 .panel {
   background: var(--bg-secondary);
-  border: 1px solid rgba(233, 69, 96, 0.25);
-  border-radius: 8px;
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--line);
+  border-radius: 18px;
   padding: 16px;
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.22);
 }
 
 .row {
   display: flex;
   gap: 10px;
+}
+
+.torrent-actions,
+.torrent-file-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.torrent-actions {
+  flex-wrap: wrap;
+}
+
+.torrent-file-row {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.torrent-file-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.file-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(15, 24, 48, 0.92);
+  cursor: pointer;
+  min-height: 42px;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 label {
@@ -60,9 +115,9 @@ label {
 input,
 textarea,
 button {
-  border: 1px solid rgba(234, 234, 234, 0.2);
-  border-radius: 6px;
-  background: #0f1830;
+  border: 1px solid rgba(234, 234, 234, 0.16);
+  border-radius: 12px;
+  background: rgba(15, 24, 48, 0.92);
   color: var(--text);
   padding: 10px;
   font: inherit;
@@ -202,6 +257,115 @@ button:hover {
   gap: 12px;
 }
 
+.media-library {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.media-library-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.media-library-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.media-count {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #ffb2c0;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.media-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.media-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: rgba(15, 24, 48, 0.75);
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.media-item:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(233, 69, 96, 0.35);
+}
+
+.media-item.active {
+  border-color: rgba(233, 69, 96, 0.6);
+  background: linear-gradient(135deg, rgba(233, 69, 96, 0.18), rgba(15, 24, 48, 0.95));
+}
+
+.media-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.media-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.media-item-subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.media-item-meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.media-pill {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.media-size {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.media-empty {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px dashed rgba(243, 245, 251, 0.18);
+  color: var(--text);
+  background: rgba(15, 24, 48, 0.54);
+}
+
 .ok {
   color: #8be9a8;
 }
@@ -238,5 +402,11 @@ button:hover {
 
   .status-bar {
     grid-template-columns: 1fr;
+  }
+
+  .media-library-header,
+  .media-item {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

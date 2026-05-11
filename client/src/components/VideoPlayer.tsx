@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./VideoPlayer.css";
 
 const HIDE_DELAY_MS = 3000;
@@ -12,9 +12,31 @@ function formatTime(timeInSeconds: number): string {
 
 interface VideoPlayerProps {
   videoRef?: RefObject<HTMLVideoElement | null>;
+  mediaLabel?: string | null;
+  mediaKind?: "video" | "audio" | null;
 }
 
-function VideoPlayer({ videoRef: externalVideoRef }: VideoPlayerProps) {
+interface AudioTrackSnapshot {
+  id: string;
+  label: string;
+  language: string;
+  enabled: boolean;
+}
+
+interface AudioTrackLike {
+  id: string;
+  label: string;
+  language: string;
+  enabled: boolean;
+}
+
+interface AudioTrackListLike extends ArrayLike<AudioTrackLike>, EventTarget {}
+
+type VideoWithAudioTracks = HTMLVideoElement & {
+  audioTracks?: AudioTrackListLike;
+};
+
+function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
   const hideTimerRef = useRef<number | null>(null);
@@ -23,6 +45,9 @@ function VideoPlayer({ videoRef: externalVideoRef }: VideoPlayerProps) {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [showControls, setShowControls] = useState(true);
+  const [audioTracksSupported, setAudioTracksSupported] = useState(true);
+  const [audioTracks, setAudioTracks] = useState<AudioTrackSnapshot[]>([]);
+  const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string | null>(null);
 
   const progress = useMemo(() => {
     if (!duration) {
@@ -49,6 +74,69 @@ function VideoPlayer({ videoRef: externalVideoRef }: VideoPlayerProps) {
       }
     };
   }, []);
+
+  const togglePlay = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    if (video.paused) {
+      await video.play();
+      setIsPlaying(true);
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
+  }, [videoRef]);
+
+  const syncAudioTracks = useCallback(() => {
+    const video = videoRef.current;
+    const trackList = video ? (video as VideoWithAudioTracks).audioTracks : undefined;
+
+    if (!trackList) {
+      setAudioTracksSupported(false);
+      setAudioTracks([]);
+      setSelectedAudioTrackId(null);
+      return;
+    }
+
+    setAudioTracksSupported(true);
+
+    const snapshot = Array.from(trackList).map((track, index) => ({
+      id: track.id || `${index}`,
+      label: track.label || `Audio ${index + 1}`,
+      language: track.language || "",
+      enabled: track.enabled,
+    }));
+
+    const activeTrack = snapshot.find((track) => track.enabled) ?? snapshot[0] ?? null;
+    if (activeTrack && !activeTrack.enabled) {
+      for (const track of Array.from(trackList)) {
+        track.enabled = track.id === activeTrack.id;
+      }
+    }
+
+    setAudioTracks(snapshot);
+    setSelectedAudioTrackId(activeTrack?.id ?? null);
+  }, [videoRef]);
+
+  const activateAudioTrack = useCallback(
+    (trackId: string) => {
+      const video = videoRef.current;
+      const trackList = video ? (video as VideoWithAudioTracks).audioTracks : undefined;
+      if (!trackList) {
+        return;
+      }
+
+      for (const track of Array.from(trackList)) {
+        track.enabled = track.id === trackId;
+      }
+
+      setSelectedAudioTrackId(trackId);
+      syncAudioTracks();
+    },
+    [syncAudioTracks, videoRef],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -78,33 +166,90 @@ function VideoPlayer({ videoRef: externalVideoRef }: VideoPlayerProps) {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [togglePlay, videoRef]);
 
-  const togglePlay = async () => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-    if (video.paused) {
-      await video.play();
-      setIsPlaying(true);
-    } else {
-      video.pause();
-      setIsPlaying(false);
-    }
-  };
+  useEffect(() => {
+    setAudioTracks([]);
+    setSelectedAudioTrackId(null);
+    setAudioTracksSupported(true);
+  }, [mediaLabel]);
+
+  const hasSelectedMedia = Boolean(mediaLabel);
 
   return (
-    <section className="video-player" onMouseMove={resetHideTimer}>
+    <section className={`video-player ${mediaKind === "audio" ? "audio-mode" : "video-mode"}`} onMouseMove={resetHideTimer}>
+      {!hasSelectedMedia && (
+        <div className="video-placeholder">
+          <div className="placeholder-art" />
+          <p className="placeholder-title">Load a torrent to start playback</p>
+          <p className="placeholder-copy">Video and audio files will appear in the library below.</p>
+        </div>
+      )}
       <video
         ref={videoRef as RefObject<HTMLVideoElement>}
         className="video-element"
         onClick={() => void togglePlay()}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+        onLoadedMetadata={(event) => {
+          setDuration(event.currentTarget.duration);
+          syncAudioTracks();
+        }}
         onPause={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
       />
+
+      {hasSelectedMedia && (
+        <div className="video-legend">
+          <span className={`video-kind ${mediaKind ?? "video"}`}>
+            {mediaKind === "audio" ? "Audio" : "Video"}
+          </span>
+          <span className="video-title">{mediaLabel}</span>
+        </div>
+      )}
+
+      {hasSelectedMedia && (
+        <div className="audio-track-panel">
+          <div className="audio-track-panel-header">
+            <span className="audio-track-title">Internal audio tracks</span>
+            <span className="audio-track-status">
+              {audioTracksSupported
+                ? audioTracks.length > 0
+                  ? `${audioTracks.length} available`
+                  : "Waiting for metadata"
+                : "Not exposed by this runtime"}
+            </span>
+          </div>
+
+          {audioTracksSupported ? (
+            audioTracks.length > 0 ? (
+              <div className="audio-track-list">
+                {audioTracks.map((track) => (
+                  <button
+                    key={track.id}
+                    type="button"
+                    className={`audio-track-button ${selectedAudioTrackId === track.id ? "active" : ""}`}
+                    onClick={() => activateAudioTrack(track.id)}
+                  >
+                    <span className="audio-track-name">{track.label}</span>
+                    <span className="audio-track-meta">
+                      {track.language ? track.language.toUpperCase() : "Unknown language"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="audio-track-empty">
+                No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for metadata.
+              </p>
+            )
+          ) : (
+            <p className="audio-track-empty">
+              This browser/runtime does not expose <code>audioTracks</code>. Internal track switching will not work
+              here.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
         <button type="button" onClick={() => void togglePlay()}>
