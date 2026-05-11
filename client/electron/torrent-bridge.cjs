@@ -21,6 +21,8 @@ const AUDIO_EXTENSIONS = new Set([
   ".wma",
 ]);
 const MAX_TORRENT_CONNECTIONS = 200;
+const TORRENT_SERVER_HOST = "127.0.0.1";
+const TORRENT_SERVER_PORT = 0;
 
 function normalizePeerId(peerId) {
   if (peerId == null) {
@@ -50,12 +52,14 @@ function getMediaKind(extension) {
   return null;
 }
 
-function formatTorrentFile(file, index) {
+function formatTorrentFile(file, index, streamBaseUrl) {
   const extension = getFileExtension(file.name);
   const kind = getMediaKind(extension);
   if (!kind) {
     return null;
   }
+
+  const streamPath = typeof file.streamURL === "string" ? file.streamURL : undefined;
 
   return {
     index,
@@ -64,13 +68,13 @@ function formatTorrentFile(file, index) {
     kind,
     extension,
     progress: typeof file.progress === "number" ? file.progress : 0,
-    streamUrl: typeof file.streamURL === "string" ? file.streamURL : undefined,
+    streamUrl: streamBaseUrl && streamPath ? new URL(streamPath, streamBaseUrl).href : streamPath,
   };
 }
 
-function formatTorrentSnapshot(torrent, discoveredPeerCount = 0) {
+function formatTorrentSnapshot(torrent, discoveredPeerCount = 0, streamBaseUrl) {
   const files = torrent.files
-    .map((file, index) => formatTorrentFile(file, index))
+    .map((file, index) => formatTorrentFile(file, index, streamBaseUrl))
     .filter(Boolean)
     .sort((left, right) => {
       if (left.kind !== right.kind) {
@@ -107,6 +111,8 @@ class TorrentBridge {
     this.client = null;
     this.activeTorrent = null;
     this.discoveredPeerIds = new Set();
+    this.streamBaseUrl = null;
+    this.serverPromise = null;
   }
 
   async addMagnet(magnetLink) {
@@ -122,7 +128,7 @@ class TorrentBridge {
       return null;
     }
 
-    return formatTorrentSnapshot(this.activeTorrent, this.discoveredPeerIds.size);
+    return formatTorrentSnapshot(this.activeTorrent, this.discoveredPeerIds.size, this.streamBaseUrl);
   }
 
   async clear() {
@@ -139,10 +145,29 @@ class TorrentBridge {
     });
   }
 
-  async addSource(torrentSource) {
-    await this.clear();
+  async destroy() {
+    const client = this.client;
 
+    this.activeTorrent = null;
+    this.discoveredPeerIds.clear();
+    this.streamBaseUrl = null;
+    this.serverPromise = null;
+    this.client = null;
+    this.clientPromise = null;
+
+    if (!client || client.destroyed || typeof client.destroy !== "function") {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      client.destroy(() => resolve());
+    });
+  }
+
+  async addSource(torrentSource) {
     const client = await this.getClient();
+    await this.ensureTorrentServer(client);
+    await this.clear();
     const torrent = await new Promise((resolve, reject) => {
       const addedTorrent = client.add(torrentSource, (readyTorrent) => {
         resolve(readyTorrent);
@@ -159,13 +184,8 @@ class TorrentBridge {
         reject(error instanceof Error ? error : new Error(String(error)));
       });
     });
-
-    if (typeof torrent.createServer === "function") {
-      torrent.createServer({ origin: "*" });
-    }
-
     this.activeTorrent = torrent;
-    return formatTorrentSnapshot(torrent, this.discoveredPeerIds.size);
+    return formatTorrentSnapshot(torrent, this.discoveredPeerIds.size, this.streamBaseUrl);
   }
 
   async getClient() {
@@ -183,6 +203,71 @@ class TorrentBridge {
     }
 
     return this.clientPromise;
+  }
+
+  async ensureTorrentServer(client) {
+    if (this.streamBaseUrl) {
+      return this.streamBaseUrl;
+    }
+
+    if (this.serverPromise) {
+      return this.serverPromise;
+    }
+
+    const existingServer = client?._server;
+    if (existingServer && typeof existingServer.address === "function") {
+      const address = existingServer.address();
+      if (address && typeof address !== "string") {
+        this.streamBaseUrl = `http://${TORRENT_SERVER_HOST}:${address.port}`;
+        return this.streamBaseUrl;
+      }
+    }
+
+    if (!client || typeof client.createServer !== "function") {
+      throw new Error("WebTorrent client server API is unavailable");
+    }
+
+    this.serverPromise = (async () => {
+      const server = client.createServer({ origin: "*" });
+
+      await new Promise((resolve, reject) => {
+        const underlyingServer = server?.server;
+
+        const handleError = (error) => {
+          if (underlyingServer && typeof underlyingServer.removeListener === "function") {
+            underlyingServer.removeListener("error", handleError);
+          }
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+
+        if (underlyingServer && typeof underlyingServer.once === "function") {
+          underlyingServer.once("error", handleError);
+        }
+
+        try {
+          server.listen(TORRENT_SERVER_PORT, TORRENT_SERVER_HOST, () => {
+            if (underlyingServer && typeof underlyingServer.removeListener === "function") {
+              underlyingServer.removeListener("error", handleError);
+            }
+            resolve();
+          });
+        } catch (error) {
+          handleError(error);
+        }
+      });
+
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Unable to determine torrent server address");
+      }
+
+      this.streamBaseUrl = `http://${TORRENT_SERVER_HOST}:${address.port}`;
+      return this.streamBaseUrl;
+    })().finally(() => {
+      this.serverPromise = null;
+    });
+
+    return this.serverPromise;
   }
 }
 

@@ -196,7 +196,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
-  void torrentBridge.clear();
+  void torrentBridge.destroy();
   if (staticServerInstance) {
     staticServerInstance.server.close();
     staticServerInstance = null;
