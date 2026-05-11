@@ -253,7 +253,7 @@ export class TorrentService {
     }
 
     this.streamServerPromise = (async () => {
-      const registration = await navigator.serviceWorker.register("webtorrent-sw.js");
+      await navigator.serviceWorker.register("webtorrent-sw.js");
       const readyRegistration = await navigator.serviceWorker.ready;
       const client = this.client;
 
@@ -269,7 +269,11 @@ export class TorrentService {
         return;
       }
 
-      serverCreator.call(client, { controller: registration ?? readyRegistration });
+      if (!readyRegistration.active || readyRegistration.active.state !== "activated") {
+        return;
+      }
+
+      serverCreator.call(client, { controller: readyRegistration });
       this.streamServerReady = true;
     })()
       .catch(() => undefined)
