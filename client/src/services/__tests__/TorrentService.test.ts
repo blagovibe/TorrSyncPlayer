@@ -120,6 +120,22 @@ describe("TorrentService", () => {
     expect(service.getPreferredMediaFile(torrent)).toEqual(expect.objectContaining({ name: "clip.webm" }));
   });
 
+  it("prefers browser-friendly video containers when multiple videos are available", () => {
+    const torrent = createTorrent([
+      { name: "feature.mkv", length: 12_000_000 },
+      { name: "feature.mp4", length: 11_000_000 },
+      { name: "feature.webm", length: 10_000_000 },
+    ]);
+    const service = new TorrentService();
+
+    const playableFiles = service.getPlayableMediaFiles(torrent);
+
+    expect(playableFiles[0]).toEqual(expect.objectContaining({ name: "feature.mp4", kind: "video" }));
+    expect(service.getPreferredMediaFile(torrent)).toEqual(
+      expect.objectContaining({ name: "feature.mp4", kind: "video" }),
+    );
+  });
+
   it("rejects and emits an error when a metadata-ready torrent has no supported media file", async () => {
     const torrent = createTorrent([{ name: "archive.zip" }]);
     addMock.mockReturnValue(torrent);
@@ -135,6 +151,31 @@ describe("TorrentService", () => {
     expect(error).toHaveBeenCalledWith(
       expect.objectContaining({ message: "No supported video or audio file found in torrent" }),
     );
+  });
+
+  it("waits for torrent cleanup callbacks before allowing the next load", async () => {
+    let releaseCleanup: () => void = () => undefined;
+    const destroy = vi.fn((callback?: () => void) => {
+      releaseCleanup = callback ?? (() => undefined);
+    });
+    const service = new TorrentService();
+    (service as unknown as { activeTorrent: { destroy: typeof destroy } }).activeTorrent = {
+      destroy,
+    } as unknown as { destroy: typeof destroy };
+
+    let resolved = false;
+    const cleanupPromise = service.clearActiveTorrentForAdd().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    releaseCleanup();
+    await cleanupPromise;
+
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(resolved).toBe(true);
   });
 
   it("normalizes torrent errors", async () => {

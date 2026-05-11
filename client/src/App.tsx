@@ -206,6 +206,8 @@ function App() {
     }
 
     await torrentService.streamToMedia(mediaFile.file, mediaElement);
+    mediaElement.defaultMuted = false;
+    mediaElement.muted = false;
     setSelectedMediaFile(mediaFile);
     selectedMediaFileRef.current = mediaFile;
     setSelectedMediaIndex(mediaFile.index);
@@ -332,6 +334,10 @@ function App() {
 
   const requestTorrentLoad = (request: TorrentLoadRequest) => {
     pendingTorrentLoadRef.current = request;
+    if (currentView !== "room" || !videoRef.current) {
+      return;
+    }
+
     if (!isProcessingTorrentLoadRef.current) {
       void processTorrentLoadQueue();
     }
@@ -472,6 +478,7 @@ function App() {
     try {
       const p2pService = await initializeP2PService("guest");
       await p2pService.connect(`torrsync-${normalizedId}`);
+      setIsConnected(true);
       setPeers([
         { id: "self", name: "You", role: "slave", connectionState: "connected" },
         { id: normalizedId, name: "Host", role: "master", connectionState: "connected" },
@@ -659,7 +666,21 @@ function App() {
         syncServiceRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, peerRole]);
+
+  useEffect(() => {
+    if (currentView !== "room" || !videoRef.current || isProcessingTorrentLoadRef.current) {
+      return;
+    }
+
+    if (!pendingTorrentLoadRef.current) {
+      return;
+    }
+
+    void processTorrentLoadQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView]);
 
   useEffect(() => {
     syncServiceRef.current?.setSyncToleranceSeconds(syncToleranceSeconds);

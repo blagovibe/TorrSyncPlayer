@@ -21,6 +21,7 @@ interface VideoPlayerProps {
 
 interface AudioTrackSnapshot {
   id: string;
+  sourceIndex: number;
   label: string;
   language: string;
   enabled: boolean;
@@ -118,6 +119,7 @@ function VideoPlayer({
 
     const snapshot = Array.from(trackList).map((track, index) => ({
       id: track.id || `${index}`,
+      sourceIndex: index,
       label: track.label || `Audio ${index + 1}`,
       language: track.language || "",
       enabled: track.enabled,
@@ -125,8 +127,8 @@ function VideoPlayer({
 
     const activeTrack = snapshot.find((track) => track.enabled) ?? snapshot[0] ?? null;
     if (activeTrack && !activeTrack.enabled) {
-      for (const track of Array.from(trackList)) {
-        track.enabled = track.id === activeTrack.id;
+      for (const [index, track] of Array.from(trackList).entries()) {
+        track.enabled = index === activeTrack.sourceIndex;
       }
     }
 
@@ -142,14 +144,19 @@ function VideoPlayer({
         return;
       }
 
-      for (const track of Array.from(trackList)) {
-        track.enabled = track.id === trackId;
+      const selectedTrack = audioTracks.find((track) => track.id === trackId);
+      if (!selectedTrack) {
+        return;
+      }
+
+      for (const [index, track] of Array.from(trackList).entries()) {
+        track.enabled = index === selectedTrack.sourceIndex;
       }
 
       setSelectedAudioTrackId(trackId);
       syncAudioTracks();
     },
-    [syncAudioTracks, videoRef],
+    [audioTracks, syncAudioTracks, videoRef],
   );
 
   useEffect(() => {
@@ -191,6 +198,17 @@ function VideoPlayer({
     setSelectedAudioTrackId(null);
     setAudioTracksSupported(true);
   }, [mediaLabel]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    video.defaultMuted = false;
+    video.muted = false;
+    video.volume = volume;
+  }, [mediaLabel, videoRef, volume]);
 
   const hasSelectedMedia = Boolean(mediaLabel);
 

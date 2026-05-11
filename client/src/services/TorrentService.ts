@@ -85,6 +85,17 @@ const AUDIO_EXTENSIONS = new Set([
   ".wma",
 ]);
 
+const PREFERRED_VIDEO_EXTENSIONS = new Map<string, number>([
+  [".mp4", 4],
+  [".m4v", 4],
+  [".webm", 3],
+  [".mov", 2],
+  [".ogv", 2],
+  [".ts", 1],
+  [".mkv", 0],
+  [".avi", 0],
+]);
+
 function getFileExtension(name: string): string {
   const normalized = name.trim().toLowerCase();
   const lastDot = normalized.lastIndexOf(".");
@@ -170,6 +181,13 @@ export class TorrentService {
       .sort((left, right) => {
         if (left.kind !== right.kind) {
           return left.kind === "video" ? -1 : 1;
+        }
+        if (left.kind === "video" && right.kind === "video") {
+          const leftPriority = this.getVideoCompatibilityPriority(left.extension);
+          const rightPriority = this.getVideoCompatibilityPriority(right.extension);
+          if (rightPriority !== leftPriority) {
+            return rightPriority - leftPriority;
+          }
         }
         if (right.length !== left.length) {
           return right.length - left.length;
@@ -363,8 +381,21 @@ export class TorrentService {
       return;
     }
 
-    if (torrent?.destroy) {
-      torrent.destroy();
+    const destroyTorrent = torrent?.destroy;
+    if (typeof destroyTorrent === "function") {
+      await new Promise<void>((resolve) => {
+        try {
+          if (destroyTorrent.length > 0) {
+            destroyTorrent(() => resolve());
+            return;
+          }
+
+          destroyTorrent();
+        } catch {
+          // Ignore cleanup errors and move on to the next request.
+        }
+        resolve();
+      });
     }
   }
 
@@ -513,6 +544,10 @@ export class TorrentService {
 
     URL.revokeObjectURL(this.activeObjectUrl);
     this.activeObjectUrl = null;
+  }
+
+  private getVideoCompatibilityPriority(extension: string): number {
+    return PREFERRED_VIDEO_EXTENSIONS.get(extension) ?? 0;
   }
 
   private isMissingServerError(error: unknown): boolean {

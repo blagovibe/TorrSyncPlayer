@@ -289,6 +289,9 @@ export class P2PService {
           if (timeoutId !== null) {
             window.clearTimeout(timeoutId);
           }
+          if (this.getOpenConnectionCount() === 1) {
+            this.emit("connected");
+          }
           resolve();
         },
         onClose: () => {
