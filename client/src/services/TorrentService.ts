@@ -4,6 +4,7 @@ interface TorrentFile {
   name: string;
   length?: number;
   streamTo: (mediaElement: HTMLMediaElement) => Promise<void>;
+  blob?: () => Promise<Blob>;
 }
 
 export interface TorrentMediaFile {
@@ -86,6 +87,9 @@ function formatBytes(size: number): string {
 export class TorrentService {
   private client: TorrentClient | null = null;
   private activeTorrent: TorrentInstance | null = null;
+  private activeObjectUrl: string | null = null;
+  private streamServerReady = false;
+  private streamServerPromise: Promise<void> | null = null;
   private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
     speed: new Set(),
@@ -183,10 +187,27 @@ export class TorrentService {
   }
 
   async streamToMedia(file: TorrentFile, mediaElement: HTMLMediaElement): Promise<void> {
+    this.revokeActiveObjectUrl();
     mediaElement.pause();
     mediaElement.removeAttribute("src");
     mediaElement.load();
-    await file.streamTo(mediaElement);
+
+    await this.ensureStreamServer();
+
+    try {
+      await file.streamTo(mediaElement);
+      return;
+    } catch (error) {
+      if (!this.isMissingServerError(error) || !file.blob) {
+        throw error;
+      }
+    }
+
+    const blob = await file.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    this.activeObjectUrl = objectUrl;
+    mediaElement.src = objectUrl;
+    mediaElement.load();
   }
 
   formatMediaFileLabel(mediaFile: TorrentMediaFile): string {
@@ -196,6 +217,7 @@ export class TorrentService {
   clearActiveTorrent(): void {
     const torrent = this.activeTorrent;
     this.activeTorrent = null;
+    this.revokeActiveObjectUrl();
     if (torrent?.destroy) {
       torrent.destroy();
     }
@@ -204,6 +226,9 @@ export class TorrentService {
   destroy(): void {
     this.clearActiveTorrent();
     this.client?.destroy();
+    this.client = null;
+    this.streamServerReady = false;
+    this.streamServerPromise = null;
   }
 
   private async getClient(): Promise<TorrentClient> {
@@ -212,6 +237,60 @@ export class TorrentService {
       this.client = new WebTorrent() as TorrentClient;
     }
     return this.client;
+  }
+
+  private async ensureStreamServer(): Promise<void> {
+    if (this.streamServerReady) {
+      return;
+    }
+
+    if (this.streamServerPromise) {
+      return this.streamServerPromise;
+    }
+
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+
+    this.streamServerPromise = (async () => {
+      const registration = await navigator.serviceWorker.register("webtorrent-sw.js");
+      const readyRegistration = await navigator.serviceWorker.ready;
+      const client = this.client;
+
+      if (!client || this.streamServerReady) {
+        return;
+      }
+
+      const serverCreator = (client as TorrentClient & {
+        createServer?: (options: { controller: ServiceWorkerRegistration }) => unknown;
+      }).createServer;
+
+      if (typeof serverCreator !== "function") {
+        return;
+      }
+
+      serverCreator.call(client, { controller: registration ?? readyRegistration });
+      this.streamServerReady = true;
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        this.streamServerPromise = null;
+      });
+
+    return this.streamServerPromise;
+  }
+
+  private revokeActiveObjectUrl(): void {
+    if (!this.activeObjectUrl) {
+      return;
+    }
+
+    URL.revokeObjectURL(this.activeObjectUrl);
+    this.activeObjectUrl = null;
+  }
+
+  private isMissingServerError(error: unknown): boolean {
+    return error instanceof Error && error.message === "No server created";
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<TorrentEvents[K]>) {

@@ -4,8 +4,25 @@ dist-ssr/
 *.local
 
 # Local agent/tooling state
+.codex/
+.gemini/
+.claude/
+.cursor/
 .aionrs/
 .opencode/
+
+# Editor / OS junk
+.vscode/
+.vscode-test/
+.idea/
+.DS_Store
+._*
+Desktop.ini
+Thumbs.db
+.Spotlight-V100/
+.Trashes/
+*.swp
+*.swo
 
 # Generated local artifacts
 /logs.zip
