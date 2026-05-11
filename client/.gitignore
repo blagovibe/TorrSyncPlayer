@@ -14,11 +14,25 @@ release
 .electron-app
 *.local
 
+# Local agent/tooling state
+.codex/
+.gemini/
+.claude/
+.cursor/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+.vscode-test/
 .idea
 .DS_Store
+._*
+Desktop.ini
+Thumbs.db
+.Spotlight-V100/
+.Trashes/
+*.swp
+*.swo
 *.suo
 *.ntvs*
 *.njsproj
