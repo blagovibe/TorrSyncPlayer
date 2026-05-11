@@ -24,8 +24,9 @@ interface TorrentInstance {
   progress: number;
   downloadSpeed: number;
   numPeers: number;
+  discoveredPeerCount?: number;
   on?: (
-    event: "download" | "metadata" | "ready" | "error" | "wire" | "noPeers",
+    event: "download" | "metadata" | "ready" | "error" | "wire" | "noPeers" | "peer",
     callback: (...args: any[]) => void,
   ) => void;
   destroy?: (callback?: (error?: Error) => void) => void;
@@ -59,6 +60,7 @@ const WEBTORRENT_WEBRTC_TRACKERS = [
   "wss://tracker.openwebtorrent.com",
   "wss://tracker.webtorrent.dev",
 ];
+const MAX_TORRENT_CONNECTIONS = 200;
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -119,6 +121,7 @@ export class TorrentService {
   private backendStatsTimer: number | null = null;
   private backendStatsInFlight = false;
   private backendCleanupPromise: Promise<void> = Promise.resolve();
+  private discoveredPeerIds = new Set<string>();
   private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
     speed: new Set(),
@@ -205,8 +208,15 @@ export class TorrentService {
       let isRejected = false;
 
       const emitPeerCount = () => {
-        this.emit("peerCount", torrent.numPeers ?? 0);
+        torrent.discoveredPeerCount = this.discoveredPeerIds.size;
+        this.emit("peerCount", torrent.discoveredPeerCount);
       };
+
+      torrentEvents("peer", (peerId: unknown) => {
+        if (this.recordDiscoveredPeer(peerId)) {
+          emitPeerCount();
+        }
+      });
 
       const settleResolve = () => {
         if (isResolved || isRejected) {
@@ -227,11 +237,9 @@ export class TorrentService {
       torrentEvents("download", () => {
         this.emit("progress", torrent.progress);
         this.emit("speed", torrent.downloadSpeed);
-        emitPeerCount();
       });
 
       torrentEvents("wire", (wire: { on?: (event: string, callback: () => void) => void }) => {
-        emitPeerCount();
         wire?.on?.("close", emitPeerCount);
       });
       torrentEvents("noPeers", emitPeerCount);
@@ -348,6 +356,7 @@ export class TorrentService {
     this.activeTorrent = null;
     this.stopBackendStatsPolling();
     this.revokeActiveObjectUrl();
+    this.discoveredPeerIds.clear();
     if (this.electronBackend) {
       this.backendCleanupPromise = this.electronBackend.clear().catch(() => undefined);
       await this.backendCleanupPromise;
@@ -372,6 +381,7 @@ export class TorrentService {
     if (!this.client) {
       const { default: WebTorrent } = await import("webtorrent");
       this.client = new WebTorrent({
+        maxConns: MAX_TORRENT_CONNECTIONS,
         tracker: {
           announce: WEBTORRENT_WEBRTC_TRACKERS,
         },
@@ -429,6 +439,7 @@ export class TorrentService {
     target.progress = snapshot.progress ?? target.progress;
     target.downloadSpeed = snapshot.downloadSpeed ?? target.downloadSpeed;
     target.numPeers = snapshot.numPeers ?? target.numPeers;
+    target.discoveredPeerCount = snapshot.discoveredPeerCount ?? target.discoveredPeerCount;
 
     const filesByIndex = new Map(
       snapshot.files.map((file, index) => [typeof file.index === "number" ? file.index : index, file]),
@@ -447,7 +458,7 @@ export class TorrentService {
   private emitTorrentStats(torrent: TorrentInstance): void {
     this.emit("progress", torrent.progress);
     this.emit("speed", torrent.downloadSpeed);
-    this.emit("peerCount", torrent.numPeers ?? 0);
+    this.emit("peerCount", torrent.discoveredPeerCount ?? this.discoveredPeerIds.size);
   }
 
   private async ensureStreamServer(): Promise<void> {
@@ -506,6 +517,26 @@ export class TorrentService {
 
   private isMissingServerError(error: unknown): boolean {
     return error instanceof Error && error.message === "No server created";
+  }
+
+  private recordDiscoveredPeer(peerId: unknown): boolean {
+    const normalizedPeerId = this.normalizePeerId(peerId);
+    if (!normalizedPeerId) {
+      return false;
+    }
+
+    const previousSize = this.discoveredPeerIds.size;
+    this.discoveredPeerIds.add(normalizedPeerId);
+    return this.discoveredPeerIds.size !== previousSize;
+  }
+
+  private normalizePeerId(peerId: unknown): string | null {
+    if (peerId == null) {
+      return null;
+    }
+
+    const normalized = String(peerId).trim();
+    return normalized.length > 0 ? normalized : null;
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<TorrentEvents[K]>) {

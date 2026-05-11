@@ -339,11 +339,11 @@ function App() {
   const torrentPeerHint =
     torrentService.isElectronBackendEnabled()
       ? torrentPeerCount > 0
-        ? `${torrentPeerCount} BitTorrent peer${torrentPeerCount === 1 ? "" : "s"} in the swarm`
-        : "Waiting for BitTorrent peers"
+        ? `${torrentPeerCount} public peer${torrentPeerCount === 1 ? "" : "s"} discovered via tracker, DHT, and PEX`
+        : "Looking for public peers via tracker, DHT, and PEX"
       : torrentPeerCount > 0
-        ? `${torrentPeerCount} WebRTC peer${torrentPeerCount === 1 ? "" : "s"} in the swarm`
-        : "Waiting for WebRTC-compatible peers";
+        ? `${torrentPeerCount} public WebRTC peer${torrentPeerCount === 1 ? "" : "s"} discovered via trackers`
+        : "Looking for public WebRTC peers";
 
   const bufferHint = selectedMediaFile
     ? selectedMediaBufferProgress >= 100

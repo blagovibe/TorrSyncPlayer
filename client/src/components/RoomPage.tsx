@@ -119,7 +119,7 @@ function RoomPage({
             </div>
             {isLoadingTorrent && (
               <p className="hint">
-                Fetching torrent metadata and swarm peer count...
+                Fetching torrent metadata and public peer count...
               </p>
             )}
             {torrentError && <p className="error-text">{torrentError}</p>}

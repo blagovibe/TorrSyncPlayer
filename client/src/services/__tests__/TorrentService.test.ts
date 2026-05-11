@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TorrentService } from "../TorrentService";
 
-type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers";
+type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers" | "peer";
 type TorrentCallback = (...args: unknown[]) => void | Promise<void>;
 
 const { addMock, createServerMock, destroyMock, webTorrentMock } = vi.hoisted(() => ({
@@ -75,7 +75,7 @@ describe("TorrentService", () => {
     await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
     await torrent.emit("metadata");
     await torrent.emit("download");
-    await torrent.emit("wire");
+    await torrent.emit("peer", "198.51.100.7:6881");
     await torrent.emit("ready");
 
     await expect(result).resolves.toBe(torrent);
@@ -97,6 +97,7 @@ describe("TorrentService", () => {
     );
     expect(peerCount).toHaveBeenCalledWith(0);
     expect(peerCount).toHaveBeenCalledWith(1);
+    expect(peerCount).not.toHaveBeenCalledWith(2);
   });
 
   it("returns playable video and audio files in priority order", () => {
@@ -151,7 +152,7 @@ describe("TorrentService", () => {
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: "tracker failed" }));
   });
 
-  it("emits peer counts when new wires appear", async () => {
+  it("emits discovered public peers when discovery reports peers", async () => {
     const torrent = createTorrent([{ name: "movie.webm" }]);
     addMock.mockReturnValue(torrent);
     const service = new TorrentService();
@@ -162,11 +163,13 @@ describe("TorrentService", () => {
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
     await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
     await torrent.emit("metadata");
-    await torrent.emit("wire");
+    await torrent.emit("peer", "192.0.2.10:6881");
+    await torrent.emit("peer", "192.0.2.10:6881");
 
     await expect(result).resolves.toBe(torrent);
     expect(peerCount).toHaveBeenCalledWith(0);
     expect(peerCount).toHaveBeenCalledWith(1);
+    expect(peerCount).not.toHaveBeenCalledWith(2);
   });
 
   it("streams selected files without creating the torrent client", async () => {
@@ -240,6 +243,7 @@ describe("TorrentService", () => {
       progress: 0.1,
       downloadSpeed: 100,
       numPeers: 2,
+      discoveredPeerCount: 7,
     };
     const refreshedSnapshot = {
       files: [
@@ -265,6 +269,7 @@ describe("TorrentService", () => {
       progress: 0.5,
       downloadSpeed: 300,
       numPeers: 4,
+      discoveredPeerCount: 11,
     };
     const backend = {
       addMagnet: vi.fn().mockResolvedValue(initialSnapshot),
@@ -291,7 +296,7 @@ describe("TorrentService", () => {
     expect(service.isElectronBackendEnabled()).toBe(true);
     expect(backend.addMagnet).toHaveBeenCalledWith("magnet:?xt=urn:btih:test");
     expect(progress).toHaveBeenCalledWith(0.5);
-    expect(peerCount).toHaveBeenCalledWith(4);
+    expect(peerCount).toHaveBeenCalledWith(11);
     expect(torrent.files[0]).toEqual(
       expect.objectContaining({
         index: 0,
@@ -308,6 +313,7 @@ describe("TorrentService", () => {
         streamUrl: "http://127.0.0.1:4321/webtorrent/hash/movie-b-updated.mp4",
       }),
     );
+    expect(torrent).toEqual(expect.objectContaining({ discoveredPeerCount: 11 }));
 
     await service.clearActiveTorrentForAdd();
     expect(backend.clear).toHaveBeenCalled();
@@ -388,14 +394,17 @@ describe("TorrentService", () => {
     await torrent.emit("metadata");
 
     await expect(result).resolves.toBe(torrent);
-    expect(webTorrentMock).toHaveBeenCalledWith({
-      tracker: {
-        announce: [
-          "wss://tracker.btorrent.xyz",
-          "wss://tracker.openwebtorrent.com",
-          "wss://tracker.webtorrent.dev",
-        ],
-      },
-    });
+    expect(webTorrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxConns: 200,
+        tracker: {
+          announce: [
+            "wss://tracker.btorrent.xyz",
+            "wss://tracker.openwebtorrent.com",
+            "wss://tracker.webtorrent.dev",
+          ],
+        },
+      }),
+    );
   });
 });

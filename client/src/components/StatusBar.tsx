@@ -23,7 +23,7 @@ function StatusBar({
           {isConnected ? "connected" : "disconnected"}
         </strong>
       </span>
-      <span>Swarm peers: {torrentPeerCount}</span>
+      <span>Public peers seen: {torrentPeerCount}</span>
       <span>Speed: {downloadSpeed}</span>
       <span>Buffer: {bufferingProgress}%</span>
       <div className="buffer-bar" aria-hidden>
