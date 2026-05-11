@@ -4,6 +4,7 @@ const path = require("node:path");
 const projectDir = path.resolve(__dirname, "..");
 const stageDir = path.join(projectDir, ".electron-app");
 const sourcePackage = require(path.join(projectDir, "package.json"));
+const electronVersion = sourcePackage.devDependencies.electron.replace(/^[^\d]*/, "");
 
 for (const requiredPath of ["dist/index.html", "electron/main.cjs"]) {
   const absolutePath = path.join(projectDir, requiredPath);
@@ -31,6 +32,7 @@ const stagedPackage = {
   build: {
     appId: "com.torrsyncplayer.app",
     productName: "TorrSyncPlayer",
+    electronVersion,
     directories: {
       output: "../release",
     },
