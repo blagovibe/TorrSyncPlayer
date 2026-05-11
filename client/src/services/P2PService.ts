@@ -1,4 +1,4 @@
-import { Peer } from "peerjs";
+import { Peer, type PeerJSOption } from "peerjs";
 import { SyncMessage, SyncAction } from "./types";
 
 type P2PEvents = {
@@ -14,8 +14,20 @@ type EventKey = keyof P2PEvents;
 
 const PEER_ID_LENGTH = 6;
 const PEER_ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const DEFAULT_PEERJS_HOST = "0.peerjs.com";
+const DEFAULT_PEERJS_PORT = 443;
+const DEFAULT_PEERJS_PATH = "/";
 export const WEBRTC_UNAVAILABLE_MESSAGE =
   "WebRTC data channels are not available in the current desktop runtime. Use the Electron build, which ships Chromium with WebRTC support.";
+export const SIGNALING_UNAVAILABLE_MESSAGE =
+  "Unable to reach the PeerJS signaling server. Check your internet connection or configure a reachable PeerJS server with VITE_PEERJS_HOST.";
+
+type PeerServerEnv = {
+  VITE_PEERJS_HOST?: string;
+  VITE_PEERJS_PORT?: string;
+  VITE_PEERJS_PATH?: string;
+  VITE_PEERJS_SECURE?: string;
+};
 
 function generatePeerId(): string {
   let id = "";
@@ -59,6 +71,63 @@ function createWebRTCUnavailableError(issue: string): Error {
   return new Error(`${WEBRTC_UNAVAILABLE_MESSAGE} (${issue})`);
 }
 
+function createSignalingUnavailableError(message: string): Error {
+  return new Error(`${SIGNALING_UNAVAILABLE_MESSAGE} (${message})`);
+}
+
+function getImportMetaEnv(): PeerServerEnv {
+  return ((import.meta as ImportMeta & { env?: PeerServerEnv }).env ?? {}) as PeerServerEnv;
+}
+
+function normalizePeerPath(path: string): string {
+  let normalizedPath = path.trim() || DEFAULT_PEERJS_PATH;
+  if (!normalizedPath.startsWith("/")) {
+    normalizedPath = `/${normalizedPath}`;
+  }
+  if (!normalizedPath.endsWith("/")) {
+    normalizedPath = `${normalizedPath}/`;
+  }
+  return normalizedPath;
+}
+
+function parsePeerPort(port: string | undefined): number {
+  if (!port?.trim()) {
+    return DEFAULT_PEERJS_PORT;
+  }
+
+  const parsedPort = Number(port);
+  if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    return DEFAULT_PEERJS_PORT;
+  }
+  return parsedPort;
+}
+
+function parsePeerSecure(secure: string | undefined, host: string): boolean {
+  if (secure === "false" || secure === "0") {
+    return false;
+  }
+  if (secure === "true" || secure === "1") {
+    return true;
+  }
+  return host === DEFAULT_PEERJS_HOST || location.protocol === "https:";
+}
+
+export function buildPeerServerOptions(env: PeerServerEnv): PeerJSOption {
+  const host = env.VITE_PEERJS_HOST?.trim() || DEFAULT_PEERJS_HOST;
+
+  return {
+    host,
+    port: parsePeerPort(env.VITE_PEERJS_PORT),
+    path: normalizePeerPath(env.VITE_PEERJS_PATH ?? DEFAULT_PEERJS_PATH),
+    secure: parsePeerSecure(env.VITE_PEERJS_SECURE, host),
+    debug: 1,
+  };
+}
+
+export function getPeerServerOptions(): PeerJSOption {
+  return buildPeerServerOptions(getImportMetaEnv());
+}
+
 function normalizePeerError(error: unknown): Error {
   const peerError = error as { type?: string; message?: string };
   const message = peerError.message ?? getErrorMessage(error);
@@ -68,6 +137,10 @@ function normalizePeerError(error: unknown): Error {
     message.includes("The current browser does not support WebRTC")
   ) {
     return createWebRTCUnavailableError("PeerJS could not initialize WebRTC data channels");
+  }
+
+  if (peerError.type === "network" || message.includes("Lost connection to server")) {
+    return createSignalingUnavailableError(message);
   }
 
   return error instanceof Error ? error : new Error(message);
@@ -190,13 +263,14 @@ export class P2PService {
         return;
       }
 
+      const peerServerOptions = getPeerServerOptions();
       if (this.role === "host") {
         this.peer = new Peer(`torrsync-${this.peerId}`, {
-          debug: 1,
+          ...peerServerOptions,
         });
       } else {
         this.peer = new Peer({
-          debug: 1,
+          ...peerServerOptions,
         });
       }
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getWebRTCSupportIssue } from "../P2PService";
+import { buildPeerServerOptions, getPeerServerOptions, getWebRTCSupportIssue } from "../P2PService";
 
 class MockRTCDataChannel {
   close = vi.fn();
@@ -39,5 +39,32 @@ describe("P2PService WebRTC diagnostics", () => {
     expect(getWebRTCSupportIssue()).toBe(
       "RTCPeerConnection failed to initialize: disabled by runtime",
     );
+  });
+
+  it("uses the PeerJS cloud server by default", () => {
+    vi.unstubAllEnvs();
+
+    expect(getPeerServerOptions()).toMatchObject({
+      host: "0.peerjs.com",
+      port: 443,
+      path: "/",
+      secure: true,
+    });
+  });
+
+  it("allows configuring a custom PeerJS server through Vite env", () => {
+    expect(
+      buildPeerServerOptions({
+        VITE_PEERJS_HOST: "signal.example.test",
+        VITE_PEERJS_PORT: "9000",
+        VITE_PEERJS_PATH: "peer",
+        VITE_PEERJS_SECURE: "false",
+      }),
+    ).toMatchObject({
+      host: "signal.example.test",
+      port: 9000,
+      path: "/peer/",
+      secure: false,
+    });
   });
 });
