@@ -1,15 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SyncService } from "../SyncService";
-import type SignalingService from "../SignalingService";
 
 type VideoEventName = "play" | "pause" | "seeked";
 
 function createVideo(initialTime = 0): HTMLVideoElement & { dispatch: (event: VideoEventName) => void } {
   const listeners = new Map<VideoEventName, Set<() => void>>();
+  let paused = true;
   const video = {
     currentTime: initialTime,
-    play: vi.fn().mockResolvedValue(undefined),
-    pause: vi.fn(),
+    get paused() {
+      return paused;
+    },
+    play: vi.fn().mockImplementation(async () => {
+      paused = false;
+    }),
+    pause: vi.fn(() => {
+      paused = true;
+    }),
     addEventListener: vi.fn((event: VideoEventName, callback: () => void) => {
       const callbacks = listeners.get(event) ?? new Set<() => void>();
       callbacks.add(callback);
@@ -28,10 +35,10 @@ function createVideo(initialTime = 0): HTMLVideoElement & { dispatch: (event: Vi
   return video as unknown as HTMLVideoElement & { dispatch: (event: VideoEventName) => void };
 }
 
-function createSignaling(): SignalingService {
+function createSignaling() {
   return {
     sendSync: vi.fn(),
-  } as unknown as SignalingService;
+  };
 }
 
 describe("SyncService", () => {
@@ -53,15 +60,41 @@ describe("SyncService", () => {
     expect(video.play).toHaveBeenCalledOnce();
     expect(video.pause).toHaveBeenCalledOnce();
     expect(video.currentTime).toBe(42);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(1, "play", 8);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(2, "pause", 8);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(3, "seek", 42);
-    expect(outbound).toHaveBeenNthCalledWith(1, { action: "play", position: 8, server_ts: expect.any(Number) });
-    expect(outbound).toHaveBeenNthCalledWith(2, { action: "pause", position: 8, server_ts: expect.any(Number) });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(1, {
+      action: "play",
+      position: 8,
+      server_ts: expect.any(Number),
+      is_playing: true,
+    });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(2, {
+      action: "pause",
+      position: 8,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(3, {
+      action: "seek",
+      position: 42,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
+    expect(outbound).toHaveBeenNthCalledWith(1, {
+      action: "play",
+      position: 8,
+      server_ts: expect.any(Number),
+      is_playing: true,
+    });
+    expect(outbound).toHaveBeenNthCalledWith(2, {
+      action: "pause",
+      position: 8,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
     expect(outbound).toHaveBeenNthCalledWith(3, {
       action: "seek",
       position: 42,
       server_ts: expect.any(Number),
+      is_playing: false,
     });
   });
 
@@ -76,9 +109,24 @@ describe("SyncService", () => {
     video.dispatch("pause");
     video.dispatch("seeked");
 
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(1, "play", 15);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(2, "pause", 15);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(3, "seek", 15);
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(1, {
+      action: "play",
+      position: 15,
+      server_ts: expect.any(Number),
+      is_playing: true,
+    });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(2, {
+      action: "pause",
+      position: 15,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(3, {
+      action: "seek",
+      position: 15,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
     expect(outbound).toHaveBeenCalledTimes(3);
   });
 
@@ -97,9 +145,24 @@ describe("SyncService", () => {
     video.dispatch("seeked");
 
     expect(signaling.sendSync).toHaveBeenCalledTimes(3);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(1, "play", 20);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(2, "pause", 20);
-    expect(signaling.sendSync).toHaveBeenNthCalledWith(3, "seek", 33);
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(1, {
+      action: "play",
+      position: 20,
+      server_ts: expect.any(Number),
+      is_playing: true,
+    });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(2, {
+      action: "pause",
+      position: 20,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
+    expect(signaling.sendSync).toHaveBeenNthCalledWith(3, {
+      action: "seek",
+      position: 33,
+      server_ts: expect.any(Number),
+      is_playing: false,
+    });
     expect(outbound).toHaveBeenCalledTimes(3);
   });
 
@@ -128,8 +191,8 @@ describe("SyncService", () => {
     service.on("sync_seek", syncSeek);
 
     const playMessage = { action: "play" as const, position: 3, server_ts: 8_000 };
-    const pauseMessage = { action: "pause" as const, position: 7, server_ts: 9_000 };
-    const seekMessage = { action: "seek" as const, position: 11, server_ts: 10_000 };
+    const pauseMessage = { action: "pause" as const, position: 7, server_ts: 9_000, is_playing: false };
+    const seekMessage = { action: "seek" as const, position: 11, server_ts: 10_000, is_playing: false };
     service.applyRemoteSync(playMessage);
     service.applyRemoteSync(pauseMessage);
     service.applyRemoteSync(seekMessage);
@@ -140,6 +203,20 @@ describe("SyncService", () => {
     expect(syncPause).toHaveBeenCalledWith(pauseMessage);
     expect(syncSeek).toHaveBeenCalledWith(seekMessage);
     expect(video.currentTime).toBe(11);
+  });
+
+  it("creates playback snapshots for room broadcasts", async () => {
+    const video = createVideo(7);
+    const service = new SyncService(createSignaling(), video, "master");
+
+    await video.play();
+
+    expect(service.createSnapshot()).toEqual({
+      action: "state",
+      position: 7,
+      server_ts: expect.any(Number),
+      is_playing: true,
+    });
   });
 
   it("ignores remote sync while in master mode", () => {

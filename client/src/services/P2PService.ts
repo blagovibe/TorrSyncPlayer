@@ -1,5 +1,14 @@
-import { Peer, type PeerJSOption } from "peerjs";
-import { SyncMessage, SyncAction } from "./types";
+import { Peer, type DataConnection, type PeerJSOption } from "peerjs";
+import {
+  type RoomConfigMessage,
+  type SharedTorrentSource,
+  type SyncMessage,
+} from "./types";
+
+type TorrentSourceMessage = {
+  source: SharedTorrentSource;
+  selectedMediaIndex: number | null;
+};
 
 type P2PEvents = {
   connected: () => void;
@@ -7,10 +16,17 @@ type P2PEvents = {
   peer_connected: (peerId: string) => void;
   peer_disconnected: (peerId: string) => void;
   sync: (message: SyncMessage) => void;
+  torrent_source: (message: TorrentSourceMessage) => void;
+  room_config: (message: RoomConfigMessage) => void;
   error: (error: Error) => void;
 };
 
 type EventKey = keyof P2PEvents;
+
+type OutboundMessage =
+  | { type: "sync"; message: SyncMessage }
+  | { type: "torrent_source"; source: SharedTorrentSource; selectedMediaIndex: number | null }
+  | { type: "room_config"; syncToleranceSeconds: number };
 
 const PEER_ID_LENGTH = 6;
 const PEER_ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -112,6 +128,61 @@ function parsePeerSecure(secure: string | undefined, host: string): boolean {
   return host === DEFAULT_PEERJS_HOST || location.protocol === "https:";
 }
 
+function isSyncMessage(message: Partial<SyncMessage>): message is SyncMessage {
+  return (
+    typeof message.action === "string" &&
+    typeof message.position === "number" &&
+    typeof message.server_ts === "number"
+  );
+}
+
+function parseInboundMessage(rawData: unknown): OutboundMessage | null {
+  let candidate: unknown = rawData;
+  if (typeof rawData === "string") {
+    try {
+      candidate = JSON.parse(rawData);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const message = candidate as Partial<OutboundMessage> & { type?: string };
+
+  switch (message.type) {
+    case "sync":
+      if (message.message && isSyncMessage(message.message)) {
+        return { type: "sync", message: message.message };
+      }
+      return null;
+    case "torrent_source":
+      if (
+        message.source &&
+        (typeof message.selectedMediaIndex === "number" || message.selectedMediaIndex === null)
+      ) {
+        return {
+          type: "torrent_source",
+          source: message.source as SharedTorrentSource,
+          selectedMediaIndex: message.selectedMediaIndex,
+        };
+      }
+      return null;
+    case "room_config":
+      if (typeof message.syncToleranceSeconds === "number" && Number.isFinite(message.syncToleranceSeconds)) {
+        return {
+          type: "room_config",
+          syncToleranceSeconds: message.syncToleranceSeconds,
+        };
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
 export function buildPeerServerOptions(env: PeerServerEnv): PeerJSOption {
   const host = env.VITE_PEERJS_HOST?.trim() || DEFAULT_PEERJS_HOST;
 
@@ -150,17 +221,20 @@ export class P2PService {
   private peerId: string;
   private role: "host" | "guest" = "host";
   private peer: Peer | null = null;
-  private dataConnection: import("peerjs").DataConnection | null = null;
+  private connections = new Map<string, DataConnection>();
   private remotePeerId: string | null = null;
+  private isConnecting = false;
+  private isDisconnecting = false;
   private listeners: { [K in EventKey]: Set<P2PEvents[K]> } = {
     connected: new Set(),
     disconnected: new Set(),
     peer_connected: new Set(),
     peer_disconnected: new Set(),
     sync: new Set(),
+    torrent_source: new Set(),
+    room_config: new Set(),
     error: new Set(),
   };
-  private isConnecting = false;
 
   constructor() {
     this.peerId = generatePeerId();
@@ -188,7 +262,7 @@ export class P2PService {
   }
 
   async connect(remotePeerId: string): Promise<void> {
-    if (this.isConnecting || this.dataConnection?.open) {
+    if (this.isConnecting || this.getConnection(remotePeerId)?.open) {
       return;
     }
 
@@ -208,36 +282,22 @@ export class P2PService {
         serialization: "json",
       });
 
-      conn.on("open", () => {
-        this.dataConnection = conn;
-        this.isConnecting = false;
-        if (timeoutId !== null) {
-          window.clearTimeout(timeoutId);
-        }
-        this.emit("connected");
-        resolve();
-      });
-
-      conn.on("data", (data) => {
-        const message = data as SyncMessage;
-        if (message?.action && typeof message.position === "number") {
-          this.emit("sync", message);
-        }
-      });
-
-      conn.on("close", () => {
-        this.dataConnection = null;
-        this.emit("peer_disconnected", remotePeerId);
-        this.emit("disconnected");
-      });
-
-      conn.on("error", (err) => {
-        this.isConnecting = false;
-        if (timeoutId !== null) {
-          window.clearTimeout(timeoutId);
-        }
-        this.emit("error", new Error(String(err)));
-        reject(err);
+      this.bindConnection(remotePeerId, conn, {
+        emitPeerConnected: true,
+        onOpen: () => {
+          this.isConnecting = false;
+          if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+          }
+          resolve();
+        },
+        onClose: () => {
+          this.isConnecting = false;
+          if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+          }
+          reject(new Error("Connection closed before it was established"));
+        },
       });
 
       timeoutId = window.setTimeout(() => {
@@ -309,59 +369,28 @@ export class P2PService {
     });
   }
 
-  private handleIncomingConnection(conn: import("peerjs").DataConnection): void {
-    if (this.dataConnection && this.dataConnection.open) {
-      conn.close();
-      return;
-    }
-
-    this.dataConnection = conn;
-    this.remotePeerId = conn.peer || null;
-
-    conn.on("open", () => {
-      this.emit("peer_connected", conn.peer);
-      this.emit("connected");
-    });
-
-    conn.on("data", (data) => {
-      const message = data as SyncMessage;
-      if (message?.action && typeof message.position === "number") {
-        this.emit("sync", message);
-      }
-    });
-
-    conn.on("close", () => {
-      this.dataConnection = null;
-      const remoteId = this.remotePeerId;
-      this.remotePeerId = null;
-      if (remoteId) {
-        this.emit("peer_disconnected", remoteId);
-      }
-      this.emit("disconnected");
-    });
-
-    conn.on("error", (err) => {
-      this.emit("error", new Error(String(err)));
-    });
+  sendSync(message: SyncMessage, targetPeerId?: string): void {
+    this.sendPayload({ type: "sync", message }, targetPeerId);
   }
 
-  sendSync(action: SyncAction, position: number): void {
-    if (!this.dataConnection || this.dataConnection.open !== true) {
-      return;
-    }
+  sendTorrentSource(
+    payload: { source: SharedTorrentSource; selectedMediaIndex: number | null },
+    targetPeerId?: string,
+  ): void {
+    this.sendPayload({ type: "torrent_source", ...payload }, targetPeerId);
+  }
 
-    this.dataConnection.send({
-      action,
-      position,
-      server_ts: Date.now(),
-    } as SyncMessage);
+  sendRoomConfig(payload: RoomConfigMessage, targetPeerId?: string): void {
+    this.sendPayload({ type: "room_config", syncToleranceSeconds: payload.syncToleranceSeconds }, targetPeerId);
   }
 
   disconnect(): void {
-    if (this.dataConnection) {
-      this.dataConnection.close();
-      this.dataConnection = null;
+    this.isDisconnecting = true;
+
+    for (const connection of this.connections.values()) {
+      connection.close();
     }
+    this.connections.clear();
 
     if (this.peer) {
       this.peer.destroy();
@@ -370,15 +399,133 @@ export class P2PService {
 
     this.remotePeerId = null;
     this.isConnecting = false;
+    this.isDisconnecting = false;
     this.emit("disconnected");
   }
 
   isConnected(): boolean {
-    return this.dataConnection?.open === true;
+    return this.getOpenConnectionCount() > 0;
   }
 
   getRemotePeerId(): string | null {
-    return this.remotePeerId;
+    return this.remotePeerId ?? this.connections.keys().next().value ?? null;
+  }
+
+  private handleIncomingConnection(conn: DataConnection): void {
+    this.bindConnection(conn.peer, conn, {
+      emitPeerConnected: true,
+      onOpen: () => {
+        if (this.getOpenConnectionCount() === 1) {
+          this.emit("connected");
+        }
+      },
+    });
+  }
+
+  private bindConnection(
+    peerId: string,
+    conn: DataConnection,
+    options: {
+      emitPeerConnected: boolean;
+      onOpen?: () => void;
+      onClose?: () => void;
+    },
+  ): void {
+    const existingConnection = this.connections.get(peerId);
+    if (existingConnection && existingConnection !== conn) {
+      existingConnection.close();
+    }
+
+    this.connections.set(peerId, conn);
+
+    conn.on("open", () => {
+      if (this.isDisconnecting) {
+        return;
+      }
+
+      this.connections.set(peerId, conn);
+      if (options.emitPeerConnected) {
+        this.emit("peer_connected", peerId);
+      }
+      options.onOpen?.();
+    });
+
+    conn.on("data", (data) => {
+      const message = parseInboundMessage(data);
+      if (!message) {
+        return;
+      }
+
+      switch (message.type) {
+        case "sync":
+          this.emit("sync", message.message);
+          break;
+        case "torrent_source":
+          this.emit("torrent_source", {
+            source: message.source,
+            selectedMediaIndex: message.selectedMediaIndex,
+          });
+          break;
+        case "room_config":
+          this.emit("room_config", {
+            syncToleranceSeconds: message.syncToleranceSeconds,
+          });
+          break;
+      }
+    });
+
+    conn.on("close", () => {
+      const trackedConnection = this.connections.get(peerId);
+      if (trackedConnection === conn) {
+        this.connections.delete(peerId);
+      }
+
+      if (this.remotePeerId === peerId) {
+        this.remotePeerId = null;
+      }
+
+      if (this.isDisconnecting) {
+        return;
+      }
+
+      this.emit("peer_disconnected", peerId);
+      options.onClose?.();
+
+      if (this.getOpenConnectionCount() === 0) {
+        this.emit("disconnected");
+      }
+    });
+
+    conn.on("error", (err) => {
+      this.emit("error", new Error(String(err)));
+    });
+  }
+
+  private sendPayload(payload: OutboundMessage, targetPeerId?: string): void {
+    const targetConnections = targetPeerId
+      ? (() => {
+          const connection = this.connections.get(targetPeerId);
+          return connection && connection.open ? [connection] : [];
+        })()
+      : Array.from(this.connections.values()).filter((connection) => connection.open === true);
+
+    for (const connection of targetConnections) {
+      connection.send(payload);
+    }
+  }
+
+  private getConnection(peerId: string): DataConnection | null {
+    return this.connections.get(peerId) ?? null;
+  }
+
+  private getOpenConnectionCount(): number {
+    let count = 0;
+    for (const connection of this.connections.values()) {
+      if (connection.open) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<P2PEvents[K]>) {

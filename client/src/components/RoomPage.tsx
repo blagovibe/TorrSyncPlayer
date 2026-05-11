@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { type RefObject, useState } from "react";
 import { Peer, PeerRole } from "../App";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
-import { RefObject } from "react";
 import type { TorrentMediaFile } from "../services/TorrentService";
 
 interface RoomPageProps {
@@ -11,13 +10,17 @@ interface RoomPageProps {
   peerRole: PeerRole | null;
   peers: Peer[];
   isConnected: boolean;
+  canControlTorrent: boolean;
   magnetLink: string;
   torrentFileName: string | null;
+  sharedSourceLabel: string | null;
   mediaFiles: TorrentMediaFile[];
   selectedMediaIndex: number | null;
   selectedMediaLabel: string | null;
   selectedMediaKind: TorrentMediaFile["kind"] | null;
   torrentPeerCount: number;
+  syncToleranceSeconds: number;
+  onSyncToleranceChange: (value: number) => void;
   onMagnetLinkChange: (value: string) => void;
   onTorrentFileChange: (file: File | null) => void;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -40,13 +43,17 @@ function RoomPage({
   peerRole,
   peers,
   isConnected,
+  canControlTorrent,
   magnetLink,
   torrentFileName,
+  sharedSourceLabel,
   mediaFiles,
   selectedMediaIndex,
   selectedMediaLabel,
   selectedMediaKind,
   torrentPeerCount,
+  syncToleranceSeconds,
+  onSyncToleranceChange,
   onMagnetLinkChange,
   onTorrentFileChange,
   videoRef,
@@ -85,9 +92,24 @@ function RoomPage({
             mediaLabel={selectedMediaLabel}
             mediaKind={selectedMediaKind}
             statusMessage={playbackNotice}
+            canControlPlayback={canControlTorrent}
             onPlaybackStart={onPlaybackStarted}
           />
           <div className="panel">
+            <div className="room-controls-header">
+              <div>
+                <h3>Room source</h3>
+                <p className="hint">
+                  {canControlTorrent
+                    ? "Host loads the torrent once, then the room follows the same media source."
+                    : "The host will load the torrent and everyone else will mirror it automatically."}
+                </p>
+              </div>
+              <span className={`room-role-badge ${canControlTorrent ? "host" : "guest"}`}>
+                {canControlTorrent ? "Host controls" : "Guest view"}
+              </span>
+            </div>
+
             <label htmlFor="room-magnet">Magnet link</label>
             <textarea
               id="room-magnet"
@@ -95,25 +117,41 @@ function RoomPage({
               value={magnetLink}
               onChange={(event) => onMagnetLinkChange(event.target.value)}
               placeholder="magnet:?xt=urn:btih:..."
+              disabled={!canControlTorrent}
             />
             <div className="torrent-actions">
-              <button type="button" onClick={onLoadMagnet} disabled={isLoadingTorrent || !magnetLink.trim()}>
+              <button
+                type="button"
+                onClick={onLoadMagnet}
+                disabled={!canControlTorrent || isLoadingTorrent || !magnetLink.trim()}
+              >
                 {isLoadingTorrent ? "Loading metadata..." : "Load Magnet"}
               </button>
-              <label className="file-picker">
+              <label className={`file-picker ${canControlTorrent ? "" : "disabled"}`}>
                 <input
                   type="file"
                   accept=".torrent,application/x-bittorrent"
                   onChange={(event) => onTorrentFileChange(event.target.files?.[0] ?? null)}
+                  disabled={!canControlTorrent}
                 />
                 <span>Choose .torrent</span>
               </label>
             </div>
             <div className="torrent-file-row">
               <span className="torrent-file-name">
-                {torrentFileName ? `Selected file: ${torrentFileName}` : "No torrent file selected"}
+                {sharedSourceLabel
+                  ? `Shared source: ${sharedSourceLabel}`
+                  : torrentFileName
+                    ? `Selected file: ${torrentFileName}`
+                    : canControlTorrent
+                      ? "No torrent file selected"
+                      : "Waiting for host to load the shared source"}
               </span>
-              <button type="button" onClick={onLoadTorrentFile} disabled={isLoadingTorrent || !torrentFileName}>
+              <button
+                type="button"
+                onClick={onLoadTorrentFile}
+                disabled={!canControlTorrent || isLoadingTorrent || !torrentFileName}
+              >
                 {isLoadingTorrent ? "Loading metadata..." : "Load File"}
               </button>
             </div>
@@ -123,6 +161,21 @@ function RoomPage({
               </p>
             )}
             {torrentError && <p className="error-text">{torrentError}</p>}
+            <div className="sync-tolerance-row">
+              <label htmlFor="sync-tolerance">Sync tolerance, seconds</label>
+              <input
+                id="sync-tolerance"
+                type="number"
+                min="0"
+                step="0.1"
+                value={syncToleranceSeconds}
+                onChange={(event) => onSyncToleranceChange(Number(event.target.value))}
+                disabled={!canControlTorrent}
+              />
+              <p className="hint">
+                Guests stay within this drift window before the player is corrected back to the host timecode.
+              </p>
+            </div>
           </div>
 
           <div className="panel media-library">
@@ -130,7 +183,9 @@ function RoomPage({
               <div>
                 <h3>Playable files</h3>
                 <p className="hint">
-                  Torrent media is auto-picked for convenience. Switch here if you want a different file.
+                  {canControlTorrent
+                    ? "Torrent media is auto-picked for convenience. Switch here if you want a different file."
+                    : "The host controls the selected file, and this list mirrors the shared torrent state."}
                 </p>
               </div>
               <span className="media-count">{mediaFiles.length} found</span>
@@ -146,7 +201,7 @@ function RoomPage({
                       type="button"
                       className={`media-item ${isActive ? "active" : ""}`}
                       onClick={() => onSelectMediaFile(file)}
-                      disabled={isLoadingTorrent}
+                      disabled={!canControlTorrent || isLoadingTorrent}
                     >
                       <div className="media-item-main">
                         <span className="media-item-title">{file.name}</span>
@@ -172,15 +227,15 @@ function RoomPage({
             )}
           </div>
         </div>
-      <RoomInfo
-        peerId={peerId}
-        peerRole={peerRole}
-        peers={peers}
-        isConnected={isConnected}
-        onLeaveRoom={onLeaveRoom}
-        onCopyPeerId={copyPeerId}
-        copied={copied}
-      />
+        <RoomInfo
+          peerId={peerId}
+          peerRole={peerRole}
+          peers={peers}
+          isConnected={isConnected}
+          onLeaveRoom={onLeaveRoom}
+          onCopyPeerId={copyPeerId}
+          copied={copied}
+        />
       </div>
       <StatusBar
         isConnected={isConnected}

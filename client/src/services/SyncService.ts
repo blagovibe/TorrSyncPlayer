@@ -1,36 +1,52 @@
-import SignalingService from "./SignalingService";
-import { SyncMessage } from "./types";
+import { type SyncMessage } from "./types";
 
 type SyncEvents = {
   sync_play: (message: SyncMessage) => void;
   sync_pause: (message: SyncMessage) => void;
   sync_seek: (message: SyncMessage) => void;
+  sync_state: (message: SyncMessage) => void;
   outbound_sync: (message: SyncMessage) => void;
 };
 
 type EventKey = keyof SyncEvents;
 type Role = "master" | "slave";
+type SyncTransport = {
+  sendSync: (message: SyncMessage) => void;
+};
+
+const DEFAULT_SYNC_TOLERANCE_SECONDS = 0.5;
+const HEARTBEAT_INTERVAL_MS = 1000;
 
 export class SyncService {
-  private readonly signaling: Pick<SignalingService, "sendSync">;
+  private readonly signaling: SyncTransport;
   private readonly video: HTMLVideoElement;
   private readonly role: Role;
   private readonly cleanups: Array<() => void> = [];
-  private listeners: { [K in EventKey]: Set<SyncEvents[K]> } = {
+  private readonly listeners: { [K in EventKey]: Set<SyncEvents[K]> } = {
     sync_play: new Set(),
     sync_pause: new Set(),
     sync_seek: new Set(),
+    sync_state: new Set(),
     outbound_sync: new Set(),
   };
-  private suppressNextEventSync: Partial<Record<"play" | "pause" | "seeked", boolean>> = {};
+  private readonly suppressNextEventSync: Partial<Record<"play" | "pause" | "seeked", boolean>> = {};
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private syncToleranceSeconds = DEFAULT_SYNC_TOLERANCE_SECONDS;
 
-  constructor(signaling: Pick<SignalingService, "sendSync">, video: HTMLVideoElement, role: Role) {
+  constructor(
+    signaling: SyncTransport,
+    video: HTMLVideoElement,
+    role: Role,
+    syncToleranceSeconds = DEFAULT_SYNC_TOLERANCE_SECONDS,
+  ) {
     this.signaling = signaling;
     this.video = video;
     this.role = role;
+    this.syncToleranceSeconds = this.normalizeTolerance(syncToleranceSeconds);
 
     if (this.role === "master") {
       this.bindMasterEvents();
+      this.startHeartbeat();
     }
   }
 
@@ -40,6 +56,7 @@ export class SyncService {
   }
 
   dispose(): void {
+    this.stopHeartbeat();
     for (const cleanup of this.cleanups) {
       cleanup();
     }
@@ -49,11 +66,28 @@ export class SyncService {
     }
   }
 
+  setSyncToleranceSeconds(value: number): void {
+    this.syncToleranceSeconds = this.normalizeTolerance(value);
+  }
+
+  getSyncToleranceSeconds(): number {
+    return this.syncToleranceSeconds;
+  }
+
+  createSnapshot(): SyncMessage {
+    return {
+      action: "state",
+      position: this.video.currentTime,
+      server_ts: Date.now(),
+      is_playing: !this.video.paused,
+    };
+  }
+
   play(): void {
-    void this.video.play();
+    void this.video.play().catch(() => undefined);
     if (this.role === "master") {
       this.suppressNextEventSync.play = true;
-      this.sendMasterSync("play", this.video.currentTime);
+      this.sendMasterSync("play", this.video.currentTime, true);
     }
   }
 
@@ -61,7 +95,7 @@ export class SyncService {
     this.video.pause();
     if (this.role === "master") {
       this.suppressNextEventSync.pause = true;
-      this.sendMasterSync("pause", this.video.currentTime);
+      this.sendMasterSync("pause", this.video.currentTime, false);
     }
   }
 
@@ -69,7 +103,7 @@ export class SyncService {
     this.video.currentTime = timestamp;
     if (this.role === "master") {
       this.suppressNextEventSync.seeked = true;
-      this.sendMasterSync("seek", timestamp);
+      this.sendMasterSync("seek", timestamp, !this.video.paused);
     }
   }
 
@@ -84,21 +118,46 @@ export class SyncService {
 
     const latencySeconds = Math.max((Date.now() - message.server_ts) / 1000, 0);
     const compensatedPosition = message.position + latencySeconds;
+    const shouldAlign = Math.abs(this.video.currentTime - compensatedPosition) > this.syncToleranceSeconds;
+    const desiredPlayState =
+      message.is_playing ??
+      (message.action === "play" || message.action === "seek" || message.action === "state");
+    const isPaused = this.video.paused;
+
+    if (shouldAlign) {
+      this.video.currentTime = compensatedPosition;
+    }
 
     switch (message.action) {
       case "play":
-        this.video.currentTime = compensatedPosition;
-        void this.video.play();
+        if (desiredPlayState && isPaused) {
+          void this.video.play().catch(() => undefined);
+        } else if (!desiredPlayState && !isPaused) {
+          this.video.pause();
+        }
         this.emit("sync_play", message);
         break;
       case "pause":
-        this.video.currentTime = compensatedPosition;
-        this.video.pause();
+        if (!isPaused) {
+          this.video.pause();
+        }
         this.emit("sync_pause", message);
         break;
       case "seek":
-        this.video.currentTime = compensatedPosition;
+        if (desiredPlayState && isPaused) {
+          void this.video.play().catch(() => undefined);
+        } else if (!desiredPlayState && !isPaused) {
+          this.video.pause();
+        }
         this.emit("sync_seek", message);
+        break;
+      case "state":
+        if (desiredPlayState && isPaused) {
+          void this.video.play().catch(() => undefined);
+        } else if (!desiredPlayState && !isPaused) {
+          this.video.pause();
+        }
+        this.emit("sync_state", message);
         break;
     }
   }
@@ -109,21 +168,21 @@ export class SyncService {
         this.suppressNextEventSync.play = false;
         return;
       }
-      this.sendMasterSync("play", this.video.currentTime);
+      this.sendMasterSync("play", this.video.currentTime, true);
     };
     const onPause = () => {
       if (this.suppressNextEventSync.pause) {
         this.suppressNextEventSync.pause = false;
         return;
       }
-      this.sendMasterSync("pause", this.video.currentTime);
+      this.sendMasterSync("pause", this.video.currentTime, false);
     };
     const onSeeked = () => {
       if (this.suppressNextEventSync.seeked) {
         this.suppressNextEventSync.seeked = false;
         return;
       }
-      this.sendMasterSync("seek", this.video.currentTime);
+      this.sendMasterSync("seek", this.video.currentTime, !this.video.paused);
     };
 
     this.video.addEventListener("play", onPlay);
@@ -136,13 +195,40 @@ export class SyncService {
     );
   }
 
-  private sendMasterSync(action: SyncMessage["action"], position: number): void {
-    this.signaling.sendSync(action, position);
-    this.emit("outbound_sync", {
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = globalThis.setInterval(() => {
+      if (this.role !== "master" || this.video.paused) {
+        return;
+      }
+
+      this.sendMasterSync("state", this.video.currentTime, true);
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      globalThis.clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private sendMasterSync(action: SyncMessage["action"], position: number, isPlaying: boolean): void {
+    const message: SyncMessage = {
       action,
       position,
       server_ts: Date.now(),
-    });
+      is_playing: isPlaying,
+    };
+    this.signaling.sendSync(message);
+    this.emit("outbound_sync", message);
+  }
+
+  private normalizeTolerance(value: number): number {
+    if (!Number.isFinite(value) || value < 0) {
+      return DEFAULT_SYNC_TOLERANCE_SECONDS;
+    }
+    return value;
   }
 
   private emit<K extends EventKey>(event: K, ...args: Parameters<SyncEvents[K]>) {

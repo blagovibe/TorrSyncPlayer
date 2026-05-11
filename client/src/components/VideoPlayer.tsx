@@ -15,6 +15,7 @@ interface VideoPlayerProps {
   mediaLabel?: string | null;
   mediaKind?: "video" | "audio" | null;
   statusMessage?: string | null;
+  canControlPlayback?: boolean;
   onPlaybackStart?: () => void;
 }
 
@@ -43,6 +44,7 @@ function VideoPlayer({
   mediaLabel,
   mediaKind,
   statusMessage,
+  canControlPlayback = true,
   onPlaybackStart,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -84,6 +86,10 @@ function VideoPlayer({
   }, []);
 
   const togglePlay = useCallback(async () => {
+    if (!canControlPlayback) {
+      return;
+    }
+
     const video = videoRef.current;
     if (!video) {
       return;
@@ -95,7 +101,7 @@ function VideoPlayer({
       video.pause();
       setIsPlaying(false);
     }
-  }, [videoRef]);
+  }, [canControlPlayback, videoRef]);
 
   const syncAudioTracks = useCallback(() => {
     const video = videoRef.current;
@@ -148,6 +154,10 @@ function VideoPlayer({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!canControlPlayback) {
+        return;
+      }
+
       const video = videoRef.current;
       if (!video) {
         return;
@@ -174,7 +184,7 @@ function VideoPlayer({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [togglePlay, videoRef]);
+  }, [canControlPlayback, togglePlay, videoRef]);
 
   useEffect(() => {
     setAudioTracks([]);
@@ -193,12 +203,16 @@ function VideoPlayer({
           <p className="placeholder-copy">Video and audio files will appear in the library below.</p>
         </div>
       )}
-      <video
+        <video
         ref={videoRef as RefObject<HTMLVideoElement>}
         className="video-element"
         preload="auto"
         playsInline
-        onClick={() => void togglePlay()}
+        onClick={() => {
+          if (canControlPlayback) {
+            void togglePlay();
+          }
+        }}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => {
           setDuration(event.currentTarget.duration);
@@ -221,7 +235,7 @@ function VideoPlayer({
       )}
 
       {hasSelectedMedia && (
-        <div className="audio-track-panel">
+          <div className="audio-track-panel">
           <div className="audio-track-panel-header">
             <span className="audio-track-title">Internal audio tracks</span>
             <span className="audio-track-status">
@@ -242,6 +256,7 @@ function VideoPlayer({
                     type="button"
                     className={`audio-track-button ${selectedAudioTrackId === track.id ? "active" : ""}`}
                     onClick={() => activateAudioTrack(track.id)}
+                    disabled={!canControlPlayback}
                   >
                     <span className="audio-track-name">{track.label}</span>
                     <span className="audio-track-meta">
@@ -271,7 +286,7 @@ function VideoPlayer({
       )}
 
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
-        <button type="button" onClick={() => void togglePlay()}>
+        <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>
           {isPlaying ? "Pause" : "Play"}
         </button>
 
@@ -281,7 +296,11 @@ function VideoPlayer({
           max={duration || 0}
           step={0.1}
           value={currentTime}
+          disabled={!canControlPlayback}
           onChange={(event) => {
+            if (!canControlPlayback) {
+              return;
+            }
             const value = Number(event.target.value);
             setCurrentTime(value);
             if (videoRef.current) {
@@ -312,7 +331,11 @@ function VideoPlayer({
 
         <button
           type="button"
+          disabled={!canControlPlayback}
           onClick={() => {
+            if (!canControlPlayback) {
+              return;
+            }
             const video = videoRef.current;
             if (!video) {
               return;

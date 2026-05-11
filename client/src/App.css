@@ -99,6 +99,12 @@ body {
   min-height: 42px;
 }
 
+.file-picker.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .file-picker input {
   position: absolute;
   inset: 0;
@@ -175,6 +181,49 @@ button:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.room-controls-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.room-controls-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.room-role-badge {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.room-role-badge.host {
+  background: rgba(233, 69, 96, 0.22);
+  color: #ffb2c0;
+}
+
+.room-role-badge.guest {
+  background: rgba(78, 133, 255, 0.2);
+  color: #a9cbff;
+}
+
+.sync-tolerance-row {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.sync-tolerance-row input {
+  max-width: 220px;
 }
 
 .room-code-block {
