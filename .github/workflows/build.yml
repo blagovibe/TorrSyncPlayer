@@ -49,9 +49,9 @@ jobs:
             bundle_target: appimage
             artifact_path: client/src-tauri/target/release/bundle/appimage/*.AppImage
           - os: windows-latest
-            artifact_name: TorrSyncPlayer-EXE
-            bundle_target: nsis
-            artifact_path: client/src-tauri/target/release/bundle/nsis/*.exe
+            artifact_name: TorrSyncPlayer-Portable-EXE
+            bundle_target: app
+            artifact_path: client/src-tauri/target/release/bundle/app/*.exe
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -117,10 +117,10 @@ jobs:
           name: TorrSyncPlayer-AppImage
           path: artifacts/linux
 
-      - name: Download EXE artifact
+      - name: Download portable EXE artifact
         uses: actions/download-artifact@v4
         with:
-          name: TorrSyncPlayer-EXE
+          name: TorrSyncPlayer-Portable-EXE
           path: artifacts/windows
 
       - name: Publish GitHub release assets
