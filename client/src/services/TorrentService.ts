@@ -208,7 +208,7 @@ export class TorrentService {
 
   private async getClient(): Promise<TorrentClient> {
     if (!this.client) {
-      const { default: WebTorrent } = await import("webtorrent/dist/webtorrent.min.js");
+      const { default: WebTorrent } = await import("webtorrent");
       this.client = new WebTorrent() as TorrentClient;
     }
     return this.client;

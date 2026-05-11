@@ -9,7 +9,7 @@ const { addMock, destroyMock } = vi.hoisted(() => ({
   destroyMock: vi.fn(),
 }));
 
-vi.mock("webtorrent/dist/webtorrent.min.js", () => ({
+vi.mock("webtorrent", () => ({
   default: vi.fn(() => ({
     add: addMock,
     destroy: destroyMock,
