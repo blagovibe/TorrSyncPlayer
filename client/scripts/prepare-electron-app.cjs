@@ -20,7 +20,7 @@ fs.cpSync(path.join(projectDir, "electron"), path.join(stageDir, "electron"), { 
 fs.mkdirSync(path.join(stageDir, "node_modules"));
 fs.writeFileSync(
   path.join(stageDir, "electron-builder.before-build.cjs"),
-  "exports.default = async function beforeBuild() { return false; };\n",
+  "module.exports = async function beforeBuild() { return false; };\n",
 );
 
 const stagedPackage = {

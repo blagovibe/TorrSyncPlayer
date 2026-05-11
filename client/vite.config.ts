@@ -18,6 +18,7 @@ export default defineConfig(async () => ({
       events: "events/",
       path: "path-browserify",
       crypto: "crypto-browserify",
+      randomfill: fileURLToPath(new URL("./src/shims/randomfill.ts", import.meta.url)),
       stream: "stream-browserify",
       buffer: "buffer/",
       process: "process/browser",

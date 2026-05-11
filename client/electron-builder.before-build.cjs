@@ -1,3 +1,3 @@
-exports.default = async function beforeBuild() {
+module.exports = async function beforeBuild() {
   return false;
 };
