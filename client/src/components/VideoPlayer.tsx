@@ -215,7 +215,7 @@ function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: Vide
               {audioTracksSupported
                 ? audioTracks.length > 0
                   ? `${audioTracks.length} available`
-                  : "Waiting for metadata"
+                  : "Waiting for media metadata"
                 : "Not exposed by this runtime"}
             </span>
           </div>
@@ -239,7 +239,7 @@ function VideoPlayer({ videoRef: externalVideoRef, mediaLabel, mediaKind }: Vide
               </div>
             ) : (
               <p className="audio-track-empty">
-                No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for metadata.
+                No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.
               </p>
             )
           ) : (

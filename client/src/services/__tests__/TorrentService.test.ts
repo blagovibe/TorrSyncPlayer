@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TorrentService } from "../TorrentService";
 
-type TorrentEvent = "download" | "ready" | "error";
-type TorrentCallback = (error?: Error) => void | Promise<void>;
+type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers";
+type TorrentCallback = (...args: unknown[]) => void | Promise<void>;
 
 const { addMock, createServerMock, destroyMock } = vi.hoisted(() => ({
   addMock: vi.fn(),
@@ -30,11 +30,15 @@ function createTorrent(
     })),
     progress: 0.35,
     downloadSpeed: 2048,
+    numPeers: 0,
     on: vi.fn((event: TorrentEvent, callback: TorrentCallback) => {
       listeners.set(event, callback);
     }),
-    emit: async (event: TorrentEvent, error?: Error) => {
-      await listeners.get(event)?.(error);
+    emit: async (event: TorrentEvent, ...args: unknown[]) => {
+      if (event === "wire") {
+        torrent.numPeers += 1;
+      }
+      await listeners.get(event)?.(...args);
     },
   };
 
@@ -47,26 +51,39 @@ describe("TorrentService", () => {
     vi.unstubAllGlobals();
   });
 
-  it("emits progress and resolves with the first supported video file when ready", async () => {
+  it("emits progress and resolves with the first supported video file when metadata is ready", async () => {
     const torrent = createTorrent([{ name: "notes.txt" }, { name: "Movie.MP4" }]);
     addMock.mockReturnValue(torrent);
     const service = new TorrentService();
     const progress = vi.fn();
     const speed = vi.fn();
+    const metadata = vi.fn();
     const ready = vi.fn();
+    const peerCount = vi.fn();
 
     service.on("progress", progress);
     service.on("speed", speed);
+    service.on("metadata", metadata);
     service.on("ready", ready);
+    service.on("peerCount", peerCount);
 
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
     await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
+    await torrent.emit("metadata");
     await torrent.emit("download");
+    await torrent.emit("wire");
     await torrent.emit("ready");
 
     await expect(result).resolves.toBe(torrent);
     expect(progress).toHaveBeenCalledWith(0.35);
     expect(speed).toHaveBeenCalledWith(2048);
+    expect(metadata).toHaveBeenCalledWith(
+      torrent,
+      expect.objectContaining({
+        name: "Movie.MP4",
+        kind: "video",
+      }),
+    );
     expect(ready).toHaveBeenCalledWith(
       torrent,
       expect.objectContaining({
@@ -74,6 +91,8 @@ describe("TorrentService", () => {
         kind: "video",
       }),
     );
+    expect(peerCount).toHaveBeenCalledWith(0);
+    expect(peerCount).toHaveBeenCalledWith(1);
   });
 
   it("returns playable video and audio files in priority order", () => {
@@ -96,7 +115,7 @@ describe("TorrentService", () => {
     expect(service.getPreferredMediaFile(torrent)).toEqual(expect.objectContaining({ name: "clip.webm" }));
   });
 
-  it("rejects and emits an error when a ready torrent has no supported media file", async () => {
+  it("rejects and emits an error when a metadata-ready torrent has no supported media file", async () => {
     const torrent = createTorrent([{ name: "archive.zip" }]);
     addMock.mockReturnValue(torrent);
     const service = new TorrentService();
@@ -105,7 +124,7 @@ describe("TorrentService", () => {
 
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
     await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
-    await torrent.emit("ready");
+    await torrent.emit("metadata");
 
     await expect(result).rejects.toThrow("No supported video or audio file found in torrent");
     expect(error).toHaveBeenCalledWith(
@@ -126,6 +145,24 @@ describe("TorrentService", () => {
 
     await expect(result).rejects.toThrow("tracker failed");
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: "tracker failed" }));
+  });
+
+  it("emits peer counts when new wires appear", async () => {
+    const torrent = createTorrent([{ name: "movie.webm" }]);
+    addMock.mockReturnValue(torrent);
+    const service = new TorrentService();
+    const peerCount = vi.fn();
+
+    service.on("peerCount", peerCount);
+
+    const result = service.addMagnet("magnet:?xt=urn:btih:test");
+    await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
+    await torrent.emit("metadata");
+    await torrent.emit("wire");
+
+    await expect(result).resolves.toBe(torrent);
+    expect(peerCount).toHaveBeenCalledWith(0);
+    expect(peerCount).toHaveBeenCalledWith(1);
   });
 
   it("streams selected files without creating the torrent client", async () => {
@@ -206,7 +243,7 @@ describe("TorrentService", () => {
     await vi.waitFor(() =>
       expect(addMock).toHaveBeenCalledWith(expect.any(Uint8Array)),
     );
-    await torrent.emit("ready");
+    await torrent.emit("metadata");
 
     await expect(result).resolves.toBe(torrent);
   });

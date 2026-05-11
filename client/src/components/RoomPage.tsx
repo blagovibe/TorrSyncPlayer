@@ -17,6 +17,7 @@ interface RoomPageProps {
   selectedMediaIndex: number | null;
   selectedMediaLabel: string | null;
   selectedMediaKind: TorrentMediaFile["kind"] | null;
+  torrentPeerCount: number;
   onMagnetLinkChange: (value: string) => void;
   onTorrentFileChange: (file: File | null) => void;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -41,6 +42,7 @@ function RoomPage({
   selectedMediaIndex,
   selectedMediaLabel,
   selectedMediaKind,
+  torrentPeerCount,
   onMagnetLinkChange,
   onTorrentFileChange,
   videoRef,
@@ -86,7 +88,7 @@ function RoomPage({
             />
             <div className="torrent-actions">
               <button type="button" onClick={onLoadMagnet} disabled={isLoadingTorrent || !magnetLink.trim()}>
-                {isLoadingTorrent ? "Loading..." : "Load Magnet"}
+                {isLoadingTorrent ? "Loading metadata..." : "Load Magnet"}
               </button>
               <label className="file-picker">
                 <input
@@ -102,9 +104,14 @@ function RoomPage({
                 {torrentFileName ? `Selected file: ${torrentFileName}` : "No torrent file selected"}
               </span>
               <button type="button" onClick={onLoadTorrentFile} disabled={isLoadingTorrent || !torrentFileName}>
-                Load File
+                {isLoadingTorrent ? "Loading metadata..." : "Load File"}
               </button>
             </div>
+            {isLoadingTorrent && (
+              <p className="hint">
+                Fetching torrent metadata and swarm peer count...
+              </p>
+            )}
             {torrentError && <p className="error-text">{torrentError}</p>}
           </div>
 
@@ -155,23 +162,23 @@ function RoomPage({
             )}
           </div>
         </div>
-        <RoomInfo
-          peerId={peerId}
-          peerRole={peerRole}
-          peers={peers}
-          isConnected={isConnected}
-          onLeaveRoom={onLeaveRoom}
-          onCopyPeerId={copyPeerId}
-          copied={copied}
-        />
+      <RoomInfo
+        peerId={peerId}
+        peerRole={peerRole}
+        peers={peers}
+        isConnected={isConnected}
+        onLeaveRoom={onLeaveRoom}
+        onCopyPeerId={copyPeerId}
+        copied={copied}
+      />
       </div>
       <StatusBar
         isConnected={isConnected}
-        peerCount={peers.length}
+        torrentPeerCount={torrentPeerCount}
         downloadSpeed={downloadSpeed}
         bufferingProgress={bufferingProgress}
       />
-    </section>
+      </section>
   );
 }
 

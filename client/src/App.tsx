@@ -53,6 +53,7 @@ function App() {
   const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null);
   const [selectedMediaLabel, setSelectedMediaLabel] = useState<string | null>(null);
   const [selectedMediaKind, setSelectedMediaKind] = useState<TorrentMediaFile["kind"] | null>(null);
+  const [torrentPeerCount, setTorrentPeerCount] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -74,6 +75,7 @@ function App() {
     setSelectedMediaIndex(null);
     setSelectedMediaLabel(null);
     setSelectedMediaKind(null);
+    setTorrentPeerCount(0);
   };
 
   const playMediaFile = async (mediaFile: TorrentMediaFile) => {
@@ -101,6 +103,7 @@ function App() {
     setSelectedMediaIndex(null);
     setSelectedMediaLabel(null);
     setSelectedMediaKind(null);
+    setTorrentPeerCount(0);
 
     try {
       const torrent = (await loader()) as Awaited<ReturnType<typeof torrentService.addMagnet>>;
@@ -113,7 +116,6 @@ function App() {
 
       const preferredMediaFile = torrentService.getPreferredMediaFile(torrent);
       await playMediaFile(preferredMediaFile);
-      setTorrentProgress(100);
       setIsLoadingTorrent(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load torrent";
@@ -313,15 +315,15 @@ function App() {
       setDownloadSpeed(formatSpeed(speed));
     });
 
-    const offTorrentReady = torrentService.on("ready", () => {
-      setTorrentProgress(100);
+    const offTorrentPeerCount = torrentService.on("peerCount", (peerCount) => {
+      setTorrentPeerCount(peerCount);
     });
 
     return () => {
       offTorrentError();
       offTorrentProgress();
       offTorrentSpeed();
-      offTorrentReady();
+      offTorrentPeerCount();
       torrentService.destroy();
     };
   }, [torrentService]);
@@ -373,6 +375,7 @@ function App() {
           selectedMediaIndex={selectedMediaIndex}
           selectedMediaLabel={selectedMediaLabel}
           selectedMediaKind={selectedMediaKind}
+          torrentPeerCount={torrentPeerCount}
           onMagnetLinkChange={setMagnetLink}
           onTorrentFileChange={setTorrentFile}
           videoRef={videoRef}

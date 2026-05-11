@@ -20,13 +20,19 @@ interface TorrentInstance {
   files: TorrentFile[];
   progress: number;
   downloadSpeed: number;
-  on: (event: "download" | "ready" | "error", callback: (error?: Error) => void) => void;
+  numPeers: number;
+  on: (
+    event: "download" | "metadata" | "ready" | "error" | "wire" | "noPeers",
+    callback: (...args: any[]) => void,
+  ) => void;
   destroy?: (callback?: (error?: Error) => void) => void;
 }
 
 type TorrentEvents = {
   progress: (progress: number) => void;
   speed: (bytesPerSecond: number) => void;
+  peerCount: (peerCount: number) => void;
+  metadata: (torrent: TorrentInstance, mediaFile: TorrentMediaFile) => void;
   ready: (torrent: TorrentInstance, mediaFile: TorrentMediaFile) => void;
   error: (error: Error) => void;
 };
@@ -93,6 +99,8 @@ export class TorrentService {
   private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
     speed: new Set(),
+    peerCount: new Set(),
+    metadata: new Set(),
     ready: new Set(),
     error: new Set(),
   };
@@ -156,28 +164,78 @@ export class TorrentService {
     return new Promise<TorrentInstance>((resolve, reject) => {
       const torrent = client.add(torrentSource);
       this.activeTorrent = torrent;
+      let isResolved = false;
+      let isRejected = false;
+
+      const emitPeerCount = () => {
+        this.emit("peerCount", torrent.numPeers ?? 0);
+      };
+
+      const settleResolve = () => {
+        if (isResolved || isRejected) {
+          return;
+        }
+        isResolved = true;
+        resolve(torrent);
+      };
+
+      const settleReject = (error: Error) => {
+        if (isResolved || isRejected) {
+          return;
+        }
+        isRejected = true;
+        reject(error);
+      };
 
       torrent.on("download", () => {
         this.emit("progress", torrent.progress);
         this.emit("speed", torrent.downloadSpeed);
+        emitPeerCount();
       });
 
-      torrent.on("ready", async () => {
+      torrent.on("wire", (wire: { on?: (event: string, callback: () => void) => void }) => {
+        emitPeerCount();
+        wire?.on?.("close", emitPeerCount);
+      });
+      torrent.on("noPeers", emitPeerCount);
+
+      torrent.on("metadata", () => {
         try {
           const videoFile = this.getPreferredMediaFile(torrent);
-          this.emit("ready", torrent, videoFile);
-          resolve(torrent);
+          this.emit("metadata", torrent, videoFile);
+          this.emit("progress", torrent.progress);
+          this.emit("speed", torrent.downloadSpeed);
+          emitPeerCount();
+          settleResolve();
         } catch (error) {
           const normalized = this.normalizeError(error);
           this.emit("error", normalized);
-          reject(normalized);
+          settleReject(normalized);
+        }
+      });
+
+      torrent.on("ready", async () => {
+        if (isRejected) {
+          return;
+        }
+        try {
+          const videoFile = this.getPreferredMediaFile(torrent);
+          this.emit("ready", torrent, videoFile);
+          this.emit("progress", torrent.progress);
+          this.emit("speed", torrent.downloadSpeed);
+          emitPeerCount();
+          settleResolve();
+        } catch (error) {
+          const normalized = this.normalizeError(error);
+          this.emit("error", normalized);
+          settleReject(normalized);
         }
       });
 
       torrent.on("error", (error?: Error) => {
         const normalized = this.normalizeError(error);
         this.emit("error", normalized);
-        reject(normalized);
+        settleReject(normalized);
       });
     });
   }

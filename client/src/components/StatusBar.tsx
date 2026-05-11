@@ -1,13 +1,13 @@
 interface StatusBarProps {
   isConnected: boolean;
-  peerCount: number;
+  torrentPeerCount: number;
   downloadSpeed: string;
   bufferingProgress: number;
 }
 
 function StatusBar({
   isConnected,
-  peerCount,
+  torrentPeerCount,
   downloadSpeed,
   bufferingProgress,
 }: StatusBarProps) {
@@ -19,7 +19,7 @@ function StatusBar({
           {isConnected ? "connected" : "disconnected"}
         </strong>
       </span>
-      <span>Peers: {peerCount}</span>
+      <span>Torrent peers: {torrentPeerCount}</span>
       <span>Speed: {downloadSpeed}</span>
       <span>Buffer: {bufferingProgress}%</span>
       <div className="buffer-bar" aria-hidden>
