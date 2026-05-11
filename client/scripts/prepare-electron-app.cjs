@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 
 const projectDir = path.resolve(__dirname, "..");
@@ -17,16 +18,14 @@ fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
 fs.cpSync(path.join(projectDir, "dist"), path.join(stageDir, "dist"), { recursive: true });
 fs.cpSync(path.join(projectDir, "electron"), path.join(stageDir, "electron"), { recursive: true });
-fs.mkdirSync(path.join(stageDir, "node_modules"));
+fs.cpSync(path.join(projectDir, "package-lock.json"), path.join(stageDir, "package-lock.json"));
 fs.writeFileSync(
   path.join(stageDir, "electron-builder.before-build.cjs"),
   "module.exports = async function beforeBuild() { return false; };\n",
 );
 
 const stagedPackage = {
-  name: sourcePackage.name,
-  version: sourcePackage.version,
-  description: sourcePackage.description,
+  ...sourcePackage,
   private: true,
   main: "electron/main.cjs",
   build: {
@@ -58,3 +57,8 @@ const stagedPackage = {
 };
 
 fs.writeFileSync(path.join(stageDir, "package.json"), `${JSON.stringify(stagedPackage, null, 2)}\n`);
+
+execFileSync("npm", ["ci", "--omit=dev", "--no-audit", "--fund=false"], {
+  cwd: stageDir,
+  stdio: "inherit",
+});
