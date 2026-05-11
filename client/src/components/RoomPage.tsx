@@ -127,12 +127,15 @@ function RoomPage({
               >
                 {isLoadingTorrent ? "Loading metadata..." : "Load Magnet"}
               </button>
-              <label className={`file-picker ${canControlTorrent ? "" : "disabled"}`}>
+              <label className={`file-picker ${canControlTorrent && !isLoadingTorrent ? "" : "disabled"}`}>
                 <input
                   type="file"
                   accept=".torrent,application/x-bittorrent"
-                  onChange={(event) => onTorrentFileChange(event.target.files?.[0] ?? null)}
-                  disabled={!canControlTorrent}
+                  onChange={(event) => {
+                    onTorrentFileChange(event.target.files?.[0] ?? null);
+                    event.currentTarget.value = "";
+                  }}
+                  disabled={!canControlTorrent || isLoadingTorrent}
                 />
                 <span>Choose .torrent</span>
               </label>

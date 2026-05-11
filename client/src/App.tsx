@@ -231,6 +231,25 @@ function App() {
     }
   };
 
+  const loadTorrentFile = async (file: File) => {
+    if (peerRole !== "master" || !videoRef.current) {
+      return;
+    }
+
+    try {
+      const torrentBytes = new Uint8Array(await file.arrayBuffer());
+      setMagnetLink("");
+      requestTorrentLoad({
+        source: createTorrentFileSource(file.name, torrentBytes),
+        selectedMediaIndex: null,
+        autoplay: true,
+        broadcast: true,
+      });
+    } catch (error) {
+      console.error("Torrent file load failed:", error);
+    }
+  };
+
   const loadTorrentRequest = async (request: TorrentLoadRequest) => {
     if (!videoRef.current) {
       throw new Error("Media player is not ready");
@@ -242,6 +261,12 @@ function App() {
     if (currentSource?.sourceKey === request.source.sourceKey) {
       const desiredIndex =
         request.selectedMediaIndex !== null ? request.selectedMediaIndex : currentSelectedIndex;
+      const currentMediaFile =
+        selectedMediaFileRef.current ??
+        (currentSelectedIndex !== null
+          ? mediaFiles.find((file) => file.index === currentSelectedIndex) ?? null
+          : null);
+
       if (desiredIndex !== null && desiredIndex !== currentSelectedIndex) {
         const nextMediaFile = mediaFiles.find((file) => file.index === desiredIndex);
         if (!nextMediaFile) {
@@ -249,10 +274,12 @@ function App() {
         }
 
         await playMediaFile(nextMediaFile, request.autoplay);
+      } else if (request.autoplay && currentMediaFile && videoRef.current?.paused) {
+        await playMediaFile(currentMediaFile, true);
+      }
 
-        if (request.broadcast && peerRole === "master") {
-          broadcastCurrentRoomState();
-        }
+      if (request.broadcast && peerRole === "master") {
+        broadcastCurrentRoomState();
       }
 
       tryApplyPendingRemoteSync();
@@ -538,22 +565,21 @@ function App() {
     });
   };
 
-  const handleLoadTorrentFile = async () => {
-    if (peerRole !== "master" || !torrentFile || !videoRef.current) {
+  const handleTorrentFileChange = (file: File | null) => {
+    setTorrentFile(file);
+    if (!file) {
       return;
     }
 
-    try {
-      const torrentBytes = new Uint8Array(await torrentFile.arrayBuffer());
-      requestTorrentLoad({
-        source: createTorrentFileSource(torrentFile.name, torrentBytes),
-        selectedMediaIndex: null,
-        autoplay: true,
-        broadcast: true,
-      });
-    } catch (error) {
-      console.error("Torrent file load failed:", error);
+    void loadTorrentFile(file);
+  };
+
+  const handleLoadTorrentFile = async () => {
+    if (!torrentFile) {
+      return;
     }
+
+    await loadTorrentFile(torrentFile);
   };
 
   const handleSelectMediaFile = (mediaFile: TorrentMediaFile) => {
@@ -714,7 +740,7 @@ function App() {
           syncToleranceSeconds={syncToleranceSeconds}
           onSyncToleranceChange={handleSyncToleranceChange}
           onMagnetLinkChange={setMagnetLink}
-          onTorrentFileChange={setTorrentFile}
+          onTorrentFileChange={handleTorrentFileChange}
           videoRef={videoRef}
           playbackNotice={playbackNotice}
           onPlaybackStarted={() => setPlaybackNotice(null)}
