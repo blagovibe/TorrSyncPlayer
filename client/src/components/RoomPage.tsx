@@ -4,6 +4,7 @@ import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
 import type { TorrentMediaFile } from "../services/TorrentService";
+import type { AudioTrackInfo } from "../services/types";
 
 interface RoomPageProps {
   peerId: string;
@@ -18,6 +19,7 @@ interface RoomPageProps {
   selectedMediaIndex: number | null;
   selectedMediaLabel: string | null;
   selectedMediaKind: TorrentMediaFile["kind"] | null;
+  selectedMediaAudioTracks: AudioTrackInfo[];
   torrentPeerCount: number;
   syncToleranceSeconds: number;
   onSyncToleranceChange: (value: number) => void;
@@ -29,6 +31,7 @@ interface RoomPageProps {
   onPlaybackStarted: () => void;
   onPlayerReady: (ready: boolean) => void;
   onAudioTrackChange: (trackIndex: number | null) => void;
+  resolveFallbackAudioTrackSource: (trackIndex: number, startSeconds: number) => Promise<string | null>;
   onLoadMagnet: () => void;
   onLoadTorrentFile: () => void;
   onSelectMediaFile: (file: TorrentMediaFile) => void;
@@ -54,6 +57,7 @@ function RoomPage({
   selectedMediaIndex,
   selectedMediaLabel,
   selectedMediaKind,
+  selectedMediaAudioTracks,
   torrentPeerCount,
   syncToleranceSeconds,
   onSyncToleranceChange,
@@ -65,6 +69,7 @@ function RoomPage({
   onPlaybackStarted,
   onPlayerReady,
   onAudioTrackChange,
+  resolveFallbackAudioTrackSource,
   onLoadMagnet,
   onLoadTorrentFile,
   onSelectMediaFile,
@@ -100,9 +105,11 @@ function RoomPage({
             statusMessage={playbackNotice}
             canControlPlayback={canControlTorrent || playbackNotice !== null}
             canControlAudioTracks={canControlTorrent}
+            fallbackAudioTracks={selectedMediaAudioTracks}
             selectedAudioTrackIndex={selectedAudioTrackIndex}
             onPlaybackStart={onPlaybackStarted}
             onAudioTrackChange={onAudioTrackChange}
+            resolveFallbackAudioTrackSource={resolveFallbackAudioTrackSource}
             onPlayerReady={onPlayerReady}
           />
           <div className="panel">

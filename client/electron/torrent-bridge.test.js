@@ -110,6 +110,83 @@ describe("torrent bridge", () => {
     );
   });
 
+  it("parses audio track metadata from ffprobe output", async () => {
+    const bridge = new TorrentBridge();
+    const runFfprobe = vi.spyOn(bridge, "runFfprobe").mockResolvedValue({
+      stdout: JSON.stringify({
+        streams: [
+          {
+            codec_name: "aac",
+            codec_long_name: "AAC (Advanced Audio Coding)",
+            channels: 2,
+            sample_rate: "48000",
+            tags: {
+              language: "eng",
+              title: "English Stereo",
+            },
+          },
+          {
+            codec_name: "opus",
+            codec_long_name: "Opus",
+            channels: 6,
+            sample_rate: "48000",
+            tags: {
+              language: "jpn",
+            },
+          },
+        ],
+      }),
+      stderr: "",
+    });
+
+    const tracks = await bridge.probeAudioTracks("http://127.0.0.1:4321/webtorrent/hash-1/movie.mkv");
+
+    expect(runFfprobe).toHaveBeenCalledWith("http://127.0.0.1:4321/webtorrent/hash-1/movie.mkv");
+    expect(tracks).toEqual([
+      {
+        index: 0,
+        label: "English Stereo",
+        language: "eng",
+        codecName: "aac",
+        channels: 2,
+        sampleRate: 48000,
+      },
+      {
+        index: 1,
+        label: "Opus",
+        language: "jpn",
+        codecName: "opus",
+        channels: 6,
+        sampleRate: 48000,
+      },
+    ]);
+  });
+
+  it("creates a reusable temporary stream URL for fallback audio", async () => {
+    const bridge = new TorrentBridge();
+    const ensureAudioServer = vi.spyOn(bridge, "ensureAudioServer").mockResolvedValue("http://127.0.0.1:9999");
+
+    const url = await bridge.createAudioTrackStreamUrl({
+      streamUrl: "http://127.0.0.1:4321/webtorrent/hash-1/movie.mkv",
+      trackIndex: 1,
+      startSeconds: 12.5,
+    });
+
+    expect(ensureAudioServer).toHaveBeenCalledOnce();
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:9999\/audio\/[a-z0-9-]+$/);
+    expect(bridge.audioSessions.size).toBe(1);
+
+    const [session] = [...bridge.audioSessions.values()];
+    expect(session).toEqual(
+      expect.objectContaining({
+        streamUrl: "http://127.0.0.1:4321/webtorrent/hash-1/movie.mkv",
+        trackIndex: 1,
+        startSeconds: 12.5,
+        process: null,
+      }),
+    );
+  });
+
   it("reuses the same server for subsequent torrent loads", async () => {
     const bridge = new TorrentBridge();
     const client = createFakeClient();

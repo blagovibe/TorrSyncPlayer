@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import HomePage from "./components/HomePage";
 import RoomPage from "./components/RoomPage";
 import P2PService from "./services/P2PService";
 import SyncService from "./services/SyncService";
 import TorrentService, { type TorrentMediaFile } from "./services/TorrentService";
-import { type SharedTorrentSource, type SyncMessage } from "./services/types";
+import { type AudioTrackInfo, type SharedTorrentSource, type SyncMessage } from "./services/types";
 
 import "./App.css";
 
@@ -111,6 +111,7 @@ function App() {
   const [selectedMediaLabel, setSelectedMediaLabel] = useState<string | null>(null);
   const [selectedMediaKind, setSelectedMediaKind] = useState<TorrentMediaFile["kind"] | null>(null);
   const [selectedMediaFile, setSelectedMediaFile] = useState<TorrentMediaFile | null>(null);
+  const [selectedMediaAudioTracks, setSelectedMediaAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioTrackIndex, setSelectedAudioTrackIndex] = useState<number | null>(null);
   const [torrentPeerCount, setTorrentPeerCount] = useState(0);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
@@ -147,6 +148,7 @@ function App() {
     setSelectedMediaLabel(null);
     setSelectedMediaKind(null);
     setSelectedMediaFile(null);
+    setSelectedMediaAudioTracks([]);
     setSelectedAudioTrackIndex(null);
     setTorrentPeerCount(0);
     setPlaybackNotice(null);
@@ -249,13 +251,19 @@ function App() {
     }
 
     await torrentService.streamToMedia(mediaFile.file, mediaElement);
+    selectedMediaFileRef.current = mediaFile;
+    setSelectedMediaAudioTracks([]);
+    void torrentService.probeAudioTracks(mediaFile.file).then((audioTracks) => {
+      if (selectedMediaFileRef.current === mediaFile) {
+        setSelectedMediaAudioTracks(audioTracks);
+      }
+    });
     mediaElement.defaultMuted = false;
     mediaElement.muted = false;
     if (mediaElement.volume <= 0) {
       mediaElement.volume = 1;
     }
     setSelectedMediaFile(mediaFile);
-    selectedMediaFileRef.current = mediaFile;
     setSelectedMediaIndex(mediaFile.index);
     selectedMediaIndexRef.current = mediaFile.index;
     setSelectedMediaLabel(mediaFile.name);
@@ -345,6 +353,7 @@ function App() {
     setSelectedMediaLabel(null);
     setSelectedMediaKind(null);
     setSelectedMediaFile(null);
+    setSelectedMediaAudioTracks([]);
     setSelectedAudioTrackSelection(request.selectedAudioTrackIndex);
     selectedMediaIndexRef.current = null;
     selectedMediaFileRef.current = null;
@@ -661,6 +670,18 @@ function App() {
     });
   };
 
+  const resolveFallbackAudioTrackSource = useCallback(
+    async (trackIndex: number, startSeconds: number) => {
+      const mediaFile = selectedMediaFileRef.current;
+      if (!mediaFile) {
+        return null;
+      }
+
+      return torrentService.createAudioTrackStreamUrl(mediaFile.file, trackIndex, startSeconds);
+    },
+    [torrentService],
+  );
+
   const handleAudioTrackChange = (trackIndex: number | null) => {
     setSelectedAudioTrackSelection(trackIndex);
 
@@ -822,6 +843,7 @@ function App() {
           selectedMediaIndex={selectedMediaIndex}
           selectedMediaLabel={selectedMediaLabel}
           selectedMediaKind={selectedMediaKind}
+          selectedMediaAudioTracks={selectedMediaAudioTracks}
           selectedAudioTrackIndex={selectedAudioTrackIndex}
           torrentPeerCount={torrentPeerCount}
           syncToleranceSeconds={syncToleranceSeconds}
@@ -832,6 +854,7 @@ function App() {
           playbackNotice={playbackNotice}
           onPlaybackStarted={() => setPlaybackNotice(null)}
           onAudioTrackChange={handleAudioTrackChange}
+          resolveFallbackAudioTrackSource={resolveFallbackAudioTrackSource}
           onPlayerReady={(ready) => {
             isPlayerReadyRef.current = ready;
             setIsPlayerReady(ready);

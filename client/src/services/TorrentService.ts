@@ -1,3 +1,5 @@
+import type { AudioTrackInfo } from "./types";
+
 type MediaKind = "video" | "audio";
 
 interface TorrentFile {
@@ -49,6 +51,12 @@ type ElectronTorrentBackend = {
   addTorrentFile: (torrentFile: Uint8Array) => Promise<TorrentInstance>;
   getStats: () => Promise<TorrentInstance | null>;
   clear: () => Promise<void>;
+  probeAudioTracks?: (streamUrl: string) => Promise<AudioTrackInfo[]>;
+  createAudioTrackStreamUrl?: (params: {
+    streamUrl: string;
+    trackIndex: number;
+    startSeconds: number;
+  }) => Promise<string>;
 };
 
 type WindowWithElectronTorrent = Window & {
@@ -203,6 +211,40 @@ export class TorrentService {
     }
 
     return playableFiles[0];
+  }
+
+  async probeAudioTracks(file: TorrentFile): Promise<AudioTrackInfo[]> {
+    if (!this.electronBackend?.probeAudioTracks || !file.streamUrl) {
+      return [];
+    }
+
+    try {
+      return await this.electronBackend.probeAudioTracks(file.streamUrl);
+    } catch (error) {
+      console.warn("Audio track probe failed:", error);
+      return [];
+    }
+  }
+
+  async createAudioTrackStreamUrl(
+    file: TorrentFile,
+    trackIndex: number,
+    startSeconds: number,
+  ): Promise<string | null> {
+    if (!this.electronBackend?.createAudioTrackStreamUrl || !file.streamUrl) {
+      return null;
+    }
+
+    try {
+      return await this.electronBackend.createAudioTrackStreamUrl({
+        streamUrl: file.streamUrl,
+        trackIndex,
+        startSeconds,
+      });
+    } catch (error) {
+      console.warn("Audio track stream creation failed:", error);
+      return null;
+    }
   }
 
   private async addTorrentSource(torrentSource: TorrentSource): Promise<TorrentInstance> {

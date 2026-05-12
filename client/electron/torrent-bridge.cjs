@@ -1,3 +1,6 @@
+const http = require("node:http");
+const { spawn } = require("node:child_process");
+
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
   ".mkv",
@@ -23,6 +26,9 @@ const AUDIO_EXTENSIONS = new Set([
 const MAX_TORRENT_CONNECTIONS = 200;
 const TORRENT_SERVER_HOST = "127.0.0.1";
 const TORRENT_SERVER_PORT = 0;
+const AUDIO_SERVER_HOST = "127.0.0.1";
+const AUDIO_SERVER_PORT = 0;
+const AUDIO_SESSION_TTL_MS = 5 * 60 * 1000;
 
 function normalizePeerId(peerId) {
   if (peerId == null) {
@@ -105,6 +111,45 @@ function normalizeTorrentSource(torrentSource) {
   return torrentSource;
 }
 
+function createErrorFromSpawn(error, fallbackMessage) {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(fallbackMessage);
+}
+
+function parseProbeResult(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+
+  const streams = Array.isArray(parsed?.streams) ? parsed.streams : [];
+  return streams
+    .map((stream, index) => {
+      const tags = stream?.tags ?? {};
+      const codecName = typeof stream?.codec_name === "string" ? stream.codec_name : "";
+      const codecLongName = typeof stream?.codec_long_name === "string" ? stream.codec_long_name : "";
+      const title = typeof tags.title === "string" ? tags.title.trim() : "";
+      const language = typeof tags.language === "string" ? tags.language.trim() : "";
+      const channels = Number.isInteger(stream?.channels) ? stream.channels : null;
+      const sampleRate = Number.isInteger(Number(stream?.sample_rate)) ? Number(stream.sample_rate) : null;
+      const label = title || codecLongName || codecName || `Audio ${index + 1}`;
+
+      return {
+        index,
+        label,
+        language,
+        codecName,
+        channels,
+        sampleRate,
+      };
+    })
+    .filter((stream) => stream.codecName || stream.label);
+}
+
 class TorrentBridge {
   constructor() {
     this.clientPromise = null;
@@ -113,6 +158,11 @@ class TorrentBridge {
     this.discoveredPeerIds = new Set();
     this.streamBaseUrl = null;
     this.serverPromise = null;
+    this.audioServer = null;
+    this.audioServerPromise = null;
+    this.audioServerBaseUrl = null;
+    this.audioSessions = new Map();
+    this.audioSessionCounter = 0;
   }
 
   async addMagnet(magnetLink) {
@@ -135,6 +185,7 @@ class TorrentBridge {
     const torrent = this.activeTorrent;
     this.activeTorrent = null;
     this.discoveredPeerIds.clear();
+    this.clearAudioSessions();
 
     if (!torrent || typeof torrent.destroy !== "function") {
       return;
@@ -152,6 +203,13 @@ class TorrentBridge {
     this.discoveredPeerIds.clear();
     this.streamBaseUrl = null;
     this.serverPromise = null;
+    this.clearAudioSessions();
+    if (this.audioServer) {
+      this.audioServer.close();
+      this.audioServer = null;
+    }
+    this.audioServerPromise = null;
+    this.audioServerBaseUrl = null;
     this.client = null;
     this.clientPromise = null;
 
@@ -186,6 +244,41 @@ class TorrentBridge {
     });
     this.activeTorrent = torrent;
     return formatTorrentSnapshot(torrent, this.discoveredPeerIds.size, this.streamBaseUrl);
+  }
+
+  async probeAudioTracks(streamUrl) {
+    if (!streamUrl) {
+      return [];
+    }
+
+    try {
+      const result = await this.runFfprobe(streamUrl);
+      return parseProbeResult(result.stdout);
+    } catch (error) {
+      console.error("Audio track probe failed:", error);
+      return [];
+    }
+  }
+
+  async createAudioTrackStreamUrl({ streamUrl, trackIndex, startSeconds }) {
+    if (!streamUrl) {
+      throw new Error("Audio stream URL is unavailable");
+    }
+
+    const audioServerBaseUrl = await this.ensureAudioServer();
+    const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
+    const session = {
+      streamUrl,
+      trackIndex,
+      startSeconds: Number.isFinite(startSeconds) ? Math.max(0, startSeconds) : 0,
+      process: null,
+      cleanupTimer: setTimeout(() => {
+        this.audioSessions.delete(token);
+      }, AUDIO_SESSION_TTL_MS),
+    };
+    session.cleanupTimer.unref?.();
+    this.audioSessions.set(token, session);
+    return `${audioServerBaseUrl}/audio/${token}`;
   }
 
   async getClient() {
@@ -268,6 +361,204 @@ class TorrentBridge {
     });
 
     return this.serverPromise;
+  }
+
+  async ensureAudioServer() {
+    if (this.audioServerBaseUrl) {
+      return this.audioServerBaseUrl;
+    }
+
+    if (this.audioServerPromise) {
+      return this.audioServerPromise;
+    }
+
+    this.audioServerPromise = new Promise((resolve, reject) => {
+      const server = http.createServer((request, response) => {
+        void this.handleAudioRequest(request, response);
+      });
+
+      server.listen(AUDIO_SERVER_PORT, AUDIO_SERVER_HOST, () => {
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("Unable to determine audio server address"));
+          return;
+        }
+
+        this.audioServer = server;
+        this.audioServerBaseUrl = `http://${AUDIO_SERVER_HOST}:${address.port}`;
+        resolve(this.audioServerBaseUrl);
+      });
+
+      server.on("error", reject);
+    })
+      .catch((error) => {
+        throw error;
+      })
+      .finally(() => {
+        this.audioServerPromise = null;
+      });
+
+    return this.audioServerPromise;
+  }
+
+  async handleAudioRequest(request, response) {
+    try {
+      if (!request.url) {
+        response.statusCode = 400;
+        response.end();
+        return;
+      }
+
+      if (request.method !== "GET") {
+        response.statusCode = 405;
+        response.setHeader("Allow", "GET");
+        response.end();
+        return;
+      }
+
+      const { pathname } = new URL(request.url, "http://127.0.0.1");
+      if (!pathname.startsWith("/audio/")) {
+        response.statusCode = 404;
+        response.end();
+        return;
+      }
+
+      const token = pathname.slice("/audio/".length);
+      const session = this.audioSessions.get(token);
+
+      if (!session) {
+        response.statusCode = 404;
+        response.end();
+        return;
+      }
+
+      if (session.cleanupTimer) {
+        clearTimeout(session.cleanupTimer);
+        session.cleanupTimer = null;
+      }
+
+      const ffmpeg = spawn("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-ss",
+        String(session.startSeconds ?? 0),
+        "-i",
+        session.streamUrl,
+        "-map",
+        `0:a:${session.trackIndex}`,
+        "-vn",
+        "-sn",
+        "-dn",
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "4",
+        "-f",
+        "mp3",
+        "pipe:1",
+      ]);
+      session.process = ffmpeg;
+
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "audio/mpeg");
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Pragma", "no-cache");
+      response.setHeader("Accept-Ranges", "none");
+      response.flushHeaders?.();
+
+      ffmpeg.stdout.pipe(response);
+
+      const killProcess = () => {
+        if (!ffmpeg.killed) {
+          ffmpeg.kill("SIGKILL");
+        }
+      };
+
+      ffmpeg.on("error", (error) => {
+        if (!response.headersSent) {
+          response.statusCode = 500;
+          response.end(error instanceof Error ? error.message : "Audio stream failed");
+          return;
+        }
+        response.destroy(error instanceof Error ? error : new Error("Audio stream failed"));
+      });
+
+      ffmpeg.stderr.on("data", (chunk) => {
+        if (process.env.NODE_ENV !== "test") {
+          console.error(String(chunk));
+        }
+      });
+
+      response.on("close", killProcess);
+      response.on("finish", killProcess);
+      ffmpeg.on("close", () => {
+        session.process = null;
+        session.cleanupTimer = setTimeout(() => {
+          this.audioSessions.delete(token);
+        }, AUDIO_SESSION_TTL_MS);
+        session.cleanupTimer.unref?.();
+        response.removeListener("close", killProcess);
+        response.removeListener("finish", killProcess);
+      });
+    } catch (error) {
+      response.statusCode = 500;
+      response.end(error instanceof Error ? error.message : "Audio stream failed");
+    }
+  }
+
+  async runFfprobe(streamUrl) {
+    return new Promise((resolve, reject) => {
+      const ffprobe = spawn("ffprobe", [
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index,codec_name,codec_long_name,channels,sample_rate:stream_tags=language,title",
+        "-of",
+        "json",
+        streamUrl,
+      ]);
+
+      let stdout = "";
+      let stderr = "";
+
+      ffprobe.stdout.setEncoding("utf8");
+      ffprobe.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      ffprobe.stderr.setEncoding("utf8");
+      ffprobe.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+
+      ffprobe.on("error", (error) => {
+        reject(createErrorFromSpawn(error, "ffprobe failed"));
+      });
+
+      ffprobe.on("close", (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `ffprobe exited with code ${code}`));
+          return;
+        }
+
+        resolve({ stdout, stderr });
+      });
+    });
+  }
+
+  clearAudioSessions() {
+    for (const session of this.audioSessions.values()) {
+      if (session?.cleanupTimer) {
+        clearTimeout(session.cleanupTimer);
+      }
+      if (session?.process && !session.process.killed) {
+        session.process.kill("SIGKILL");
+      }
+    }
+    this.audioSessions.clear();
   }
 }
 

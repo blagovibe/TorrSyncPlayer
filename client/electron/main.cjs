@@ -172,6 +172,11 @@ ipcMain.handle("torrent:addMagnet", async (_event, magnetLink) => torrentBridge.
 ipcMain.handle("torrent:addTorrentFile", async (_event, torrentFile) => torrentBridge.addTorrentFile(torrentFile));
 ipcMain.handle("torrent:getStats", async () => torrentBridge.getStats());
 ipcMain.handle("torrent:clear", async () => torrentBridge.clear());
+ipcMain.handle("torrent:probeAudioTracks", async (_event, streamUrl) => torrentBridge.probeAudioTracks(streamUrl));
+ipcMain.handle(
+  "torrent:createAudioTrackStreamUrl",
+  async (_event, params) => torrentBridge.createAudioTrackStreamUrl(params),
+);
 
 app.whenReady().then(async () => {
   let loadUrl = devServerUrl;

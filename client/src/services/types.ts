@@ -1,5 +1,14 @@
 export type SyncAction = "play" | "pause" | "seek" | "state";
 
+export interface AudioTrackInfo {
+  index: number;
+  label: string;
+  language: string;
+  codecName: string;
+  channels: number | null;
+  sampleRate: number | null;
+}
+
 export interface SyncMessage {
   action: SyncAction;
   position: number;
