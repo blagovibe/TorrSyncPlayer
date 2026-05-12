@@ -58,6 +58,11 @@ vi.mock("peerjs", () => ({
             callback();
           }
         },
+        emitData(data: unknown) {
+          for (const callback of listeners.get("data") ?? []) {
+            callback(data);
+          }
+        },
         send(payload: unknown) {
           connection.sent.push(payload);
         },
@@ -117,5 +122,65 @@ describe("P2PService connection lifecycle", () => {
 
     expect(connected).toHaveBeenCalledOnce();
     expect(service.isConnected()).toBe(true);
+  });
+
+  it("keeps selectedAudioTrackIndex in torrent source messages", async () => {
+    const service = new P2PService();
+    const received = vi.fn();
+
+    service.on("torrent_source", received);
+
+    const initializePromise = service.initialize();
+    const peer = peerInstances[0] as {
+      connections: Array<{
+        emitOpen: () => void;
+        emitData: (data: unknown) => void;
+        sent: unknown[];
+      }>;
+      emitOpen: (peerId: string) => void;
+    };
+    peer.emitOpen("host-peer");
+    await initializePromise;
+
+    const connectPromise = service.connect("guest-peer");
+    const connection = peer.connections[0];
+    connection.emitOpen();
+    await connectPromise;
+
+    const source = {
+      kind: "magnet",
+      magnetLink: "magnet:?xt=urn:btih:test",
+      sourceKey: "magnet:magnet:?xt=urn:btih:test",
+    } as const;
+
+    service.sendTorrentSource({
+      source,
+      selectedMediaIndex: 4,
+      selectedAudioTrackIndex: 2,
+    });
+
+    expect(connection.sent).toEqual([
+      {
+        type: "torrent_source",
+        source,
+        selectedMediaIndex: 4,
+        selectedAudioTrackIndex: 2,
+      },
+    ]);
+
+    connection.emitData(
+      JSON.stringify({
+        type: "torrent_source",
+        source,
+        selectedMediaIndex: 1,
+        selectedAudioTrackIndex: 3,
+      }),
+    );
+
+    expect(received).toHaveBeenCalledWith({
+      source,
+      selectedMediaIndex: 1,
+      selectedAudioTrackIndex: 3,
+    });
   });
 });

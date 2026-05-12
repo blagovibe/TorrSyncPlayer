@@ -5,6 +5,7 @@ export interface SyncMessage {
   position: number;
   server_ts: number;
   is_playing?: boolean;
+  sourceKey?: string;
 }
 
 export type SharedTorrentSource =

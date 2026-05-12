@@ -25,7 +25,10 @@ interface RoomPageProps {
   onTorrentFileChange: (file: File | null) => void;
   videoRef: RefObject<HTMLVideoElement | null>;
   playbackNotice: string | null;
+  selectedAudioTrackIndex: number | null;
   onPlaybackStarted: () => void;
+  onPlayerReady: (ready: boolean) => void;
+  onAudioTrackChange: (trackIndex: number | null) => void;
   onLoadMagnet: () => void;
   onLoadTorrentFile: () => void;
   onSelectMediaFile: (file: TorrentMediaFile) => void;
@@ -58,7 +61,10 @@ function RoomPage({
   onTorrentFileChange,
   videoRef,
   playbackNotice,
+  selectedAudioTrackIndex,
   onPlaybackStarted,
+  onPlayerReady,
+  onAudioTrackChange,
   onLoadMagnet,
   onLoadTorrentFile,
   onSelectMediaFile,
@@ -92,8 +98,12 @@ function RoomPage({
             mediaLabel={selectedMediaLabel}
             mediaKind={selectedMediaKind}
             statusMessage={playbackNotice}
-            canControlPlayback={canControlTorrent}
+            canControlPlayback={canControlTorrent || playbackNotice !== null}
+            canControlAudioTracks={canControlTorrent}
+            selectedAudioTrackIndex={selectedAudioTrackIndex}
             onPlaybackStart={onPlaybackStarted}
+            onAudioTrackChange={onAudioTrackChange}
+            onPlayerReady={onPlayerReady}
           />
           <div className="panel">
             <div className="room-controls-header">

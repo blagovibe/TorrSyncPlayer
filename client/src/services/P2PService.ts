@@ -8,6 +8,7 @@ import {
 type TorrentSourceMessage = {
   source: SharedTorrentSource;
   selectedMediaIndex: number | null;
+  selectedAudioTrackIndex: number | null;
 };
 
 type P2PEvents = {
@@ -25,7 +26,12 @@ type EventKey = keyof P2PEvents;
 
 type OutboundMessage =
   | { type: "sync"; message: SyncMessage }
-  | { type: "torrent_source"; source: SharedTorrentSource; selectedMediaIndex: number | null }
+  | {
+      type: "torrent_source";
+      source: SharedTorrentSource;
+      selectedMediaIndex: number | null;
+      selectedAudioTrackIndex: number | null;
+    }
   | { type: "room_config"; syncToleranceSeconds: number };
 
 const PEER_ID_LENGTH = 6;
@@ -161,12 +167,15 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
     case "torrent_source":
       if (
         message.source &&
-        (typeof message.selectedMediaIndex === "number" || message.selectedMediaIndex === null)
+        (typeof message.selectedMediaIndex === "number" || message.selectedMediaIndex === null) &&
+        (typeof message.selectedAudioTrackIndex === "number" ||
+          message.selectedAudioTrackIndex === null)
       ) {
         return {
           type: "torrent_source",
           source: message.source as SharedTorrentSource,
           selectedMediaIndex: message.selectedMediaIndex,
+          selectedAudioTrackIndex: message.selectedAudioTrackIndex,
         };
       }
       return null;
@@ -377,7 +386,11 @@ export class P2PService {
   }
 
   sendTorrentSource(
-    payload: { source: SharedTorrentSource; selectedMediaIndex: number | null },
+    payload: {
+      source: SharedTorrentSource;
+      selectedMediaIndex: number | null;
+      selectedAudioTrackIndex: number | null;
+    },
     targetPeerId?: string,
   ): void {
     this.sendPayload({ type: "torrent_source", ...payload }, targetPeerId);
@@ -467,6 +480,7 @@ export class P2PService {
           this.emit("torrent_source", {
             source: message.source,
             selectedMediaIndex: message.selectedMediaIndex,
+            selectedAudioTrackIndex: message.selectedAudioTrackIndex,
           });
           break;
         case "room_config":
