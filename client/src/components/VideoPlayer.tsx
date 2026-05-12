@@ -3,12 +3,55 @@ import "./VideoPlayer.css";
 import type { AudioTrackInfo } from "../services/types";
 
 const HIDE_DELAY_MS = 3000;
+const VIDEO_SCALE_STORAGE_KEY = "torrsyncplayer.videoScale";
+
+const VIDEO_SCALE_OPTIONS = [
+  {
+    value: "fit",
+    label: "Fit",
+    description: "Show the whole frame without cropping.",
+  },
+  {
+    value: "fill",
+    label: "Fill",
+    description: "Fill the player and crop edges if needed.",
+  },
+  {
+    value: "stretch",
+    label: "Stretch",
+    description: "Stretch video to the player bounds.",
+  },
+  {
+    value: "original",
+    label: "Original",
+    description: "Keep source pixels centered in the player.",
+  },
+] as const;
+
+type VideoScaleMode = (typeof VIDEO_SCALE_OPTIONS)[number]["value"];
 
 function formatTime(timeInSeconds: number): string {
   const safe = Number.isFinite(timeInSeconds) ? Math.max(0, timeInSeconds) : 0;
   const minutes = Math.floor(safe / 60);
   const seconds = Math.floor(safe % 60);
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function readInitialVideoScale(): VideoScaleMode {
+  if (typeof window === "undefined") {
+    return "fit";
+  }
+
+  try {
+    const storedScale = window.localStorage.getItem(VIDEO_SCALE_STORAGE_KEY);
+    return VIDEO_SCALE_OPTIONS.some((option) => option.value === storedScale) ? (storedScale as VideoScaleMode) : "fit";
+  } catch {
+    return "fit";
+  }
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest("button, input, textarea, select, [role='button']"));
 }
 
 interface VideoPlayerProps {
@@ -76,11 +119,15 @@ function VideoPlayer({
   const onAudioTrackChangeRef = useRef(onAudioTrackChange);
   const fallbackAudioRequestIdRef = useRef(0);
   const hasMediaMetadataRef = useRef(false);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [showControls, setShowControls] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [videoScale, setVideoScale] = useState<VideoScaleMode>(() => readInitialVideoScale());
   const [audioTracksSupported, setAudioTracksSupported] = useState(() => detectAudioTracksSupport());
   const [audioTracks, setAudioTracks] = useState<AudioTrackSnapshot[]>([]);
   const [fallbackAudioSourceUrl, setFallbackAudioSourceUrl] = useState<string | null>(null);
@@ -92,15 +139,21 @@ function VideoPlayer({
     return (currentTime / duration) * 100;
   }, [currentTime, duration]);
 
-  const resetHideTimer = () => {
+  const activeVideoScaleLabel =
+    VIDEO_SCALE_OPTIONS.find((option) => option.value === videoScale)?.label ?? VIDEO_SCALE_OPTIONS[0].label;
+
+  const resetHideTimer = useCallback(() => {
     setShowControls(true);
     if (hideTimerRef.current) {
       window.clearTimeout(hideTimerRef.current);
     }
+    if (settingsOpen) {
+      return;
+    }
     hideTimerRef.current = window.setTimeout(() => {
       setShowControls(false);
     }, HIDE_DELAY_MS);
-  };
+  }, [settingsOpen]);
 
   useEffect(() => {
     onPlayerReadyRef.current = onPlayerReady;
@@ -117,7 +170,27 @@ function VideoPlayer({
         window.clearTimeout(hideTimerRef.current);
       }
     };
-  }, []);
+  }, [resetHideTimer]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale);
+    } catch {
+      // Persisting the scale is optional; playback settings still work for the session.
+    }
+  }, [videoScale]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      resetHideTimer();
+      return;
+    }
+
+    setShowControls(true);
+    if (hideTimerRef.current) {
+      window.clearTimeout(hideTimerRef.current);
+    }
+  }, [resetHideTimer, settingsOpen]);
 
   useEffect(() => {
     onPlayerReadyRef.current?.(true);
@@ -176,6 +249,22 @@ function VideoPlayer({
       setIsPlaying(false);
     }
   }, [canControlPlayback, fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
+
+  const applyVolume = useCallback(
+    (nextVolume: number) => {
+      const normalizedVolume = Number.isFinite(nextVolume) ? Math.min(1, Math.max(0, nextVolume)) : 1;
+      setVolume(normalizedVolume);
+      if (usingFallbackAudio && fallbackAudioRef.current) {
+        fallbackAudioRef.current.volume = normalizedVolume;
+      }
+      if (videoRef.current && !usingFallbackAudio) {
+        videoRef.current.volume = normalizedVolume;
+      } else if (videoRef.current && usingFallbackAudio) {
+        videoRef.current.volume = 0;
+      }
+    },
+    [usingFallbackAudio, videoRef],
+  );
 
   const syncAudioTracks = useCallback(() => {
     const video = videoRef.current;
@@ -364,12 +453,21 @@ function VideoPlayer({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && settingsOpen) {
+        setSettingsOpen(false);
+        return;
+      }
+
       if (!canControlPlayback) {
         return;
       }
 
       const video = videoRef.current;
       if (!video) {
+        return;
+      }
+
+      if (isInteractiveTarget(event.target)) {
         return;
       }
 
@@ -394,7 +492,28 @@ function VideoPlayer({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canControlPlayback, togglePlay, videoRef]);
+  }, [canControlPlayback, settingsOpen, togglePlay, videoRef]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (settingsMenuRef.current?.contains(target) || settingsButtonRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      setSettingsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [settingsOpen]);
 
   useEffect(() => {
     hasMediaMetadataRef.current = false;
@@ -426,7 +545,10 @@ function VideoPlayer({
   );
 
   return (
-    <section className={`video-player ${mediaKind === "audio" ? "audio-mode" : "video-mode"}`} onMouseMove={resetHideTimer}>
+    <section
+      className={`video-player ${mediaKind === "audio" ? "audio-mode" : "video-mode"} scale-${videoScale}`}
+      onMouseMove={resetHideTimer}
+    >
       {!hasSelectedMedia && (
         <div className="video-placeholder">
           <div className="placeholder-art" />
@@ -477,45 +599,6 @@ function VideoPlayer({
         </div>
       )}
 
-      {hasSelectedMedia && (
-        <div className="audio-track-panel">
-          <div className="audio-track-panel-header">
-            <span className="audio-track-title">Internal audio tracks</span>
-            <span className="audio-track-status">{audioTrackStatusText}</span>
-          </div>
-
-          {visibleAudioTracks.length > 0 ? (
-            <div className="audio-track-list">
-              {visibleAudioTracks.map((track) => (
-                <button
-                  key={track.sourceIndex}
-                  type="button"
-                  className={`audio-track-button ${activeAudioTrackIndex === track.sourceIndex ? "active" : ""}`}
-                  onClick={() => activateAudioTrack(track.sourceIndex)}
-                  disabled={!canControlAudioTracks}
-                >
-                  <span className="audio-track-name">{track.label}</span>
-                  <span className="audio-track-meta">
-                    {track.language ? track.language.toUpperCase() : "Unknown language"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : audioTracksSupported ? (
-            <p className="audio-track-empty">
-              No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.
-            </p>
-          ) : usingFallbackAudio ? (
-            <p className="audio-track-empty">
-              FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to
-              finish.
-            </p>
-          ) : (
-            <p className="audio-track-empty">{audioTracksUnavailableMessage}</p>
-          )}
-        </div>
-      )}
-
       <audio ref={fallbackAudioRef} hidden preload="auto" src={fallbackAudioSourceUrl ?? undefined} />
 
       {statusMessage && (
@@ -559,19 +642,122 @@ function VideoPlayer({
           step={0.05}
           value={volume}
           onChange={(event) => {
-            const value = Number(event.target.value);
-            setVolume(value);
-            if (usingFallbackAudio && fallbackAudioRef.current) {
-              fallbackAudioRef.current.volume = value;
-            }
-            if (videoRef.current && !usingFallbackAudio) {
-              videoRef.current.volume = value;
-            } else if (videoRef.current && usingFallbackAudio) {
-              videoRef.current.volume = 0;
-            }
+            applyVolume(Number(event.target.value));
           }}
           aria-label="Volume"
         />
+
+        <div className="settings-menu-anchor">
+          <button
+            ref={settingsButtonRef}
+            type="button"
+            className={`settings-toggle ${settingsOpen ? "active" : ""}`}
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            Settings
+          </button>
+
+          {settingsOpen && (
+            <div ref={settingsMenuRef} className="player-settings-menu" role="dialog" aria-label="Player settings">
+              <div className="settings-menu-header">
+                <div>
+                  <span className="settings-kicker">Player settings</span>
+                  <strong>{activeVideoScaleLabel} video scale</strong>
+                </div>
+                <button
+                  type="button"
+                  className="settings-close"
+                  onClick={() => setSettingsOpen(false)}
+                  aria-label="Close settings"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-header">
+                  <span>Playback</span>
+                  <span>{Math.round(volume * 100)}%</span>
+                </div>
+                <label className="settings-range-label" htmlFor="player-settings-volume">
+                  Volume
+                </label>
+                <input
+                  id="player-settings-volume"
+                  className="settings-volume-slider"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={volume}
+                  onChange={(event) => applyVolume(Number(event.target.value))}
+                />
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-header">
+                  <span>Video scale</span>
+                  <span>{activeVideoScaleLabel}</span>
+                </div>
+                <div className="scale-option-list" role="radiogroup" aria-label="Video scale">
+                  {VIDEO_SCALE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`scale-option ${videoScale === option.value ? "active" : ""}`}
+                      role="radio"
+                      aria-checked={videoScale === option.value}
+                      onClick={() => setVideoScale(option.value)}
+                    >
+                      <span className="scale-option-name">{option.label}</span>
+                      <span className="scale-option-copy">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-header">
+                  <span>Audio tracks</span>
+                  <span>{audioTrackStatusText}</span>
+                </div>
+                {hasSelectedMedia && visibleAudioTracks.length > 0 ? (
+                  <div className="audio-track-list">
+                    {visibleAudioTracks.map((track) => (
+                      <button
+                        key={track.sourceIndex}
+                        type="button"
+                        className={`audio-track-button ${activeAudioTrackIndex === track.sourceIndex ? "active" : ""}`}
+                        onClick={() => activateAudioTrack(track.sourceIndex)}
+                        disabled={!canControlAudioTracks}
+                      >
+                        <span className="audio-track-name">{track.label}</span>
+                        <span className="audio-track-meta">
+                          {track.language ? track.language.toUpperCase() : "Unknown language"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : hasSelectedMedia && audioTracksSupported ? (
+                  <p className="settings-empty">
+                    No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.
+                  </p>
+                ) : hasSelectedMedia && usingFallbackAudio ? (
+                  <p className="settings-empty">
+                    FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to
+                    finish.
+                  </p>
+                ) : hasSelectedMedia ? (
+                  <p className="settings-empty">{audioTracksUnavailableMessage}</p>
+                ) : (
+                  <p className="settings-empty">Load media to inspect audio tracks.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
