@@ -33,6 +33,10 @@ interface TorrentInstance {
     callback: (...args: any[]) => void,
   ) => void;
   destroy?: (callback?: (error?: Error) => void) => void;
+  // WebTorrent-specific: select byte ranges for priority downloading.
+  select?: (start: number, end: number, priority: number) => void;
+  // WebTorrent-specific: deselect all pieces.
+  deselect?: (start: number, end: number, priority: number) => void;
 }
 
 type TorrentEvents = {
@@ -70,6 +74,13 @@ const WEBTORRENT_WEBRTC_TRACKERS = [
   "wss://tracker.webtorrent.dev",
 ];
 const MAX_TORRENT_CONNECTIONS = 200;
+
+// Buffer window: prioritize downloading ±50MB around the current playback position.
+const BUFFER_WINDOW_BYTES = 50 * 1024 * 1024;
+// Maximum total buffer size: 500MB. When reached, pause non-priority downloads.
+const MAX_BUFFER_BYTES = 500 * 1024 * 1024;
+// How often to re-prioritize pieces based on current time (ms).
+const PRIORITIZE_INTERVAL_MS = 2000;
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -125,7 +136,10 @@ export class TorrentService {
   private backendStatsInFlight = false;
   private backendCleanupPromise: Promise<void> = Promise.resolve();
   private discoveredPeerIds = new Set<string>();
-  private listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
+  // Buffer management state.
+  private prioritizeTimer: number | null = null;
+  private currentPlaybackBytes = 0;
+  private readonly listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
     speed: new Set(),
     peerCount: new Set(),
@@ -441,7 +455,64 @@ export class TorrentService {
       this.streamServerReady = false;
       this.streamServerPromise = null;
       this.stopBackendStatsPolling();
+      this.stopPrioritizeLoop();
     });
+  }
+
+  /**
+   * Update the current playback position so the buffer window can follow.
+   * Call this from the video player's timeupdate handler.
+   */
+  updatePlaybackPosition(currentTimeSeconds: number, fileLengthBytes: number, fileDurationSeconds: number): void {
+    if (fileDurationSeconds <= 0 || fileLengthBytes <= 0) {
+      return;
+    }
+    const bytesPerSecond = fileLengthBytes / fileDurationSeconds;
+    this.currentPlaybackBytes = Math.floor(currentTimeSeconds * bytesPerSecond);
+    this.schedulePrioritize();
+  }
+
+  /**
+   * Get the current buffer window for display purposes.
+   */
+  getBufferWindow(): { start: number; end: number; maxSize: number } {
+    return {
+      start: Math.max(0, this.currentPlaybackBytes - BUFFER_WINDOW_BYTES),
+      end: this.currentPlaybackBytes + BUFFER_WINDOW_BYTES,
+      maxSize: MAX_BUFFER_BYTES,
+    };
+  }
+
+  private schedulePrioritize(): void {
+    if (this.prioritizeTimer !== null) return;
+    this.prioritizeTimer = window.setTimeout(() => {
+      this.prioritizeTimer = null;
+      this.applyBufferPriority();
+    }, PRIORITIZE_INTERVAL_MS);
+  }
+
+  private stopPrioritizeLoop(): void {
+    if (this.prioritizeTimer !== null) {
+      window.clearTimeout(this.prioritizeTimer);
+      this.prioritizeTimer = null;
+    }
+  }
+
+  private applyBufferPriority(): void {
+    const torrent = this.activeTorrent;
+    if (!torrent?.select) return;
+
+    const file = torrent.files.find((f) => f.length && f.length > 0);
+    if (!file?.length) return;
+
+    const fileStart = 0;
+    const fileEnd = file.length - 1;
+    const bufferStart = Math.max(fileStart, this.currentPlaybackBytes - BUFFER_WINDOW_BYTES);
+    const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + BUFFER_WINDOW_BYTES);
+
+    // Prioritize the buffer window around the current playback position.
+    torrent.select(fileStart, fileEnd, 0);
+    torrent.select(bufferStart, bufferEnd, 1);
   }
 
   private async getClient(): Promise<TorrentClient> {

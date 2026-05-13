@@ -70,6 +70,7 @@ interface VideoPlayerProps {
   onAudioTrackChange?: (trackIndex: number | null) => void;
   resolveFallbackAudioTrackSource?: (trackIndex: number, startSeconds: number) => Promise<string | null>;
   onPlayerReady?: (ready: boolean) => void;
+  onBufferingChange?: (isBuffering: boolean) => void;
 }
 
 interface AudioTrackSnapshot {
@@ -113,6 +114,7 @@ function VideoPlayer({
   onAudioTrackChange,
   resolveFallbackAudioTrackSource,
   onPlayerReady,
+  onBufferingChange,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -120,6 +122,7 @@ function VideoPlayer({
   const hideTimerRef = useRef<number | null>(null);
   const onPlayerReadyRef = useRef(onPlayerReady);
   const onAudioTrackChangeRef = useRef(onAudioTrackChange);
+  const onBufferingChangeRef = useRef(onBufferingChange);
   const fallbackAudioRequestIdRef = useRef(0);
   const hasMediaMetadataRef = useRef(false);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -134,6 +137,8 @@ function VideoPlayer({
   const [audioTracksSupported, setAudioTracksSupported] = useState(() => detectAudioTracksSupport());
   const [audioTracks, setAudioTracks] = useState<AudioTrackSnapshot[]>([]);
   const [fallbackAudioSourceUrl, setFallbackAudioSourceUrl] = useState<string | null>(null);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [isStalled, setIsStalled] = useState(false);
 
   const progress = useMemo(() => {
     if (!duration) {
@@ -165,6 +170,10 @@ function VideoPlayer({
   useEffect(() => {
     onAudioTrackChangeRef.current = onAudioTrackChange;
   }, [onAudioTrackChange]);
+
+  useEffect(() => {
+    onBufferingChangeRef.current = onBufferingChange;
+  }, [onBufferingChange]);
 
   useEffect(() => {
     resetHideTimer();
@@ -253,6 +262,7 @@ function VideoPlayer({
     }
   }, [canControlPlayback, fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
 
+  // Apply volume changes directly without reloading audio element.
   const applyVolume = useCallback(
     (nextVolume: number) => {
       const normalizedVolume = Number.isFinite(nextVolume) ? Math.min(1, Math.max(0, nextVolume)) : 1;
@@ -407,13 +417,14 @@ function VideoPlayer({
     void requestFallbackAudioSource(videoRef.current?.currentTime ?? 0);
   }, [activeAudioTrackIndex, requestFallbackAudioSource, selectedAudioTrackIndex, usingFallbackAudio, videoRef]);
 
+  // Handle fallback audio source URL changes (load/play/pause).
+  // NOTE: volume is NOT in the dependency array — it is applied via a separate effect.
   useEffect(() => {
     const audio = fallbackAudioRef.current;
     if (!audio) {
       return;
     }
 
-    audio.volume = volume;
     audio.muted = false;
 
     if (!usingFallbackAudio) {
@@ -434,7 +445,17 @@ function VideoPlayer({
     if (videoRef.current && !videoRef.current.paused) {
       void audio.play().catch(() => undefined);
     }
-  }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef, volume]);
+  }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
+
+  // Apply volume changes to fallback audio independently — without calling audio.load().
+  useEffect(() => {
+    const audio = fallbackAudioRef.current;
+    if (!audio) return;
+
+    if (usingFallbackAudio) {
+      audio.volume = volume;
+    }
+  }, [volume, usingFallbackAudio]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -453,6 +474,75 @@ function VideoPlayer({
     video.muted = false;
     video.volume = volume;
   }, [usingFallbackAudio, videoRef, volume]);
+
+  // Buffering / stalled state listeners.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let stalledTimer: number | null = null;
+
+    const onWaiting = () => {
+      // Delay to avoid false positives from tiny network hiccups.
+      stalledTimer = window.setTimeout(() => {
+        setIsBuffering(true);
+        setIsStalled(true);
+        onBufferingChangeRef.current?.(true);
+      }, 300);
+    };
+
+    const onCanPlay = () => {
+      if (stalledTimer !== null) {
+        window.clearTimeout(stalledTimer);
+        stalledTimer = null;
+      }
+      setIsBuffering(false);
+      setIsStalled(false);
+      onBufferingChangeRef.current?.(false);
+    };
+
+    const onPlaying = () => {
+      if (stalledTimer !== null) {
+        window.clearTimeout(stalledTimer);
+        stalledTimer = null;
+      }
+      setIsBuffering(false);
+      setIsStalled(false);
+      onBufferingChangeRef.current?.(false);
+    };
+
+    const onStalled = () => {
+      setIsStalled(true);
+    };
+
+    const onTimeUpdate = () => {
+      // If we're getting time updates, data is arriving.
+      if (stalledTimer !== null) {
+        window.clearTimeout(stalledTimer);
+        stalledTimer = null;
+      }
+      setIsBuffering(false);
+      setIsStalled(false);
+      onBufferingChangeRef.current?.(false);
+    };
+
+    video.addEventListener("waiting", onWaiting);
+    video.addEventListener("canplay", onCanPlay);
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("stalled", onStalled);
+    video.addEventListener("timeupdate", onTimeUpdate);
+
+    return () => {
+      video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("canplay", onCanPlay);
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("stalled", onStalled);
+      video.removeEventListener("timeupdate", onTimeUpdate);
+      if (stalledTimer !== null) {
+        window.clearTimeout(stalledTimer);
+      }
+    };
+  }, [videoRef]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -534,6 +624,8 @@ function VideoPlayer({
     fallbackAudioRequestIdRef.current += 1;
     fallbackAudioRef.current?.pause();
     setSettingsOpen(false);
+    setIsBuffering(false);
+    setIsStalled(false);
   }, [mediaLabel]);
 
   useEffect(() => {
@@ -619,6 +711,12 @@ function VideoPlayer({
         </div>
       )}
 
+      {(isBuffering || isStalled) && (
+        <div className="buffering-indicator" role="status" aria-live="polite">
+          {isStalled ? "Network stalled — waiting for data..." : "Buffering..."}
+        </div>
+      )}
+
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
         <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>
           {isPlaying ? "Pause" : "Play"}
@@ -647,17 +745,23 @@ function VideoPlayer({
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
 
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={volume}
-          onChange={(event) => {
-            applyVolume(Number(event.target.value));
-          }}
-          aria-label="Volume"
-        />
+        <div className="volume-control">
+          <span className="volume-icon" aria-hidden="true">
+            {volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊"}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(event) => {
+              applyVolume(Number(event.target.value));
+            }}
+            aria-label="Volume"
+          />
+          <span className="volume-label">{Math.round(volume * 100)}%</span>
+        </div>
 
         <div className="settings-menu-anchor">
           <button
@@ -686,26 +790,6 @@ function VideoPlayer({
                 >
                   Close
                 </button>
-              </div>
-
-              <div className="settings-section">
-                <div className="settings-section-header">
-                  <span>Playback</span>
-                  <span>{Math.round(volume * 100)}%</span>
-                </div>
-                <label className="settings-range-label" htmlFor="player-settings-volume">
-                  Volume
-                </label>
-                <input
-                  id="player-settings-volume"
-                  className="settings-volume-slider"
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={volume}
-                  onChange={(event) => applyVolume(Number(event.target.value))}
-                />
               </div>
 
               <div className="settings-section">

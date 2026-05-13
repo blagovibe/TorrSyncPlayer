@@ -102,16 +102,19 @@ function App() {
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [syncToleranceSeconds, setSyncToleranceSeconds] = useState(DEFAULT_SYNC_TOLERANCE_SECONDS);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
   const torrentServiceRef = useRef<TorrentService | null>(null);
-  const getTorrentService = () => {
+  const torrentServiceInitialized = useRef(false);
+  const getTorrentService = useCallback(() => {
     if (!torrentServiceRef.current) {
       torrentServiceRef.current = new TorrentService();
+      torrentServiceInitialized.current = true;
     }
     return torrentServiceRef.current;
-  };
+  }, []);
   const syncServiceRef = useRef<SyncService | null>(null);
   const currentTorrentSourceRef = useRef<SharedTorrentSource | null>(null);
   const selectedMediaIndexRef = useRef<number | null>(null);
@@ -678,7 +681,7 @@ function App() {
 
       return getTorrentService().createAudioTrackStreamUrl(mediaFile.file, trackIndex, startSeconds);
     },
-    [getTorrentService()],
+    [getTorrentService],
   );
 
   const handleAudioTrackChange = (trackIndex: number | null) => {
@@ -729,7 +732,9 @@ function App() {
   const bufferHint = selectedMediaFile
     ? selectedMediaBufferProgress >= 100
       ? "Selected file is fully buffered."
-      : "Selected file is buffering from the swarm."
+      : isBuffering
+        ? "Buffering — loading data around current position..."
+        : "Selected file is buffering from the swarm."
     : "Load a torrent and pick a movie to see file buffering progress.";
 
   const sharedTorrentLabel = currentTorrentSourceRef.current
@@ -765,7 +770,7 @@ function App() {
       offTorrentPeerCount();
       getTorrentService().destroy();
     };
-  }, [getTorrentService()]);
+  }, [getTorrentService]);
 
   useEffect(() => {
     disposeSyncService();
@@ -891,6 +896,8 @@ function App() {
           torrentError={torrentError}
           torrentPeerHint={torrentPeerHint}
           bufferHint={bufferHint}
+          isBuffering={isBuffering}
+          onBufferingChange={setIsBuffering}
         />
       )}
     </main>

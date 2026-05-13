@@ -42,6 +42,8 @@ interface RoomPageProps {
   torrentError: string | null;
   torrentPeerHint: string;
   bufferHint: string;
+  isBuffering: boolean;
+  onBufferingChange?: (isBuffering: boolean) => void;
 }
 
 function RoomPage({
@@ -80,6 +82,8 @@ function RoomPage({
   torrentError,
   torrentPeerHint,
   bufferHint,
+  isBuffering: _isBuffering,
+  onBufferingChange,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
 
@@ -111,6 +115,7 @@ function RoomPage({
             onAudioTrackChange={onAudioTrackChange}
             resolveFallbackAudioTrackSource={resolveFallbackAudioTrackSource}
             onPlayerReady={onPlayerReady}
+            onBufferingChange={onBufferingChange}
           />
           <div className="panel">
             <div className="room-controls-header">

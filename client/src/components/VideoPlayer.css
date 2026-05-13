@@ -345,6 +345,54 @@
   flex: 1;
 }
 
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.volume-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.volume-control input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+}
+
+.volume-label {
+  min-width: 32px;
+  font-size: 0.75rem;
+  text-align: right;
+  color: rgba(234, 234, 234, 0.7);
+}
+
+.buffering-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(6, 10, 24, 0.85);
+  border: 1px solid rgba(233, 69, 96, 0.35);
+  color: #ffdbe2;
+  font-size: 0.9rem;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  animation: buffering-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes buffering-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .time-label {
   min-width: 90px;
   font-size: 0.85rem;
