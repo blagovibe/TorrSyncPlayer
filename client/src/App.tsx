@@ -532,25 +532,24 @@ function App() {
       setIsConnected(true);
       setPeers([{ id: "self", name: "You", role: "master", connectionState: "connected" }]);
       setCurrentView("room");
-    if (error instanceof Error) {
-        const message = error.message;
-        try {
-          p2pServiceRef.current?.disconnect();
-        } catch {
-          // Disconnect errors during cleanup are non-fatal
-        }
-        p2pServiceRef.current = null;
-        setConnectionError(message);
-        setPeerRole(null);
-        setPeers([]);
-        setIsConnected(false);
-        setCurrentView("home");
-      } finally {
-        setIsConnecting(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to initialize room";
+      try {
+        p2pServiceRef.current?.disconnect();
+      } catch {
+        // Disconnect errors during cleanup are non-fatal
       }
-    };
+      p2pServiceRef.current = null;
+      setConnectionError(message);
+      setPeerRole(null);
+      setPeers([]);
+      setIsConnected(false);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
-    const handleConnectToPeer = async (targetPeerId: string) => {
+  const handleConnectToPeer = async (targetPeerId: string) => {
       if (isConnecting) {
         return;
       }
@@ -604,13 +603,12 @@ function App() {
       p2pServiceRef.current.disconnect();
       p2pServiceRef.current = null;
     }
-disposeSyncService();
+    disposeSyncService();
     await getTorrentService().destroy();
     torrentServiceRef.current = null;
-      videoRef.current.pause();
-      videoRef.current.removeAttribute("src");
-      videoRef.current.load();
-    }
+    videoRef.current?.pause();
+    videoRef.current?.removeAttribute("src");
+    videoRef.current?.load();
     setCurrentView("home");
     setPeerId("");
     setPeerRole(null);
