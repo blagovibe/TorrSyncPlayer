@@ -486,8 +486,9 @@ class TorrentBridge {
       });
 
       ffmpeg.stderr.on("data", (chunk) => {
-        if (process.env.NODE_ENV !== "test") {
-          console.error(String(chunk));
+        const message = String(chunk).trim();
+        if (message && process.env.NODE_ENV !== "test") {
+          console.warn("[ffmpeg] %s", message);
         }
       });
 

@@ -1,4 +1,5 @@
 import type { AudioTrackInfo } from "./types";
+import { formatBytes } from "../utils/format";
 
 type MediaKind = "video" | "audio";
 
@@ -111,23 +112,6 @@ function getFileExtension(name: string): string {
     return "";
   }
   return normalized.slice(lastDot);
-}
-
-function formatBytes(size: number): string {
-  if (!Number.isFinite(size) || size <= 0) {
-    return "Unknown size";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = size;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-  return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
 export class TorrentService {
@@ -258,6 +242,10 @@ export class TorrentService {
 
     return new Promise<TorrentInstance>((resolve, reject) => {
       const torrent = client.add(torrentSource);
+      if (!torrent || typeof torrent !== "object") {
+        reject(new Error("Torrent client failed to create a torrent instance"));
+        return;
+      }
       this.activeTorrent = torrent;
       const torrentEvents = torrent.on;
       if (!torrentEvents) {
@@ -300,6 +288,7 @@ export class TorrentService {
       });
 
       torrentEvents("wire", (wire: { on?: (event: string, callback: () => void) => void }) => {
+        emitPeerCount();
         wire?.on?.("close", emitPeerCount);
       });
       torrentEvents("noPeers", emitPeerCount);
@@ -311,7 +300,9 @@ export class TorrentService {
           this.emit("progress", torrent.progress);
           this.emit("speed", torrent.downloadSpeed);
           emitPeerCount();
-          settleResolve();
+          if (!isRejected) {
+            settleResolve();
+          }
         } catch (error) {
           const normalized = this.normalizeError(error);
           this.emit("error", normalized);
@@ -329,7 +320,9 @@ export class TorrentService {
           this.emit("progress", torrent.progress);
           this.emit("speed", torrent.downloadSpeed);
           emitPeerCount();
-          settleResolve();
+          if (!isResolved) {
+            settleResolve();
+          }
         } catch (error) {
           const normalized = this.normalizeError(error);
           this.emit("error", normalized);
@@ -407,8 +400,8 @@ export class TorrentService {
     return formatBytes(mediaFile.length);
   }
 
-  clearActiveTorrent(): void {
-    void this.clearActiveTorrentForAdd();
+  async clearActiveTorrent(): Promise<void> {
+    return this.clearActiveTorrentForAdd();
   }
 
   async clearActiveTorrentForAdd(): Promise<void> {
@@ -441,13 +434,14 @@ export class TorrentService {
     }
   }
 
-  destroy(): void {
-    void this.clearActiveTorrentForAdd();
-    this.client?.destroy();
-    this.client = null;
-    this.streamServerReady = false;
-    this.streamServerPromise = null;
-    this.stopBackendStatsPolling();
+  destroy(): Promise<void> {
+    return this.clearActiveTorrentForAdd().then(() => {
+      this.client?.destroy();
+      this.client = null;
+      this.streamServerReady = false;
+      this.streamServerPromise = null;
+      this.stopBackendStatsPolling();
+    });
   }
 
   private async getClient(): Promise<TorrentClient> {
@@ -463,12 +457,20 @@ export class TorrentService {
     return this.client;
   }
 
+  private cachedElectronBackend: ElectronTorrentBackend | null | undefined = undefined;
+
   private getElectronBackend(): ElectronTorrentBackend | null {
+    if (this.cachedElectronBackend !== undefined) {
+      return this.cachedElectronBackend;
+    }
+
     if (typeof window === "undefined") {
+      this.cachedElectronBackend = null;
       return null;
     }
 
-    return (window as WindowWithElectronTorrent).torrsyncElectronTorrent ?? null;
+    this.cachedElectronBackend = (window as WindowWithElectronTorrent).torrsyncElectronTorrent ?? null;
+    return this.cachedElectronBackend;
   }
 
   private startBackendStatsPolling(): void {

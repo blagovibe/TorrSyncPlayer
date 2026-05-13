@@ -138,7 +138,9 @@ export class SyncService {
         this.emit("sync_play", message);
         break;
       case "pause":
-        if (!isPaused) {
+        if (desiredPlayState && isPaused) {
+          void this.video.play().catch(() => undefined);
+        } else if (!desiredPlayState && !isPaused) {
           this.video.pause();
         }
         this.emit("sync_pause", message);

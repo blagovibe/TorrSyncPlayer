@@ -52,9 +52,11 @@ type PeerServerEnv = {
 };
 
 function generatePeerId(): string {
+  const bytes = new Uint8Array(PEER_ID_LENGTH);
+  crypto.getRandomValues(bytes);
   let id = "";
   for (let i = 0; i < PEER_ID_LENGTH; i++) {
-    id += PEER_ID_CHARS.charAt(Math.floor(Math.random() * PEER_ID_CHARS.length));
+    id += PEER_ID_CHARS.charAt(bytes[i] % PEER_ID_CHARS.length);
   }
   return id;
 }
@@ -234,6 +236,7 @@ export class P2PService {
   private remotePeerId: string | null = null;
   private isConnecting = false;
   private isDisconnecting = false;
+  private connectTimeoutId: number | null = null;
   private listeners: { [K in EventKey]: Set<P2PEvents[K]> } = {
     connected: new Set(),
     disconnected: new Set(),
@@ -285,38 +288,51 @@ export class P2PService {
         return;
       }
 
-      let timeoutId: number | null = null;
+      if (this.connectTimeoutId !== null) {
+        window.clearTimeout(this.connectTimeoutId);
+        this.connectTimeoutId = null;
+      }
+
       const conn = this.peer.connect(remotePeerId, {
         reliable: true,
         serialization: "json",
       });
 
+      let isSettled = false;
+      const settleResolve = () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (this.connectTimeoutId !== null) {
+          window.clearTimeout(this.connectTimeoutId);
+        }
+        this.isConnecting = false;
+        this.connectTimeoutId = null;
+        if (this.getOpenConnectionCount() === 1) {
+          this.emit("connected");
+        }
+        resolve();
+      };
+      const settleReject = (error: Error) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (this.connectTimeoutId !== null) {
+          window.clearTimeout(this.connectTimeoutId);
+        }
+        this.isConnecting = false;
+        this.connectTimeoutId = null;
+        reject(error);
+      };
+
       this.bindConnection(remotePeerId, conn, {
         emitPeerConnected: true,
-        onOpen: () => {
-          this.isConnecting = false;
-          if (timeoutId !== null) {
-            window.clearTimeout(timeoutId);
-          }
-          if (this.getOpenConnectionCount() === 1) {
-            this.emit("connected");
-          }
-          resolve();
-        },
-        onClose: () => {
-          this.isConnecting = false;
-          if (timeoutId !== null) {
-            window.clearTimeout(timeoutId);
-          }
-          reject(new Error("Connection closed before it was established"));
-        },
+        onOpen: settleResolve,
+        onClose: () => settleReject(new Error("Connection closed before it was established")),
       });
 
-      timeoutId = window.setTimeout(() => {
-        if (this.isConnecting) {
-          this.isConnecting = false;
+      this.connectTimeoutId = window.setTimeout(() => {
+        if (!isSettled && this.isConnecting) {
           conn.close();
-          reject(new Error("Connection timeout"));
+          settleReject(new Error("Connection timeout"));
         }
       }, 30000);
     });
@@ -335,6 +351,27 @@ export class P2PService {
         return;
       }
 
+      let isSettled = false;
+      let initTimeoutId: number | null = null;
+      const settleResolve = () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (initTimeoutId !== null) {
+          window.clearTimeout(initTimeoutId);
+          initTimeoutId = null;
+        }
+        resolve();
+      };
+      const settleReject = (error: Error) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (initTimeoutId !== null) {
+          window.clearTimeout(initTimeoutId);
+          initTimeoutId = null;
+        }
+        reject(error);
+      };
+
       const peerServerOptions = getPeerServerOptions();
       if (this.role === "host") {
         this.peer = new Peer(`torrsync-${this.peerId}`, {
@@ -351,7 +388,7 @@ export class P2PService {
         if (id) {
           this.peerId = id.replace("torrsync-", "");
         }
-        resolve();
+        settleResolve();
       });
 
       this.peer.on("connection", (conn) => {
@@ -363,19 +400,23 @@ export class P2PService {
         console.error("PeerJS error:", err);
         this.emit("error", error);
         if (err.type === "peer-unavailable") {
-          reject(new Error("Peer not found"));
+          settleReject(new Error("Peer not found"));
         } else {
-          reject(error);
+          settleReject(error);
         }
       });
 
       this.peer.on("disconnected", () => {
+        if (initTimeoutId !== null) {
+          window.clearTimeout(initTimeoutId);
+          initTimeoutId = null;
+        }
         this.emit("disconnected");
       });
 
-      setTimeout(() => {
+      initTimeoutId = window.setTimeout(() => {
         if (!this.peer?.open) {
-          reject(new Error("Initialization timeout"));
+          settleReject(new Error("Initialization timeout"));
         }
       }, 15000);
     });
@@ -402,6 +443,11 @@ export class P2PService {
 
   disconnect(): void {
     this.isDisconnecting = true;
+
+    if (this.connectTimeoutId !== null) {
+      window.clearTimeout(this.connectTimeoutId);
+      this.connectTimeoutId = null;
+    }
 
     for (const connection of this.connections.values()) {
       connection.close();
@@ -455,11 +501,14 @@ export class P2PService {
     this.connections.set(peerId, conn);
 
     conn.on("open", () => {
+      if (this.connections.get(peerId) !== conn) {
+        return;
+      }
+
       if (this.isDisconnecting) {
         return;
       }
 
-      this.connections.set(peerId, conn);
       if (options.emitPeerConnected) {
         this.emit("peer_connected", peerId);
       }
@@ -467,6 +516,10 @@ export class P2PService {
     });
 
     conn.on("data", (data) => {
+      if (this.connections.get(peerId) !== conn) {
+        return;
+      }
+
       const message = parseInboundMessage(data);
       if (!message) {
         return;
@@ -514,7 +567,11 @@ export class P2PService {
     });
 
     conn.on("error", (err) => {
-      this.emit("error", new Error(String(err)));
+      if (this.connections.get(peerId) !== conn) {
+        return;
+      }
+
+      this.emit("error", err instanceof Error ? err : new Error(String(err)));
     });
   }
 

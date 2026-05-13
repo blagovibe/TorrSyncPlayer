@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import HomePage from "./components/HomePage";
 import RoomPage from "./components/RoomPage";
 import P2PService from "./services/P2PService";
 import SyncService from "./services/SyncService";
 import TorrentService, { type TorrentMediaFile } from "./services/TorrentService";
 import { type AudioTrackInfo, type SharedTorrentSource, type SyncMessage } from "./services/types";
+import { formatSpeed } from "./utils/format";
 
 import "./App.css";
 
@@ -28,22 +29,6 @@ type TorrentLoadRequest = {
 };
 
 const DEFAULT_SYNC_TOLERANCE_SECONDS = 0.5;
-
-function formatSpeed(bytesPerSecond: number): string {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
-    return "0 B/s";
-  }
-
-  const units = ["B/s", "KB/s", "MB/s", "GB/s"];
-  let value = bytesPerSecond;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-  return `${value.toFixed(precision)} ${units[unitIndex]}`;
-}
 
 function isPlaybackBlockedError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
@@ -120,7 +105,13 @@ function App() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
-  const torrentService = useMemo(() => new TorrentService(), []);
+  const torrentServiceRef = useRef<TorrentService | null>(null);
+  const getTorrentService = () => {
+    if (!torrentServiceRef.current) {
+      torrentServiceRef.current = new TorrentService();
+    }
+    return torrentServiceRef.current;
+  };
   const syncServiceRef = useRef<SyncService | null>(null);
   const currentTorrentSourceRef = useRef<SharedTorrentSource | null>(null);
   const selectedMediaIndexRef = useRef<number | null>(null);
@@ -250,10 +241,10 @@ function App() {
       throw new Error("Media player is not ready");
     }
 
-    await torrentService.streamToMedia(mediaFile.file, mediaElement);
+    await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     selectedMediaFileRef.current = mediaFile;
     setSelectedMediaAudioTracks([]);
-    void torrentService.probeAudioTracks(mediaFile.file).then((audioTracks) => {
+    void getTorrentService().probeAudioTracks(mediaFile.file).then((audioTracks) => {
       if (selectedMediaFileRef.current === mediaFile) {
         setSelectedMediaAudioTracks(audioTracks);
       }
@@ -360,10 +351,10 @@ function App() {
 
     const torrent =
       request.source.kind === "magnet"
-        ? await torrentService.addMagnet(request.source.magnetLink)
-        : await torrentService.addTorrentFile(new Uint8Array(request.source.bytes));
+        ? await getTorrentService().addMagnet(request.source.magnetLink)
+        : await getTorrentService().addTorrentFile(new Uint8Array(request.source.bytes));
 
-    const playableMediaFiles = torrentService.getPlayableMediaFiles(torrent);
+    const playableMediaFiles = getTorrentService().getPlayableMediaFiles(torrent);
     setMediaFiles(playableMediaFiles);
 
     if (playableMediaFiles.length === 0) {
@@ -373,8 +364,8 @@ function App() {
     const preferredMediaFile =
       request.selectedMediaIndex !== null
         ? playableMediaFiles.find((file) => file.index === request.selectedMediaIndex) ??
-          torrentService.getPreferredMediaFile(torrent)
-        : torrentService.getPreferredMediaFile(torrent);
+          getTorrentService().getPreferredMediaFile(torrent)
+        : getTorrentService().getPreferredMediaFile(torrent);
 
     await playMediaFile(preferredMediaFile, request.autoplay);
 
@@ -541,71 +532,81 @@ function App() {
       setIsConnected(true);
       setPeers([{ id: "self", name: "You", role: "master", connectionState: "connected" }]);
       setCurrentView("room");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to initialize room";
-      p2pServiceRef.current?.disconnect();
-      p2pServiceRef.current = null;
-      setConnectionError(message);
-      setPeerRole(null);
-      setPeers([]);
-      setIsConnected(false);
-    } finally {
-      setIsConnecting(false);
-    }
-  };
+    if (error instanceof Error) {
+        const message = error.message;
+        try {
+          p2pServiceRef.current?.disconnect();
+        } catch {
+          // Disconnect errors during cleanup are non-fatal
+        }
+        p2pServiceRef.current = null;
+        setConnectionError(message);
+        setPeerRole(null);
+        setPeers([]);
+        setIsConnected(false);
+        setCurrentView("home");
+      } finally {
+        setIsConnecting(false);
+      }
+    };
 
-  const handleConnectToPeer = async (targetPeerId: string) => {
-    if (isConnecting) {
-      return;
-    }
+    const handleConnectToPeer = async (targetPeerId: string) => {
+      if (isConnecting) {
+        return;
+      }
 
-    const normalizedId = targetPeerId.trim().toUpperCase();
-    if (!normalizedId || normalizedId.length !== 6) {
-      setConnectionError("Invalid peer ID");
-      return;
-    }
+      const normalizedId = targetPeerId.trim().toUpperCase();
+      if (!normalizedId || normalizedId.length !== 6) {
+        setConnectionError("Invalid peer ID");
+        return;
+      }
 
-    setIsConnecting(true);
-    setConnectionError(null);
-    setPeerRole("slave");
-    setPeers([
-      { id: "self", name: "You", role: "slave", connectionState: "connected" },
-      { id: normalizedId, name: "Host", role: "master", connectionState: "connecting" },
-    ]);
-
-    try {
-      const p2pService = await initializeP2PService("guest");
-      await p2pService.connect(`torrsync-${normalizedId}`);
-      setIsConnected(true);
+      setIsConnecting(true);
+      setConnectionError(null);
+      setPeerRole("slave");
       setPeers([
         { id: "self", name: "You", role: "slave", connectionState: "connected" },
-        { id: normalizedId, name: "Host", role: "master", connectionState: "connected" },
+        { id: normalizedId, name: "Host", role: "master", connectionState: "connecting" },
       ]);
-      setCurrentView("room");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Connection failed";
-      p2pServiceRef.current?.disconnect();
-      p2pServiceRef.current = null;
-      setConnectionError(message);
-      setPeerRole(null);
-      setPeers([]);
-      setIsConnected(false);
-      setIsConnecting(false);
-    }
-  };
+
+      try {
+        const p2pService = await initializeP2PService("guest");
+        await p2pService.connect(`torrsync-${normalizedId}`);
+        setIsConnected(true);
+        setPeers([
+          { id: "self", name: "You", role: "slave", connectionState: "connected" },
+          { id: normalizedId, name: "Host", role: "master", connectionState: "connected" },
+        ]);
+        setCurrentView("room");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Connection failed";
+        try {
+          p2pServiceRef.current?.disconnect();
+        } catch {
+          // Disconnect errors during cleanup are non-fatal
+        }
+        p2pServiceRef.current = null;
+        setConnectionError(message);
+        setPeerRole(null);
+        setPeers([]);
+        setIsConnected(false);
+      } finally {
+        setIsConnecting(false);
+      }
+    };
 
   const handleJoinRoom = (code: string) => {
     handleConnectToPeer(code);
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
     if (p2pServiceRef.current) {
       p2pServiceRef.current.disconnect();
       p2pServiceRef.current = null;
     }
-    disposeSyncService();
-    torrentService.clearActiveTorrent();
-    if (videoRef.current) {
+disposeSyncService();
+    await getTorrentService().destroy();
+    torrentServiceRef.current = null;
       videoRef.current.pause();
       videoRef.current.removeAttribute("src");
       videoRef.current.load();
@@ -677,9 +678,9 @@ function App() {
         return null;
       }
 
-      return torrentService.createAudioTrackStreamUrl(mediaFile.file, trackIndex, startSeconds);
+      return getTorrentService().createAudioTrackStreamUrl(mediaFile.file, trackIndex, startSeconds);
     },
-    [torrentService],
+    [getTorrentService()],
   );
 
   const handleAudioTrackChange = (trackIndex: number | null) => {
@@ -708,12 +709,18 @@ function App() {
     }
   };
 
+  // Use the selected file's individual progress when available;
+  // fall back to overall torrent progress for the general buffer indicator.
   const selectedMediaBufferProgress = Math.round(
-    (selectedMediaFile?.file.progress ?? (selectedMediaIndex !== null ? 0 : torrentProgress / 100)) * 100,
+    ((selectedMediaFile?.file.progress != null && selectedMediaFile.file.progress >= 0)
+      ? selectedMediaFile.file.progress
+      : selectedMediaIndex !== null
+        ? 0
+        : torrentProgress / 100) * 100,
   );
 
   const torrentPeerHint =
-    torrentService.isElectronBackendEnabled()
+    getTorrentService().isElectronBackendEnabled()
       ? torrentPeerCount > 0
         ? `${torrentPeerCount} public peer${torrentPeerCount === 1 ? "" : "s"} discovered via tracker, DHT, and PEX`
         : "Looking for public peers via tracker, DHT, and PEX"
@@ -734,22 +741,22 @@ function App() {
     : torrentFile?.name ?? null;
 
   useEffect(() => {
-    const offTorrentError = torrentService.on("error", (error) => {
+    const offTorrentError = getTorrentService().on("error", (error) => {
       console.error("Torrent error", error);
       setTorrentError(error.message);
       setIsLoadingTorrent(false);
       isLoadingTorrentRef.current = false;
     });
 
-    const offTorrentProgress = torrentService.on("progress", (progress) => {
+    const offTorrentProgress = getTorrentService().on("progress", (progress) => {
       setTorrentProgress(Math.round(progress * 100));
     });
 
-    const offTorrentSpeed = torrentService.on("speed", (speed) => {
+    const offTorrentSpeed = getTorrentService().on("speed", (speed) => {
       setDownloadSpeed(formatSpeed(speed));
     });
 
-    const offTorrentPeerCount = torrentService.on("peerCount", (peerCount) => {
+    const offTorrentPeerCount = getTorrentService().on("peerCount", (peerCount) => {
       setTorrentPeerCount(peerCount);
     });
 
@@ -758,9 +765,9 @@ function App() {
       offTorrentProgress();
       offTorrentSpeed();
       offTorrentPeerCount();
-      torrentService.destroy();
+      getTorrentService().destroy();
     };
-  }, [torrentService]);
+  }, [getTorrentService()]);
 
   useEffect(() => {
     disposeSyncService();
@@ -794,8 +801,25 @@ function App() {
         syncServiceRef.current = null;
       }
     };
+    // syncServiceRef and videoRef are stable refs — no need to re-create SyncService when they change.
+    // currentTorrentSourceRef is read at broadcast time, not at creation time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, peerRole]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      p2pServiceRef.current?.disconnect();
+      p2pServiceRef.current = null;
+      disposeSyncService();
+      void getTorrentService().destroy().catch(() => undefined);
+      torrentServiceRef.current = null;
+      videoRef.current?.pause();
+      videoRef.current?.removeAttribute("src");
+      videoRef.current?.load();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (

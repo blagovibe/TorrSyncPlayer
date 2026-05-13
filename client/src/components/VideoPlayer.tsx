@@ -37,6 +37,13 @@ function formatTime(timeInSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+function isInteractiveTarget(element: EventTarget | null): boolean {
+  if (!(element instanceof HTMLElement)) {
+    return false;
+  }
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) || element.isContentEditable;
+}
+
 function readInitialVideoScale(): VideoScaleMode {
   if (typeof window === "undefined") {
     return "fit";
@@ -48,10 +55,6 @@ function readInitialVideoScale(): VideoScaleMode {
   } catch {
     return "fit";
   }
-}
-
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(target.closest("button, input, textarea, select, [role='button']"));
 }
 
 interface VideoPlayerProps {
@@ -477,9 +480,17 @@ function VideoPlayer({
       }
       if (event.key.toLowerCase() === "f") {
         if (document.fullscreenElement) {
-          void document.exitFullscreen();
+          try {
+            void document.exitFullscreen();
+          } catch {
+            // exitFullscreen may throw in some environments
+          }
         } else {
-          void video.requestFullscreen();
+          try {
+            void video.requestFullscreen();
+          } catch {
+            // requestFullscreen may throw if denied
+          }
         }
       }
       if (event.key === "ArrowRight") {
@@ -522,6 +533,7 @@ function VideoPlayer({
     setFallbackAudioSourceUrl(null);
     fallbackAudioRequestIdRef.current += 1;
     fallbackAudioRef.current?.pause();
+    setSettingsOpen(false);
   }, [mediaLabel]);
 
   useEffect(() => {
@@ -771,9 +783,17 @@ function VideoPlayer({
               return;
             }
             if (document.fullscreenElement) {
-              void document.exitFullscreen();
+              try {
+                void document.exitFullscreen();
+              } catch {
+                // exitFullscreen may throw in some environments
+              }
             } else {
-              void video.requestFullscreen();
+              try {
+                void video.requestFullscreen();
+              } catch {
+                // requestFullscreen may throw if denied
+              }
             }
           }}
         >
