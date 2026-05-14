@@ -1,5 +1,13 @@
 # Signaling Server
 
-There is currently no active in-repository signaling server. TorrSyncPlayer uses PeerJS signaling from `client/src/services/P2PService.ts`.
+This directory is reserved for a future self-hosted signaling server.
 
-This directory is reserved for a future self-hosted Go signaling server. Do not commit generated dependency folders such as `node_modules/` here. If a custom server is reintroduced, add `go.mod`, server source, run instructions, and the matching client configuration in the same change.
+**Current status**: TorrSyncPlayer uses the PeerJS cloud-hosted signaling broker. No local signaling server is required for development, testing, or production use.
+
+If a self-hosted option is added in the future, it should be implemented as a Go module under this directory. Any changes must include:
+- `go.mod` and server source
+- Run instructions
+- Matching client configuration updates
+- Updated tests
+
+Do not commit generated dependency folders such as `node_modules/` here.
