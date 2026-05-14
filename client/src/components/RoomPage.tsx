@@ -42,8 +42,9 @@ interface RoomPageProps {
   torrentError: string | null;
   torrentPeerHint: string;
   bufferHint: string;
-  isBuffering: boolean;
   onBufferingChange?: (isBuffering: boolean) => void;
+  trackerLost?: boolean;
+  onResetTorrentInRoom?: () => void;
 }
 
 function RoomPage({
@@ -82,8 +83,9 @@ function RoomPage({
   torrentError,
   torrentPeerHint,
   bufferHint,
-  isBuffering: _isBuffering,
   onBufferingChange,
+  trackerLost,
+  onResetTorrentInRoom,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
 
@@ -180,6 +182,19 @@ function RoomPage({
                 {isLoadingTorrent ? "Loading metadata..." : "Load File"}
               </button>
             </div>
+            {canControlTorrent && sharedSourceLabel && onResetTorrentInRoom && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("Change torrent source? Current playback will stop.")) {
+                    onResetTorrentInRoom();
+                  }
+                }}
+                disabled={isLoadingTorrent}
+              >
+                Change Source
+              </button>
+            )}
             {isLoadingTorrent && (
               <p className="hint">
                 Fetching torrent metadata and public peer count...
@@ -269,6 +284,7 @@ function RoomPage({
         bufferingProgress={bufferingProgress}
         torrentPeerHint={torrentPeerHint}
         bufferHint={bufferHint}
+        trackerLost={trackerLost ?? false}
       />
       </section>
   );

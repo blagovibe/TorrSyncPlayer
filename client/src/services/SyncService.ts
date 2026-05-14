@@ -117,7 +117,9 @@ export class SyncService {
     }
 
     const latencySeconds = Math.max((Date.now() - message.server_ts) / 1000, 0);
-    const compensatedPosition = message.position + latencySeconds;
+    // Clamp latency to a reasonable maximum to prevent huge jumps from clock drift.
+    const clampedLatencySeconds = Math.min(latencySeconds, 5);
+    const compensatedPosition = message.position + clampedLatencySeconds;
     const shouldAlign = Math.abs(this.video.currentTime - compensatedPosition) > this.syncToleranceSeconds;
     const desiredPlayState =
       message.is_playing ??

@@ -500,7 +500,7 @@ export class TorrentService {
 
   private applyBufferPriority(): void {
     const torrent = this.activeTorrent;
-    if (!torrent?.select) return;
+    if (!torrent?.select || !torrent?.deselect) return;
 
     const file = torrent.files.find((f) => f.length && f.length > 0);
     if (!file?.length) return;
@@ -510,8 +510,9 @@ export class TorrentService {
     const bufferStart = Math.max(fileStart, this.currentPlaybackBytes - BUFFER_WINDOW_BYTES);
     const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + BUFFER_WINDOW_BYTES);
 
-    // Prioritize the buffer window around the current playback position.
-    torrent.select(fileStart, fileEnd, 0);
+    // First deselect everything, then prioritize only the buffer window.
+    // This avoids re-prioritizing the entire file on every call.
+    torrent.deselect(fileStart, fileEnd, 0);
     torrent.select(bufferStart, bufferEnd, 1);
   }
 

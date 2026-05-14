@@ -42,8 +42,14 @@ function HomePage({
       <p className="hint">Watch torrents together with friends</p>
 
       <div className="panel">
-        <button className="primary-btn" type="button" onClick={onCreateRoom}>
-          Create Room (Host)
+        <button className="primary-btn" type="button" onClick={onCreateRoom} disabled={isConnecting}>
+          {isConnecting ? (
+            <>
+              <span className="spinner" aria-hidden="true" /> Creating…
+            </>
+          ) : (
+            "Create Room (Host)"
+          )}
         </button>
       </div>
 

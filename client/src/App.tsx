@@ -99,10 +99,10 @@ function App() {
   const [selectedMediaAudioTracks, setSelectedMediaAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioTrackIndex, setSelectedAudioTrackIndex] = useState<number | null>(null);
   const [torrentPeerCount, setTorrentPeerCount] = useState(0);
+  const [trackerLost, setTrackerLost] = useState(false);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [syncToleranceSeconds, setSyncToleranceSeconds] = useState(DEFAULT_SYNC_TOLERANCE_SECONDS);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -480,7 +480,9 @@ function App() {
         return;
       }
       pendingRemoteSyncRef.current = message;
-      tryApplyPendingRemoteSync();
+      if (isPlayerReadyRef.current) {
+        tryApplyPendingRemoteSync();
+      }
     });
 
     p2pService.on("torrent_source", (message) => {
@@ -602,6 +604,10 @@ function App() {
   };
 
   const handleLeaveRoom = async () => {
+    const shouldLeave = window.confirm("Are you sure you want to leave the room?");
+    if (!shouldLeave) {
+      return;
+    }
     if (p2pServiceRef.current) {
       p2pServiceRef.current.disconnect();
       p2pServiceRef.current = null;
@@ -623,7 +629,21 @@ function App() {
     setConnectionError(null);
     setPlaybackNotice(null);
     pendingRemoteSyncRef.current = null;
+    setTrackerLost(false);
     resetTorrentState();
+  };
+
+  const handleResetTorrentInRoom = async () => {
+    if (peerRole !== "master") {
+      return;
+    }
+    await getTorrentService().destroy();
+    torrentServiceRef.current = null;
+    selectedMediaFileRef.current = null;
+    currentTorrentSourceRef.current = null;
+    resetTorrentState();
+    setMagnetLink("");
+    setTorrentFile(null);
   };
 
   const handleLoadMagnet = async () => {
@@ -715,9 +735,7 @@ function App() {
   const selectedMediaBufferProgress = Math.round(
     ((selectedMediaFile?.file.progress != null && selectedMediaFile.file.progress >= 0)
       ? selectedMediaFile.file.progress
-      : selectedMediaIndex !== null
-        ? 0
-        : torrentProgress / 100) * 100,
+      : torrentProgress / 100) * 100,
   );
 
   const torrentPeerHint =
@@ -732,7 +750,7 @@ function App() {
   const bufferHint = selectedMediaFile
     ? selectedMediaBufferProgress >= 100
       ? "Selected file is fully buffered."
-      : isBuffering
+      : selectedMediaBufferProgress > 0
         ? "Buffering — loading data around current position..."
         : "Selected file is buffering from the swarm."
     : "Load a torrent and pick a movie to see file buffering progress.";
@@ -761,6 +779,11 @@ function App() {
 
     const offTorrentPeerCount = getTorrentService().on("peerCount", (peerCount) => {
       setTorrentPeerCount(peerCount);
+      if (peerCount > 0 && trackerLost) {
+        setTrackerLost(false);
+      } else if (peerCount === 0 && selectedMediaFileRef.current && !isLoadingTorrentRef.current) {
+        setTrackerLost(true);
+      }
     });
 
     return () => {
@@ -770,6 +793,9 @@ function App() {
       offTorrentPeerCount();
       getTorrentService().destroy();
     };
+    // trackerLost state is read inside the callback for edge detection.
+    // It does not need to trigger re-subscription when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getTorrentService]);
 
   useEffect(() => {
@@ -811,15 +837,16 @@ function App() {
 
   // Cleanup on unmount
   useEffect(() => {
+    const video = videoRef.current;
     return () => {
       p2pServiceRef.current?.disconnect();
       p2pServiceRef.current = null;
       disposeSyncService();
       void getTorrentService().destroy().catch(() => undefined);
       torrentServiceRef.current = null;
-      videoRef.current?.pause();
-      videoRef.current?.removeAttribute("src");
-      videoRef.current?.load();
+      video?.pause();
+      video?.removeAttribute("src");
+      video?.load();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -890,14 +917,14 @@ function App() {
           onLoadTorrentFile={() => void handleLoadTorrentFile()}
           onSelectMediaFile={handleSelectMediaFile}
           onLeaveRoom={handleLeaveRoom}
+          onResetTorrentInRoom={handleResetTorrentInRoom}
           isLoadingTorrent={isLoadingTorrent}
           downloadSpeed={downloadSpeed}
           bufferingProgress={selectedMediaBufferProgress}
           torrentError={torrentError}
           torrentPeerHint={torrentPeerHint}
           bufferHint={bufferHint}
-          isBuffering={isBuffering}
-          onBufferingChange={setIsBuffering}
+          trackerLost={trackerLost}
         />
       )}
     </main>

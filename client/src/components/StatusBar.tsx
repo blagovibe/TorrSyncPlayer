@@ -5,6 +5,7 @@ interface StatusBarProps {
   bufferingProgress: number;
   torrentPeerHint: string;
   bufferHint: string;
+  trackerLost: boolean;
 }
 
 function StatusBar({
@@ -14,6 +15,7 @@ function StatusBar({
   bufferingProgress,
   torrentPeerHint,
   bufferHint,
+  trackerLost,
 }: StatusBarProps) {
   return (
     <footer className="status-bar panel">
@@ -30,6 +32,11 @@ function StatusBar({
         <div style={{ width: `${bufferingProgress}%` }} />
       </div>
       <div className="status-notes">
+        {trackerLost && (
+          <span className="status-note warning">
+            ⚠ Lost connection to public peers — attempting to reconnect...
+          </span>
+        )}
         <span className="status-note">{torrentPeerHint}</span>
         <span className="status-note">{bufferHint}</span>
       </div>

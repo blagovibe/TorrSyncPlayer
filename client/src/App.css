@@ -449,6 +449,26 @@ button:hover {
   color: var(--muted);
 }
 
+.status-note.warning {
+  color: #ffd560;
+}
+
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: -0.15em;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 900px) {
   .app-shell {
     padding: 16px;

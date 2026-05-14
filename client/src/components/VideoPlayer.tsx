@@ -107,7 +107,7 @@ function VideoPlayer({
   mediaKind,
   statusMessage,
   canControlPlayback = true,
-  canControlAudioTracks = canControlPlayback,
+  canControlAudioTracks = true,
   fallbackAudioTracks = [],
   selectedAudioTrackIndex = null,
   onPlaybackStart,

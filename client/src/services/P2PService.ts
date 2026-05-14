@@ -386,7 +386,7 @@ export class P2PService {
       this.peer.on("open", (id) => {
         console.log("PeerJS initialized with ID:", id);
         if (id) {
-          this.peerId = id.replace("torrsync-", "");
+          this.peerId = id.startsWith("torrsync-") ? id.replace("torrsync-", "") : id;
         }
         settleResolve();
       });
@@ -399,10 +399,16 @@ export class P2PService {
         const error = normalizePeerError(err);
         console.error("PeerJS error:", err);
         this.emit("error", error);
-        if (err.type === "peer-unavailable") {
-          settleReject(new Error("Peer not found"));
-        } else {
-          settleReject(error);
+        if (!isSettled) {
+          if (err.type === "peer-unavailable") {
+            settleReject(new Error("Peer not found. Check the room code and try again."));
+          } else if (err.type === "network" || err.type === "server-error" || err.type === "socket-error") {
+            settleReject(new Error("Unable to reach the signaling server. Check your internet connection."));
+          } else if (err.type === "browser-incompatible") {
+            settleReject(createWebRTCUnavailableError("PeerJS could not initialize WebRTC data channels"));
+          } else {
+            settleReject(error);
+          }
         }
       });
 
