@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::models::Settings;
 
 const SETTINGS_DIR: &str = "TorrSyncPlayer";
-const SETTINGS_FILE: "settings.json";
+const SETTINGS_FILE: &str = "settings.json";
 
 impl Default for Settings {
     fn default() -> Self {
