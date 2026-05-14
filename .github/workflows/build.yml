@@ -45,8 +45,8 @@ jobs:
       - name: Web build
         run: npm run build
 
-  build:
-    name: Tauri ${{ matrix.artifact_name }}
+  build-electron:
+    name: Electron ${{ matrix.artifact_name }}
     needs: checks
     strategy:
       fail-fast: false
@@ -54,8 +54,12 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_name: TorrSyncPlayer-Linux-AppImage
-            build_command: npm run tauri:build:linux
-            artifact_path: client/src-tauri/target/release/bundle/appimage/*.AppImage
+            build_command: npm run electron:build:linux
+            artifact_path: client/release/*.AppImage
+          - os: windows-latest
+            artifact_name: TorrSyncPlayer-Windows
+            build_command: npm run electron:build:win
+            artifact_path: client/release/*.exe
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -71,18 +75,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri artifact
+      - name: Build Electron artifact
         run: ${{ matrix.build_command }}
 
       - name: Upload build artifact
@@ -94,7 +90,7 @@ jobs:
 
   release:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    needs: build
+    needs: build-electron
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -119,6 +115,12 @@ jobs:
           name: TorrSyncPlayer-Linux-AppImage
           path: artifacts/linux
 
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: TorrSyncPlayer-Windows
+          path: artifacts/windows
+
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -127,3 +129,4 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/linux/*.AppImage
+            artifacts/windows/*.exe
