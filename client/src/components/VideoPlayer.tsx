@@ -63,6 +63,7 @@ interface VideoPlayerProps {
   mediaKind?: "video" | "audio" | null;
   statusMessage?: string | null;
   canControlPlayback?: boolean;
+  canControlSeek?: boolean;
   canControlAudioTracks?: boolean;
   fallbackAudioTracks?: AudioTrackInfo[];
   selectedAudioTrackIndex?: number | null;
@@ -112,6 +113,7 @@ function VideoPlayer({
   mediaKind,
   statusMessage,
   canControlPlayback = true,
+  canControlSeek = true,
   canControlAudioTracks = true,
   fallbackAudioTracks = [],
   selectedAudioTrackIndex = null,
@@ -622,11 +624,11 @@ function VideoPlayer({
           }
         }
       }
-      if (event.key === "ArrowRight") {
+      if (event.key === "ArrowRight" && canControlSeek) {
         video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
         onSeek?.(video.currentTime);
       }
-      if (event.key === "ArrowLeft") {
+      if (event.key === "ArrowLeft" && canControlSeek) {
         video.currentTime = Math.max(0, video.currentTime - 5);
         onSeek?.(video.currentTime);
       }
@@ -634,7 +636,7 @@ function VideoPlayer({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canControlPlayback, settingsOpen, togglePlay, videoRef, onSeek]);
+  }, [canControlPlayback, canControlSeek, settingsOpen, togglePlay, videoRef, onSeek]);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -790,9 +792,9 @@ function VideoPlayer({
           max={duration || 100}
           step={0.1}
           value={currentTime}
-          disabled={!canControlPlayback}
+          disabled={!canControlSeek}
           onChange={(event) => {
-            if (!canControlPlayback) {
+            if (!canControlSeek) {
               return;
             }
             const value = Number(event.target.value);
@@ -802,12 +804,12 @@ function VideoPlayer({
             }
           }}
           onMouseUp={(event) => {
-            if (!canControlPlayback) return;
+            if (!canControlSeek) return;
             const value = Number((event.target as HTMLInputElement).value);
             onSeek?.(value);
           }}
           onTouchEnd={(event) => {
-            if (!canControlPlayback) return;
+            if (!canControlSeek) return;
             const value = Number((event.target as HTMLInputElement).value);
             onSeek?.(value);
           }}

@@ -8,6 +8,7 @@ function createVideo(initialTime = 0): HTMLVideoElement & { dispatch: (event: Vi
   let paused = true;
   const video = {
     currentTime: initialTime,
+    readyState: 4, // HAVE_ENOUGH_DATA — always ready in tests
     get paused() {
       return paused;
     },

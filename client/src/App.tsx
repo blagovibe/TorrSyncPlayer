@@ -463,6 +463,8 @@ function App() {
       setPeers((prev) =>
         prev.map((peer) => ({ ...peer, connectionState: "disconnected" as PeerConnectionState })),
       );
+      // Clear stale pending sync — it may be from a previous connection.
+      pendingRemoteSyncRef.current = null;
     });
 
     p2pService.on("peer_connected", (connectedPeerId) => {
@@ -872,8 +874,9 @@ function App() {
     };
     // syncServiceRef and videoRef are stable refs — no need to re-create SyncService when they change.
     // currentTorrentSourceRef is read at broadcast time, not at creation time.
+    // Re-create SyncService when torrentServiceVersion changes (e.g. after handleResetTorrentInRoom).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, peerRole]);
+  }, [currentView, peerRole, torrentServiceVersion]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -952,6 +955,9 @@ function App() {
           onPlayerReady={(ready) => {
             isPlayerReadyRef.current = ready;
             setIsPlayerReady(ready);
+            if (ready) {
+              tryApplyPendingRemoteSync();
+            }
           }}
           onLoadMagnet={() => void handleLoadMagnet()}
           onLoadTorrentFile={() => void handleLoadTorrentFile()}
