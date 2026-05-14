@@ -391,10 +391,17 @@ function VideoPlayer({
     [audioTracks, fallbackAudioTrackSnapshots, usingFallbackAudio, videoRef],
   );
 
+  const previousFallbackAudioSourceUrlRef = useRef<string | null>(null);
+
   const requestFallbackAudioSource = useCallback(
     async (startSeconds: number) => {
       if (!usingFallbackAudio || activeAudioTrackIndex === null || !resolveFallbackAudioTrackSource) {
         fallbackAudioRequestIdRef.current += 1;
+        // Revoke previous object URL before clearing.
+        if (previousFallbackAudioSourceUrlRef.current) {
+          URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
+          previousFallbackAudioSourceUrlRef.current = null;
+        }
         setFallbackAudioSourceUrl(null);
         fallbackAudioRef.current?.pause();
         return;
@@ -403,6 +410,11 @@ function VideoPlayer({
       const requestId = ++fallbackAudioRequestIdRef.current;
       const audio = fallbackAudioRef.current;
       audio?.pause();
+      // Revoke previous object URL before loading new one.
+      if (previousFallbackAudioSourceUrlRef.current) {
+        URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
+        previousFallbackAudioSourceUrlRef.current = null;
+      }
       setFallbackAudioSourceUrl(null);
 
       try {
@@ -411,6 +423,7 @@ function VideoPlayer({
           return;
         }
 
+        previousFallbackAudioSourceUrlRef.current = nextSourceUrl;
         setFallbackAudioSourceUrl(nextSourceUrl);
       } catch {
         if (requestId === fallbackAudioRequestIdRef.current) {
@@ -461,8 +474,14 @@ function VideoPlayer({
       return;
     }
 
+    // Sync audio position to video before loading new source.
+    const video = videoRef.current;
+    if (video) {
+      audio.currentTime = video.currentTime;
+    }
+
     audio.load();
-    if (videoRef.current && !videoRef.current.paused) {
+    if (video && !video.paused) {
       void audio.play().catch(() => undefined);
     }
   }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
@@ -642,6 +661,11 @@ function VideoPlayer({
     hasMediaMetadataRef.current = false;
     setAudioTracks([]);
     setAudioTracksSupported(detectAudioTracksSupport());
+    // Revoke previous fallback audio object URL when media changes.
+    if (previousFallbackAudioSourceUrlRef.current) {
+      URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
+      previousFallbackAudioSourceUrlRef.current = null;
+    }
     setFallbackAudioSourceUrl(null);
     fallbackAudioRequestIdRef.current += 1;
     fallbackAudioRef.current?.pause();
@@ -695,6 +719,14 @@ function VideoPlayer({
         onTimeUpdate={(event) => {
           setCurrentTime(event.currentTarget.currentTime);
           onTimeUpdate?.(event.currentTarget.currentTime, event.currentTarget.duration);
+
+          // Periodically sync fallback audio to prevent drift.
+          if (usingFallbackAudio && fallbackAudioRef.current && !fallbackAudioRef.current.paused) {
+            const drift = Math.abs(fallbackAudioRef.current.currentTime - event.currentTarget.currentTime);
+            if (drift > 0.3) {
+              fallbackAudioRef.current.currentTime = event.currentTarget.currentTime;
+            }
+          }
         }}
         onLoadedMetadata={(event) => {
           hasMediaMetadataRef.current = true;
@@ -702,8 +734,13 @@ function VideoPlayer({
           syncAudioTracks();
         }}
         onSeeked={(event) => {
-          if (canControlPlayback && usingFallbackAudio) {
+          if (!canControlPlayback) return;
+
+          if (usingFallbackAudio) {
             void requestFallbackAudioSource(event.currentTarget.currentTime);
+          } else if (audioTracksSupported && fallbackAudioRef.current) {
+            // For native audio tracks, sync fallback audio element if it exists.
+            fallbackAudioRef.current.currentTime = event.currentTarget.currentTime;
           }
         }}
         onPause={() => {

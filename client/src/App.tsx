@@ -109,11 +109,10 @@ function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
   const torrentServiceRef = useRef<TorrentService | null>(null);
-  const torrentServiceInitialized = useRef(false);
+  const [torrentServiceVersion, setTorrentServiceVersion] = useState(0);
   const getTorrentService = useCallback(() => {
     if (!torrentServiceRef.current) {
       torrentServiceRef.current = new TorrentService();
-      torrentServiceInitialized.current = true;
     }
     return torrentServiceRef.current;
   }, []);
@@ -337,7 +336,7 @@ function App() {
       }
 
       if (request.broadcast && peerRole === "master") {
-        broadcastCurrentRoomState();
+        window.setTimeout(() => broadcastCurrentRoomState(), 500);
       }
 
       tryApplyPendingRemoteSync();
@@ -377,7 +376,9 @@ function App() {
     currentTorrentSourceRef.current = request.source;
 
     if (request.broadcast && peerRole === "master") {
-      broadcastCurrentRoomState();
+      // Small delay to ensure P2P connection is fully established
+      // before sending torrent source to guests.
+      window.setTimeout(() => broadcastCurrentRoomState(), 500);
     }
 
     tryApplyPendingRemoteSync();
@@ -651,6 +652,8 @@ function App() {
     resetTorrentState();
     setMagnetLink("");
     setTorrentFile(null);
+    // Force re-subscription on the new torrentService instance.
+    setTorrentServiceVersion((v) => v + 1);
   };
 
   const handleLoadMagnet = async () => {
@@ -833,7 +836,7 @@ function App() {
     // It does not need to trigger re-subscription when it changes.
     // Re-subscribe when torrentService instance changes (e.g. after handleResetTorrentInRoom).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getTorrentService]);
+  }, [getTorrentService, torrentServiceVersion]);
 
   useEffect(() => {
     disposeSyncService();
