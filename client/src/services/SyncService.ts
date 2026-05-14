@@ -221,11 +221,18 @@ export class SyncService {
         return;
       }
 
-      // Safety: if a seek was suppressed but 'seeked' never fired
-      // (e.g. seek to same position), reset the flag so future
-      // seeked events are not permanently suppressed.
+      // Safety: if a suppress flag was set but the corresponding event
+      // never fired (e.g. play() rejected due to autoplay policy, or the
+      // video element was removed), reset the flag so future events are
+      // not permanently suppressed.
       if (this.suppressNextEventSync.seeked) {
         this.suppressNextEventSync.seeked = false;
+      }
+      if (this.suppressNextEventSync.play) {
+        this.suppressNextEventSync.play = false;
+      }
+      if (this.suppressNextEventSync.pause) {
+        this.suppressNextEventSync.pause = false;
       }
 
       this.sendMasterSync("state", this.video.currentTime, !this.video.paused);

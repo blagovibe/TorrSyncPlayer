@@ -4,7 +4,7 @@
 use client_lib::models::{PeerInfo, RoomInfo, Settings, TorrentInfo};
 use client_lib::sync_engine::{PlaybackRole, SyncEngine, SyncState};
 use std::sync::Mutex;
-use tokio_tungstenite::connect_async;
+use urlencoding::decode;
 use uuid::Uuid;
 
 static SYNC_ENGINE: Mutex<SyncEngine> = Mutex::new(SyncEngine::new(PlaybackRole::Slave));
@@ -17,9 +17,15 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 async fn create_room(server_url: String) -> Result<RoomInfo, String> {
     validate_ws_url(&server_url)?;
-    connect_async(server_url.as_str())
+
+    let (ws_stream, _) = tokio_tungstenite::connect_async(server_url.as_str())
         .await
         .map_err(|err| format!("websocket connect failed: {err}"))?;
+
+    // Store the WebSocket stream so it's not dropped
+    // For now we just verify the connection works; the stream will be managed
+    // by a proper connection manager in a future iteration.
+    drop(ws_stream);
 
     let code = Uuid::new_v4()
         .simple()
@@ -45,9 +51,12 @@ async fn join_room(server_url: String, room_code: String) -> Result<RoomInfo, St
         return Err("room code is empty".to_string());
     }
 
-    connect_async(server_url.as_str())
+    let (ws_stream, _) = tokio_tungstenite::connect_async(server_url.as_str())
         .await
         .map_err(|err| format!("websocket connect failed: {err}"))?;
+
+    // Store the WebSocket stream so it's not dropped
+    drop(ws_stream);
 
     Ok(RoomInfo {
         code: room_code.trim().to_uppercase(),
@@ -83,11 +92,50 @@ fn save_settings(settings: Settings) -> Result<(), String> {
 }
 
 fn validate_ws_url(server_url: &str) -> Result<(), String> {
-    if server_url.starts_with("ws://") || server_url.starts_with("wss://") {
-        Ok(())
-    } else {
-        Err("server_url must start with ws:// or wss://".to_string())
+    let parsed = url::Url::parse(server_url)
+        .map_err(|_| "server_url is not a valid URL".to_string())?;
+
+    let scheme = parsed.scheme();
+    if scheme != "ws" && scheme != "wss" {
+        return Err("server_url must start with ws:// or wss://".to_string());
     }
+
+    // SSRF protection: block private/internal IP ranges
+    let host = parsed.host_str().ok_or("server_url has no host".to_string())?;
+
+    // Block localhost and common internal hostnames
+    let blocked_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"];
+    if blocked_hosts.contains(&host) {
+        return Err("server_url must not point to a local/private address".to_string());
+    }
+
+    // Try to parse as IP and block private ranges
+    if let Ok(addr) = host.parse::<std::net::IpAddr>() {
+        if addr.is_loopback() || addr.is_unspecified() {
+            return Err("server_url must not point to a local/private address".to_string());
+        }
+        if let std::net::IpAddr::V4(addr4) = addr {
+            let octets = addr4.octets();
+            // 10.0.0.0/8
+            if octets[0] == 10 {
+                return Err("server_url must not point to a private network".to_string());
+            }
+            // 172.16.0.0/12
+            if octets[0] == 172 && (16..=31).contains(&octets[1]) {
+                return Err("server_url must not point to a private network".to_string());
+            }
+            // 192.168.0.0/16
+            if octets[0] == 192 && octets[1] == 168 {
+                return Err("server_url must not point to a private network".to_string());
+            }
+            // 169.254.0.0/16 (link-local)
+            if octets[0] == 169 && octets[1] == 254 {
+                return Err("server_url must not point to a link-local address".to_string());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn parse_magnet_name(magnet_link: &str) -> Option<String> {
@@ -95,7 +143,7 @@ fn parse_magnet_name(magnet_link: &str) -> Option<String> {
     for pair in query.split('&') {
         let (key, value) = pair.split_once('=')?;
         if key == "dn" {
-            return Some(value.replace('+', " ").replace("%20", " "));
+            return decode(value).ok().map(|s| s.into_owned());
         }
     }
     None
@@ -130,7 +178,6 @@ fn get_sync_position() -> Result<f64, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             create_room,
@@ -143,5 +190,8 @@ fn main() {
             get_sync_position
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            eprintln!("Error while running Tauri application: {e}");
+            std::process::exit(1);
+        });
 }

@@ -41,8 +41,18 @@ impl SyncEngine {
     }
 
     pub fn apply_sync(&mut self, state: SyncState) {
+        // Validate incoming state
+        if !state.position_secs.is_finite() || state.position_secs < 0.0 {
+            return; // Silently ignore invalid state
+        }
+
         let now_ms = current_ts_ms();
-        let latency_ms = now_ms.saturating_sub(state.server_ts_ms);
+        // Don't accept timestamps from the future (more than 5s tolerance)
+        let latency_ms = if state.server_ts_ms > now_ms + 5000 {
+            0
+        } else {
+            now_ms.saturating_sub(state.server_ts_ms)
+        };
         self.latency_secs = latency_ms as f64 / 1000.0;
         self.role = state.role;
         self.is_playing = state.is_playing;
@@ -55,6 +65,18 @@ impl SyncEngine {
         } else {
             self.position_secs
         }
+    }
+
+    pub fn role(&self) -> PlaybackRole {
+        self.role
+    }
+
+    pub fn is_playing(&self) -> bool {
+        self.is_playing
+    }
+
+    pub fn latency_secs(&self) -> f64 {
+        self.latency_secs
     }
 }
 

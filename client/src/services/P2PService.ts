@@ -307,6 +307,11 @@ export class P2PService {
         }
         this.isConnecting = false;
         this.connectTimeoutId = null;
+        // Verify connection is still open before resolving
+        if (!conn.open) {
+          reject(new Error("Connection closed before it was established"));
+          return;
+        }
         if (this.getOpenConnectionCount() === 1) {
           this.emit("connected");
         }
@@ -448,6 +453,9 @@ export class P2PService {
   }
 
   disconnect(): void {
+    if (this.isDisconnecting) {
+      return;
+    }
     this.isDisconnecting = true;
 
     if (this.connectTimeoutId !== null) {
@@ -469,6 +477,12 @@ export class P2PService {
 
     this.remotePeerId = null;
     this.isDisconnecting = false;
+
+    // Clear all listener sets to prevent stale callbacks
+    for (const key of Object.keys(this.listeners) as EventKey[]) {
+      this.listeners[key].clear();
+    }
+
     this.emit("disconnected");
   }
 
@@ -481,6 +495,9 @@ export class P2PService {
   }
 
   private handleIncomingConnection(conn: DataConnection): void {
+    if (!this.remotePeerId) {
+      this.remotePeerId = conn.peer;
+    }
     this.bindConnection(conn.peer, conn, {
       emitPeerConnected: true,
       onOpen: () => {
@@ -506,6 +523,17 @@ export class P2PService {
     }
 
     this.connections.set(peerId, conn);
+
+    // If the connection is already open, fire onOpen immediately
+    if (conn.open) {
+      if (this.isDisconnecting) {
+        return;
+      }
+      if (options.emitPeerConnected) {
+        this.emit("peer_connected", peerId);
+      }
+      options.onOpen?.();
+    }
 
     conn.on("open", () => {
       if (this.connections.get(peerId) !== conn) {

@@ -156,6 +156,7 @@ export class TorrentService {
   private readonly electronBackend: ElectronTorrentBackend | null = this.getElectronBackend();
   private activeTorrent: TorrentInstance | null = null;
   private activeObjectUrl: string | null = null;
+  private activeMediaFile: TorrentMediaFile | null = null;
   private streamServerReady = false;
   private streamServerPromise: Promise<void> | null = null;
   private backendStatsTimer: number | null = null;
@@ -427,6 +428,10 @@ export class TorrentService {
 
   async streamToMedia(file: TorrentFile, mediaElement: HTMLMediaElement): Promise<void> {
     this.revokeActiveObjectUrl();
+    // Track the active media file for buffer prioritization.
+    this.activeMediaFile = this.activeTorrent
+      ? this.getPlayableMediaFiles(this.activeTorrent).find((mf) => mf.file === file) ?? null
+      : null;
     mediaElement.pause();
     mediaElement.removeAttribute("src");
     mediaElement.load();
@@ -457,18 +462,32 @@ export class TorrentService {
 
   private streamFromUrl(streamUrl: string, mediaElement: HTMLMediaElement): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
       const onError = () => {
         cleanup();
-        reject(new Error(`Failed to load stream from URL: ${streamUrl}`));
+        settle(() => reject(new Error(`Failed to load stream from URL: ${streamUrl}`)));
       };
       const onCanPlay = () => {
         cleanup();
-        resolve();
+        settle(resolve);
       };
       const cleanup = () => {
         mediaElement.removeEventListener("error", onError);
         mediaElement.removeEventListener("canplay", onCanPlay);
+        if (streamTimeout !== null) {
+          clearTimeout(streamTimeout);
+        }
       };
+      // Timeout: if neither error nor canplay fires within 30s, reject
+      const streamTimeout = setTimeout(() => {
+        cleanup();
+        settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
+      }, 30_000);
       mediaElement.addEventListener("error", onError, { once: true });
       mediaElement.addEventListener("canplay", onCanPlay, { once: true });
       mediaElement.src = streamUrl;
@@ -487,6 +506,8 @@ export class TorrentService {
   async clearActiveTorrentForAdd(): Promise<void> {
     const torrent = this.activeTorrent;
     this.activeTorrent = null;
+    this.activeMediaFile = null;
+    this.stopPrioritizeLoop();
     this.stopBackendStatsPolling();
     this.revokeActiveObjectUrl();
     this.discoveredPeerIds.clear();
@@ -499,9 +520,20 @@ export class TorrentService {
     const destroyTorrent = torrent?.destroy;
     if (typeof destroyTorrent === "function") {
       await new Promise<void>((resolve) => {
+        let resolved = false;
+        const settle = () => {
+          if (resolved) return;
+          resolved = true;
+          resolve();
+        };
+        // Timeout fallback: if destroy callback never fires, resolve after 10s.
+        const timeoutId = globalThis.setTimeout(settle, 10_000);
         try {
           if (destroyTorrent.length > 0) {
-            destroyTorrent(() => resolve());
+            destroyTorrent(() => {
+              globalThis.clearTimeout(timeoutId);
+              settle();
+            });
             return;
           }
 
@@ -509,7 +541,8 @@ export class TorrentService {
         } catch {
           // Ignore cleanup errors and move on to the next request.
         }
-        resolve();
+        globalThis.clearTimeout(timeoutId);
+        settle();
       });
     }
   }
@@ -568,7 +601,10 @@ export class TorrentService {
     const torrent = this.activeTorrent;
     if (!torrent?.select || !torrent?.deselect) return;
 
-    const file = torrent.files.find((f) => f.length && f.length > 0);
+    // Use the active media file for buffer prioritization; fall back to the first
+    // file with a known length for single-file torrents.
+    const mediaFile = this.activeMediaFile;
+    const file = mediaFile?.file ?? torrent.files.find((f) => f.length && f.length > 0);
     if (!file?.length) return;
 
     const fileStart = 0;
@@ -716,10 +752,7 @@ export class TorrentService {
       serverCreator.call(client, { controller: readyRegistration });
       this.streamServerReady = true;
     })()
-      .catch(() => undefined)
-      .finally(() => {
-        this.streamServerPromise = null;
-      });
+      .catch(() => undefined);
 
     return this.streamServerPromise;
   }
@@ -780,6 +813,9 @@ export class TorrentService {
   private normalizeError(error: unknown): Error {
     if (error instanceof Error) {
       return error;
+    }
+    if (error == null) {
+      return new Error("Unknown torrent error");
     }
     return new Error(typeof error === "string" ? error : "Unknown torrent error");
   }

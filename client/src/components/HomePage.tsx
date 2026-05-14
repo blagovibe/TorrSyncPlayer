@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 interface HomePageProps {
   peerId: string;
@@ -17,6 +17,15 @@ function HomePage({
 }: HomePageProps) {
   const [joinCode, setJoinCode] = useState("");
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) {
+        clearTimeout(copiedTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleJoin = (event: FormEvent) => {
     event.preventDefault();
@@ -30,7 +39,10 @@ function HomePage({
     try {
       await navigator.clipboard.writeText(peerId);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimerRef.current !== null) {
+        clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy:", err);
     }

@@ -28,8 +28,8 @@ function StatusBar({
       <span>Public peers seen: {torrentPeerCount}</span>
       <span>Speed: {downloadSpeed}</span>
       <span>Buffer: {bufferingProgress}%</span>
-      <div className="buffer-bar" aria-hidden>
-        <div style={{ width: `${bufferingProgress}%` }} />
+      <div className="buffer-bar" role="progressbar" aria-valuenow={Math.min(100, Math.max(0, bufferingProgress))} aria-valuemin={0} aria-valuemax={100}>
+        <div style={{ width: `${Math.min(100, Math.max(0, bufferingProgress))}%` }} />
       </div>
       <div className="status-notes">
         {trackerLost && (

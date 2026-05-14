@@ -108,7 +108,7 @@ function normalizeTorrentSource(torrentSource) {
   if (Array.isArray(torrentSource)) {
     return Uint8Array.from(torrentSource);
   }
-  return torrentSource;
+  throw new Error("Invalid torrent source type: expected Uint8Array or Array");
 }
 
 function createErrorFromSpawn(error, fallbackMessage) {
@@ -213,6 +213,18 @@ class TorrentBridge {
     this.client = null;
     this.clientPromise = null;
 
+    // Close the torrent stream server if it was created
+    if (client && !client.destroyed && typeof client._server === "object" && client._server !== null) {
+      const server = client._server;
+      if (typeof server.close === "function") {
+        try {
+          server.close();
+        } catch {
+          // Server may have already been closed
+        }
+      }
+    }
+
     if (!client || client.destroyed || typeof client.destroy !== "function") {
       return;
     }
@@ -226,21 +238,47 @@ class TorrentBridge {
     const client = await this.getClient();
     await this.ensureTorrentServer(client);
     await this.clear();
+
+    const MAX_PEER_IDS = 50_000;
+
     const torrent = await new Promise((resolve, reject) => {
-      const addedTorrent = client.add(torrentSource, (readyTorrent) => {
-        resolve(readyTorrent);
-      });
+      let addedTorrent;
+      try {
+        addedTorrent = client.add(torrentSource, (readyTorrent) => {
+          resolve(readyTorrent);
+        });
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+
+      if (!addedTorrent) {
+        reject(new Error("Failed to add torrent: client.add returned null"));
+        return;
+      }
+
+      const addTimeout = setTimeout(() => {
+        reject(new Error("Torrent addition timed out after 60 seconds"));
+      }, 60_000);
 
       addedTorrent.on("peer", (peerId) => {
         const normalizedPeerId = normalizePeerId(peerId);
-        if (normalizedPeerId) {
+        if (normalizedPeerId && this.discoveredPeerIds.size < MAX_PEER_IDS) {
           this.discoveredPeerIds.add(normalizedPeerId);
         }
       });
 
       addedTorrent.on("error", (error) => {
+        clearTimeout(addTimeout);
         reject(error instanceof Error ? error : new Error(String(error)));
       });
+
+      // Clear timeout when torrent is ready (resolved via callback)
+      const originalResolve = resolve;
+      resolve = (value) => {
+        clearTimeout(addTimeout);
+        originalResolve(value);
+      };
     });
     this.activeTorrent = torrent;
     return formatTorrentSnapshot(torrent, this.discoveredPeerIds.size, this.streamBaseUrl);
@@ -250,6 +288,8 @@ class TorrentBridge {
     if (!streamUrl) {
       return [];
     }
+
+    this.validateLocalStreamUrl(streamUrl);
 
     try {
       const result = await this.runFfprobe(streamUrl);
@@ -263,6 +303,12 @@ class TorrentBridge {
   async createAudioTrackStreamUrl({ streamUrl, trackIndex, startSeconds }) {
     if (!streamUrl) {
       throw new Error("Audio stream URL is unavailable");
+    }
+
+    this.validateLocalStreamUrl(streamUrl);
+
+    if (typeof trackIndex !== "number" || !Number.isInteger(trackIndex) || trackIndex < 0) {
+      throw new Error("Invalid track index");
     }
 
     const audioServerBaseUrl = await this.ensureAudioServer();
@@ -342,7 +388,7 @@ class TorrentBridge {
             if (underlyingServer && typeof underlyingServer.removeListener === "function") {
               underlyingServer.removeListener("error", handleError);
             }
-            resolve();
+            resolve(undefined);
           });
         } catch (error) {
           handleError(error);
@@ -356,9 +402,7 @@ class TorrentBridge {
 
       this.streamBaseUrl = `http://${TORRENT_SERVER_HOST}:${address.port}`;
       return this.streamBaseUrl;
-    })().finally(() => {
-      this.serverPromise = null;
-    });
+    })();
 
     return this.serverPromise;
   }
@@ -390,13 +434,7 @@ class TorrentBridge {
       });
 
       server.on("error", reject);
-    })
-      .catch((error) => {
-        throw error;
-      })
-      .finally(() => {
-        this.audioServerPromise = null;
-      });
+    });
 
     return this.audioServerPromise;
   }
@@ -471,12 +509,17 @@ class TorrentBridge {
       ffmpeg.stdout.pipe(response);
 
       const killProcess = () => {
-        if (!ffmpeg.killed) {
-          ffmpeg.kill("SIGKILL");
+        try {
+          if (!ffmpeg.killed) {
+            ffmpeg.kill("SIGKILL");
+          }
+        } catch {
+          // Process may have already exited
         }
       };
 
       ffmpeg.on("error", (error) => {
+        this.audioSessions.delete(token);
         if (!response.headersSent) {
           response.statusCode = 500;
           response.end(error instanceof Error ? error.message : "Audio stream failed");
@@ -556,10 +599,32 @@ class TorrentBridge {
         clearTimeout(session.cleanupTimer);
       }
       if (session?.process && !session.process.killed) {
-        session.process.kill("SIGKILL");
+        try {
+          session.process.kill("SIGKILL");
+        } catch {
+          // Process may have already exited
+        }
       }
     }
     this.audioSessions.clear();
+  }
+
+  validateLocalStreamUrl(streamUrl) {
+    let parsed;
+    try {
+      parsed = new URL(streamUrl);
+    } catch {
+      throw new Error(`Invalid stream URL: ${streamUrl}`);
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`Stream URL must use http or https protocol, got: ${parsed.protocol}`);
+    }
+
+    const allowedHosts = ["127.0.0.1", "localhost", "::1"];
+    if (!allowedHosts.includes(parsed.hostname)) {
+      throw new Error(`Stream URL must point to a local address, got: ${parsed.hostname}`);
+    }
   }
 }
 

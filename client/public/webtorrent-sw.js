@@ -1,7 +1,12 @@
-const portTimeoutDuration = 5000;
-let cancellable = false;
+const portTimeoutDuration = 15000;
 
 const listener = (event) => {
+  // Only handle requests from our own origin
+  if (event.clientId) {
+    const client = clients.get(event.clientId).catch(() => null);
+    if (!client) return null;
+  }
+
   const { url } = event.request;
   if (event.request.method !== "GET") return null;
   if (!url.includes(self.registration.scope + "webtorrent/")) return null;
@@ -10,7 +15,7 @@ const listener = (event) => {
     return new Response(
       new ReadableStream({
         cancel() {
-          cancellable = true;
+          // Per-request cancellation is handled via the port below
         },
       }),
     );
@@ -35,8 +40,20 @@ async function serve({ request }) {
   const { url, method, headers, destination } = request;
   const clientlist = await clients.matchAll({ type: "window", includeUncontrolled: true });
 
+  // Filter to only include clients from our origin
+  const ourClients = [];
+  for (const client of clientlist) {
+    if (client.url.startsWith(self.registration.scope)) {
+      ourClients.push(client);
+    }
+  }
+
+  if (ourClients.length === 0) {
+    return new Response("No available client", { status: 503 });
+  }
+
   const [data, port] = await new Promise((resolve) => {
-    for (const client of clientlist) {
+    for (const client of ourClients) {
       const messageChannel = new MessageChannel();
       const { port1, port2 } = messageChannel;
       port1.onmessage = ({ data: response }) => {
@@ -81,15 +98,12 @@ async function serve({ request }) {
             }
             resolve();
           };
-          if (!cancellable) {
-            clearTimeout(timeOut);
-            if (destination !== "document") {
-              timeOut = setTimeout(() => {
-                cleanup();
-                resolve();
-              }, portTimeoutDuration);
-            }
-          }
+          clearTimeout(timeOut);
+          // Add a longer timeout even for document destinations
+          timeOut = setTimeout(() => {
+            cleanup();
+            resolve();
+          }, 30_000);
           port.postMessage(true);
         });
       },

@@ -394,6 +394,7 @@ function VideoPlayer({
   );
 
   const previousFallbackAudioSourceUrlRef = useRef<string | null>(null);
+  const savedVolumeRef = useRef(1);
 
   const requestFallbackAudioSource = useCallback(
     async (startSeconds: number) => {
@@ -505,6 +506,10 @@ function VideoPlayer({
     }
 
     if (usingFallbackAudio) {
+      // Save current volume before muting for fallback audio.
+      if (!video.muted && video.volume > 0) {
+        savedVolumeRef.current = video.volume;
+      }
       video.defaultMuted = true;
       video.muted = true;
       video.volume = 0;
@@ -513,7 +518,8 @@ function VideoPlayer({
 
     video.defaultMuted = false;
     video.muted = false;
-    video.volume = volume;
+    // Restore saved volume when leaving fallback mode.
+    video.volume = savedVolumeRef.current > 0 ? savedVolumeRef.current : volume;
   }, [usingFallbackAudio, videoRef, volume]);
 
   // Buffering / stalled state listeners.
@@ -625,7 +631,9 @@ function VideoPlayer({
         }
       }
       if (event.key === "ArrowRight" && canControlSeek) {
-        video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
+        if (Number.isFinite(video.duration)) {
+          video.currentTime = Math.min(video.duration, video.currentTime + 5);
+        }
         onSeek?.(video.currentTime);
       }
       if (event.key === "ArrowLeft" && canControlSeek) {
@@ -638,6 +646,8 @@ function VideoPlayer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canControlPlayback, canControlSeek, settingsOpen, togglePlay, videoRef, onSeek]);
 
+  // Pointer-down handler for closing settings menu — separate effect to avoid
+  // re-registering keyboard listener when settingsOpen changes.
   useEffect(() => {
     if (!settingsOpen) {
       return;
@@ -675,6 +685,16 @@ function VideoPlayer({
     setIsBuffering(false);
     setIsStalled(false);
   }, [mediaLabel]);
+
+  // Revoke fallback audio object URL on unmount.
+  useEffect(() => {
+    return () => {
+      if (previousFallbackAudioSourceUrlRef.current) {
+        URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
+        previousFallbackAudioSourceUrlRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (audioTracksSupported) {

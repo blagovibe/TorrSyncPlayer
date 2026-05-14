@@ -106,10 +106,13 @@ function startStaticServer() {
         response.statusCode = 200;
         response.setHeader("Content-Type", getContentType(assetPath));
         response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("X-Frame-Options", "DENY");
+        response.setHeader("Referrer-Policy", "no-referrer");
         response.end(request.method === "HEAD" ? undefined : body);
       } catch (error) {
         response.statusCode = 500;
-        response.end(String(error));
+        response.end("Internal Server Error");
       }
     });
 
@@ -168,14 +171,34 @@ function createWindow(loadUrl) {
 
 app.commandLine.appendSwitch("enable-features", "WebRTC-H264WithOpenH264FFmpeg");
 
-ipcMain.handle("torrent:addMagnet", async (_event, magnetLink) => torrentBridge.addMagnet(magnetLink));
-ipcMain.handle("torrent:addTorrentFile", async (_event, torrentFile) => torrentBridge.addTorrentFile(torrentFile));
+ipcMain.handle("torrent:addMagnet", async (_event, magnetLink) => {
+  if (typeof magnetLink !== "string" || magnetLink.length > 10000) {
+    throw new Error("Invalid magnet link");
+  }
+  return torrentBridge.addMagnet(magnetLink);
+});
+ipcMain.handle("torrent:addTorrentFile", async (_event, torrentFile) => {
+  if (!(torrentFile instanceof Uint8Array) && !Array.isArray(torrentFile)) {
+    throw new Error("Invalid torrent file");
+  }
+  return torrentBridge.addTorrentFile(torrentFile);
+});
 ipcMain.handle("torrent:getStats", async () => torrentBridge.getStats());
 ipcMain.handle("torrent:clear", async () => torrentBridge.clear());
-ipcMain.handle("torrent:probeAudioTracks", async (_event, streamUrl) => torrentBridge.probeAudioTracks(streamUrl));
+ipcMain.handle("torrent:probeAudioTracks", async (_event, streamUrl) => {
+  if (typeof streamUrl !== "string" || streamUrl.length > 5000) {
+    throw new Error("Invalid stream URL");
+  }
+  return torrentBridge.probeAudioTracks(streamUrl);
+});
 ipcMain.handle(
   "torrent:createAudioTrackStreamUrl",
-  async (_event, params) => torrentBridge.createAudioTrackStreamUrl(params),
+  async (_event, params) => {
+    if (!params || typeof params !== "object") {
+      throw new Error("Invalid audio track params");
+    }
+    return torrentBridge.createAudioTrackStreamUrl(params);
+  },
 );
 
 app.whenReady().then(async () => {
@@ -200,12 +223,24 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on("before-quit", () => {
-  void torrentBridge.destroy();
-  if (staticServerInstance) {
-    staticServerInstance.server.close();
-    staticServerInstance = null;
-  }
+app.on("before-quit", (event) => {
+  event.preventDefault();
+  (async () => {
+    try {
+      await torrentBridge.destroy();
+    } catch {
+      // Ignore cleanup errors during shutdown
+    }
+    if (staticServerInstance) {
+      try {
+        staticServerInstance.server.close();
+      } catch {
+        // Ignore
+      }
+      staticServerInstance = null;
+    }
+    app.exit(0);
+  })();
 });
 
 app.on("window-all-closed", () => {

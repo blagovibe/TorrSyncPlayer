@@ -178,6 +178,23 @@ function App() {
     };
   };
 
+  const broadcastTimeoutRef = useRef<number | null>(null);
+
+  const clearBroadcastTimeout = () => {
+    if (broadcastTimeoutRef.current !== null) {
+      window.clearTimeout(broadcastTimeoutRef.current);
+      broadcastTimeoutRef.current = null;
+    }
+  };
+
+  const scheduleBroadcast = (targetPeerId?: string) => {
+    clearBroadcastTimeout();
+    broadcastTimeoutRef.current = window.setTimeout(() => {
+      broadcastCurrentRoomState(targetPeerId);
+      broadcastTimeoutRef.current = null;
+    }, 500);
+  };
+
   const broadcastCurrentRoomState = (targetPeerId?: string) => {
     if (!p2pServiceRef.current?.isHost()) {
       return;
@@ -336,7 +353,7 @@ function App() {
       }
 
       if (request.broadcast && peerRole === "master") {
-        window.setTimeout(() => broadcastCurrentRoomState(), 500);
+        scheduleBroadcast();
       }
 
       tryApplyPendingRemoteSync();
@@ -376,9 +393,7 @@ function App() {
     currentTorrentSourceRef.current = request.source;
 
     if (request.broadcast && peerRole === "master") {
-      // Small delay to ensure P2P connection is fully established
-      // before sending torrent source to guests.
-      window.setTimeout(() => broadcastCurrentRoomState(), 500);
+      scheduleBroadcast();
     }
 
     tryApplyPendingRemoteSync();
@@ -544,7 +559,6 @@ function App() {
     try {
       await initializeP2PService("host");
       setPeerRole("master");
-      setIsConnected(true);
       setPeers([{ id: "self", name: "You", role: "master", connectionState: "connected" }]);
       setCurrentView("room");
     } catch (error) {
@@ -577,15 +591,11 @@ function App() {
 
       setIsConnecting(true);
       setConnectionError(null);
-      setPeerRole("slave");
-      setPeers([
-        { id: "self", name: "You", role: "slave", connectionState: "connected" },
-        { id: normalizedId, name: "Host", role: "master", connectionState: "connecting" },
-      ]);
 
       try {
         const p2pService = await initializeP2PService("guest");
         await p2pService.connect(`torrsync-${normalizedId}`);
+        setPeerRole("slave");
         setIsConnected(true);
         setPeers([
           { id: "self", name: "You", role: "slave", connectionState: "connected" },
@@ -618,12 +628,13 @@ function App() {
     if (!shouldLeave) {
       return;
     }
+    clearBroadcastTimeout();
     if (p2pServiceRef.current) {
       p2pServiceRef.current.disconnect();
       p2pServiceRef.current = null;
     }
     disposeSyncService();
-    await getTorrentService().destroy();
+    await getTorrentService().destroy().catch(() => undefined);
     torrentServiceRef.current = null;
     videoRef.current?.pause();
     videoRef.current?.removeAttribute("src");
@@ -647,7 +658,7 @@ function App() {
     if (peerRole !== "master") {
       return;
     }
-    await getTorrentService().destroy();
+    await getTorrentService().destroy().catch(() => undefined);
     torrentServiceRef.current = null;
     selectedMediaFileRef.current = null;
     currentTorrentSourceRef.current = null;
@@ -875,6 +886,7 @@ function App() {
     // syncServiceRef and videoRef are stable refs — no need to re-create SyncService when they change.
     // currentTorrentSourceRef is read at broadcast time, not at creation time.
     // Re-create SyncService when torrentServiceVersion changes (e.g. after handleResetTorrentInRoom).
+    // syncToleranceSeconds is updated on the existing SyncService via a separate effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, peerRole, torrentServiceVersion]);
 

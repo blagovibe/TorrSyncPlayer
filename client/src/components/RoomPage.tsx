@@ -1,4 +1,4 @@
-import { type RefObject, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Peer, PeerRole } from "../App";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
@@ -98,13 +98,25 @@ function RoomPage({
   onSeek,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) {
+        clearTimeout(copiedTimerRef.current);
+      }
+    };
+  }, []);
 
   const copyPeerId = async () => {
     if (!peerId) return;
     try {
       await navigator.clipboard.writeText(peerId);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimerRef.current !== null) {
+        clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy:", err);
     }
