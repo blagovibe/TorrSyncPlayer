@@ -103,6 +103,8 @@ function App() {
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [syncToleranceSeconds, setSyncToleranceSeconds] = useState(DEFAULT_SYNC_TOLERANCE_SECONDS);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [bufferWindowMB, setBufferWindowMB] = useState(50);
+  const [maxBufferMB, setMaxBufferMB] = useState(500);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -726,6 +728,15 @@ function App() {
     broadcastCurrentRoomState();
   };
 
+  const handleTimeUpdate = useCallback(
+    (currentTime: number, videoDuration: number) => {
+      const mediaFile = selectedMediaFileRef.current;
+      if (!mediaFile) return;
+      getTorrentService().updatePlaybackPosition(currentTime, mediaFile.length, videoDuration);
+    },
+    [getTorrentService],
+  );
+
   const handleSyncToleranceChange = (value: number) => {
     const nextTolerance = clampSyncTolerance(value);
     setSyncToleranceSeconds(nextTolerance);
@@ -735,6 +746,24 @@ function App() {
       p2pServiceRef.current.sendRoomConfig({ syncToleranceSeconds: nextTolerance });
     }
   };
+
+  const handleBufferSettingsChange = useCallback(
+    (bufferWindowMB: number, maxBufferMB: number) => {
+      getTorrentService().setBufferSettings(bufferWindowMB, maxBufferMB);
+      setBufferWindowMB(bufferWindowMB);
+      setMaxBufferMB(maxBufferMB);
+    },
+    [getTorrentService],
+  );
+
+  const handleSeek = useCallback(
+    (timestamp: number) => {
+      if (peerRole === "master" && syncServiceRef.current) {
+        syncServiceRef.current.seek(timestamp);
+      }
+    },
+    [peerRole],
+  );
 
   // Use the selected file's individual progress when available;
   // fall back to overall torrent progress for the general buffer indicator.
@@ -933,6 +962,11 @@ function App() {
           torrentPeerHint={torrentPeerHint}
           bufferHint={bufferHint}
           trackerLost={trackerLost}
+          onTimeUpdate={handleTimeUpdate}
+          bufferWindowMB={bufferWindowMB}
+          maxBufferMB={maxBufferMB}
+          onBufferSettingsChange={handleBufferSettingsChange}
+          onSeek={handleSeek}
         />
       )}
     </main>

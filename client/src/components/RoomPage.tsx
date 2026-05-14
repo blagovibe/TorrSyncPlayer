@@ -45,6 +45,11 @@ interface RoomPageProps {
   onBufferingChange?: (isBuffering: boolean) => void;
   trackerLost?: boolean;
   onResetTorrentInRoom?: () => void;
+  onTimeUpdate?: (currentTime: number, duration: number) => void;
+  bufferWindowMB?: number;
+  maxBufferMB?: number;
+  onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
+  onSeek?: (timestamp: number) => void;
 }
 
 function RoomPage({
@@ -86,6 +91,11 @@ function RoomPage({
   onBufferingChange,
   trackerLost,
   onResetTorrentInRoom,
+  onTimeUpdate,
+  bufferWindowMB,
+  maxBufferMB,
+  onBufferSettingsChange,
+  onSeek,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
 
@@ -118,6 +128,11 @@ function RoomPage({
             resolveFallbackAudioTrackSource={resolveFallbackAudioTrackSource}
             onPlayerReady={onPlayerReady}
             onBufferingChange={onBufferingChange}
+            onTimeUpdate={onTimeUpdate}
+            bufferWindowMB={bufferWindowMB}
+            maxBufferMB={maxBufferMB}
+            onBufferSettingsChange={onBufferSettingsChange}
+            onSeek={onSeek}
           />
           <div className="panel">
             <div className="room-controls-header">

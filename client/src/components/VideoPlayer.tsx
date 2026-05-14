@@ -71,6 +71,11 @@ interface VideoPlayerProps {
   resolveFallbackAudioTrackSource?: (trackIndex: number, startSeconds: number) => Promise<string | null>;
   onPlayerReady?: (ready: boolean) => void;
   onBufferingChange?: (isBuffering: boolean) => void;
+  onTimeUpdate?: (currentTime: number, duration: number) => void;
+  bufferWindowMB?: number;
+  maxBufferMB?: number;
+  onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
+  onSeek?: (timestamp: number) => void;
 }
 
 interface AudioTrackSnapshot {
@@ -115,6 +120,11 @@ function VideoPlayer({
   resolveFallbackAudioTrackSource,
   onPlayerReady,
   onBufferingChange,
+  onTimeUpdate,
+  bufferWindowMB = 50,
+  maxBufferMB = 500,
+  onBufferSettingsChange,
+  onSeek,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -139,6 +149,16 @@ function VideoPlayer({
   const [fallbackAudioSourceUrl, setFallbackAudioSourceUrl] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
   const [isStalled, setIsStalled] = useState(false);
+  const [editBufferWindowMB, setEditBufferWindowMB] = useState(bufferWindowMB);
+  const [editMaxBufferMB, setEditMaxBufferMB] = useState(maxBufferMB);
+
+  useEffect(() => {
+    setEditBufferWindowMB(bufferWindowMB);
+  }, [bufferWindowMB]);
+
+  useEffect(() => {
+    setEditMaxBufferMB(maxBufferMB);
+  }, [maxBufferMB]);
 
   const progress = useMemo(() => {
     if (!duration) {
@@ -585,15 +605,17 @@ function VideoPlayer({
       }
       if (event.key === "ArrowRight") {
         video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 5);
+        onSeek?.(video.currentTime);
       }
       if (event.key === "ArrowLeft") {
         video.currentTime = Math.max(0, video.currentTime - 5);
+        onSeek?.(video.currentTime);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canControlPlayback, settingsOpen, togglePlay, videoRef]);
+  }, [canControlPlayback, settingsOpen, togglePlay, videoRef, onSeek]);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -670,7 +692,10 @@ function VideoPlayer({
             void togglePlay();
           }
         }}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => {
+          setCurrentTime(event.currentTarget.currentTime);
+          onTimeUpdate?.(event.currentTarget.currentTime, event.currentTarget.duration);
+        }}
         onLoadedMetadata={(event) => {
           hasMediaMetadataRef.current = true;
           setDuration(event.currentTarget.duration);
@@ -725,7 +750,7 @@ function VideoPlayer({
         <input
           type="range"
           min={0}
-          max={duration || 0}
+          max={duration || 100}
           step={0.1}
           value={currentTime}
           disabled={!canControlPlayback}
@@ -738,6 +763,16 @@ function VideoPlayer({
             if (videoRef.current) {
               videoRef.current.currentTime = value;
             }
+          }}
+          onMouseUp={(event) => {
+            if (!canControlPlayback) return;
+            const value = Number((event.target as HTMLInputElement).value);
+            onSeek?.(value);
+          }}
+          onTouchEnd={(event) => {
+            if (!canControlPlayback) return;
+            const value = Number((event.target as HTMLInputElement).value);
+            onSeek?.(value);
           }}
         />
 
@@ -850,6 +885,53 @@ function VideoPlayer({
                 ) : (
                   <p className="settings-empty">Load media to inspect audio tracks.</p>
                 )}
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-header">
+                  <span>Buffer</span>
+                  <span>{editBufferWindowMB} MB window</span>
+                </div>
+                <div className="buffer-settings-row">
+                  <label htmlFor="buffer-window-mb">Window (MB)</label>
+                  <input
+                    id="buffer-window-mb"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    step={10}
+                    value={editBufferWindowMB}
+                    onChange={(event) => {
+                      const v = Math.max(1, Math.min(1000, Number(event.target.value) || 50));
+                      setEditBufferWindowMB(v);
+                    }}
+                  />
+                </div>
+                <div className="buffer-settings-row">
+                  <label htmlFor="max-buffer-mb">Max buffer (MB)</label>
+                  <input
+                    id="max-buffer-mb"
+                    type="number"
+                    min={10}
+                    max={2000}
+                    step={10}
+                    value={editMaxBufferMB}
+                    onChange={(event) => {
+                      const v = Math.max(10, Math.min(2000, Number(event.target.value) || 500));
+                      setEditMaxBufferMB(v);
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => onBufferSettingsChange?.(editBufferWindowMB, editMaxBufferMB)}
+                >
+                  Apply buffer settings
+                </button>
+                <p className="settings-hint">
+                  Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.
+                </p>
               </div>
             </div>
           )}

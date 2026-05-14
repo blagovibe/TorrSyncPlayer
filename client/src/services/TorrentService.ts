@@ -75,12 +75,38 @@ const WEBTORRENT_WEBRTC_TRACKERS = [
 ];
 const MAX_TORRENT_CONNECTIONS = 200;
 
-// Buffer window: prioritize downloading ±50MB around the current playback position.
-const BUFFER_WINDOW_BYTES = 50 * 1024 * 1024;
-// Maximum total buffer size: 500MB. When reached, pause non-priority downloads.
-const MAX_BUFFER_BYTES = 500 * 1024 * 1024;
+// Default buffer window: prioritize downloading ±50MB around the current playback position.
+const DEFAULT_BUFFER_WINDOW_MB = 50;
+// Default maximum total buffer size: 500MB.
+const DEFAULT_MAX_BUFFER_MB = 500;
 // How often to re-prioritize pieces based on current time (ms).
 const PRIORITIZE_INTERVAL_MS = 2000;
+
+const BUFFER_WINDOW_STORAGE_KEY = "torrsyncplayer.bufferWindowMB";
+const MAX_BUFFER_STORAGE_KEY = "torrsyncplayer.maxBufferMB";
+
+function loadBufferSetting(storageKey: string, defaultValue: number): number {
+  if (typeof window === "undefined") return defaultValue;
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    if (stored !== null) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return defaultValue;
+}
+
+function saveBufferSetting(storageKey: string, value: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, String(value));
+  } catch {
+    // localStorage unavailable
+  }
+}
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -136,6 +162,9 @@ export class TorrentService {
   private backendStatsInFlight = false;
   private backendCleanupPromise: Promise<void> = Promise.resolve();
   private discoveredPeerIds = new Set<string>();
+  // Configurable buffer settings (loaded from localStorage).
+  private bufferWindowBytes: number = loadBufferSetting(BUFFER_WINDOW_STORAGE_KEY, DEFAULT_BUFFER_WINDOW_MB) * 1024 * 1024;
+  private maxBufferBytes: number = loadBufferSetting(MAX_BUFFER_STORAGE_KEY, DEFAULT_MAX_BUFFER_MB) * 1024 * 1024;
   // Buffer management state.
   private prioritizeTimer: number | null = null;
   private currentPlaybackBytes = 0;
@@ -147,6 +176,23 @@ export class TorrentService {
     ready: new Set(),
     error: new Set(),
   };
+
+  /** Update buffer window and max buffer sizes (in MB). */
+  setBufferSettings(bufferWindowMB: number, maxBufferMB: number): void {
+    const windowBytes = Math.max(1, bufferWindowMB) * 1024 * 1024;
+    const maxBytes = Math.max(1, maxBufferMB) * 1024 * 1024;
+    this.bufferWindowBytes = windowBytes;
+    this.maxBufferBytes = maxBytes;
+    saveBufferSetting(BUFFER_WINDOW_STORAGE_KEY, bufferWindowMB);
+    saveBufferSetting(MAX_BUFFER_STORAGE_KEY, maxBufferMB);
+  }
+
+  getBufferSettings(): { bufferWindowMB: number; maxBufferMB: number } {
+    return {
+      bufferWindowMB: Math.round(this.bufferWindowBytes / 1024 / 1024),
+      maxBufferMB: Math.round(this.maxBufferBytes / 1024 / 1024),
+    };
+  }
 
   on<K extends EventKey>(event: K, callback: TorrentEvents[K]): () => void {
     this.listeners[event].add(callback);
@@ -497,9 +543,9 @@ export class TorrentService {
    */
   getBufferWindow(): { start: number; end: number; maxSize: number } {
     return {
-      start: Math.max(0, this.currentPlaybackBytes - BUFFER_WINDOW_BYTES),
-      end: this.currentPlaybackBytes + BUFFER_WINDOW_BYTES,
-      maxSize: MAX_BUFFER_BYTES,
+      start: Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes),
+      end: this.currentPlaybackBytes + this.bufferWindowBytes,
+      maxSize: this.maxBufferBytes,
     };
   }
 
@@ -527,13 +573,18 @@ export class TorrentService {
 
     const fileStart = 0;
     const fileEnd = file.length - 1;
-    const bufferStart = Math.max(fileStart, this.currentPlaybackBytes - BUFFER_WINDOW_BYTES);
-    const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + BUFFER_WINDOW_BYTES);
+    const bufferStart = Math.max(fileStart, this.currentPlaybackBytes - this.bufferWindowBytes);
+    const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + this.bufferWindowBytes);
 
-    // First deselect everything, then prioritize only the buffer window.
-    // This avoids re-prioritizing the entire file on every call.
-    torrent.deselect(fileStart, fileEnd, 0);
+    // Incremental update: prioritize new window first, then deselect outside.
+    // This avoids a momentary gap where nothing is prioritized.
     torrent.select(bufferStart, bufferEnd, 1);
+    if (bufferStart > fileStart) {
+      torrent.deselect(fileStart, bufferStart - 1, 0);
+    }
+    if (bufferEnd < fileEnd) {
+      torrent.deselect(bufferEnd + 1, fileEnd, 0);
+    }
   }
 
   private async getClient(): Promise<TorrentClient> {

@@ -116,10 +116,15 @@ export class SyncService {
       return;
     }
 
-    const latencySeconds = Math.max((Date.now() - message.server_ts) / 1000, 0);
-    // Clamp latency to a reasonable maximum to prevent huge jumps from clock drift.
-    const clampedLatencySeconds = Math.min(latencySeconds, 5);
-    const compensatedPosition = message.position + clampedLatencySeconds;
+    // For seek messages, don't apply latency compensation — the master
+    // already computed the target position and we need to jump there
+    // immediately. Latency compensation is only useful for continuous
+    // playback (play/pause/state).
+    const isSeek = message.action === "seek";
+    const latencySeconds = isSeek
+      ? 0
+      : Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), 5);
+    const compensatedPosition = message.position + latencySeconds;
     const shouldAlign = Math.abs(this.video.currentTime - compensatedPosition) > this.syncToleranceSeconds;
     const desiredPlayState =
       message.is_playing ??
@@ -204,6 +209,13 @@ export class SyncService {
     this.heartbeatTimer = globalThis.setInterval(() => {
       if (this.role !== "master") {
         return;
+      }
+
+      // Safety: if a seek was suppressed but 'seeked' never fired
+      // (e.g. seek to same position), reset the flag so future
+      // seeked events are not permanently suppressed.
+      if (this.suppressNextEventSync.seeked) {
+        this.suppressNextEventSync.seeked = false;
       }
 
       this.sendMasterSync("state", this.video.currentTime, !this.video.paused);
