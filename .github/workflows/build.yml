@@ -45,7 +45,7 @@ jobs:
       - name: Web build
         run: npm run build
 
-  build-electron:
+  build:
     name: Electron ${{ matrix.artifact_name }}
     needs: checks
     strategy:
@@ -90,7 +90,7 @@ jobs:
 
   release:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    needs: build-electron
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write

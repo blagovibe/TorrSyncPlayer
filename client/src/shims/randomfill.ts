@@ -76,7 +76,7 @@ export function randomFill(
   assertSize(length, start, buffer.length);
 
   const filled = fillRandomBytes(buffer, start, length);
-  queueMicrotask(() => cb(null, filled));
+  cb(null, filled);
   return;
 }
 

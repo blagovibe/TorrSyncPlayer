@@ -54,7 +54,13 @@ if (nativeRTCPeerConnection) {
 
       const { sdpSemantics: _sdpSemantics, ...compatibleConfiguration } =
         configuration as RTCConfiguration & { sdpSemantics?: unknown };
-      return Reflect.construct(nativeRTCPeerConnection, [compatibleConfiguration, ...args], new.target);
+      try {
+        return Reflect.construct(nativeRTCPeerConnection, [compatibleConfiguration, ...args], new.target);
+      } catch {
+        // Fallback: direct invocation without new.target (may lose subclassing but prevents crash).
+        // RTCConfiguration constructor only takes one argument, so we don't spread args.
+        return new nativeRTCPeerConnection(compatibleConfiguration);
+      }
     }
   } as unknown as typeof RTCPeerConnection;
 

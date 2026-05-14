@@ -1,15 +1,14 @@
 # QA Audit and Smoke Validation Plan
 
-Date: 2026-05-10
+Date: 2026-05-14
 
 ## Current Validation Baseline
 
 Executed in `client/`:
 
-- `npm run lint` -> pass with 1 warning:
-  - `src/components/VideoPlayer.tsx:81` (`react-hooks/exhaustive-deps`)
-- `npm run type-check` -> pass
-- `npm run test` -> pass (`4` files, `16` tests)
+- `npm run lint` -> pass with 0 errors, 0 warnings
+- `npm run type-check` -> pass (0 errors)
+- `npm run test` -> pass (5 files, 33 tests)
 - `timeout 180 npm run build` -> timed out (exit `124`)
 
 Rust/Tauri validation:
@@ -22,7 +21,8 @@ Rust/Tauri validation:
 
 Strengths:
 
-- Service-layer logic is unit-tested (`SyncService`, `SignalingService`, `PeerService`, `TorrentService`)
+- Service-layer logic is unit-tested (`SyncService`, `P2PService`, `TorrentService`)
+- Electron torrent bridge is unit-tested
 - CI already gates lint, type-check, and unit tests before packaging
 
 Gaps affecting smoke confidence:
