@@ -386,8 +386,7 @@ export class TorrentService {
     mediaElement.load();
 
     if (file.streamUrl) {
-      mediaElement.src = file.streamUrl;
-      mediaElement.load();
+      await this.streamFromUrl(file.streamUrl, mediaElement);
       return;
     }
 
@@ -408,6 +407,27 @@ export class TorrentService {
     this.activeObjectUrl = objectUrl;
     mediaElement.src = objectUrl;
     mediaElement.load();
+  }
+
+  private streamFromUrl(streamUrl: string, mediaElement: HTMLMediaElement): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const onError = () => {
+        cleanup();
+        reject(new Error(`Failed to load stream from URL: ${streamUrl}`));
+      };
+      const onCanPlay = () => {
+        cleanup();
+        resolve();
+      };
+      const cleanup = () => {
+        mediaElement.removeEventListener("error", onError);
+        mediaElement.removeEventListener("canplay", onCanPlay);
+      };
+      mediaElement.addEventListener("error", onError, { once: true });
+      mediaElement.addEventListener("canplay", onCanPlay, { once: true });
+      mediaElement.src = streamUrl;
+      mediaElement.load();
+    });
   }
 
   formatMediaFileLabel(mediaFile: TorrentMediaFile): string {

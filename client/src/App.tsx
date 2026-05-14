@@ -300,7 +300,7 @@ function App() {
   };
 
   const loadTorrentRequest = async (request: TorrentLoadRequest) => {
-    if (!isPlayerReadyRef.current || !videoRef.current) {
+    if (!videoRef.current) {
       throw new Error("Media player is not ready");
     }
 
@@ -388,6 +388,10 @@ function App() {
 
     const nextRequest = pendingTorrentLoadRef.current;
     if (!nextRequest) {
+      return;
+    }
+
+    if (!isPlayerReadyRef.current || !videoRef.current) {
       return;
     }
 
@@ -480,8 +484,9 @@ function App() {
         return;
       }
       pendingRemoteSyncRef.current = message;
-      if (isPlayerReadyRef.current) {
-        tryApplyPendingRemoteSync();
+      if (isPlayerReadyRef.current && syncServiceRef.current && selectedMediaFileRef.current) {
+        pendingRemoteSyncRef.current = null;
+        syncServiceRef.current.applyRemoteSync(message);
       }
     });
 
@@ -690,6 +695,7 @@ function App() {
       autoplay: true,
       broadcast: true,
     });
+    setSelectedAudioTrackSelection(null);
   };
 
   const resolveFallbackAudioTrackSource = useCallback(
@@ -762,22 +768,23 @@ function App() {
     : torrentFile?.name ?? null;
 
   useEffect(() => {
-    const offTorrentError = getTorrentService().on("error", (error) => {
+    const torrentService = getTorrentService();
+    const offTorrentError = torrentService.on("error", (error) => {
       console.error("Torrent error", error);
       setTorrentError(error.message);
       setIsLoadingTorrent(false);
       isLoadingTorrentRef.current = false;
     });
 
-    const offTorrentProgress = getTorrentService().on("progress", (progress) => {
+    const offTorrentProgress = torrentService.on("progress", (progress) => {
       setTorrentProgress(Math.round(progress * 100));
     });
 
-    const offTorrentSpeed = getTorrentService().on("speed", (speed) => {
+    const offTorrentSpeed = torrentService.on("speed", (speed) => {
       setDownloadSpeed(formatSpeed(speed));
     });
 
-    const offTorrentPeerCount = getTorrentService().on("peerCount", (peerCount) => {
+    const offTorrentPeerCount = torrentService.on("peerCount", (peerCount) => {
       setTorrentPeerCount(peerCount);
       if (peerCount > 0 && trackerLost) {
         setTrackerLost(false);
@@ -791,10 +798,11 @@ function App() {
       offTorrentProgress();
       offTorrentSpeed();
       offTorrentPeerCount();
-      getTorrentService().destroy();
+      torrentService.destroy();
     };
     // trackerLost state is read inside the callback for edge detection.
     // It does not need to trigger re-subscription when it changes.
+    // Re-subscribe when torrentService instance changes (e.g. after handleResetTorrentInRoom).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getTorrentService]);
 

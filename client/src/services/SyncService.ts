@@ -202,11 +202,11 @@ export class SyncService {
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = globalThis.setInterval(() => {
-      if (this.role !== "master" || this.video.paused) {
+      if (this.role !== "master") {
         return;
       }
 
-      this.sendMasterSync("state", this.video.currentTime, true);
+      this.sendMasterSync("state", this.video.currentTime, !this.video.paused);
     }, HEARTBEAT_INTERVAL_MS);
   }
 

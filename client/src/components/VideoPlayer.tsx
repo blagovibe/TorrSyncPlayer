@@ -677,7 +677,7 @@ function VideoPlayer({
           syncAudioTracks();
         }}
         onSeeked={(event) => {
-          if (usingFallbackAudio) {
+          if (canControlPlayback && usingFallbackAudio) {
             void requestFallbackAudioSource(event.currentTarget.currentTime);
           }
         }}

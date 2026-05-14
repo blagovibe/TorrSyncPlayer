@@ -455,6 +455,8 @@ export class P2PService {
       this.connectTimeoutId = null;
     }
 
+    this.isConnecting = false;
+
     for (const connection of this.connections.values()) {
       connection.close();
     }
@@ -466,7 +468,6 @@ export class P2PService {
     }
 
     this.remotePeerId = null;
-    this.isConnecting = false;
     this.isDisconnecting = false;
     this.emit("disconnected");
   }

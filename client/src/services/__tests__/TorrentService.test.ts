@@ -245,6 +245,13 @@ describe("TorrentService", () => {
       removeAttribute: vi.fn(),
       load: vi.fn(),
       pause: vi.fn(),
+      addEventListener: vi.fn((_event: string, callback: () => void, _opts?: unknown) => {
+        // Simulate immediate canplay for the URL-based stream
+        if (_event === "canplay") {
+          callback();
+        }
+      }),
+      removeEventListener: vi.fn(),
     } as unknown) as HTMLVideoElement & { src?: string };
 
     Object.defineProperty(video, "src", {
