@@ -4,6 +4,8 @@
 use client_lib::models::{PeerInfo, RoomInfo, Settings, TorrentInfo};
 use client_lib::sync_engine::{PlaybackRole, SyncEngine, SyncState};
 use std::sync::Mutex;
+use tokio_tungstenite::connect_async;
+use url::Url;
 use urlencoding::decode;
 use uuid::Uuid;
 
@@ -18,7 +20,7 @@ fn greet(name: &str) -> String {
 async fn create_room(server_url: String) -> Result<RoomInfo, String> {
     validate_ws_url(&server_url)?;
 
-    let (ws_stream, _) = tokio_tungstenite::connect_async(server_url.as_str())
+    let (ws_stream, _) = connect_async(server_url.as_str())
         .await
         .map_err(|err| format!("websocket connect failed: {err}"))?;
 
@@ -51,7 +53,7 @@ async fn join_room(server_url: String, room_code: String) -> Result<RoomInfo, St
         return Err("room code is empty".to_string());
     }
 
-    let (ws_stream, _) = tokio_tungstenite::connect_async(server_url.as_str())
+    let (ws_stream, _) = connect_async(server_url.as_str())
         .await
         .map_err(|err| format!("websocket connect failed: {err}"))?;
 
@@ -92,7 +94,7 @@ fn save_settings(settings: Settings) -> Result<(), String> {
 }
 
 fn validate_ws_url(server_url: &str) -> Result<(), String> {
-    let parsed = url::Url::parse(server_url)
+    let parsed = Url::parse(server_url)
         .map_err(|_| "server_url is not a valid URL".to_string())?;
 
     let scheme = parsed.scheme();
