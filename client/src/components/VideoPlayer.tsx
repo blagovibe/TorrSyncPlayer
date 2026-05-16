@@ -161,6 +161,22 @@ function VideoPlayer({
   const videoReadyRef = useRef(false);
   const audioReadyRef = useRef(false);
 
+  const fallbackAudioTrackSnapshots = useMemo(
+    () =>
+      fallbackAudioTracks.map((track, index) => ({
+        sourceIndex: index,
+        label: track.label || `Audio ${index + 1}`,
+        language: track.language || "",
+        enabled: false,
+      })),
+    [fallbackAudioTracks],
+  );
+
+  const usingFallbackAudio =
+    !audioTracksSupported &&
+    fallbackAudioTrackSnapshots.length > 0 &&
+    typeof resolveFallbackAudioTrackSource === "function";
+
   // Helper: try to resume playback after seek once both video and audio are ready.
   const tryResumeAfterSeek = useCallback(() => {
     if (!isWaitingAfterSeekRef.current) return;
@@ -184,99 +200,6 @@ function VideoPlayer({
       }
     }
   }, [usingFallbackAudio, fallbackAudioSourceUrl]);
-
-  useEffect(() => {
-    setEditBufferWindowMB(bufferWindowMB);
-  }, [bufferWindowMB]);
-
-  useEffect(() => {
-    setEditMaxBufferMB(maxBufferMB);
-  }, [maxBufferMB]);
-
-  const progress = useMemo(() => {
-    if (!duration) {
-      return 0;
-    }
-    return (currentTime / duration) * 100;
-  }, [currentTime, duration]);
-
-  const activeVideoScaleLabel =
-    VIDEO_SCALE_OPTIONS.find((option) => option.value === videoScale)?.label ?? VIDEO_SCALE_OPTIONS[0].label;
-
-  const resetHideTimer = useCallback(() => {
-    setShowControls(true);
-    if (hideTimerRef.current) {
-      window.clearTimeout(hideTimerRef.current);
-    }
-    if (settingsOpen) {
-      return;
-    }
-    hideTimerRef.current = window.setTimeout(() => {
-      setShowControls(false);
-    }, HIDE_DELAY_MS);
-  }, [settingsOpen]);
-
-  useEffect(() => {
-    onPlayerReadyRef.current = onPlayerReady;
-  }, [onPlayerReady]);
-
-  useEffect(() => {
-    onAudioTrackChangeRef.current = onAudioTrackChange;
-  }, [onAudioTrackChange]);
-
-  useEffect(() => {
-    onBufferingChangeRef.current = onBufferingChange;
-  }, [onBufferingChange]);
-
-  useEffect(() => {
-    resetHideTimer();
-    return () => {
-      if (hideTimerRef.current) {
-        window.clearTimeout(hideTimerRef.current);
-      }
-    };
-  }, [resetHideTimer]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale);
-    } catch {
-      // Persisting the scale is optional; playback settings still work for the session.
-    }
-  }, [videoScale]);
-
-  useEffect(() => {
-    if (!settingsOpen) {
-      resetHideTimer();
-      return;
-    }
-
-    setShowControls(true);
-    if (hideTimerRef.current) {
-      window.clearTimeout(hideTimerRef.current);
-    }
-  }, [resetHideTimer, settingsOpen]);
-
-  useEffect(() => {
-    onPlayerReadyRef.current?.(true);
-    return () => onPlayerReadyRef.current?.(false);
-  }, []);
-
-  const fallbackAudioTrackSnapshots = useMemo(
-    () =>
-      fallbackAudioTracks.map((track, index) => ({
-        sourceIndex: index,
-        label: track.label || `Audio ${index + 1}`,
-        language: track.language || "",
-        enabled: false,
-      })),
-    [fallbackAudioTracks],
-  );
-
-  const usingFallbackAudio =
-    !audioTracksSupported &&
-    fallbackAudioTrackSnapshots.length > 0 &&
-    typeof resolveFallbackAudioTrackSource === "function";
 
   const visibleAudioTracks = useMemo(
     () => (audioTracksSupported ? audioTracks : usingFallbackAudio ? fallbackAudioTrackSnapshots : []),
