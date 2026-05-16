@@ -559,6 +559,7 @@ function App() {
     try {
       await initializeP2PService("host");
       setPeerRole("master");
+      setIsConnected(true);
       setPeers([{ id: "self", name: "You", role: "master", connectionState: "connected" }]);
       setCurrentView("room");
     } catch (error) {
@@ -890,18 +891,32 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, peerRole, torrentServiceVersion]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — use a flag to avoid double-cleanup with handleLeaveRoom
   useEffect(() => {
-    const video = videoRef.current;
-    return () => {
+    let cleanedUp = false;
+    const doCleanup = async () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
       p2pServiceRef.current?.disconnect();
       p2pServiceRef.current = null;
       disposeSyncService();
-      void getTorrentService().destroy().catch(() => undefined);
+      try {
+        await getTorrentService().destroy();
+      } catch {
+        // ignore cleanup errors
+      }
       torrentServiceRef.current = null;
+      const video = videoRef.current;
       video?.pause();
       video?.removeAttribute("src");
       video?.load();
+    };
+    // Register beforeunload handler for window close
+    const onBeforeUnload = () => { void doCleanup(); };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      void doCleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

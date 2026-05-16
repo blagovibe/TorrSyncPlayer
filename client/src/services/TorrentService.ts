@@ -154,6 +154,8 @@ export class TorrentService {
   private readonly electronBackend: ElectronTorrentBackend | null = this.getElectronBackend();
   private activeTorrent: TorrentInstance | null = null;
   private activeObjectUrl: string | null = null;
+  private activeBlobUrls = new Set<string>();
+  private registeredServiceWorker: ServiceWorkerRegistration | null = null;
   private activeMediaFile: TorrentMediaFile | null = null;
   private streamServerReady = false;
   private streamServerPromise: Promise<void> | null = null;
@@ -454,6 +456,7 @@ export class TorrentService {
     const blob = await file.blob();
     const objectUrl = URL.createObjectURL(blob);
     this.activeObjectUrl = objectUrl;
+    this.activeBlobUrls.add(objectUrl);
     mediaElement.src = objectUrl;
     mediaElement.load();
   }
@@ -509,6 +512,7 @@ export class TorrentService {
     this.stopPrioritizeLoop();
     this.stopBackendStatsPolling();
     this.revokeActiveObjectUrl();
+    this.revokeAllBlobUrls();
     this.discoveredPeerIds.clear();
     if (this.electronBackend) {
       this.backendCleanupPromise = this.electronBackend.clear().catch(() => undefined);
@@ -554,6 +558,11 @@ export class TorrentService {
       this.streamServerPromise = null;
       this.stopBackendStatsPolling();
       this.stopPrioritizeLoop();
+      this.revokeAllBlobUrls();
+      if (this.registeredServiceWorker) {
+        void this.registeredServiceWorker.unregister().catch(() => undefined);
+        this.registeredServiceWorker = null;
+      }
     });
   }
 
@@ -614,26 +623,25 @@ export class TorrentService {
 
     const prev = this.lastBufferWindow;
     if (prev) {
-      // Incremental update: only touch the changed edges.
+      // Incremental update: deselect pieces that left the window, select new ones.
+      // WebTorrent deselect with priority 0 stops downloading those pieces.
       if (bufferStart > prev.start) {
-        torrent.deselect(prev.start, bufferStart - 1, 0);
-      } else if (bufferStart < prev.start) {
-        torrent.select(bufferStart, prev.start - 1, 1);
+        torrent.deselect(prev.start, Math.min(bufferStart - 1, prev.end), 0);
       }
       if (bufferEnd < prev.end) {
-        torrent.deselect(bufferEnd + 1, prev.end, 0);
-      } else if (bufferEnd > prev.end) {
+        torrent.deselect(Math.max(bufferEnd + 1, prev.start), prev.end, 0);
+      }
+      if (bufferStart < prev.start) {
+        torrent.select(bufferStart, prev.start - 1, 1);
+      }
+      if (bufferEnd > prev.end) {
         torrent.select(prev.end + 1, bufferEnd, 1);
       }
     } else {
-      // First call: prioritize the whole window, deselect the rest.
+      // First call: deselect the entire file first, then select only the window.
+      // This prevents WebTorrent from downloading the whole file.
+      torrent.deselect(fileStart, fileEnd, 0);
       torrent.select(bufferStart, bufferEnd, 1);
-      if (bufferStart > fileStart) {
-        torrent.deselect(fileStart, bufferStart - 1, 0);
-      }
-      if (bufferEnd < fileEnd) {
-        torrent.deselect(bufferEnd + 1, fileEnd, 0);
-      }
     }
 
     this.lastBufferWindow = { start: bufferStart, end: bufferEnd };
@@ -746,7 +754,7 @@ export class TorrentService {
 
     this.streamServerPromise = (async () => {
       await navigator.serviceWorker.register("webtorrent-sw.js");
-      const readyRegistration = await navigator.serviceWorker.ready;
+      this.registeredServiceWorker = await navigator.serviceWorker.ready;
       const client = this.client;
 
       if (!client || this.streamServerReady) {
@@ -761,11 +769,11 @@ export class TorrentService {
         return;
       }
 
-      if (!readyRegistration.active || readyRegistration.active.state !== "activated") {
+      if (!this.registeredServiceWorker?.active || this.registeredServiceWorker.active.state !== "activated") {
         return;
       }
 
-      serverCreator.call(client, { controller: readyRegistration });
+      serverCreator.call(client, { controller: this.registeredServiceWorker });
       this.streamServerReady = true;
     })()
       .catch(() => undefined);
@@ -780,6 +788,13 @@ export class TorrentService {
 
     URL.revokeObjectURL(this.activeObjectUrl);
     this.activeObjectUrl = null;
+  }
+
+  private revokeAllBlobUrls(): void {
+    for (const url of this.activeBlobUrls) {
+      URL.revokeObjectURL(url);
+    }
+    this.activeBlobUrls.clear();
   }
 
   private getVideoCompatibilityPriority(extension: string): number {
