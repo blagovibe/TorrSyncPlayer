@@ -450,6 +450,15 @@ function App() {
     }
   };
 
+  // Called when isPlayerReady changes — process any pending torrent load.
+  useEffect(() => {
+    if (isPlayerReady && currentView === "room" && !isProcessingTorrentLoadRef.current) {
+      if (pendingTorrentLoadRef.current) {
+        void processTorrentLoadQueue();
+      }
+    }
+  }, [isPlayerReady, currentView]);
+
   const initializeP2PService = async (role: "host" | "guest") => {
     p2pServiceRef.current?.disconnect();
     disposeSyncService();
