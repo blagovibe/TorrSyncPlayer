@@ -32,14 +32,14 @@ function createTorrent(
     progress: 0.35,
     downloadSpeed: 2048,
     numPeers: 0,
-    on: vi.fn((event: TorrentEvent, callback: TorrentCallback) => {
-      listeners.set(event, callback);
+    on: vi.fn((event: string, callback: TorrentCallback) => {
+      listeners.set(event as TorrentEvent, callback);
     }),
-    emit: async (event: TorrentEvent, ...args: unknown[]) => {
+    emit: async (event: string, ...args: unknown[]) => {
       if (event === "wire") {
         torrent.numPeers += 1;
       }
-      await listeners.get(event)?.(...args);
+      await listeners.get(event as TorrentEvent)?.(...args);
     },
   };
 

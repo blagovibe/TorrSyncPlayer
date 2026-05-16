@@ -28,10 +28,8 @@ interface TorrentInstance {
   downloadSpeed: number;
   numPeers: number;
   discoveredPeerCount?: number;
-  on?: (
-    event: "download" | "metadata" | "ready" | "error" | "wire" | "noPeers" | "peer",
-    callback: (...args: any[]) => void,
-  ) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on?: (event: string, callback: (...args: any[]) => void) => void;
   destroy?: (callback?: (error?: Error) => void) => void;
   // WebTorrent-specific: select byte ranges for priority downloading.
   select?: (start: number, end: number, priority: number) => void;
@@ -507,6 +505,7 @@ export class TorrentService {
     const torrent = this.activeTorrent;
     this.activeTorrent = null;
     this.activeMediaFile = null;
+    this.lastBufferWindow = null;
     this.stopPrioritizeLoop();
     this.stopBackendStatsPolling();
     this.revokeActiveObjectUrl();
@@ -597,12 +596,13 @@ export class TorrentService {
     }
   }
 
+  // Track previous buffer window for incremental updates.
+  private lastBufferWindow: { start: number; end: number } | null = null;
+
   private applyBufferPriority(): void {
     const torrent = this.activeTorrent;
     if (!torrent?.select || !torrent?.deselect) return;
 
-    // Use the active media file for buffer prioritization; fall back to the first
-    // file with a known length for single-file torrents.
     const mediaFile = this.activeMediaFile;
     const file = mediaFile?.file ?? torrent.files.find((f) => f.length && f.length > 0);
     if (!file?.length) return;
@@ -612,15 +612,31 @@ export class TorrentService {
     const bufferStart = Math.max(fileStart, this.currentPlaybackBytes - this.bufferWindowBytes);
     const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + this.bufferWindowBytes);
 
-    // Incremental update: prioritize new window first, then deselect outside.
-    // This avoids a momentary gap where nothing is prioritized.
-    torrent.select(bufferStart, bufferEnd, 1);
-    if (bufferStart > fileStart) {
-      torrent.deselect(fileStart, bufferStart - 1, 0);
+    const prev = this.lastBufferWindow;
+    if (prev) {
+      // Incremental update: only touch the changed edges.
+      if (bufferStart > prev.start) {
+        torrent.deselect(prev.start, bufferStart - 1, 0);
+      } else if (bufferStart < prev.start) {
+        torrent.select(bufferStart, prev.start - 1, 1);
+      }
+      if (bufferEnd < prev.end) {
+        torrent.deselect(bufferEnd + 1, prev.end, 0);
+      } else if (bufferEnd > prev.end) {
+        torrent.select(prev.end + 1, bufferEnd, 1);
+      }
+    } else {
+      // First call: prioritize the whole window, deselect the rest.
+      torrent.select(bufferStart, bufferEnd, 1);
+      if (bufferStart > fileStart) {
+        torrent.deselect(fileStart, bufferStart - 1, 0);
+      }
+      if (bufferEnd < fileEnd) {
+        torrent.deselect(bufferEnd + 1, fileEnd, 0);
+      }
     }
-    if (bufferEnd < fileEnd) {
-      torrent.deselect(bufferEnd + 1, fileEnd, 0);
-    }
+
+    this.lastBufferWindow = { start: bufferStart, end: bufferEnd };
   }
 
   private async getClient(): Promise<TorrentClient> {
