@@ -157,6 +157,33 @@ function VideoPlayer({
   const wasPlayingBeforeSeekRef = useRef(false);
   // Track whether we are currently waiting for data after a seek.
   const isWaitingAfterSeekRef = useRef(false);
+  // Track individual ready states during seek recovery.
+  const videoReadyRef = useRef(false);
+  const audioReadyRef = useRef(false);
+
+  // Helper: try to resume playback after seek once both video and audio are ready.
+  const tryResumeAfterSeek = useCallback(() => {
+    if (!isWaitingAfterSeekRef.current) return;
+    const needsAudio = usingFallbackAudio;
+    const videoOk = videoReadyRef.current;
+    const audioOk = !needsAudio || audioReadyRef.current;
+    if (videoOk && audioOk) {
+      isWaitingAfterSeekRef.current = false;
+      videoReadyRef.current = false;
+      audioReadyRef.current = false;
+      setIsBuffering(false);
+      setIsStalled(false);
+      onBufferingChangeRef.current?.(false);
+      if (wasPlayingBeforeSeekRef.current && videoRef.current) {
+        void videoRef.current.play().catch(() => undefined);
+        if (needsAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
+          fallbackAudioRef.current.currentTime = videoRef.current.currentTime;
+          void fallbackAudioRef.current.play().catch(() => undefined);
+        }
+        setIsPlaying(true);
+      }
+    }
+  }, [usingFallbackAudio, fallbackAudioSourceUrl]);
 
   useEffect(() => {
     setEditBufferWindowMB(bufferWindowMB);
@@ -766,15 +793,19 @@ function VideoPlayer({
         onSeeked={(event) => {
           if (!canControlPlayback) return;
 
-          // After a seek, pause and wait for enough data before resuming.
+          // After a seek, pause both video and audio and wait for both to be ready.
           const video = videoRef.current;
           if (video) {
             video.pause();
             isWaitingAfterSeekRef.current = true;
+            videoReadyRef.current = false;
+            audioReadyRef.current = false;
             setIsPlaying(false);
             setIsBuffering(true);
             onBufferingChangeRef.current?.(true);
           }
+          // Also pause fallback audio — it will resume when both are ready.
+          fallbackAudioRef.current?.pause();
 
           if (usingFallbackAudio) {
             void requestFallbackAudioSource(event.currentTarget.currentTime);
@@ -784,16 +815,9 @@ function VideoPlayer({
           }
         }}
         onCanPlay={() => {
-          // If we were waiting for data after a seek, resume playback.
           if (isWaitingAfterSeekRef.current) {
-            isWaitingAfterSeekRef.current = false;
-            setIsBuffering(false);
-            setIsStalled(false);
-            onBufferingChangeRef.current?.(false);
-            if (wasPlayingBeforeSeekRef.current && videoRef.current) {
-              void videoRef.current.play().catch(() => undefined);
-              setIsPlaying(true);
-            }
+            videoReadyRef.current = true;
+            void tryResumeAfterSeek();
           }
         }}
         onPause={() => {
@@ -818,7 +842,18 @@ function VideoPlayer({
         </div>
       )}
 
-      <audio ref={fallbackAudioRef} hidden preload="auto" src={fallbackAudioSourceUrl ?? undefined} />
+      <audio
+        ref={fallbackAudioRef}
+        hidden
+        preload="auto"
+        src={fallbackAudioSourceUrl ?? undefined}
+        onCanPlay={() => {
+          if (isWaitingAfterSeekRef.current) {
+            audioReadyRef.current = true;
+            void tryResumeAfterSeek();
+          }
+        }}
+      />
 
       {statusMessage && (
         <div className="playback-message" role="status" aria-live="polite">
