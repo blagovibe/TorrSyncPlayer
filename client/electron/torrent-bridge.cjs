@@ -311,12 +311,16 @@ class TorrentBridge {
       throw new Error("Invalid track index");
     }
 
+    if (typeof startSeconds !== "number" || !Number.isFinite(startSeconds) || startSeconds < 0 || startSeconds > 86400) {
+      throw new Error("Invalid start seconds");
+    }
+
     const audioServerBaseUrl = await this.ensureAudioServer();
     const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
     const session = {
       streamUrl,
       trackIndex,
-      startSeconds: Number.isFinite(startSeconds) ? Math.max(0, startSeconds) : 0,
+      startSeconds: Math.max(0, startSeconds),
       process: null,
       cleanupTimer: setTimeout(() => {
         this.audioSessions.delete(token);
@@ -520,6 +524,7 @@ class TorrentBridge {
 
       ffmpeg.on("error", (error) => {
         this.audioSessions.delete(token);
+        killProcess();
         if (!response.headersSent) {
           response.statusCode = 500;
           response.end(error instanceof Error ? error.message : "Audio stream failed");

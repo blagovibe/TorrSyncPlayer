@@ -224,23 +224,30 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
-  event.preventDefault();
-  (async () => {
-    try {
-      await torrentBridge.destroy();
-    } catch {
-      // Ignore cleanup errors during shutdown
-    }
-    if (staticServerInstance) {
+  // Only prevent default if we have windows — allows normal quit on macOS dock
+  if (BrowserWindow.getAllWindows().length > 0) {
+    event.preventDefault();
+    (async () => {
       try {
-        staticServerInstance.server.close();
+        await torrentBridge.destroy();
       } catch {
-        // Ignore
+        // Ignore cleanup errors during shutdown
       }
-      staticServerInstance = null;
-    }
-    app.exit(0);
-  })();
+      if (staticServerInstance) {
+        try {
+          staticServerInstance.server.close();
+        } catch {
+          // Ignore
+        }
+        staticServerInstance = null;
+      }
+      // Close all windows and re-trigger quit
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.destroy();
+      }
+      app.quit();
+    })();
+  }
 });
 
 app.on("window-all-closed", () => {

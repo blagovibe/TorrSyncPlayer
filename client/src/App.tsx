@@ -166,7 +166,7 @@ function App() {
 
   const getCurrentSourceKey = () => currentTorrentSourceRef.current?.sourceKey ?? null;
 
-  const enrichSyncMessage = (message: SyncMessage): SyncMessage => {
+  const enrichSyncMessage = useCallback((message: SyncMessage): SyncMessage => {
     const sourceKey = getCurrentSourceKey();
     if (!sourceKey || message.sourceKey === sourceKey) {
       return message;
@@ -176,7 +176,7 @@ function App() {
       ...message,
       sourceKey,
     };
-  };
+  }, []);
 
   const broadcastTimeoutRef = useRef<number | null>(null);
 
@@ -187,15 +187,7 @@ function App() {
     }
   };
 
-  const scheduleBroadcast = (targetPeerId?: string) => {
-    clearBroadcastTimeout();
-    broadcastTimeoutRef.current = window.setTimeout(() => {
-      broadcastCurrentRoomState(targetPeerId);
-      broadcastTimeoutRef.current = null;
-    }, 500);
-  };
-
-  const broadcastCurrentRoomState = (targetPeerId?: string) => {
+  const broadcastCurrentRoomState = useCallback((targetPeerId?: string) => {
     if (!p2pServiceRef.current?.isHost()) {
       return;
     }
@@ -223,9 +215,17 @@ function App() {
     if (playbackSnapshot) {
       p2pService.sendSync(enrichSyncMessage(playbackSnapshot), targetPeerId);
     }
-  };
+  }, [syncToleranceSeconds, enrichSyncMessage]);
 
-  const tryApplyPendingRemoteSync = () => {
+  const scheduleBroadcast = useCallback((targetPeerId?: string) => {
+    clearBroadcastTimeout();
+    broadcastTimeoutRef.current = window.setTimeout(() => {
+      broadcastCurrentRoomState(targetPeerId);
+      broadcastTimeoutRef.current = null;
+    }, 500);
+  }, [broadcastCurrentRoomState]);
+
+  const tryApplyPendingRemoteSync = useCallback(() => {
     if (peerRole !== "slave") {
       return;
     }
@@ -254,9 +254,9 @@ function App() {
 
     pendingRemoteSyncRef.current = null;
     syncServiceRef.current.applyRemoteSync(pendingSync);
-  };
+  }, [peerRole]);
 
-  const playMediaFile = async (mediaFile: TorrentMediaFile, autoplay = true) => {
+  const playMediaFile = useCallback(async (mediaFile: TorrentMediaFile, autoplay = true) => {
     const mediaElement = videoRef.current;
     if (!mediaElement) {
       throw new Error("Media player is not ready");
@@ -295,7 +295,7 @@ function App() {
         throw error;
       }
     }
-  };
+  }, [getTorrentService]);
 
   const loadTorrentFile = async (file: File) => {
     if (peerRole !== "master") {
@@ -317,7 +317,7 @@ function App() {
     }
   };
 
-  const loadTorrentRequest = async (request: TorrentLoadRequest) => {
+  const loadTorrentRequest = useCallback(async (request: TorrentLoadRequest) => {
     if (!videoRef.current) {
       throw new Error("Media player is not ready");
     }
@@ -397,9 +397,11 @@ function App() {
     }
 
     tryApplyPendingRemoteSync();
-  };
+  }, [mediaFiles, peerRole, getTorrentService, playMediaFile, scheduleBroadcast, tryApplyPendingRemoteSync]);
 
-  const processTorrentLoadQueue = async () => {
+  const processTorrentLoadQueueRef = useRef<() => Promise<void>>(async () => {});
+
+  const processTorrentLoadQueue = useCallback(async () => {
     if (isProcessingTorrentLoadRef.current) {
       return;
     }
@@ -434,10 +436,12 @@ function App() {
       isProcessingTorrentLoadRef.current = false;
       setIsLoadingTorrent(false);
       if (pendingTorrentLoadRef.current) {
-        void processTorrentLoadQueue();
+        void processTorrentLoadQueueRef.current();
       }
     }
-  };
+  }, [loadTorrentRequest]);
+
+  processTorrentLoadQueueRef.current = processTorrentLoadQueue;
 
   const requestTorrentLoad = (request: TorrentLoadRequest) => {
     pendingTorrentLoadRef.current = request;
@@ -446,7 +450,7 @@ function App() {
     }
 
     if (!isProcessingTorrentLoadRef.current) {
-      void processTorrentLoadQueue();
+      void processTorrentLoadQueueRef.current();
     }
   };
 
@@ -454,7 +458,7 @@ function App() {
   useEffect(() => {
     if (isPlayerReady && currentView === "room" && !isProcessingTorrentLoadRef.current) {
       if (pendingTorrentLoadRef.current) {
-        void processTorrentLoadQueue();
+        void processTorrentLoadQueueRef.current();
       }
     }
   }, [isPlayerReady, currentView]);
@@ -824,6 +828,11 @@ function App() {
       : currentTorrentSourceRef.current.fileName
     : torrentFile?.name ?? null;
 
+  const trackerLostRef = useRef(trackerLost);
+  useEffect(() => {
+    trackerLostRef.current = trackerLost;
+  }, [trackerLost]);
+
   useEffect(() => {
     const torrentService = getTorrentService();
     const offTorrentError = torrentService.on("error", (error) => {
@@ -843,7 +852,7 @@ function App() {
 
     const offTorrentPeerCount = torrentService.on("peerCount", (peerCount) => {
       setTorrentPeerCount(peerCount);
-      if (peerCount > 0 && trackerLost) {
+      if (peerCount > 0 && trackerLostRef.current) {
         setTrackerLost(false);
       } else if (peerCount === 0 && selectedMediaFileRef.current && !isLoadingTorrentRef.current) {
         setTrackerLost(true);
@@ -857,10 +866,7 @@ function App() {
       offTorrentPeerCount();
       torrentService.destroy();
     };
-    // trackerLost state is read inside the callback for edge detection.
-    // It does not need to trigger re-subscription when it changes.
     // Re-subscribe when torrentService instance changes (e.g. after handleResetTorrentInRoom).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getTorrentService, torrentServiceVersion]);
 
   useEffect(() => {
@@ -895,41 +901,31 @@ function App() {
         syncServiceRef.current = null;
       }
     };
-    // syncServiceRef and videoRef are stable refs — no need to re-create SyncService when they change.
-    // currentTorrentSourceRef is read at broadcast time, not at creation time.
-    // Re-create SyncService when torrentServiceVersion changes (e.g. after handleResetTorrentInRoom).
-    // syncToleranceSeconds is updated on the existing SyncService via a separate effect below.
+    // syncServiceRef and videoRef are stable refs; enrichSyncMessage, broadcastCurrentRoomState,
+    // and tryApplyPendingRemoteSync use only refs/stable callbacks — safe to exclude from deps.
+    // Re-create SyncService when torrentServiceVersion or syncToleranceSeconds changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, peerRole, torrentServiceVersion]);
+  }, [currentView, peerRole, torrentServiceVersion, syncToleranceSeconds]);
 
-  // Cleanup on unmount — use a flag to avoid double-cleanup with handleLeaveRoom
+  // Cleanup on unmount / window close
   useEffect(() => {
-    let cleanedUp = false;
-    const doCleanup = async () => {
-      if (cleanedUp) return;
-      cleanedUp = true;
+    const doCleanup = () => {
       p2pServiceRef.current?.disconnect();
       p2pServiceRef.current = null;
       disposeSyncService();
-      try {
-        await getTorrentService().destroy();
-      } catch {
-        // ignore cleanup errors
-      }
+      torrentServiceRef.current?.destroy().catch(() => undefined);
       torrentServiceRef.current = null;
       const video = videoRef.current;
       video?.pause();
       video?.removeAttribute("src");
       video?.load();
     };
-    // Register beforeunload handler for window close
-    const onBeforeUnload = () => { void doCleanup(); };
+    const onBeforeUnload = () => { doCleanup(); };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
-      void doCleanup();
+      doCleanup();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -943,16 +939,12 @@ function App() {
     }
 
     if (pendingTorrentLoadRef.current) {
-      void processTorrentLoadQueue();
+      void processTorrentLoadQueueRef.current();
     }
 
     tryApplyPendingRemoteSync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, isPlayerReady]);
-
-  useEffect(() => {
-    syncServiceRef.current?.setSyncToleranceSeconds(syncToleranceSeconds);
-  }, [syncToleranceSeconds]);
 
   return (
     <main className="app-shell">

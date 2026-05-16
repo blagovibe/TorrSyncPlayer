@@ -53,23 +53,33 @@ async function serve({ request }) {
   }
 
   const [data, port] = await new Promise((resolve) => {
+    let resolved = false;
+    const settle = (value) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(value);
+    };
     for (const client of ourClients) {
       const messageChannel = new MessageChannel();
       const { port1, port2 } = messageChannel;
       port1.onmessage = ({ data: response }) => {
-        resolve([response, port1]);
+        settle([response, port1]);
       };
-      client.postMessage(
-        {
-          url,
-          method,
-          headers: Object.fromEntries(headers.entries()),
-          scope: self.registration.scope,
-          destination,
-          type: "webtorrent",
-        },
-        [port2],
-      );
+      try {
+        client.postMessage(
+          {
+            url,
+            method,
+            headers: Object.fromEntries(headers.entries()),
+            scope: self.registration.scope,
+            destination,
+            type: "webtorrent",
+          },
+          [port2],
+        );
+      } catch {
+        // Client may have been closed; try next client
+      }
     }
   });
 

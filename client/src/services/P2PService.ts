@@ -476,14 +476,15 @@ export class P2PService {
     }
 
     this.remotePeerId = null;
+
+    // Emit disconnected before clearing listeners so subscribers are notified
+    this.emit("disconnected");
     this.isDisconnecting = false;
 
     // Clear all listener sets to prevent stale callbacks
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
     }
-
-    this.emit("disconnected");
   }
 
   isConnected(): boolean {

@@ -199,7 +199,7 @@ function VideoPlayer({
         setIsPlaying(true);
       }
     }
-  }, [usingFallbackAudio, fallbackAudioSourceUrl]);
+  }, [usingFallbackAudio, fallbackAudioSourceUrl, videoRef]);
 
   useEffect(() => {
     setEditBufferWindowMB(bufferWindowMB);
