@@ -575,8 +575,16 @@ export class TorrentService {
       return;
     }
     const bytesPerSecond = fileLengthBytes / fileDurationSeconds;
-    this.currentPlaybackBytes = Math.floor(currentTimeSeconds * bytesPerSecond);
-    this.schedulePrioritize();
+    const newPlaybackBytes = Math.floor(currentTimeSeconds * bytesPerSecond);
+    // If the position jumped significantly (seek), reprioritize immediately.
+    const JUMP_THRESHOLD_BYTES = this.bufferWindowBytes * 0.5;
+    if (Math.abs(newPlaybackBytes - this.currentPlaybackBytes) > JUMP_THRESHOLD_BYTES) {
+      this.currentPlaybackBytes = newPlaybackBytes;
+      this.prioritizeNow();
+    } else {
+      this.currentPlaybackBytes = newPlaybackBytes;
+      this.schedulePrioritize();
+    }
   }
 
   /**
@@ -596,6 +604,12 @@ export class TorrentService {
       this.prioritizeTimer = null;
       this.applyBufferPriority();
     }, PRIORITIZE_INTERVAL_MS);
+  }
+
+  /** Immediately re-prioritize buffer for a seek — no delay. */
+  prioritizeNow(): void {
+    this.stopPrioritizeLoop();
+    this.applyBufferPriority();
   }
 
   private stopPrioritizeLoop(): void {

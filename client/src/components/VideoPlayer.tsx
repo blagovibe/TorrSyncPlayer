@@ -153,6 +153,10 @@ function VideoPlayer({
   const [isStalled, setIsStalled] = useState(false);
   const [editBufferWindowMB, setEditBufferWindowMB] = useState(bufferWindowMB);
   const [editMaxBufferMB, setEditMaxBufferMB] = useState(maxBufferMB);
+  // Track whether video was playing before a seek — so we can auto-resume.
+  const wasPlayingBeforeSeekRef = useRef(false);
+  // Track whether we are currently waiting for data after a seek.
+  const isWaitingAfterSeekRef = useRef(false);
 
   useEffect(() => {
     setEditBufferWindowMB(bufferWindowMB);
@@ -755,14 +759,41 @@ function VideoPlayer({
           setDuration(event.currentTarget.duration);
           syncAudioTracks();
         }}
+        onSeeking={() => {
+          // User started seeking — remember if we were playing.
+          wasPlayingBeforeSeekRef.current = !videoRef.current?.paused;
+        }}
         onSeeked={(event) => {
           if (!canControlPlayback) return;
+
+          // After a seek, pause and wait for enough data before resuming.
+          const video = videoRef.current;
+          if (video) {
+            video.pause();
+            isWaitingAfterSeekRef.current = true;
+            setIsPlaying(false);
+            setIsBuffering(true);
+            onBufferingChangeRef.current?.(true);
+          }
 
           if (usingFallbackAudio) {
             void requestFallbackAudioSource(event.currentTarget.currentTime);
           } else if (audioTracksSupported && fallbackAudioRef.current) {
             // For native audio tracks, sync fallback audio element if it exists.
             fallbackAudioRef.current.currentTime = event.currentTarget.currentTime;
+          }
+        }}
+        onCanPlay={() => {
+          // If we were waiting for data after a seek, resume playback.
+          if (isWaitingAfterSeekRef.current) {
+            isWaitingAfterSeekRef.current = false;
+            setIsBuffering(false);
+            setIsStalled(false);
+            onBufferingChangeRef.current?.(false);
+            if (wasPlayingBeforeSeekRef.current && videoRef.current) {
+              void videoRef.current.play().catch(() => undefined);
+              setIsPlaying(true);
+            }
           }
         }}
         onPause={() => {

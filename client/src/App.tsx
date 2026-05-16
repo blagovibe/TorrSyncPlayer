@@ -778,8 +778,10 @@ function App() {
       if (peerRole === "master" && syncServiceRef.current) {
         syncServiceRef.current.seek(timestamp);
       }
+      // Immediately reprioritize buffer for the new position.
+      getTorrentService().prioritizeNow();
     },
-    [peerRole],
+    [peerRole, getTorrentService],
   );
 
   // Use the selected file's individual progress when available;
