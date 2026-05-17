@@ -138,9 +138,10 @@ export class SyncService {
     // Helper: try to play only if we have enough buffered data.
     // HAVE_CURRENT_DATA (2) means we have data for the current frame.
     const safePlay = () => {
-      if (this.video.readyState >= 2) {
+      if (this.video.paused && this.video.readyState >= 2) {
         void this.video.play().catch(() => undefined);
       }
+      // If already playing, nothing to do.
       // If readyState < 2, the browser will auto-play once enough data
       // is buffered — no need to spam play() calls.
     };

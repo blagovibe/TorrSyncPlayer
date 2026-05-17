@@ -515,8 +515,14 @@ export class TorrentService {
     this.revokeAllBlobUrls();
     this.discoveredPeerIds.clear();
     if (this.electronBackend) {
-      this.backendCleanupPromise = this.electronBackend.clear().catch(() => undefined);
-      await this.backendCleanupPromise;
+      // Clear the backend first, then destroy the torrent reference.
+      // If clear() fails, we still clean up the local state.
+      try {
+        this.backendCleanupPromise = this.electronBackend.clear().catch(() => undefined);
+        await this.backendCleanupPromise;
+      } catch {
+        // Ignore cleanup errors — the torrent reference is already nulled
+      }
       return;
     }
 

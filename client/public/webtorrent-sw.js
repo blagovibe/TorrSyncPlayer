@@ -1,5 +1,3 @@
-const portTimeoutDuration = 15000;
-
 const listener = (event) => {
   // Only handle requests from our own origin
   if (event.clientId) {

@@ -395,6 +395,9 @@ class TorrentBridge {
             resolve(undefined);
           });
         } catch (error) {
+          if (underlyingServer && typeof underlyingServer.removeListener === "function") {
+            underlyingServer.removeListener("error", handleError);
+          }
           handleError(error);
         }
       });
@@ -552,6 +555,8 @@ class TorrentBridge {
         response.removeListener("finish", killProcess);
       });
     } catch (error) {
+      // Clean up the session on any error (e.g. spawn throws because ffmpeg is not installed)
+      this.audioSessions.delete(token);
       response.statusCode = 500;
       response.end(error instanceof Error ? error.message : "Audio stream failed");
     }

@@ -500,9 +500,9 @@ export class P2PService {
   }
 
   private handleIncomingConnection(conn: DataConnection): void {
-    if (!this.remotePeerId) {
-      this.remotePeerId = conn.peer;
-    }
+    // Always update remotePeerId to the latest connected peer.
+    // This handles reconnection scenarios where the peer ID may have changed.
+    this.remotePeerId = conn.peer;
     this.bindConnection(conn.peer, conn, {
       emitPeerConnected: true,
       onOpen: () => {

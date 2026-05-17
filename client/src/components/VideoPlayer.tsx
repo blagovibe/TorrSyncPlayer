@@ -830,6 +830,8 @@ function VideoPlayer({
           setIsPlaying(true);
           onPlaybackStart?.();
           if (usingFallbackAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
+            // Sync audio position to video before playing to avoid drift
+            fallbackAudioRef.current.currentTime = videoRef.current?.currentTime ?? 0;
             void fallbackAudioRef.current.play().catch(() => undefined);
           }
         }}

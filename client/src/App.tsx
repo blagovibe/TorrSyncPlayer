@@ -650,7 +650,9 @@ function App() {
       p2pServiceRef.current = null;
     }
     disposeSyncService();
-    await getTorrentService().destroy().catch(() => undefined);
+    // Destroy the current service instance before nulling the ref
+    const torrentService = torrentServiceRef.current ?? getTorrentService();
+    await torrentService.destroy().catch(() => undefined);
     torrentServiceRef.current = null;
     videoRef.current?.pause();
     videoRef.current?.removeAttribute("src");
@@ -674,7 +676,13 @@ function App() {
     if (peerRole !== "master") {
       return;
     }
-    await getTorrentService().destroy().catch(() => undefined);
+    // Destroy the current service instance before nulling the ref.
+    // getTorrentService() returns the existing instance or creates a new one,
+    // but we want to destroy the CURRENT instance, not create a new one.
+    const currentService = torrentServiceRef.current;
+    if (currentService) {
+      await currentService.destroy().catch(() => undefined);
+    }
     torrentServiceRef.current = null;
     selectedMediaFileRef.current = null;
     currentTorrentSourceRef.current = null;
