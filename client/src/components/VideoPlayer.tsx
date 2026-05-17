@@ -513,10 +513,25 @@ function VideoPlayer({
     }
 
     audio.load();
-    // If video is already playing (e.g. after seek when video loaded before audio),
-    // start audio immediately to maintain sync.
-    if (video && !video.paused) {
-      void audio.play().catch(() => undefined);
+    // If video is already playing or was paused after a seek, start audio immediately.
+    const videoEl = videoRef.current;
+    if (videoEl) {
+      if (!videoEl.paused) {
+        void audio.play().catch(() => undefined);
+      } else if (isWaitingAfterSeekRef.current) {
+        // Video is paused after a seek — resume video and audio together
+        videoReadyRef.current = true;
+        audioReadyRef.current = true;
+        isWaitingAfterSeekRef.current = false;
+        setIsBuffering(false);
+        setIsStalled(false);
+        onBufferingChangeRef.current?.(false);
+        if (wasPlayingBeforeSeekRef.current) {
+          void videoEl.play().catch(() => undefined);
+          void audio.play().catch(() => undefined);
+          setIsPlaying(true);
+        }
+      }
     }
   }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
 
