@@ -33,7 +33,7 @@ type OutboundMessage =
       selectedMediaIndex: number | null;
       selectedAudioTrackIndex: number | null;
     }
-  | { type: "room_config"; syncToleranceSeconds: number };
+  | { type: "room_config"; syncToleranceSeconds: number; roomPassword?: string };
 
 const PEER_ID_LENGTH = 6;
 const PEER_ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -187,6 +187,7 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
         return {
           type: "room_config",
           syncToleranceSeconds: message.syncToleranceSeconds,
+          roomPassword: typeof message.roomPassword === "string" ? message.roomPassword : undefined,
         };
       }
       return null;
@@ -280,6 +281,29 @@ export class P2PService {
       return;
     }
 
+    const MAX_RETRIES = 3;
+    const BASE_DELAY_MS = 1000;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.tryConnect(remotePeerId);
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(`Connection attempt ${attempt}/${MAX_RETRIES} failed:`, lastError.message);
+
+        if (attempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+          await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
+        }
+      }
+    }
+
+    throw lastError ?? new Error("Connection failed after retries");
+  }
+
+  private async tryConnect(remotePeerId: string): Promise<void> {
     this.remotePeerId = remotePeerId;
     this.isConnecting = true;
 
@@ -300,7 +324,6 @@ export class P2PService {
         if (isSettled) return;
         isSettled = true;
         this.isConnecting = false;
-        // Verify connection is still open before resolving
         if (!conn.open) {
           reject(new Error("Connection closed before it was established"));
           return;
@@ -368,19 +391,23 @@ export class P2PService {
         });
       }
 
-      this.cleanup.on(this.peer, "open", (id: string) => {
+      const onOpen = (id: string) => {
         console.log("PeerJS initialized with ID:", id);
         if (id) {
           this.peerId = id.startsWith("torrsync-") ? id.replace("torrsync-", "") : id;
         }
         settleResolve();
-      });
+      };
+      this.peer.on("open", onOpen);
+      this.cleanup.add(() => { this.peer?.off?.("open", onOpen); });
 
-      this.cleanup.on(this.peer, "connection", (conn) => {
-        this.handleIncomingConnection(conn as DataConnection);
-      });
+      const onConnection = (conn: DataConnection) => {
+        this.handleIncomingConnection(conn);
+      };
+      this.peer.on("connection", onConnection);
+      this.cleanup.add(() => { this.peer?.off?.("connection", onConnection); });
 
-      this.cleanup.on(this.peer, "error", (err) => {
+      const onError = (err: Error) => {
         const error = normalizePeerError(err);
         console.error("PeerJS error:", err);
         this.emit("error", error);
@@ -396,11 +423,15 @@ export class P2PService {
             settleReject(error);
           }
         }
-      });
+      };
+      this.peer.on("error", onError);
+      this.cleanup.add(() => { this.peer?.off?.("error", onError); });
 
-      this.cleanup.on(this.peer, "disconnected", () => {
+      const onDisconnected = () => {
         this.emit("disconnected");
-      });
+      };
+      this.peer.on("disconnected", onDisconnected);
+      this.cleanup.add(() => { this.peer?.off?.("disconnected", onDisconnected); });
 
       this.cleanup.setTimeout(() => {
         if (!this.peer?.open) {
@@ -426,7 +457,11 @@ export class P2PService {
   }
 
   sendRoomConfig(payload: RoomConfigMessage, targetPeerId?: string): void {
-    this.sendPayload({ type: "room_config", syncToleranceSeconds: payload.syncToleranceSeconds }, targetPeerId);
+    this.sendPayload({
+      type: "room_config",
+      syncToleranceSeconds: payload.syncToleranceSeconds,
+      roomPassword: payload.roomPassword,
+    }, targetPeerId);
   }
 
   disconnect(): void {
@@ -514,7 +549,7 @@ export class P2PService {
       options.onOpen?.();
     }
 
-    this.cleanup.on(conn, "open", () => {
+    const onConnOpen = () => {
       if (this.connections.get(peerId) !== conn) {
         return;
       }
@@ -527,9 +562,11 @@ export class P2PService {
         this.emit("peer_connected", peerId);
       }
       options.onOpen?.();
-    });
+    };
+    conn.on("open", onConnOpen);
+    this.cleanup.add(() => { conn.off?.("open", onConnOpen); });
 
-    this.cleanup.on(conn, "data", (data) => {
+    const onConnData = (data: unknown) => {
       if (this.connections.get(peerId) !== conn) {
         return;
       }
@@ -556,9 +593,11 @@ export class P2PService {
           });
           break;
       }
-    });
+    };
+    conn.on("data", onConnData);
+    this.cleanup.add(() => { conn.off?.("data", onConnData); });
 
-    this.cleanup.on(conn, "close", () => {
+    const onConnClose = () => {
       const trackedConnection = this.connections.get(peerId);
       if (trackedConnection === conn) {
         this.connections.delete(peerId);
@@ -578,15 +617,19 @@ export class P2PService {
       if (this.getOpenConnectionCount() === 0) {
         this.emit("disconnected");
       }
-    });
+    };
+    conn.on("close", onConnClose);
+    this.cleanup.add(() => { conn.off?.("close", onConnClose); });
 
-    this.cleanup.on(conn, "error", (err) => {
+    const onConnError = (err: Error) => {
       if (this.connections.get(peerId) !== conn) {
         return;
       }
 
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
-    });
+    };
+    conn.on("error", onConnError);
+    this.cleanup.add(() => { conn.off?.("error", onConnError); });
   }
 
   private sendPayload(payload: OutboundMessage, targetPeerId?: string): void {

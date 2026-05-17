@@ -66,8 +66,6 @@ export interface CleanupHandle {
     event: string,
     callback: (...args: unknown[]) => void,
   ): void;
-  /** Subscribe with untyped emitter (for PeerJS etc.) */
-  onUntyped(emitter: unknown, event: string, callback: (...args: unknown[]) => void): void;
   /** Register an arbitrary cleanup function */
   add(fn: () => void): void;
   /** Check if already aborted */
@@ -227,13 +225,7 @@ export function createCleanup(): CleanupHandle {
       callback: (...args: unknown[]) => void,
     ) {
       emitter.on(event, callback);
-      subscriptions.push({ emitter, event, callback });
-    },
-
-    /** Subscribe with untyped emitter (for PeerJS etc.) */
-    onUntyped(emitter: unknown, event: string, callback: (...args: unknown[]) => void) {
-      (emitter as { on: (e: string, cb: (...args: unknown[]) => void) => void }).on(event, callback);
-      subscriptions.push({ emitter, event, callback });
+      subscriptions.push({ emitter: emitter as { off?: (event: string, cb: (...args: unknown[]) => void) => void; removeListener?: (event: string, cb: (...args: unknown[]) => void) => void }, event, callback });
     },
 
     add(fn: () => void) {

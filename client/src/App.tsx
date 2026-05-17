@@ -103,6 +103,7 @@ function App() {
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [syncToleranceSeconds, setSyncToleranceSeconds] = useState(DEFAULT_SYNC_TOLERANCE_SECONDS);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [roomPassword, setRoomPassword] = useState("");
   const [bufferWindowMB, setBufferWindowMB] = useState(50);
   const [maxBufferMB, setMaxBufferMB] = useState(500);
 
@@ -209,7 +210,7 @@ function App() {
       );
     }
 
-    p2pService.sendRoomConfig({ syncToleranceSeconds }, targetPeerId);
+    p2pService.sendRoomConfig({ syncToleranceSeconds, roomPassword }, targetPeerId);
 
     const playbackSnapshot = syncServiceRef.current?.createSnapshot();
     if (playbackSnapshot) {
@@ -790,7 +791,7 @@ function App() {
     syncServiceRef.current?.setSyncToleranceSeconds(nextTolerance);
 
     if (p2pServiceRef.current?.isHost() && p2pServiceRef.current.isConnected()) {
-      p2pServiceRef.current.sendRoomConfig({ syncToleranceSeconds: nextTolerance });
+      p2pServiceRef.current.sendRoomConfig({ syncToleranceSeconds: nextTolerance, roomPassword });
     }
   };
 
@@ -817,8 +818,8 @@ function App() {
   // Use the selected file's individual progress when available;
   // fall back to overall torrent progress for the general buffer indicator.
   const selectedMediaBufferProgress = Math.round(
-    ((selectedMediaFile?.file.progress != null && selectedMediaFile.file.progress > 0)
-      ? selectedMediaFile.file.progress
+    ((selectedMediaFileRef.current?.file.progress != null && selectedMediaFileRef.current.file.progress > 0)
+      ? selectedMediaFileRef.current.file.progress
       : torrentProgress / 100) * 100,
   );
 
@@ -871,7 +872,7 @@ function App() {
       setTorrentPeerCount(peerCount);
       if (peerCount > 0 && trackerLostRef.current) {
         setTrackerLost(false);
-      } else if (peerCount === 0 && selectedMediaFileRef.current && !isLoadingTorrentRef.current) {
+      } else if (peerCount === 0 && selectedMediaFileRef.current && !isLoadingTorrentRef.current && currentTorrentSourceRef.current) {
         setTrackerLost(true);
       }
     });
@@ -972,6 +973,8 @@ function App() {
           onJoinRoom={handleJoinRoom}
           isConnecting={isConnecting}
           connectionError={connectionError}
+          roomPassword={roomPassword}
+          onRoomPasswordChange={setRoomPassword}
         />
       ) : (
         <RoomPage

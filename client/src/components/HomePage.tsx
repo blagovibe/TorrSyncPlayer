@@ -6,6 +6,8 @@ interface HomePageProps {
   onJoinRoom: (code: string) => void;
   isConnecting: boolean;
   connectionError: string | null;
+  roomPassword: string;
+  onRoomPasswordChange: (value: string) => void;
 }
 
 function HomePage({
@@ -14,6 +16,8 @@ function HomePage({
   onJoinRoom,
   isConnecting,
   connectionError,
+  roomPassword,
+  onRoomPasswordChange,
 }: HomePageProps) {
   const [joinCode, setJoinCode] = useState("");
   const [copied, setCopied] = useState(false);
@@ -77,6 +81,19 @@ function HomePage({
           <p className="hint">Share this ID with your friend to connect</p>
         </div>
       )}
+
+      <div className="panel">
+        <label htmlFor="room-password">Room password (optional)</label>
+        <input
+          id="room-password"
+          type="password"
+          value={roomPassword}
+          onChange={(event) => onRoomPasswordChange(event.target.value)}
+          placeholder="Leave empty for no password"
+          maxLength={32}
+        />
+        <p className="hint">Guests will need this password to join your room</p>
+      </div>
 
       <form className="panel" onSubmit={handleJoin}>
         <label htmlFor="join-code">Connect to Friend</label>

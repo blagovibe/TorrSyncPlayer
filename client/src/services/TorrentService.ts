@@ -372,12 +372,12 @@ export class TorrentService {
         reject(error);
       };
 
-      this.cleanup.on(emitter, "download", () => {
+      emitter.on("download", () => {
         this.emit("progress", torrent.progress);
         this.emit("speed", torrent.downloadSpeed);
       });
 
-      this.cleanup.on(emitter, "wire", (wire: { on?: (event: string, callback: () => void) => void; off?: (event: string, callback: () => void) => void }) => {
+      const onWire = (wire: { on?: (event: string, callback: () => void) => void; off?: (event: string, callback: () => void) => void }) => {
         emitPeerCount();
         if (wire?.on) {
           wire.on("close", emitPeerCount);
@@ -385,10 +385,16 @@ export class TorrentService {
             wire.off?.("close", emitPeerCount);
           });
         }
+      };
+      emitter.on("wire", onWire);
+      this.cleanup.add(() => {
+        const emitterOff = (emitter as { off?: (event: string, callback: (...args: unknown[]) => void) => void }).off;
+        if (emitterOff) emitterOff("wire", onWire as (...args: unknown[]) => void);
       });
-      this.cleanup.on(emitter, "noPeers", emitPeerCount);
 
-      this.cleanup.on(emitter, "metadata", () => {
+      emitter.on("noPeers", emitPeerCount);
+
+      emitter.on("metadata", () => {
         try {
           const videoFile = this.getPreferredMediaFile(torrent);
           this.emit("metadata", torrent, videoFile);
@@ -405,7 +411,7 @@ export class TorrentService {
         }
       });
 
-      this.cleanup.on(emitter, "ready", async () => {
+      emitter.on("ready", async () => {
         if (isRejected) {
           return;
         }
@@ -425,7 +431,7 @@ export class TorrentService {
         }
       });
 
-      this.cleanup.on(emitter, "error", (error?: Error) => {
+      emitter.on("error", (error?: Error) => {
         const normalized = this.normalizeError(error);
         this.emit("error", normalized);
         settleReject(normalized);

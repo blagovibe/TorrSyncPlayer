@@ -240,6 +240,15 @@ app.whenReady().then(async () => {
 app.on("before-quit", (event) => {
   if (BrowserWindow.getAllWindows().length > 0) {
     event.preventDefault();
+    let hasExited = false;
+    const forceExit = () => {
+      if (!hasExited) {
+        hasExited = true;
+        app.exit(0);
+      }
+    };
+    // Force exit after 5 seconds if cleanup hangs
+    setTimeout(forceExit, 5000);
     (async () => {
       try {
         await torrentBridge.destroy();
@@ -259,7 +268,7 @@ app.on("before-quit", (event) => {
         win.destroy();
       }
       // Use exit() instead of quit() to avoid re-triggering before-quit
-      app.exit(0);
+      forceExit();
     })();
   }
 });
