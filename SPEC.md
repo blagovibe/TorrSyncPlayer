@@ -121,7 +121,7 @@ Output:
 
 - `npm run lint` — 0 errors, 0 warnings
 - `npm run type-check` — 0 TypeScript errors
-- `npm run test` — 33 tests passing (5 test files)
+- `npm run test` — 39 tests passing (6 test files)
 - `npm run build` — successful Vite build
 
 ## 8. Acceptance Criteria

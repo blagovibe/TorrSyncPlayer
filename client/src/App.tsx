@@ -504,7 +504,9 @@ function App() {
       });
 
       if (role === "host") {
-        broadcastCurrentRoomState(connectedPeerId);
+        // Delay broadcast to let the data channel fully initialize.
+        // The channel may be "open" but not yet ready for large messages.
+        scheduleBroadcast(connectedPeerId);
       }
     });
 

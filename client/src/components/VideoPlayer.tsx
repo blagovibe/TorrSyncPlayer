@@ -305,6 +305,8 @@ function VideoPlayer({
     if (video.paused) {
       await video.play();
       if (usingFallbackAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
+        // Sync audio position to video before playing to avoid drift
+        fallbackAudioRef.current.currentTime = video.currentTime;
         void fallbackAudioRef.current.play().catch(() => undefined);
       }
       setIsPlaying(true);

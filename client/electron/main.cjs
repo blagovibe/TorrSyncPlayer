@@ -224,7 +224,6 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
-  // Only prevent default if we have windows — allows normal quit on macOS dock
   if (BrowserWindow.getAllWindows().length > 0) {
     event.preventDefault();
     (async () => {
@@ -241,11 +240,12 @@ app.on("before-quit", (event) => {
         }
         staticServerInstance = null;
       }
-      // Close all windows and re-trigger quit
+      // Close all windows without triggering before-quit again
       for (const win of BrowserWindow.getAllWindows()) {
         win.destroy();
       }
-      app.quit();
+      // Use exit() instead of quit() to avoid re-triggering before-quit
+      app.exit(0);
     })();
   }
 });

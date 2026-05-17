@@ -491,6 +491,10 @@ export class P2PService {
     return this.getOpenConnectionCount() > 0;
   }
 
+  isInRoom(): boolean {
+    return this.peer !== null && !this.isDisconnecting;
+  }
+
   getRemotePeerId(): string | null {
     return this.remotePeerId ?? this.connections.keys().next().value ?? null;
   }

@@ -59,10 +59,15 @@ async function serve({ request }) {
       resolved = true;
       resolve(value);
     };
+    // Timeout: if no client responds within 5s, reject
+    const postMessageTimeout = setTimeout(() => {
+      settle([null, null]);
+    }, 5000);
     for (const client of ourClients) {
       const messageChannel = new MessageChannel();
       const { port1, port2 } = messageChannel;
       port1.onmessage = ({ data: response }) => {
+        clearTimeout(postMessageTimeout);
         settle([response, port1]);
       };
       try {
@@ -82,6 +87,10 @@ async function serve({ request }) {
       }
     }
   });
+
+  if (!data) {
+    return new Response("Client did not respond", { status: 503 });
+  }
 
   let timeOut = null;
   const cleanup = () => {

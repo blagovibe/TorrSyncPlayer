@@ -551,6 +551,7 @@ export class TorrentService {
   }
 
   destroy(): Promise<void> {
+    this.stopPrioritizeLoop();
     return this.clearActiveTorrentForAdd().then(() => {
       this.client?.destroy();
       this.client = null;
@@ -589,12 +590,13 @@ export class TorrentService {
 
   /**
    * Get the current buffer window for display purposes.
+   * Returns values in MB for consistency with setBufferSettings/getBufferSettings.
    */
-  getBufferWindow(): { start: number; end: number; maxSize: number } {
+  getBufferWindow(): { startMB: number; endMB: number; maxSizeMB: number } {
     return {
-      start: Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes),
-      end: this.currentPlaybackBytes + this.bufferWindowBytes,
-      maxSize: this.maxBufferBytes,
+      startMB: Math.round(Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes) / 1024 / 1024),
+      endMB: Math.round((this.currentPlaybackBytes + this.bufferWindowBytes) / 1024 / 1024),
+      maxSizeMB: Math.round(this.maxBufferBytes / 1024 / 1024),
     };
   }
 
@@ -744,6 +746,14 @@ export class TorrentService {
       file.progress = snapshotFile.progress ?? file.progress;
       file.length = snapshotFile.length ?? file.length;
       file.streamUrl = snapshotFile.streamUrl ?? file.streamUrl;
+    }
+
+    // Handle new files that appeared in the snapshot but not in the target
+    // (e.g. after metadata update reveals additional files).
+    for (const [index, snapshotFile] of filesByIndex.entries()) {
+      if (index >= target.files.length) {
+        target.files[index] = { ...snapshotFile };
+      }
     }
   }
 

@@ -14,9 +14,6 @@
     "preview": "npm --prefix client run preview",
     "lint": "npm --prefix client run lint",
     "type-check": "npm --prefix client run type-check",
-    "test": "npm --prefix client run test",
-    "tauri": "npm --prefix client run tauri",
-    "tauri:build:win": "npm --prefix client run tauri:build:win",
-    "tauri:build:linux": "npm --prefix client run tauri:build:linux"
+    "test": "npm --prefix client run test"
   }
 }

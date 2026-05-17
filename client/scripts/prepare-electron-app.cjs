@@ -39,11 +39,11 @@ const stagedPackage = {
     linux: {
       target: ["AppImage"],
       category: "Video",
-      icon: "../src-tauri/icons/icon.png",
+      icon: "../public/icons",
     },
     win: {
       target: ["nsis", "portable"],
-      icon: "../src-tauri/icons/icon.ico",
+      icon: "../public/icons/icon.ico",
     },
     nsis: {
       oneClick: false,
