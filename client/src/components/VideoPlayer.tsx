@@ -177,17 +177,13 @@ function VideoPlayer({
     fallbackAudioTrackSnapshots.length > 0 &&
     typeof resolveFallbackAudioTrackSource === "function";
 
-  // Helper: try to resume playback after seek once both video and audio are ready.
+  // Helper: try to resume playback after seek once video is ready.
+  // For fallback audio, we don't wait — video starts immediately and audio
+  // will sync when its source loads (via onPlay handler).
   const tryResumeAfterSeek = useCallback(() => {
     if (!isWaitingAfterSeekRef.current) return;
-    const needsAudio = usingFallbackAudio;
     const videoOk = videoReadyRef.current;
-    // Audio is considered ready if:
-    // - we don't need fallback audio, OR
-    // - fallback audio has loaded (audioReadyRef), OR
-    // - fallback audio source URL is still null (request pending, will auto-play onPlay)
-    const audioOk = !needsAudio || audioReadyRef.current || !fallbackAudioSourceUrl;
-    if (videoOk && audioOk) {
+    if (videoOk) {
       isWaitingAfterSeekRef.current = false;
       videoReadyRef.current = false;
       audioReadyRef.current = false;
@@ -196,17 +192,10 @@ function VideoPlayer({
       onBufferingChangeRef.current?.(false);
       if (wasPlayingBeforeSeekRef.current && videoRef.current) {
         void videoRef.current.play().catch(() => undefined);
-        // For fallback audio, sync position and play if we have a source.
-        // If fallbackAudioSourceUrl is still null (request pending),
-        // the onPlay handler will handle it when the source arrives.
-        if (needsAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
-          fallbackAudioRef.current.currentTime = videoRef.current.currentTime;
-          void fallbackAudioRef.current.play().catch(() => undefined);
-        }
         setIsPlaying(true);
       }
     }
-  }, [usingFallbackAudio, fallbackAudioSourceUrl, videoRef]);
+  }, [videoRef]);
 
   useEffect(() => {
     setEditBufferWindowMB(bufferWindowMB);
@@ -524,15 +513,10 @@ function VideoPlayer({
     }
 
     audio.load();
-    // After seek, we need to auto-play when both video and audio are ready.
-    // The tryResumeAfterSeek handles this, but if the audio source just loaded
-    // and we're waiting after a seek, we should also try to play.
+    // If video is already playing (e.g. after seek when video loaded before audio),
+    // start audio immediately to maintain sync.
     if (video && !video.paused) {
       void audio.play().catch(() => undefined);
-    } else if (isWaitingAfterSeekRef.current && video) {
-      // Video is paused after a seek — tryResumeAfterSeek will handle playback
-      // once both are ready. But we still need to ensure audio starts playing
-      // when the video starts. The onPlay handler will handle this.
     }
   }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
 
@@ -833,18 +817,7 @@ function VideoPlayer({
         onCanPlay={() => {
           if (isWaitingAfterSeekRef.current) {
             videoReadyRef.current = true;
-            // If we don't need fallback audio, resume immediately.
-            // Otherwise wait for audio to be ready too.
-            if (!usingFallbackAudio) {
-              void tryResumeAfterSeek();
-            } else {
-              // For fallback audio, check if audio is already ready
-              // (e.g. if the source loaded quickly)
-              if (audioReadyRef.current && fallbackAudioSourceUrl) {
-                void tryResumeAfterSeek();
-              }
-              // Otherwise tryResumeAfterSeek will be called when audio's onCanPlay fires
-            }
+            void tryResumeAfterSeek();
           }
         }}
         onPause={() => {
@@ -854,15 +827,18 @@ function VideoPlayer({
         onPlay={() => {
           setIsPlaying(true);
           onPlaybackStart?.();
+          // Sync fallback audio to video position and start playing.
+          // This handles: initial play, resume after seek, and drift correction.
           if (usingFallbackAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
-            // Sync audio position to video before playing to avoid drift
-            fallbackAudioRef.current.currentTime = videoRef.current?.currentTime ?? 0;
+            const videoEl = videoRef.current;
+            if (videoEl) {
+              // Sync audio position to video to prevent drift after seek
+              const drift = Math.abs(fallbackAudioRef.current.currentTime - videoEl.currentTime);
+              if (drift > 0.1) {
+                fallbackAudioRef.current.currentTime = videoEl.currentTime;
+              }
+            }
             void fallbackAudioRef.current.play().catch(() => undefined);
-          }
-          // If we were waiting after a seek and the audio source just arrived,
-          // clear the waiting flag so we don't block future seeks.
-          if (isWaitingAfterSeekRef.current && usingFallbackAudio && fallbackAudioSourceUrl) {
-            isWaitingAfterSeekRef.current = false;
           }
         }}
       />
