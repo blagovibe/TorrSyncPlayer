@@ -182,7 +182,11 @@ function VideoPlayer({
     if (!isWaitingAfterSeekRef.current) return;
     const needsAudio = usingFallbackAudio;
     const videoOk = videoReadyRef.current;
-    const audioOk = !needsAudio || audioReadyRef.current;
+    // Audio is considered ready if:
+    // - we don't need fallback audio, OR
+    // - fallback audio has loaded (audioReadyRef), OR
+    // - fallback audio source URL is still null (request pending, will auto-play onPlay)
+    const audioOk = !needsAudio || audioReadyRef.current || !fallbackAudioSourceUrl;
     if (videoOk && audioOk) {
       isWaitingAfterSeekRef.current = false;
       videoReadyRef.current = false;
@@ -829,7 +833,18 @@ function VideoPlayer({
         onCanPlay={() => {
           if (isWaitingAfterSeekRef.current) {
             videoReadyRef.current = true;
-            void tryResumeAfterSeek();
+            // If we don't need fallback audio, resume immediately.
+            // Otherwise wait for audio to be ready too.
+            if (!usingFallbackAudio) {
+              void tryResumeAfterSeek();
+            } else {
+              // For fallback audio, check if audio is already ready
+              // (e.g. if the source loaded quickly)
+              if (audioReadyRef.current && fallbackAudioSourceUrl) {
+                void tryResumeAfterSeek();
+              }
+              // Otherwise tryResumeAfterSeek will be called when audio's onCanPlay fires
+            }
           }
         }}
         onPause={() => {
