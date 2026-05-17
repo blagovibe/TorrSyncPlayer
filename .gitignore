@@ -30,3 +30,6 @@ Thumbs.db
 /src-tauri/target/
 /client/src-tauri/target/
 /server/node_modules/
+
+# Generated Electron staging directory (created by prepare-electron-app.cjs)
+client/.electron-app/

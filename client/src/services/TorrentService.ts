@@ -1,5 +1,6 @@
 import type { AudioTrackInfo } from "./types";
 import { formatBytes } from "../utils/format";
+import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 
 type MediaKind = "video" | "audio";
 
@@ -164,7 +165,7 @@ export class TorrentService {
   private activeMediaFile: TorrentMediaFile | null = null;
   private streamServerReady = false;
   private streamServerPromise: Promise<void> | null = null;
-  private backendStatsTimer: number | null = null;
+  private readonly cleanup: CleanupHandle = createCleanup();
   private backendStatsInFlight = false;
   private backendCleanupPromise: Promise<void> = Promise.resolve();
   private discoveredPeerIds = new Set<string>();
@@ -172,7 +173,6 @@ export class TorrentService {
   private bufferWindowBytes: number = loadBufferSetting(BUFFER_WINDOW_STORAGE_KEY, DEFAULT_BUFFER_WINDOW_MB) * 1024 * 1024;
   private maxBufferBytes: number = loadBufferSetting(MAX_BUFFER_STORAGE_KEY, DEFAULT_MAX_BUFFER_MB) * 1024 * 1024;
   // Buffer management state.
-  private prioritizeTimer: number | null = null;
   private currentPlaybackBytes = 0;
   private readonly listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
@@ -349,7 +349,8 @@ export class TorrentService {
         this.emit("peerCount", torrent.discoveredPeerCount);
       };
 
-      torrentEvents("peer", (peerId: unknown) => {
+      const emitter = torrent as TorrentInstance & { on: (event: string, callback: (...args: unknown[]) => void) => void };
+      this.cleanup.on(emitter, "peer", (peerId: unknown) => {
         if (this.recordDiscoveredPeer(peerId)) {
           emitPeerCount();
         }
@@ -371,18 +372,23 @@ export class TorrentService {
         reject(error);
       };
 
-      torrentEvents("download", () => {
+      this.cleanup.on(emitter, "download", () => {
         this.emit("progress", torrent.progress);
         this.emit("speed", torrent.downloadSpeed);
       });
 
-      torrentEvents("wire", (wire: { on?: (event: string, callback: () => void) => void }) => {
+      this.cleanup.on(emitter, "wire", (wire: { on?: (event: string, callback: () => void) => void; off?: (event: string, callback: () => void) => void }) => {
         emitPeerCount();
-        wire?.on?.("close", emitPeerCount);
+        if (wire?.on) {
+          wire.on("close", emitPeerCount);
+          this.cleanup.add(() => {
+            wire.off?.("close", emitPeerCount);
+          });
+        }
       });
-      torrentEvents("noPeers", emitPeerCount);
+      this.cleanup.on(emitter, "noPeers", emitPeerCount);
 
-      torrentEvents("metadata", () => {
+      this.cleanup.on(emitter, "metadata", () => {
         try {
           const videoFile = this.getPreferredMediaFile(torrent);
           this.emit("metadata", torrent, videoFile);
@@ -399,7 +405,7 @@ export class TorrentService {
         }
       });
 
-      torrentEvents("ready", async () => {
+      this.cleanup.on(emitter, "ready", async () => {
         if (isRejected) {
           return;
         }
@@ -419,7 +425,7 @@ export class TorrentService {
         }
       });
 
-      torrentEvents("error", (error?: Error) => {
+      this.cleanup.on(emitter, "error", (error?: Error) => {
         const normalized = this.normalizeError(error);
         this.emit("error", normalized);
         settleReject(normalized);
@@ -508,12 +514,9 @@ export class TorrentService {
       const cleanup = () => {
         mediaElement.removeEventListener("error", onError);
         mediaElement.removeEventListener("canplay", onCanPlay);
-        if (streamTimeout !== null) {
-          clearTimeout(streamTimeout);
-        }
       };
       // Timeout: if neither error nor canplay fires within 30s, reject
-      const streamTimeout = setTimeout(() => {
+      this.cleanup.setTimeout(() => {
         cleanup();
         settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
       }, 30_000);
@@ -585,19 +588,33 @@ export class TorrentService {
   }
 
   destroy(): Promise<void> {
-    this.stopPrioritizeLoop();
+    this.cleanup.abort();
+    this.cleanup.add(() => this.revokeAllBlobUrls());
+    this.cleanup.add(() => this.revokeActiveObjectUrl());
     return this.clearActiveTorrentForAdd().then(() => {
-      this.client?.destroy();
-      this.client = null;
-      this.streamServerReady = false;
-      this.streamServerPromise = null;
-      this.stopBackendStatsPolling();
-      this.stopPrioritizeLoop();
-      this.revokeAllBlobUrls();
-      if (this.registeredServiceWorker) {
-        void this.registeredServiceWorker.unregister().catch(() => undefined);
-        this.registeredServiceWorker = null;
+      let clientDestroyPromise = Promise.resolve();
+      if (this.client && typeof this.client.destroy === "function") {
+        clientDestroyPromise = new Promise<void>((resolve) => {
+          try {
+            this.client!.destroy();
+          } catch {
+            // Ignore destroy errors
+          }
+          resolve();
+        });
       }
+      return clientDestroyPromise.then(() => {
+        this.client = null;
+        this.streamServerReady = false;
+        this.streamServerPromise = null;
+        this.stopBackendStatsPolling();
+        this.stopPrioritizeLoop();
+        this.revokeAllBlobUrls();
+        if (this.registeredServiceWorker) {
+          void this.registeredServiceWorker.unregister().catch(() => undefined);
+          this.registeredServiceWorker = null;
+        }
+      });
     });
   }
 
@@ -635,9 +652,7 @@ export class TorrentService {
   }
 
   private schedulePrioritize(): void {
-    if (this.prioritizeTimer !== null) return;
-    this.prioritizeTimer = window.setTimeout(() => {
-      this.prioritizeTimer = null;
+    this.cleanup.setTimeout(() => {
       this.applyBufferPriority();
     }, PRIORITIZE_INTERVAL_MS);
   }
@@ -649,10 +664,7 @@ export class TorrentService {
   }
 
   private stopPrioritizeLoop(): void {
-    if (this.prioritizeTimer !== null) {
-      window.clearTimeout(this.prioritizeTimer);
-      this.prioritizeTimer = null;
-    }
+    // Timers are managed by cleanup; no manual clearing needed.
   }
 
   // Track previous buffer window for incremental updates.
@@ -728,17 +740,13 @@ export class TorrentService {
 
   private startBackendStatsPolling(): void {
     this.stopBackendStatsPolling();
-    this.backendStatsTimer = window.setInterval(() => {
+    this.cleanup.setInterval(() => {
       void this.refreshBackendStats();
     }, 500);
     void this.refreshBackendStats();
   }
 
   private stopBackendStatsPolling(): void {
-    if (this.backendStatsTimer !== null) {
-      clearInterval(this.backendStatsTimer);
-      this.backendStatsTimer = null;
-    }
     this.backendStatsInFlight = false;
   }
 

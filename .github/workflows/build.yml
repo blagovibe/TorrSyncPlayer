@@ -55,7 +55,7 @@ jobs:
           - os: ubuntu-latest
             artifact_name: TorrSyncPlayer-Linux-AppImage
             build_command: npm run electron:build:linux
-            artifact_path: client/release/*.AppImage
+            artifact_path: client/.electron-app/dist/*.AppImage
           - os: windows-latest
             artifact_name: TorrSyncPlayer-Windows
             build_command: npm run electron:build:win

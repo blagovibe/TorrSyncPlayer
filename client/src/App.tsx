@@ -265,11 +265,14 @@ function App() {
     await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     selectedMediaFileRef.current = mediaFile;
     setSelectedMediaAudioTracks([]);
-    void getTorrentService().probeAudioTracks(mediaFile.file).then((audioTracks) => {
-      if (selectedMediaFileRef.current === mediaFile) {
-        setSelectedMediaAudioTracks(audioTracks);
-      }
-    });
+    void getTorrentService()
+      .probeAudioTracks(mediaFile.file)
+      .then((audioTracks) => {
+        if (selectedMediaFileRef.current === mediaFile) {
+          setSelectedMediaAudioTracks(audioTracks);
+        }
+      })
+      .catch(() => undefined);
     mediaElement.defaultMuted = false;
     mediaElement.muted = false;
     if (mediaElement.volume <= 0) {
@@ -814,7 +817,7 @@ function App() {
   // Use the selected file's individual progress when available;
   // fall back to overall torrent progress for the general buffer indicator.
   const selectedMediaBufferProgress = Math.round(
-    ((selectedMediaFile?.file.progress != null && selectedMediaFile.file.progress >= 0)
+    ((selectedMediaFile?.file.progress != null && selectedMediaFile.file.progress > 0)
       ? selectedMediaFile.file.progress
       : torrentProgress / 100) * 100,
   );
@@ -878,7 +881,7 @@ function App() {
       offTorrentProgress();
       offTorrentSpeed();
       offTorrentPeerCount();
-      torrentService.destroy();
+      void torrentService.destroy();
     };
     // Re-subscribe when torrentService instance changes (e.g. after handleResetTorrentInRoom).
   }, [getTorrentService, torrentServiceVersion]);

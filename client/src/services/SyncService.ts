@@ -1,4 +1,5 @@
 import { type SyncMessage } from "./types";
+import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 
 type SyncEvents = {
   sync_play: (message: SyncMessage) => void;
@@ -10,6 +11,7 @@ type SyncEvents = {
 
 type EventKey = keyof SyncEvents;
 type Role = "master" | "slave";
+
 type SyncTransport = {
   sendSync: (message: SyncMessage) => void;
 };
@@ -21,7 +23,7 @@ export class SyncService {
   private readonly signaling: SyncTransport;
   private readonly video: HTMLVideoElement;
   private readonly role: Role;
-  private readonly cleanups: Array<() => void> = [];
+  private readonly cleanup: CleanupHandle;
   private readonly listeners: { [K in EventKey]: Set<SyncEvents[K]> } = {
     sync_play: new Set(),
     sync_pause: new Set(),
@@ -29,8 +31,9 @@ export class SyncService {
     sync_state: new Set(),
     outbound_sync: new Set(),
   };
-  private readonly suppressNextEventSync: Partial<Record<"play" | "pause" | "seeked", boolean>> = {};
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly suppressNextEventSync: Partial<
+    Record<"play" | "pause" | "seeked", boolean>
+  > = {};
   private syncToleranceSeconds = DEFAULT_SYNC_TOLERANCE_SECONDS;
 
   constructor(
@@ -43,6 +46,7 @@ export class SyncService {
     this.video = video;
     this.role = role;
     this.syncToleranceSeconds = this.normalizeTolerance(syncToleranceSeconds);
+    this.cleanup = createCleanup();
 
     if (this.role === "master") {
       this.bindMasterEvents();
@@ -56,13 +60,9 @@ export class SyncService {
   }
 
   dispose(): void {
-    this.stopHeartbeat();
-    for (const cleanup of this.cleanups) {
-      cleanup();
-    }
-    this.cleanups.length = 0;
-    for (const callbacks of Object.values(this.listeners)) {
-      callbacks.clear();
+    this.cleanup.abort();
+    for (const key of Object.keys(this.listeners) as EventKey[]) {
+      this.listeners[key].clear();
     }
   }
 
@@ -116,34 +116,29 @@ export class SyncService {
       return;
     }
 
-    // For seek messages, don't apply latency compensation — the master
-    // already computed the target position and we need to jump there
-    // immediately. Latency compensation is only useful for continuous
-    // playback (play/pause/state).
     const isSeek = message.action === "seek";
     const latencySeconds = isSeek
       ? 0
       : Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), 5);
     const compensatedPosition = message.position + latencySeconds;
-    const shouldAlign = Math.abs(this.video.currentTime - compensatedPosition) > this.syncToleranceSeconds;
+    const shouldAlign =
+      Math.abs(this.video.currentTime - compensatedPosition) >
+      this.syncToleranceSeconds;
     const desiredPlayState =
       message.is_playing ??
-      (message.action === "play" || message.action === "seek" || message.action === "state");
+      (message.action === "play" ||
+        message.action === "seek" ||
+        message.action === "state");
     const isPaused = this.video.paused;
 
     if (shouldAlign) {
       this.video.currentTime = compensatedPosition;
     }
 
-    // Helper: try to play only if we have enough buffered data.
-    // HAVE_CURRENT_DATA (2) means we have data for the current frame.
     const safePlay = () => {
       if (this.video.paused && this.video.readyState >= 2) {
         void this.video.play().catch(() => undefined);
       }
-      // If already playing, nothing to do.
-      // If readyState < 2, the browser will auto-play once enough data
-      // is buffered — no need to spam play() calls.
     };
 
     switch (message.action) {
@@ -205,27 +200,17 @@ export class SyncService {
       this.sendMasterSync("seek", this.video.currentTime, !this.video.paused);
     };
 
-    this.video.addEventListener("play", onPlay);
-    this.video.addEventListener("pause", onPause);
-    this.video.addEventListener("seeked", onSeeked);
-    this.cleanups.push(
-      () => this.video.removeEventListener("play", onPlay),
-      () => this.video.removeEventListener("pause", onPause),
-      () => this.video.removeEventListener("seeked", onSeeked),
-    );
+    this.cleanup.addEventListener(this.video, "play", onPlay);
+    this.cleanup.addEventListener(this.video, "pause", onPause);
+    this.cleanup.addEventListener(this.video, "seeked", onSeeked);
   }
 
   private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatTimer = globalThis.setInterval(() => {
+    this.cleanup.setInterval(() => {
       if (this.role !== "master") {
         return;
       }
 
-      // Safety: if a suppress flag was set but the corresponding event
-      // never fired (e.g. play() rejected due to autoplay policy, or the
-      // video element was removed), reset the flag so future events are
-      // not permanently suppressed.
       if (this.suppressNextEventSync.seeked) {
         this.suppressNextEventSync.seeked = false;
       }
@@ -240,14 +225,11 @@ export class SyncService {
     }, HEARTBEAT_INTERVAL_MS);
   }
 
-  private stopHeartbeat(): void {
-    if (this.heartbeatTimer !== null) {
-      globalThis.clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  private sendMasterSync(action: SyncMessage["action"], position: number, isPlaying: boolean): void {
+  private sendMasterSync(
+    action: SyncMessage["action"],
+    position: number,
+    isPlaying: boolean,
+  ): void {
     const message: SyncMessage = {
       action,
       position,
@@ -265,10 +247,16 @@ export class SyncService {
     return value;
   }
 
-  private emit<K extends EventKey>(event: K, ...args: Parameters<SyncEvents[K]>) {
-    for (const callback of this.listeners[event]) {
-      (callback as (...eventArgs: Parameters<SyncEvents[K]>) => void)(...args);
-    }
+  private emit<K extends EventKey>(
+    event: K,
+    ...args: Parameters<SyncEvents[K]>
+  ) {
+    const callbacks = this.listeners[event];
+    callbacks.forEach((callback) => {
+      (callback as (...eventArgs: Parameters<SyncEvents[K]>) => void)(
+        ...args,
+      );
+    });
   }
 }
 

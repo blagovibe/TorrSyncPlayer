@@ -3,7 +3,7 @@ declare module "webtorrent" {
     name: string;
     length: number;
     progress: number;
-    streamURL?: string;
+    streamUrl?: string;
     streamTo: (mediaElement: HTMLMediaElement) => Promise<void>;
     blob?: () => Promise<Blob>;
   }

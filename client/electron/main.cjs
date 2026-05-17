@@ -108,7 +108,12 @@ function startStaticServer() {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("X-Frame-Options", "DENY");
+        response.setHeader("X-XSS-Protection", "1; mode=block");
         response.setHeader("Referrer-Policy", "no-referrer");
+        response.setHeader(
+          "Content-Security-Policy",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: http://127.0.0.1:*; connect-src 'self' wss://*.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        );
         response.end(request.method === "HEAD" ? undefined : body);
       } catch (error) {
         response.statusCode = 500;

@@ -1,4 +1,5 @@
 import { Peer, type DataConnection, type PeerJSOption } from "peerjs";
+import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import {
   type RoomConfigMessage,
   type SharedTorrentSource,
@@ -236,7 +237,7 @@ export class P2PService {
   private remotePeerId: string | null = null;
   private isConnecting = false;
   private isDisconnecting = false;
-  private connectTimeoutId: number | null = null;
+  private readonly cleanup: CleanupHandle;
   private listeners: { [K in EventKey]: Set<P2PEvents[K]> } = {
     connected: new Set(),
     disconnected: new Set(),
@@ -250,6 +251,7 @@ export class P2PService {
 
   constructor() {
     this.peerId = generatePeerId();
+    this.cleanup = createCleanup();
   }
 
   getPeerId(): string {
@@ -288,11 +290,6 @@ export class P2PService {
         return;
       }
 
-      if (this.connectTimeoutId !== null) {
-        window.clearTimeout(this.connectTimeoutId);
-        this.connectTimeoutId = null;
-      }
-
       const conn = this.peer.connect(remotePeerId, {
         reliable: true,
         serialization: "json",
@@ -302,11 +299,7 @@ export class P2PService {
       const settleResolve = () => {
         if (isSettled) return;
         isSettled = true;
-        if (this.connectTimeoutId !== null) {
-          window.clearTimeout(this.connectTimeoutId);
-        }
         this.isConnecting = false;
-        this.connectTimeoutId = null;
         // Verify connection is still open before resolving
         if (!conn.open) {
           reject(new Error("Connection closed before it was established"));
@@ -320,11 +313,7 @@ export class P2PService {
       const settleReject = (error: Error) => {
         if (isSettled) return;
         isSettled = true;
-        if (this.connectTimeoutId !== null) {
-          window.clearTimeout(this.connectTimeoutId);
-        }
         this.isConnecting = false;
-        this.connectTimeoutId = null;
         reject(error);
       };
 
@@ -334,7 +323,7 @@ export class P2PService {
         onClose: () => settleReject(new Error("Connection closed before it was established")),
       });
 
-      this.connectTimeoutId = window.setTimeout(() => {
+      this.cleanup.setTimeout(() => {
         if (!isSettled && this.isConnecting) {
           conn.close();
           settleReject(new Error("Connection timeout"));
@@ -357,23 +346,14 @@ export class P2PService {
       }
 
       let isSettled = false;
-      let initTimeoutId: number | null = null;
       const settleResolve = () => {
         if (isSettled) return;
         isSettled = true;
-        if (initTimeoutId !== null) {
-          window.clearTimeout(initTimeoutId);
-          initTimeoutId = null;
-        }
         resolve();
       };
       const settleReject = (error: Error) => {
         if (isSettled) return;
         isSettled = true;
-        if (initTimeoutId !== null) {
-          window.clearTimeout(initTimeoutId);
-          initTimeoutId = null;
-        }
         reject(error);
       };
 
@@ -388,7 +368,7 @@ export class P2PService {
         });
       }
 
-      this.peer.on("open", (id) => {
+      this.cleanup.on(this.peer, "open", (id: string) => {
         console.log("PeerJS initialized with ID:", id);
         if (id) {
           this.peerId = id.startsWith("torrsync-") ? id.replace("torrsync-", "") : id;
@@ -396,20 +376,21 @@ export class P2PService {
         settleResolve();
       });
 
-      this.peer.on("connection", (conn) => {
-        this.handleIncomingConnection(conn);
+      this.cleanup.on(this.peer, "connection", (conn) => {
+        this.handleIncomingConnection(conn as DataConnection);
       });
 
-      this.peer.on("error", (err) => {
+      this.cleanup.on(this.peer, "error", (err) => {
         const error = normalizePeerError(err);
         console.error("PeerJS error:", err);
         this.emit("error", error);
         if (!isSettled) {
-          if (err.type === "peer-unavailable") {
+          const peerErr = err as { type?: string };
+          if (peerErr.type === "peer-unavailable") {
             settleReject(new Error("Peer not found. Check the room code and try again."));
-          } else if (err.type === "network" || err.type === "server-error" || err.type === "socket-error") {
+          } else if (peerErr.type === "network" || peerErr.type === "server-error" || peerErr.type === "socket-error") {
             settleReject(new Error("Unable to reach the signaling server. Check your internet connection."));
-          } else if (err.type === "browser-incompatible") {
+          } else if (peerErr.type === "browser-incompatible") {
             settleReject(createWebRTCUnavailableError("PeerJS could not initialize WebRTC data channels"));
           } else {
             settleReject(error);
@@ -417,15 +398,11 @@ export class P2PService {
         }
       });
 
-      this.peer.on("disconnected", () => {
-        if (initTimeoutId !== null) {
-          window.clearTimeout(initTimeoutId);
-          initTimeoutId = null;
-        }
+      this.cleanup.on(this.peer, "disconnected", () => {
         this.emit("disconnected");
       });
 
-      initTimeoutId = window.setTimeout(() => {
+      this.cleanup.setTimeout(() => {
         if (!this.peer?.open) {
           settleReject(new Error("Initialization timeout"));
         }
@@ -458,10 +435,7 @@ export class P2PService {
     }
     this.isDisconnecting = true;
 
-    if (this.connectTimeoutId !== null) {
-      window.clearTimeout(this.connectTimeoutId);
-      this.connectTimeoutId = null;
-    }
+    this.cleanup.abort();
 
     this.isConnecting = false;
 
@@ -540,7 +514,7 @@ export class P2PService {
       options.onOpen?.();
     }
 
-    conn.on("open", () => {
+    this.cleanup.on(conn, "open", () => {
       if (this.connections.get(peerId) !== conn) {
         return;
       }
@@ -555,7 +529,7 @@ export class P2PService {
       options.onOpen?.();
     });
 
-    conn.on("data", (data) => {
+    this.cleanup.on(conn, "data", (data) => {
       if (this.connections.get(peerId) !== conn) {
         return;
       }
@@ -584,7 +558,7 @@ export class P2PService {
       }
     });
 
-    conn.on("close", () => {
+    this.cleanup.on(conn, "close", () => {
       const trackedConnection = this.connections.get(peerId);
       if (trackedConnection === conn) {
         this.connections.delete(peerId);
@@ -606,7 +580,7 @@ export class P2PService {
       }
     });
 
-    conn.on("error", (err) => {
+    this.cleanup.on(conn, "error", (err) => {
       if (this.connections.get(peerId) !== conn) {
         return;
       }

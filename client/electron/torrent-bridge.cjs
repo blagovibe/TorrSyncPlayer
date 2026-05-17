@@ -242,23 +242,37 @@ class TorrentBridge {
     const MAX_PEER_IDS = 50_000;
 
     const torrent = await new Promise((resolve, reject) => {
+      let settled = false;
+      const settleResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(addTimeout);
+        resolve(value);
+      };
+      const settleReject = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(addTimeout);
+        reject(error);
+      };
+
       let addedTorrent;
       try {
         addedTorrent = client.add(torrentSource, (readyTorrent) => {
-          resolve(readyTorrent);
+          settleResolve(readyTorrent);
         });
       } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
+        settleReject(error instanceof Error ? error : new Error(String(error)));
         return;
       }
 
       if (!addedTorrent) {
-        reject(new Error("Failed to add torrent: client.add returned null"));
+        settleReject(new Error("Failed to add torrent: client.add returned null"));
         return;
       }
 
       const addTimeout = setTimeout(() => {
-        reject(new Error("Torrent addition timed out after 60 seconds"));
+        settleReject(new Error("Torrent addition timed out after 60 seconds"));
       }, 60_000);
 
       addedTorrent.on("peer", (peerId) => {
@@ -269,16 +283,8 @@ class TorrentBridge {
       });
 
       addedTorrent.on("error", (error) => {
-        clearTimeout(addTimeout);
-        reject(error instanceof Error ? error : new Error(String(error)));
+        settleReject(error instanceof Error ? error : new Error(String(error)));
       });
-
-      // Clear timeout when torrent is ready (resolved via callback)
-      const originalResolve = resolve;
-      resolve = (value) => {
-        clearTimeout(addTimeout);
-        originalResolve(value);
-      };
     });
     this.activeTorrent = torrent;
     return formatTorrentSnapshot(torrent, this.discoveredPeerIds.size, this.streamBaseUrl);
@@ -573,7 +579,7 @@ class TorrentBridge {
       session.process = ffmpeg;
 
       response.statusCode = 200;
-      response.setHeader("Content-Type", "audio/mpeg");
+      response.setHeader("Content-Type", isMux ? "video/webm" : "audio/mpeg");
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Pragma", "no-cache");
       response.setHeader("Accept-Ranges", "none");

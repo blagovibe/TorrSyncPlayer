@@ -235,7 +235,13 @@ function VideoPlayer({
       const v = videoRef.current; if (!v) return;
       if (isInteractiveTarget(e.target)) return;
       if (e.code === "Space") { e.preventDefault(); void togglePlay(); }
-      if (e.key.toLowerCase() === "f") { document.fullscreenElement ? void document.exitFullscreen() : void v.requestFullscreen(); }
+      if (e.key.toLowerCase() === "f") {
+        if (document.fullscreenElement) {
+          void document.exitFullscreen();
+        } else {
+          void v.requestFullscreen();
+        }
+      }
       if (e.key === "ArrowRight" && canControlSeek) { if (Number.isFinite(v.duration)) v.currentTime = Math.min(v.duration, v.currentTime + 5); onSeek?.(v.currentTime); }
       if (e.key === "ArrowLeft" && canControlSeek) { v.currentTime = Math.max(0, v.currentTime - 5); onSeek?.(v.currentTime); }
     };
@@ -378,7 +384,7 @@ function VideoPlayer({
             </div>
           )}
         </div>
-        <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; document.fullscreenElement ? void document.exitFullscreen() : void v.requestFullscreen(); }}>Fullscreen</button>
+        <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; if (document.fullscreenElement) { void document.exitFullscreen(); } else { void v.requestFullscreen(); } }}>Fullscreen</button>
       </div>
       <div className="video-progress" style={{ width: `${progress}%` }} />
     </section>
