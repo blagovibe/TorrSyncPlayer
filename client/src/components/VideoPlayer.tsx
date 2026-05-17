@@ -513,25 +513,24 @@ function VideoPlayer({
     }
 
     audio.load();
-    // If video is already playing or was paused after a seek, start audio immediately.
+    // After seek: if video was paused waiting for audio, resume both together.
+    // This is the primary seek recovery path since onCanPlay doesn't fire on paused video.
     const videoEl = videoRef.current;
-    if (videoEl) {
-      if (!videoEl.paused) {
-        void audio.play().catch(() => undefined);
-      } else if (isWaitingAfterSeekRef.current) {
-        // Video is paused after a seek — resume video and audio together
-        videoReadyRef.current = true;
-        audioReadyRef.current = true;
-        isWaitingAfterSeekRef.current = false;
-        setIsBuffering(false);
-        setIsStalled(false);
-        onBufferingChangeRef.current?.(false);
-        if (wasPlayingBeforeSeekRef.current) {
-          void videoEl.play().catch(() => undefined);
-          void audio.play().catch(() => undefined);
-          setIsPlaying(true);
-        }
-      }
+    if (videoEl && isWaitingAfterSeekRef.current && wasPlayingBeforeSeekRef.current) {
+      isWaitingAfterSeekRef.current = false;
+      videoReadyRef.current = false;
+      audioReadyRef.current = false;
+      setIsBuffering(false);
+      setIsStalled(false);
+      onBufferingChangeRef.current?.(false);
+      // Sync audio position before playing
+      audio.currentTime = videoEl.currentTime;
+      void videoEl.play().catch(() => undefined);
+      void audio.play().catch(() => undefined);
+      setIsPlaying(true);
+    } else if (videoEl && !videoEl.paused) {
+      // Video is already playing (normal playback), just sync audio
+      void audio.play().catch(() => undefined);
     }
   }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
 
@@ -808,7 +807,7 @@ function VideoPlayer({
         onSeeked={(event) => {
           if (!canControlPlayback) return;
 
-          // After a seek, pause both video and audio and wait for both to be ready.
+          // After a seek, pause video and request new fallback audio source.
           const video = videoRef.current;
           if (video) {
             video.pause();
@@ -819,7 +818,7 @@ function VideoPlayer({
             setIsBuffering(true);
             onBufferingChangeRef.current?.(true);
           }
-          // Also pause fallback audio — it will resume when both are ready.
+          // Also pause fallback audio — it will resume when new source loads.
           fallbackAudioRef.current?.pause();
 
           if (usingFallbackAudio) {
@@ -830,9 +829,10 @@ function VideoPlayer({
           }
         }}
         onCanPlay={() => {
+          // Note: onCanPlay may not fire when video is paused.
+          // The fallback audio useEffect handles resuming after seek.
           if (isWaitingAfterSeekRef.current) {
             videoReadyRef.current = true;
-            void tryResumeAfterSeek();
           }
         }}
         onPause={() => {
