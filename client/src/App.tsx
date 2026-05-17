@@ -740,16 +740,20 @@ function App() {
     setSelectedAudioTrackSelection(null);
   };
 
-  const resolveFallbackAudioTrackSource = useCallback(
-    async (trackIndex: number, startSeconds: number) => {
+  const handleMuxStreamRequest = useCallback(
+    async (startSeconds: number): Promise<string | null> => {
       const mediaFile = selectedMediaFileRef.current;
       if (!mediaFile) {
         return null;
       }
 
-      return getTorrentService().createAudioTrackStreamUrl(mediaFile.file, trackIndex, startSeconds);
+      return getTorrentService().createMuxStreamUrl(
+        mediaFile.file,
+        selectedAudioTrackIndex,
+        startSeconds,
+      );
     },
-    [getTorrentService],
+    [getTorrentService, selectedAudioTrackIndex],
   );
 
   const handleAudioTrackChange = (trackIndex: number | null) => {
@@ -991,7 +995,6 @@ function App() {
           playbackNotice={playbackNotice}
           onPlaybackStarted={() => setPlaybackNotice(null)}
           onAudioTrackChange={handleAudioTrackChange}
-          resolveFallbackAudioTrackSource={resolveFallbackAudioTrackSource}
           onPlayerReady={(ready) => {
             isPlayerReadyRef.current = ready;
             setIsPlayerReady(ready);
@@ -1016,6 +1019,7 @@ function App() {
           maxBufferMB={maxBufferMB}
           onBufferSettingsChange={handleBufferSettingsChange}
           onSeek={handleSeek}
+          onMuxStreamRequest={handleMuxStreamRequest}
         />
       )}
     </main>

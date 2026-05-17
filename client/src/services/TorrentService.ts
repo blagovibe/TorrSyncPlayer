@@ -60,6 +60,11 @@ type ElectronTorrentBackend = {
     trackIndex: number;
     startSeconds: number;
   }) => Promise<string>;
+  createMultiplexedStreamUrl?: (params: {
+    streamUrl: string;
+    audioTrackIndex: number;
+    startSeconds: number;
+  }) => Promise<string>;
 };
 
 type WindowWithElectronTorrent = Window & {
@@ -288,6 +293,29 @@ export class TorrentService {
       });
     } catch (error) {
       console.warn("Audio track stream creation failed:", error);
+      return null;
+    }
+  }
+
+  // Create a multiplexed audio+video stream URL for perfect sync.
+  // Falls back to plain streamUrl if backend doesn't support mux.
+  async createMuxStreamUrl(
+    file: TorrentFile,
+    audioTrackIndex: number | null,
+    startSeconds: number,
+  ): Promise<string | null> {
+    if (!this.electronBackend?.createMultiplexedStreamUrl || !file.streamUrl) {
+      return null;
+    }
+
+    try {
+      return await this.electronBackend.createMultiplexedStreamUrl({
+        streamUrl: file.streamUrl,
+        audioTrackIndex: audioTrackIndex ?? 0,
+        startSeconds,
+      });
+    } catch (error) {
+      console.warn("Mux stream creation failed:", error);
       return null;
     }
   }

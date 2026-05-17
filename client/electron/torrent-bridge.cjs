@@ -331,6 +331,35 @@ class TorrentBridge {
     return `${audioServerBaseUrl}/audio/${token}`;
   }
 
+  // Create a multiplexed audio+video stream for a single <video> element.
+  // This ensures perfect audio/video sync since both are in the same container.
+  async createMultiplexedStreamUrl({ streamUrl, audioTrackIndex, startSeconds }) {
+    if (!streamUrl) {
+      throw new Error("Stream URL is unavailable");
+    }
+
+    this.validateLocalStreamUrl(streamUrl);
+
+    if (typeof startSeconds !== "number" || !Number.isFinite(startSeconds) || startSeconds < 0 || startSeconds > 86400) {
+      throw new Error("Invalid start seconds");
+    }
+
+    const audioServerBaseUrl = await this.ensureAudioServer();
+    const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
+    const session = {
+      streamUrl,
+      audioTrackIndex: audioTrackIndex ?? 0,
+      startSeconds: Math.max(0, startSeconds),
+      process: null,
+      cleanupTimer: setTimeout(() => {
+        this.audioSessions.delete(token);
+      }, AUDIO_SESSION_TTL_MS),
+    };
+    session.cleanupTimer.unref?.();
+    this.audioSessions.set(token, session);
+    return `${audioServerBaseUrl}/mux/${token}`;
+  }
+
   async getClient() {
     if (this.client) {
       return this.client;
@@ -462,13 +491,14 @@ class TorrentBridge {
       }
 
       const { pathname } = new URL(request.url, "http://127.0.0.1");
-      if (!pathname.startsWith("/audio/")) {
+      if (!pathname.startsWith("/audio/") && !pathname.startsWith("/mux/")) {
         response.statusCode = 404;
         response.end();
         return;
       }
 
-      const token = pathname.slice("/audio/".length);
+      const isMux = pathname.startsWith("/mux/");
+      const token = pathname.slice(isMux ? "/mux/".length : "/audio/".length);
       const session = this.audioSessions.get(token);
 
       if (!session) {
@@ -482,28 +512,64 @@ class TorrentBridge {
         session.cleanupTimer = null;
       }
 
-      const ffmpeg = spawn("ffmpeg", [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-ss",
-        String(session.startSeconds ?? 0),
-        "-i",
-        session.streamUrl,
-        "-map",
-        `0:a:${session.trackIndex}`,
-        "-vn",
-        "-sn",
-        "-dn",
-        "-c:a",
-        "libmp3lame",
-        "-q:a",
-        "4",
-        "-f",
-        "mp3",
-        "pipe:1",
-      ]);
+      const ffmpegArgs = isMux
+        ? [
+            // Multiplexed stream: video + audio in one container (WebM for browser compatibility)
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-ss",
+            String(session.startSeconds ?? 0),
+            "-i",
+            session.streamUrl,
+            "-map",
+            "0:v:0",
+            "-map",
+            `0:a:${session.audioTrackIndex ?? 0}`,
+            "-c:v",
+            "libvpx-vp9",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "5",
+            "-crf",
+            "30",
+            "-b:v",
+            "0",
+            "-c:a",
+            "libopus",
+            "-b:a",
+            "128k",
+            "-f",
+            "webm",
+            "pipe:1",
+          ]
+        : [
+            // Audio-only stream (legacy fallback)
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-ss",
+            String(session.startSeconds ?? 0),
+            "-i",
+            session.streamUrl,
+            "-map",
+            `0:a:${session.trackIndex}`,
+            "-vn",
+            "-sn",
+            "-dn",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "4",
+            "-f",
+            "mp3",
+            "pipe:1",
+          ];
+
+      const ffmpeg = spawn("ffmpeg", ffmpegArgs);
       session.process = ffmpeg;
 
       response.statusCode = 200;

@@ -6,26 +6,10 @@ const HIDE_DELAY_MS = 3000;
 const VIDEO_SCALE_STORAGE_KEY = "torrsyncplayer.videoScale";
 
 const VIDEO_SCALE_OPTIONS = [
-  {
-    value: "fit",
-    label: "Fit",
-    description: "Show the whole frame without cropping.",
-  },
-  {
-    value: "fill",
-    label: "Fill",
-    description: "Fill the player and crop edges if needed.",
-  },
-  {
-    value: "stretch",
-    label: "Stretch",
-    description: "Stretch video to the player bounds.",
-  },
-  {
-    value: "original",
-    label: "Original",
-    description: "Keep source pixels centered in the player.",
-  },
+  { value: "fit", label: "Fit", description: "Show the whole frame without cropping." },
+  { value: "fill", label: "Fill", description: "Fill the player and crop edges if needed." },
+  { value: "stretch", label: "Stretch", description: "Stretch video to the player bounds." },
+  { value: "original", label: "Original", description: "Keep source pixels centered in the player." },
 ] as const;
 
 type VideoScaleMode = (typeof VIDEO_SCALE_OPTIONS)[number]["value"];
@@ -38,23 +22,16 @@ function formatTime(timeInSeconds: number): string {
 }
 
 function isInteractiveTarget(element: EventTarget | null): boolean {
-  if (!(element instanceof HTMLElement)) {
-    return false;
-  }
+  if (!(element instanceof HTMLElement)) return false;
   return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) || element.isContentEditable;
 }
 
 function readInitialVideoScale(): VideoScaleMode {
-  if (typeof window === "undefined") {
-    return "fit";
-  }
-
+  if (typeof window === "undefined") return "fit";
   try {
-    const storedScale = window.localStorage.getItem(VIDEO_SCALE_STORAGE_KEY);
-    return VIDEO_SCALE_OPTIONS.some((option) => option.value === storedScale) ? (storedScale as VideoScaleMode) : "fit";
-  } catch {
-    return "fit";
-  }
+    const stored = window.localStorage.getItem(VIDEO_SCALE_STORAGE_KEY);
+    return VIDEO_SCALE_OPTIONS.some((o) => o.value === stored) ? (stored as VideoScaleMode) : "fit";
+  } catch { return "fit"; }
 }
 
 interface VideoPlayerProps {
@@ -69,7 +46,6 @@ interface VideoPlayerProps {
   selectedAudioTrackIndex?: number | null;
   onPlaybackStart?: () => void;
   onAudioTrackChange?: (trackIndex: number | null) => void;
-  resolveFallbackAudioTrackSource?: (trackIndex: number, startSeconds: number) => Promise<string | null>;
   onPlayerReady?: (ready: boolean) => void;
   onBufferingChange?: (isBuffering: boolean) => void;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
@@ -77,6 +53,7 @@ interface VideoPlayerProps {
   maxBufferMB?: number;
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
   onSeek?: (timestamp: number) => void;
+  onMuxStreamRequest?: (startSeconds: number) => Promise<string | null>;
 }
 
 interface AudioTrackSnapshot {
@@ -95,15 +72,10 @@ interface AudioTrackLike {
 
 interface AudioTrackListLike extends ArrayLike<AudioTrackLike>, EventTarget {}
 
-type VideoWithAudioTracks = HTMLVideoElement & {
-  audioTracks?: AudioTrackListLike;
-};
+type VideoWithAudioTracks = HTMLVideoElement & { audioTracks?: AudioTrackListLike };
 
 function detectAudioTracksSupport(): boolean {
-  if (typeof document === "undefined") {
-    return false;
-  }
-
+  if (typeof document === "undefined") return false;
   return "audioTracks" in document.createElement("video");
 }
 
@@ -119,7 +91,6 @@ function VideoPlayer({
   selectedAudioTrackIndex = null,
   onPlaybackStart,
   onAudioTrackChange,
-  resolveFallbackAudioTrackSource,
   onPlayerReady,
   onBufferingChange,
   onTimeUpdate,
@@ -127,15 +98,14 @@ function VideoPlayer({
   maxBufferMB = 500,
   onBufferSettingsChange,
   onSeek,
+  onMuxStreamRequest,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
-  const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
   const hideTimerRef = useRef<number | null>(null);
   const onPlayerReadyRef = useRef(onPlayerReady);
   const onAudioTrackChangeRef = useRef(onAudioTrackChange);
   const onBufferingChangeRef = useRef(onBufferingChange);
-  const fallbackAudioRequestIdRef = useRef(0);
   const hasMediaMetadataRef = useRef(false);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -148,624 +118,168 @@ function VideoPlayer({
   const [videoScale, setVideoScale] = useState<VideoScaleMode>(() => readInitialVideoScale());
   const [audioTracksSupported, setAudioTracksSupported] = useState(() => detectAudioTracksSupport());
   const [audioTracks, setAudioTracks] = useState<AudioTrackSnapshot[]>([]);
-  const [fallbackAudioSourceUrl, setFallbackAudioSourceUrl] = useState<string | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
   const [isStalled, setIsStalled] = useState(false);
   const [editBufferWindowMB, setEditBufferWindowMB] = useState(bufferWindowMB);
   const [editMaxBufferMB, setEditMaxBufferMB] = useState(maxBufferMB);
-  // Track whether video was playing before a seek — so we can auto-resume.
-  const wasPlayingBeforeSeekRef = useRef(false);
-  // Track whether we are currently waiting for data after a seek.
-  const isWaitingAfterSeekRef = useRef(false);
-  // Track individual ready states during seek recovery.
-  const videoReadyRef = useRef(false);
-  const audioReadyRef = useRef(false);
 
   const fallbackAudioTrackSnapshots = useMemo(
-    () =>
-      fallbackAudioTracks.map((track, index) => ({
-        sourceIndex: index,
-        label: track.label || `Audio ${index + 1}`,
-        language: track.language || "",
-        enabled: false,
-      })),
-    [fallbackAudioTracks],
-  );
-
-  const usingFallbackAudio =
-    !audioTracksSupported &&
-    fallbackAudioTrackSnapshots.length > 0 &&
-    typeof resolveFallbackAudioTrackSource === "function";
-
-  // Helper: try to resume playback after seek once video is ready.
-  // For fallback audio, we don't wait — video starts immediately and audio
-  // will sync when its source loads (via onPlay handler).
-  const tryResumeAfterSeek = useCallback(() => {
-    if (!isWaitingAfterSeekRef.current) return;
-    const videoOk = videoReadyRef.current;
-    if (videoOk) {
-      isWaitingAfterSeekRef.current = false;
-      videoReadyRef.current = false;
-      audioReadyRef.current = false;
-      setIsBuffering(false);
-      setIsStalled(false);
-      onBufferingChangeRef.current?.(false);
-      if (wasPlayingBeforeSeekRef.current && videoRef.current) {
-        void videoRef.current.play().catch(() => undefined);
-        setIsPlaying(true);
-      }
-    }
-  }, [videoRef]);
-
-  useEffect(() => {
-    setEditBufferWindowMB(bufferWindowMB);
-  }, [bufferWindowMB]);
-
-  useEffect(() => {
-    setEditMaxBufferMB(maxBufferMB);
-  }, [maxBufferMB]);
-
-  const progress = useMemo(() => {
-    if (!duration) {
-      return 0;
-    }
-    return (currentTime / duration) * 100;
-  }, [currentTime, duration]);
-
-  const activeVideoScaleLabel =
-    VIDEO_SCALE_OPTIONS.find((option) => option.value === videoScale)?.label ?? VIDEO_SCALE_OPTIONS[0].label;
-
-  const resetHideTimer = useCallback(() => {
-    setShowControls(true);
-    if (hideTimerRef.current) {
-      window.clearTimeout(hideTimerRef.current);
-    }
-    if (settingsOpen) {
-      return;
-    }
-    hideTimerRef.current = window.setTimeout(() => {
-      setShowControls(false);
-    }, HIDE_DELAY_MS);
-  }, [settingsOpen]);
-
-  useEffect(() => {
-    onPlayerReadyRef.current = onPlayerReady;
-  }, [onPlayerReady]);
-
-  useEffect(() => {
-    onAudioTrackChangeRef.current = onAudioTrackChange;
-  }, [onAudioTrackChange]);
-
-  useEffect(() => {
-    onBufferingChangeRef.current = onBufferingChange;
-  }, [onBufferingChange]);
-
-  useEffect(() => {
-    resetHideTimer();
-    return () => {
-      if (hideTimerRef.current) {
-        window.clearTimeout(hideTimerRef.current);
-      }
-    };
-  }, [resetHideTimer]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale);
-    } catch {
-      // Persisting the scale is optional; playback settings still work for the session.
-    }
-  }, [videoScale]);
-
-  useEffect(() => {
-    if (!settingsOpen) {
-      resetHideTimer();
-      return;
-    }
-
-    setShowControls(true);
-    if (hideTimerRef.current) {
-      window.clearTimeout(hideTimerRef.current);
-    }
-  }, [resetHideTimer, settingsOpen]);
-
-  useEffect(() => {
-    onPlayerReadyRef.current?.(true);
-    return () => onPlayerReadyRef.current?.(false);
-  }, []);
-
-  const visibleAudioTracks = useMemo(
-    () => (audioTracksSupported ? audioTracks : usingFallbackAudio ? fallbackAudioTrackSnapshots : []),
-    [audioTracks, audioTracksSupported, fallbackAudioTrackSnapshots, usingFallbackAudio],
-  );
-
-  const activeAudioTrackIndex = useMemo(() => {
-    const selectedSnapshotTrack = visibleAudioTracks.find((track) => track.sourceIndex === selectedAudioTrackIndex);
-    if (selectedSnapshotTrack) {
-      return selectedSnapshotTrack.sourceIndex;
-    }
-
-    const enabledSnapshotTrack = visibleAudioTracks.find((track) => track.enabled) ?? visibleAudioTracks[0] ?? null;
-    return enabledSnapshotTrack?.sourceIndex ?? null;
-  }, [selectedAudioTrackIndex, visibleAudioTracks]);
-
-  const togglePlay = useCallback(async () => {
-    if (!canControlPlayback) {
-      return;
-    }
-
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-    if (video.paused) {
-      await video.play();
-      if (usingFallbackAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
-        // Sync audio position to video before playing to avoid drift
-        fallbackAudioRef.current.currentTime = video.currentTime;
-        void fallbackAudioRef.current.play().catch(() => undefined);
-      }
-      setIsPlaying(true);
-    } else {
-      video.pause();
-      fallbackAudioRef.current?.pause();
-      setIsPlaying(false);
-    }
-  }, [canControlPlayback, fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
-
-  // Apply volume changes directly without reloading audio element.
-  const applyVolume = useCallback(
-    (nextVolume: number) => {
-      const normalizedVolume = Number.isFinite(nextVolume) ? Math.min(1, Math.max(0, nextVolume)) : 1;
-      setVolume(normalizedVolume);
-      if (usingFallbackAudio && fallbackAudioRef.current) {
-        fallbackAudioRef.current.volume = normalizedVolume;
-      }
-      if (videoRef.current && !usingFallbackAudio) {
-        videoRef.current.volume = normalizedVolume;
-      } else if (videoRef.current && usingFallbackAudio) {
-        videoRef.current.volume = 0;
-      }
-    },
-    [usingFallbackAudio, videoRef],
-  );
-
-  const syncAudioTracks = useCallback(() => {
-    const video = videoRef.current;
-    const trackList = video ? (video as VideoWithAudioTracks).audioTracks : undefined;
-
-    if (!mediaLabel) {
-      setAudioTracks([]);
-      return;
-    }
-
-    if (!hasMediaMetadataRef.current) {
-      setAudioTracks([]);
-      return;
-    }
-
-    if (!trackList) {
-      setAudioTracksSupported(false);
-      setAudioTracks([]);
-      return;
-    }
-
-    setAudioTracksSupported(true);
-
-    const snapshot = Array.from(trackList).map((track, index) => ({
+    () => fallbackAudioTracks.map((track, index) => ({
       sourceIndex: index,
       label: track.label || `Audio ${index + 1}`,
       language: track.language || "",
-      enabled: track.enabled,
-    }));
-
-    const requestedTrack =
-      selectedAudioTrackIndex !== null
-        ? snapshot.find((track) => track.sourceIndex === selectedAudioTrackIndex) ?? null
-        : null;
-    const enabledTrack = snapshot.find((track) => track.enabled) ?? snapshot[0] ?? null;
-    const resolvedTrack = requestedTrack ?? enabledTrack;
-
-    if (resolvedTrack) {
-      for (const [index, track] of Array.from(trackList).entries()) {
-        track.enabled = index === resolvedTrack.sourceIndex;
-      }
-    }
-
-    const normalizedSnapshot = snapshot.map((track) => ({
-      ...track,
-      enabled: resolvedTrack ? track.sourceIndex === resolvedTrack.sourceIndex : track.enabled,
-    }));
-    setAudioTracks(normalizedSnapshot);
-
-    const resolvedTrackIndex = resolvedTrack?.sourceIndex ?? null;
-    if (resolvedTrackIndex !== selectedAudioTrackIndex) {
-      onAudioTrackChangeRef.current?.(resolvedTrackIndex);
-    }
-  }, [mediaLabel, selectedAudioTrackIndex, videoRef]);
-
-  const activateAudioTrack = useCallback(
-    (trackIndex: number) => {
-      const video = videoRef.current;
-      const trackList = video ? (video as VideoWithAudioTracks).audioTracks : undefined;
-      if (trackList) {
-        const selectedTrack = audioTracks.find((track) => track.sourceIndex === trackIndex);
-        if (!selectedTrack) {
-          return;
-        }
-
-        for (const [index, track] of Array.from(trackList).entries()) {
-          track.enabled = index === selectedTrack.sourceIndex;
-        }
-
-        setAudioTracks(
-          audioTracks.map((track) => ({
-            ...track,
-            enabled: track.sourceIndex === selectedTrack.sourceIndex,
-          })),
-        );
-        onAudioTrackChangeRef.current?.(selectedTrack.sourceIndex);
-        return;
-      }
-
-      if (!usingFallbackAudio) {
-        return;
-      }
-
-      const selectedTrack = fallbackAudioTrackSnapshots.find((track) => track.sourceIndex === trackIndex);
-      if (!selectedTrack) {
-        return;
-      }
-
-      onAudioTrackChangeRef.current?.(selectedTrack.sourceIndex);
-    },
-    [audioTracks, fallbackAudioTrackSnapshots, usingFallbackAudio, videoRef],
+      enabled: false,
+    })),
+    [fallbackAudioTracks],
   );
 
-  const previousFallbackAudioSourceUrlRef = useRef<string | null>(null);
-  const savedVolumeRef = useRef(1);
+  useEffect(() => { setEditBufferWindowMB(bufferWindowMB); }, [bufferWindowMB]);
+  useEffect(() => { setEditMaxBufferMB(maxBufferMB); }, [maxBufferMB]);
 
-  const requestFallbackAudioSource = useCallback(
-    async (startSeconds: number) => {
-      if (!usingFallbackAudio || activeAudioTrackIndex === null || !resolveFallbackAudioTrackSource) {
-        fallbackAudioRequestIdRef.current += 1;
-        // Revoke previous object URL before clearing.
-        if (previousFallbackAudioSourceUrlRef.current) {
-          URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
-          previousFallbackAudioSourceUrlRef.current = null;
-        }
-        setFallbackAudioSourceUrl(null);
-        fallbackAudioRef.current?.pause();
-        return;
-      }
+  const progress = useMemo(() => duration ? (currentTime / duration) * 100 : 0, [currentTime, duration]);
+  const activeVideoScaleLabel = VIDEO_SCALE_OPTIONS.find((o) => o.value === videoScale)?.label ?? VIDEO_SCALE_OPTIONS[0].label;
 
-      const requestId = ++fallbackAudioRequestIdRef.current;
-      const audio = fallbackAudioRef.current;
-      audio?.pause();
-      // Revoke previous object URL before loading new one.
-      if (previousFallbackAudioSourceUrlRef.current) {
-        URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
-        previousFallbackAudioSourceUrlRef.current = null;
-      }
-      setFallbackAudioSourceUrl(null);
-
-      try {
-        const nextSourceUrl = await resolveFallbackAudioTrackSource(activeAudioTrackIndex, Math.max(0, startSeconds));
-        if (requestId !== fallbackAudioRequestIdRef.current) {
-          return;
-        }
-
-        previousFallbackAudioSourceUrlRef.current = nextSourceUrl;
-        setFallbackAudioSourceUrl(nextSourceUrl);
-      } catch {
-        if (requestId === fallbackAudioRequestIdRef.current) {
-          setFallbackAudioSourceUrl(null);
-        }
-      }
-    },
-    [activeAudioTrackIndex, resolveFallbackAudioTrackSource, usingFallbackAudio],
-  );
-
-  useEffect(() => {
-    if (!usingFallbackAudio) {
-      fallbackAudioRequestIdRef.current += 1;
-      setFallbackAudioSourceUrl(null);
-      fallbackAudioRef.current?.pause();
-      return;
-    }
-
-    if (activeAudioTrackIndex !== null && selectedAudioTrackIndex !== activeAudioTrackIndex) {
-      onAudioTrackChangeRef.current?.(activeAudioTrackIndex);
-      return;
-    }
-
-    void requestFallbackAudioSource(videoRef.current?.currentTime ?? 0);
-  }, [activeAudioTrackIndex, requestFallbackAudioSource, selectedAudioTrackIndex, usingFallbackAudio, videoRef]);
-
-  // Handle fallback audio source URL changes (load/play/pause).
-  // NOTE: volume is NOT in the dependency array — it is applied via a separate effect.
-  useEffect(() => {
-    const audio = fallbackAudioRef.current;
-    if (!audio) {
-      return;
-    }
-
-    audio.muted = false;
-
-    if (!usingFallbackAudio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      return;
-    }
-
-    if (!fallbackAudioSourceUrl) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      return;
-    }
-
-    // Sync audio position to video before loading new source.
-    const video = videoRef.current;
-    if (video) {
-      audio.currentTime = video.currentTime;
-    }
-
-    audio.load();
-    // After seek: if video was paused waiting for audio, resume both together.
-    // This is the primary seek recovery path since onCanPlay doesn't fire on paused video.
-    const videoEl = videoRef.current;
-    if (videoEl && isWaitingAfterSeekRef.current && wasPlayingBeforeSeekRef.current) {
-      isWaitingAfterSeekRef.current = false;
-      videoReadyRef.current = false;
-      audioReadyRef.current = false;
-      setIsBuffering(false);
-      setIsStalled(false);
-      onBufferingChangeRef.current?.(false);
-      // Sync audio position before playing
-      audio.currentTime = videoEl.currentTime;
-      void videoEl.play().catch(() => undefined);
-      void audio.play().catch(() => undefined);
-      setIsPlaying(true);
-    } else if (videoEl && !videoEl.paused) {
-      // Video is already playing (normal playback), just sync audio
-      void audio.play().catch(() => undefined);
-    }
-  }, [fallbackAudioSourceUrl, usingFallbackAudio, videoRef]);
-
-  // Apply volume changes to fallback audio independently — without calling audio.load().
-  useEffect(() => {
-    const audio = fallbackAudioRef.current;
-    if (!audio) return;
-
-    if (usingFallbackAudio) {
-      audio.volume = volume;
-    }
-  }, [volume, usingFallbackAudio]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    if (usingFallbackAudio) {
-      // Save current volume before muting for fallback audio.
-      if (!video.muted && video.volume > 0) {
-        savedVolumeRef.current = video.volume;
-      }
-      video.defaultMuted = true;
-      video.muted = true;
-      video.volume = 0;
-      return;
-    }
-
-    video.defaultMuted = false;
-    video.muted = false;
-    // Restore saved volume when leaving fallback mode.
-    video.volume = savedVolumeRef.current > 0 ? savedVolumeRef.current : volume;
-  }, [usingFallbackAudio, videoRef, volume]);
-
-  // Buffering / stalled state listeners.
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    let stalledTimer: number | null = null;
-
-    const onWaiting = () => {
-      // Delay to avoid false positives from tiny network hiccups.
-      stalledTimer = window.setTimeout(() => {
-        setIsBuffering(true);
-        setIsStalled(true);
-        onBufferingChangeRef.current?.(true);
-      }, 300);
-    };
-
-    const onCanPlay = () => {
-      if (stalledTimer !== null) {
-        window.clearTimeout(stalledTimer);
-        stalledTimer = null;
-      }
-      setIsBuffering(false);
-      setIsStalled(false);
-      onBufferingChangeRef.current?.(false);
-    };
-
-    const onPlaying = () => {
-      if (stalledTimer !== null) {
-        window.clearTimeout(stalledTimer);
-        stalledTimer = null;
-      }
-      setIsBuffering(false);
-      setIsStalled(false);
-      onBufferingChangeRef.current?.(false);
-    };
-
-    const onStalled = () => {
-      setIsStalled(true);
-    };
-
-    const onTimeUpdate = () => {
-      // If we're getting time updates, data is arriving.
-      if (stalledTimer !== null) {
-        window.clearTimeout(stalledTimer);
-        stalledTimer = null;
-      }
-      setIsBuffering(false);
-      setIsStalled(false);
-      onBufferingChangeRef.current?.(false);
-    };
-
-    video.addEventListener("waiting", onWaiting);
-    video.addEventListener("canplay", onCanPlay);
-    video.addEventListener("playing", onPlaying);
-    video.addEventListener("stalled", onStalled);
-    video.addEventListener("timeupdate", onTimeUpdate);
-
-    return () => {
-      video.removeEventListener("waiting", onWaiting);
-      video.removeEventListener("canplay", onCanPlay);
-      video.removeEventListener("playing", onPlaying);
-      video.removeEventListener("stalled", onStalled);
-      video.removeEventListener("timeupdate", onTimeUpdate);
-      if (stalledTimer !== null) {
-        window.clearTimeout(stalledTimer);
-      }
-    };
-  }, [videoRef]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && settingsOpen) {
-        setSettingsOpen(false);
-        return;
-      }
-
-      if (!canControlPlayback) {
-        return;
-      }
-
-      const video = videoRef.current;
-      if (!video) {
-        return;
-      }
-
-      if (isInteractiveTarget(event.target)) {
-        return;
-      }
-
-      if (event.code === "Space") {
-        event.preventDefault();
-        void togglePlay();
-      }
-      if (event.key.toLowerCase() === "f") {
-        if (document.fullscreenElement) {
-          try {
-            void document.exitFullscreen();
-          } catch {
-            // exitFullscreen may throw in some environments
-          }
-        } else {
-          try {
-            void video.requestFullscreen();
-          } catch {
-            // requestFullscreen may throw if denied
-          }
-        }
-      }
-      if (event.key === "ArrowRight" && canControlSeek) {
-        if (Number.isFinite(video.duration)) {
-          video.currentTime = Math.min(video.duration, video.currentTime + 5);
-        }
-        onSeek?.(video.currentTime);
-      }
-      if (event.key === "ArrowLeft" && canControlSeek) {
-        video.currentTime = Math.max(0, video.currentTime - 5);
-        onSeek?.(video.currentTime);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canControlPlayback, canControlSeek, settingsOpen, togglePlay, videoRef, onSeek]);
-
-  // Pointer-down handler for closing settings menu — separate effect to avoid
-  // re-registering keyboard listener when settingsOpen changes.
-  useEffect(() => {
-    if (!settingsOpen) {
-      return;
-    }
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        target instanceof Node &&
-        (settingsMenuRef.current?.contains(target) || settingsButtonRef.current?.contains(target))
-      ) {
-        return;
-      }
-
-      setSettingsOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true);
+    if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+    if (settingsOpen) return;
+    hideTimerRef.current = window.setTimeout(() => setShowControls(false), HIDE_DELAY_MS);
   }, [settingsOpen]);
 
-  useEffect(() => {
-    hasMediaMetadataRef.current = false;
-    setAudioTracks([]);
-    setAudioTracksSupported(detectAudioTracksSupport());
-    // Revoke previous fallback audio object URL when media changes.
-    if (previousFallbackAudioSourceUrlRef.current) {
-      URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
-      previousFallbackAudioSourceUrlRef.current = null;
-    }
-    setFallbackAudioSourceUrl(null);
-    fallbackAudioRequestIdRef.current += 1;
-    fallbackAudioRef.current?.pause();
-    setSettingsOpen(false);
-    setIsBuffering(false);
-    setIsStalled(false);
-  }, [mediaLabel]);
+  useEffect(() => { onPlayerReadyRef.current = onPlayerReady; }, [onPlayerReady]);
+  useEffect(() => { onAudioTrackChangeRef.current = onAudioTrackChange; }, [onAudioTrackChange]);
+  useEffect(() => { onBufferingChangeRef.current = onBufferingChange; }, [onBufferingChange]);
+  useEffect(() => { try { window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale); } catch { /* ok */ } }, [videoScale]);
+  useEffect(() => { onPlayerReadyRef.current?.(true); return () => onPlayerReadyRef.current?.(false); }, []);
 
-  // Revoke fallback audio object URL on unmount.
+  const visibleAudioTracks = useMemo(
+    () => (audioTracksSupported ? audioTracks : fallbackAudioTrackSnapshots),
+    [audioTracks, audioTracksSupported, fallbackAudioTrackSnapshots],
+  );
+
+  const activeAudioTrackIndex = useMemo(() => {
+    const sel = visibleAudioTracks.find((t) => t.sourceIndex === selectedAudioTrackIndex);
+    if (sel) return sel.sourceIndex;
+    const en = visibleAudioTracks.find((t) => t.enabled) ?? visibleAudioTracks[0] ?? null;
+    return en?.sourceIndex ?? null;
+  }, [selectedAudioTrackIndex, visibleAudioTracks]);
+
+  const togglePlay = useCallback(async () => {
+    if (!canControlPlayback) return;
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { await v.play(); setIsPlaying(true); }
+    else { v.pause(); setIsPlaying(false); }
+  }, [canControlPlayback, videoRef]);
+
+  const applyVolume = useCallback((nv: number) => {
+    const n = Number.isFinite(nv) ? Math.min(1, Math.max(0, nv)) : 1;
+    setVolume(n);
+    if (videoRef.current) videoRef.current.volume = n;
+  }, [videoRef]);
+
+  const syncAudioTracks = useCallback(() => {
+    const v = videoRef.current;
+    const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
+    if (!mediaLabel) { setAudioTracks([]); return; }
+    if (!hasMediaMetadataRef.current) { setAudioTracks([]); return; }
+    if (!tl) { setAudioTracksSupported(false); setAudioTracks([]); return; }
+    setAudioTracksSupported(true);
+    const snap = Array.from(tl).map((t, i) => ({ sourceIndex: i, label: t.label || `Audio ${i + 1}`, language: t.language || "", enabled: t.enabled }));
+    const req = selectedAudioTrackIndex !== null ? snap.find((t) => t.sourceIndex === selectedAudioTrackIndex) ?? null : null;
+    const en = snap.find((t) => t.enabled) ?? snap[0] ?? null;
+    const res = req ?? en;
+    if (res) { for (const [i, t] of Array.from(tl).entries()) { t.enabled = i === res.sourceIndex; } }
+    setAudioTracks(snap.map((t) => ({ ...t, enabled: res ? t.sourceIndex === res.sourceIndex : t.enabled })));
+    if (res?.sourceIndex !== selectedAudioTrackIndex) onAudioTrackChangeRef.current?.(res?.sourceIndex ?? null);
+  }, [mediaLabel, selectedAudioTrackIndex, videoRef]);
+
+  const activateAudioTrack = useCallback((idx: number) => {
+    const v = videoRef.current;
+    const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
+    if (tl) {
+      const sel = audioTracks.find((t) => t.sourceIndex === idx);
+      if (!sel) return;
+      for (const [i, t] of Array.from(tl).entries()) { t.enabled = i === sel.sourceIndex; }
+      setAudioTracks(audioTracks.map((t) => ({ ...t, enabled: t.sourceIndex === sel.sourceIndex })));
+      onAudioTrackChangeRef.current?.(sel.sourceIndex);
+      return;
+    }
+    const sel = fallbackAudioTrackSnapshots.find((t) => t.sourceIndex === idx);
+    if (sel) onAudioTrackChangeRef.current?.(sel.sourceIndex);
+  }, [audioTracks, fallbackAudioTrackSnapshots, videoRef]);
+
+  // Buffering / stalled listeners
   useEffect(() => {
-    return () => {
-      if (previousFallbackAudioSourceUrlRef.current) {
-        URL.revokeObjectURL(previousFallbackAudioSourceUrlRef.current);
-        previousFallbackAudioSourceUrlRef.current = null;
-      }
+    const v = videoRef.current;
+    if (!v) return;
+    let timer: number | null = null;
+    const onWait = () => { timer = window.setTimeout(() => { setIsBuffering(true); setIsStalled(true); onBufferingChangeRef.current?.(true); }, 300); };
+    const onCan = () => { if (timer !== null) { window.clearTimeout(timer); timer = null; } setIsBuffering(false); setIsStalled(false); onBufferingChangeRef.current?.(false); };
+    const onPlay = () => { if (timer !== null) { window.clearTimeout(timer); timer = null; } setIsBuffering(false); setIsStalled(false); onBufferingChangeRef.current?.(false); };
+    const onStall = () => { setIsStalled(true); };
+    const onTU = () => { if (timer !== null) { window.clearTimeout(timer); timer = null; } setIsBuffering(false); setIsStalled(false); onBufferingChangeRef.current?.(false); };
+    v.addEventListener("waiting", onWait);
+    v.addEventListener("canplay", onCan);
+    v.addEventListener("playing", onPlay);
+    v.addEventListener("stalled", onStall);
+    v.addEventListener("timeupdate", onTU);
+    return () => { v.removeEventListener("waiting", onWait); v.removeEventListener("canplay", onCan); v.removeEventListener("playing", onPlay); v.removeEventListener("stalled", onStall); v.removeEventListener("timeupdate", onTU); if (timer !== null) window.clearTimeout(timer); };
+  }, [videoRef]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && settingsOpen) { setSettingsOpen(false); return; }
+      if (!canControlPlayback) return;
+      const v = videoRef.current; if (!v) return;
+      if (isInteractiveTarget(e.target)) return;
+      if (e.code === "Space") { e.preventDefault(); void togglePlay(); }
+      if (e.key.toLowerCase() === "f") { document.fullscreenElement ? void document.exitFullscreen() : void v.requestFullscreen(); }
+      if (e.key === "ArrowRight" && canControlSeek) { if (Number.isFinite(v.duration)) v.currentTime = Math.min(v.duration, v.currentTime + 5); onSeek?.(v.currentTime); }
+      if (e.key === "ArrowLeft" && canControlSeek) { v.currentTime = Math.max(0, v.currentTime - 5); onSeek?.(v.currentTime); }
     };
-  }, []);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [canControlPlayback, canControlSeek, settingsOpen, togglePlay, videoRef, onSeek]);
 
+  // Settings menu close on outside click
   useEffect(() => {
-    if (audioTracksSupported) {
-      syncAudioTracks();
+    if (!settingsOpen) return;
+    const handler = (e: PointerEvent) => {
+      const t = e.target;
+      if (t instanceof Node && (settingsMenuRef.current?.contains(t) || settingsButtonRef.current?.contains(t))) return;
+      setSettingsOpen(false);
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [settingsOpen]);
+
+  useEffect(() => { hasMediaMetadataRef.current = false; setAudioTracks([]); setAudioTracksSupported(detectAudioTracksSupport()); setSettingsOpen(false); setIsBuffering(false); setIsStalled(false); }, [mediaLabel]);
+  useEffect(() => { if (audioTracksSupported) syncAudioTracks(); }, [audioTracksSupported, syncAudioTracks]);
+
+  // Seek handler: request new mux stream and update video src
+  const handleSeek = useCallback(async (timestamp: number) => {
+    if (!canControlPlayback) return;
+    const v = videoRef.current;
+    if (v) { v.pause(); setIsBuffering(true); onBufferingChangeRef.current?.(true); }
+    if (onMuxStreamRequest) {
+      try {
+        const url = await onMuxStreamRequest(timestamp);
+        if (url && v) { v.src = url; v.currentTime = timestamp; v.load(); await v.play(); setIsPlaying(true); setIsBuffering(false); onBufferingChangeRef.current?.(false); }
+      } catch (err) { console.error("Seek failed:", err); setIsBuffering(false); onBufferingChangeRef.current?.(false); }
     }
-  }, [audioTracksSupported, syncAudioTracks]);
+    onSeek?.(timestamp);
+  }, [canControlPlayback, onMuxStreamRequest, onSeek, videoRef]);
 
   const hasSelectedMedia = Boolean(mediaLabel);
   const audioTrackStatusText = audioTracksSupported
-    ? audioTracks.length > 0
-      ? `${audioTracks.length} available`
-      : "Waiting for media metadata"
-    : usingFallbackAudio
-      ? `${fallbackAudioTrackSnapshots.length} available via ffmpeg`
-      : "Unavailable in this runtime";
-  const audioTracksUnavailableMessage = (
-    <>
-      This runtime does not expose <code>audioTracks</code>, and no ffmpeg fallback track is available for this file.
-    </>
-  );
+    ? audioTracks.length > 0 ? `${audioTracks.length} available` : "Waiting for media metadata"
+    : fallbackAudioTrackSnapshots.length > 0 ? `${fallbackAudioTrackSnapshots.length} available via ffmpeg` : "Unavailable in this runtime";
+  const audioTracksUnavailableMessage = <>This runtime does not expose <code>audioTracks</code>, and no ffmpeg fallback track is available for this file.</>;
 
   return (
-    <section
-      className={`video-player ${mediaKind === "audio" ? "audio-mode" : "video-mode"} scale-${videoScale}`}
-      onMouseMove={resetHideTimer}
-    >
+    <section className={`video-player ${mediaKind === "audio" ? "audio-mode" : "video-mode"} scale-${videoScale}`} onMouseMove={resetHideTimer}>
       {!hasSelectedMedia && (
         <div className="video-placeholder">
           <div className="placeholder-art" />
@@ -778,343 +292,93 @@ function VideoPlayer({
         className="video-element"
         preload="auto"
         playsInline
-        onClick={() => {
-          if (canControlPlayback) {
-            void togglePlay();
-          }
-        }}
-        onTimeUpdate={(event) => {
-          setCurrentTime(event.currentTarget.currentTime);
-          onTimeUpdate?.(event.currentTarget.currentTime, event.currentTarget.duration);
-
-          // Periodically sync fallback audio to prevent drift.
-          if (usingFallbackAudio && fallbackAudioRef.current && !fallbackAudioRef.current.paused) {
-            const drift = Math.abs(fallbackAudioRef.current.currentTime - event.currentTarget.currentTime);
-            if (drift > 0.3) {
-              fallbackAudioRef.current.currentTime = event.currentTarget.currentTime;
-            }
-          }
-        }}
-        onLoadedMetadata={(event) => {
-          hasMediaMetadataRef.current = true;
-          setDuration(event.currentTarget.duration);
-          syncAudioTracks();
-        }}
-        onSeeking={() => {
-          // User started seeking — remember if we were playing.
-          wasPlayingBeforeSeekRef.current = !videoRef.current?.paused;
-        }}
-        onSeeked={(event) => {
-          if (!canControlPlayback) return;
-
-          // After a seek, pause video and request new fallback audio source.
-          const video = videoRef.current;
-          if (video) {
-            video.pause();
-            isWaitingAfterSeekRef.current = true;
-            videoReadyRef.current = false;
-            audioReadyRef.current = false;
-            setIsPlaying(false);
-            setIsBuffering(true);
-            onBufferingChangeRef.current?.(true);
-          }
-          // Also pause fallback audio — it will resume when new source loads.
-          fallbackAudioRef.current?.pause();
-
-          if (usingFallbackAudio) {
-            void requestFallbackAudioSource(event.currentTarget.currentTime);
-          } else if (audioTracksSupported && fallbackAudioRef.current) {
-            // For native audio tracks, sync fallback audio element if it exists.
-            fallbackAudioRef.current.currentTime = event.currentTarget.currentTime;
-          }
-        }}
-        onCanPlay={() => {
-          // Note: onCanPlay may not fire when video is paused.
-          // The fallback audio useEffect handles resuming after seek.
-          if (isWaitingAfterSeekRef.current) {
-            videoReadyRef.current = true;
-          }
-        }}
-        onPause={() => {
-          fallbackAudioRef.current?.pause();
-          setIsPlaying(false);
-        }}
-        onPlay={() => {
-          setIsPlaying(true);
-          onPlaybackStart?.();
-          // Sync fallback audio to video position and start playing.
-          // This handles: initial play, resume after seek, and drift correction.
-          if (usingFallbackAudio && fallbackAudioRef.current && fallbackAudioSourceUrl) {
-            const videoEl = videoRef.current;
-            if (videoEl) {
-              // Sync audio position to video to prevent drift after seek
-              const drift = Math.abs(fallbackAudioRef.current.currentTime - videoEl.currentTime);
-              if (drift > 0.1) {
-                fallbackAudioRef.current.currentTime = videoEl.currentTime;
-              }
-            }
-            void fallbackAudioRef.current.play().catch(() => undefined);
-          }
-        }}
+        onClick={() => { if (canControlPlayback) void togglePlay(); }}
+        onTimeUpdate={(e) => { setCurrentTime(e.currentTarget.currentTime); onTimeUpdate?.(e.currentTarget.currentTime, e.currentTarget.duration); }}
+        onLoadedMetadata={(e) => { hasMediaMetadataRef.current = true; setDuration(e.currentTarget.duration); syncAudioTracks(); }}
+        onSeeking={() => {}}
+        onSeeked={(e) => { if (canControlPlayback) void handleSeek(e.currentTarget.currentTime); }}
+        onCanPlay={() => { setIsBuffering(false); setIsStalled(false); onBufferingChangeRef.current?.(false); }}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => { setIsPlaying(true); onPlaybackStart?.(); }}
       />
-
       {hasSelectedMedia && (
         <div className="video-legend">
-          <span className={`video-kind ${mediaKind ?? "video"}`}>
-            {mediaKind === "audio" ? "Audio" : "Video"}
-          </span>
+          <span className={`video-kind ${mediaKind ?? "video"}`}>{mediaKind === "audio" ? "Audio" : "Video"}</span>
           <span className="video-title">{mediaLabel}</span>
         </div>
       )}
-
-      <audio
-        ref={fallbackAudioRef}
-        hidden
-        preload="auto"
-        src={fallbackAudioSourceUrl ?? undefined}
-        onCanPlay={() => {
-          if (isWaitingAfterSeekRef.current) {
-            audioReadyRef.current = true;
-            void tryResumeAfterSeek();
-          }
-        }}
-      />
-
-      {statusMessage && (
-        <div className="playback-message" role="status" aria-live="polite">
-          {statusMessage}
-        </div>
-      )}
-
-      {(isBuffering || isStalled) && (
-        <div className="buffering-indicator" role="status" aria-live="polite">
-          {isStalled ? "Network stalled — waiting for data..." : "Buffering..."}
-        </div>
-      )}
-
+      {statusMessage && <div className="playback-message" role="status" aria-live="polite">{statusMessage}</div>}
+      {(isBuffering || isStalled) && <div className="buffering-indicator" role="status" aria-live="polite">{isStalled ? "Network stalled — waiting for data..." : "Buffering..."}</div>}
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
-        <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>
-          {isPlaying ? "Pause" : "Play"}
-        </button>
-
-        <input
-          type="range"
-          min={0}
-          max={duration || 100}
-          step={0.1}
-          value={currentTime}
-          disabled={!canControlSeek}
-          onChange={(event) => {
-            if (!canControlSeek) {
-              return;
-            }
-            const value = Number(event.target.value);
-            setCurrentTime(value);
-            if (videoRef.current) {
-              videoRef.current.currentTime = value;
-            }
-          }}
-          onMouseUp={(event) => {
-            if (!canControlSeek) return;
-            const value = Number((event.target as HTMLInputElement).value);
-            onSeek?.(value);
-          }}
-          onTouchEnd={(event) => {
-            if (!canControlSeek) return;
-            const value = Number((event.target as HTMLInputElement).value);
-            onSeek?.(value);
-          }}
+        <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>{isPlaying ? "Pause" : "Play"}</button>
+        <input type="range" min={0} max={duration || 100} step={0.1} value={currentTime} disabled={!canControlSeek}
+          onChange={(e) => { if (!canControlSeek) return; const val = Number(e.target.value); setCurrentTime(val); if (videoRef.current) videoRef.current.currentTime = val; }}
+          onMouseUp={(e) => { if (!canControlSeek) return; onSeek?.(Number((e.target as HTMLInputElement).value)); }}
+          onTouchEnd={(e) => { if (!canControlSeek) return; onSeek?.(Number((e.target as HTMLInputElement).value)); }}
         />
-
-        <span className="time-label">
-          {formatTime(currentTime)} / {formatTime(duration)}
-        </span>
-
+        <span className="time-label">{formatTime(currentTime)} / {formatTime(duration)}</span>
         <div className="volume-control">
-          <span className="volume-icon" aria-hidden="true">
-            {volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊"}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volume}
-            onChange={(event) => {
-              applyVolume(Number(event.target.value));
-            }}
-            aria-label="Volume"
-          />
+          <span className="volume-icon" aria-hidden="true">{volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊"}</span>
+          <input type="range" min={0} max={1} step={0.01} value={volume} onChange={(e) => applyVolume(Number(e.target.value))} aria-label="Volume" />
           <span className="volume-label">{Math.round(volume * 100)}%</span>
         </div>
-
         <div className="settings-menu-anchor">
-          <button
-            ref={settingsButtonRef}
-            type="button"
-            className={`settings-toggle ${settingsOpen ? "active" : ""}`}
-            aria-haspopup="dialog"
-            aria-expanded={settingsOpen}
-            onClick={() => setSettingsOpen((open) => !open)}
-          >
-            Settings
-          </button>
-
+          <button ref={settingsButtonRef} type="button" className={`settings-toggle ${settingsOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>Settings</button>
           {settingsOpen && (
             <div ref={settingsMenuRef} className="player-settings-menu" role="dialog" aria-label="Player settings">
               <div className="settings-menu-header">
-                <div>
-                  <span className="settings-kicker">Player settings</span>
-                  <strong>{activeVideoScaleLabel} video scale</strong>
-                </div>
-                <button
-                  type="button"
-                  className="settings-close"
-                  onClick={() => setSettingsOpen(false)}
-                  aria-label="Close settings"
-                >
-                  Close
-                </button>
+                <div><span className="settings-kicker">Player settings</span><strong>{activeVideoScaleLabel} video scale</strong></div>
+                <button type="button" className="settings-close" onClick={() => setSettingsOpen(false)} aria-label="Close settings">Close</button>
               </div>
-
               <div className="settings-section">
-                <div className="settings-section-header">
-                  <span>Video scale</span>
-                  <span>{activeVideoScaleLabel}</span>
-                </div>
+                <div className="settings-section-header"><span>Video scale</span><span>{activeVideoScaleLabel}</span></div>
                 <div className="scale-option-list" role="radiogroup" aria-label="Video scale">
-                  {VIDEO_SCALE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={`scale-option ${videoScale === option.value ? "active" : ""}`}
-                      role="radio"
-                      aria-checked={videoScale === option.value}
-                      onClick={() => setVideoScale(option.value)}
-                    >
-                      <span className="scale-option-name">{option.label}</span>
-                      <span className="scale-option-copy">{option.description}</span>
+                  {VIDEO_SCALE_OPTIONS.map((opt) => (
+                    <button key={opt.value} type="button" className={`scale-option ${videoScale === opt.value ? "active" : ""}`} role="radio" aria-checked={videoScale === opt.value} onClick={() => setVideoScale(opt.value)}>
+                      <span className="scale-option-name">{opt.label}</span>
+                      <span className="scale-option-copy">{opt.description}</span>
                     </button>
                   ))}
                 </div>
               </div>
-
               <div className="settings-section">
-                <div className="settings-section-header">
-                  <span>Audio tracks</span>
-                  <span>{audioTrackStatusText}</span>
-                </div>
+                <div className="settings-section-header"><span>Audio tracks</span><span>{audioTrackStatusText}</span></div>
                 {hasSelectedMedia && visibleAudioTracks.length > 0 ? (
                   <div className="audio-track-list">
-                    {visibleAudioTracks.map((track) => (
-                      <button
-                        key={track.sourceIndex}
-                        type="button"
-                        className={`audio-track-button ${activeAudioTrackIndex === track.sourceIndex ? "active" : ""}`}
-                        onClick={() => activateAudioTrack(track.sourceIndex)}
-                        disabled={!canControlAudioTracks}
-                      >
-                        <span className="audio-track-name">{track.label}</span>
-                        <span className="audio-track-meta">
-                          {track.language ? track.language.toUpperCase() : "Unknown language"}
-                        </span>
+                    {visibleAudioTracks.map((t) => (
+                      <button key={t.sourceIndex} type="button" className={`audio-track-button ${activeAudioTrackIndex === t.sourceIndex ? "active" : ""}`} onClick={() => activateAudioTrack(t.sourceIndex)} disabled={!canControlAudioTracks}>
+                        <span className="audio-track-name">{t.label}</span>
+                        <span className="audio-track-meta">{t.language ? t.language.toUpperCase() : "Unknown language"}</span>
                       </button>
                     ))}
                   </div>
                 ) : hasSelectedMedia && audioTracksSupported ? (
-                  <p className="settings-empty">
-                    No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.
-                  </p>
-                ) : hasSelectedMedia && usingFallbackAudio ? (
-                  <p className="settings-empty">
-                    FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to
-                    finish.
-                  </p>
+                  <p className="settings-empty">No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.</p>
+                ) : hasSelectedMedia && fallbackAudioTrackSnapshots.length > 0 ? (
+                  <p className="settings-empty">FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to finish.</p>
                 ) : hasSelectedMedia ? (
                   <p className="settings-empty">{audioTracksUnavailableMessage}</p>
                 ) : (
                   <p className="settings-empty">Load media to inspect audio tracks.</p>
                 )}
               </div>
-
               <div className="settings-section">
-                <div className="settings-section-header">
-                  <span>Buffer</span>
-                  <span>{editBufferWindowMB} MB window</span>
-                </div>
+                <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
                 <div className="buffer-settings-row">
                   <label htmlFor="buffer-window-mb">Window (MB)</label>
-                  <input
-                    id="buffer-window-mb"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    step={10}
-                    value={editBufferWindowMB}
-                    onChange={(event) => {
-                      const v = Math.max(1, Math.min(1000, Number(event.target.value) || 50));
-                      setEditBufferWindowMB(v);
-                    }}
-                  />
+                  <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => setEditBufferWindowMB(Math.max(1, Math.min(1000, Number(e.target.value) || 50)))} />
                 </div>
                 <div className="buffer-settings-row">
                   <label htmlFor="max-buffer-mb">Max buffer (MB)</label>
-                  <input
-                    id="max-buffer-mb"
-                    type="number"
-                    min={10}
-                    max={2000}
-                    step={10}
-                    value={editMaxBufferMB}
-                    onChange={(event) => {
-                      const v = Math.max(10, Math.min(2000, Number(event.target.value) || 500));
-                      setEditMaxBufferMB(v);
-                    }}
-                  />
+                  <input id="max-buffer-mb" type="number" min={10} max={2000} step={10} value={editMaxBufferMB} onChange={(e) => setEditMaxBufferMB(Math.max(10, Math.min(2000, Number(e.target.value) || 500)))} />
                 </div>
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={() => onBufferSettingsChange?.(editBufferWindowMB, editMaxBufferMB)}
-                >
-                  Apply buffer settings
-                </button>
-                <p className="settings-hint">
-                  Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.
-                </p>
+                <button type="button" className="secondary-btn" onClick={() => onBufferSettingsChange?.(editBufferWindowMB, editMaxBufferMB)}>Apply buffer settings</button>
+                <p className="settings-hint">Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.</p>
               </div>
             </div>
           )}
         </div>
-
-        <button
-          type="button"
-          disabled={!canControlPlayback}
-          onClick={() => {
-            if (!canControlPlayback) {
-              return;
-            }
-            const video = videoRef.current;
-            if (!video) {
-              return;
-            }
-            if (document.fullscreenElement) {
-              try {
-                void document.exitFullscreen();
-              } catch {
-                // exitFullscreen may throw in some environments
-              }
-            } else {
-              try {
-                void video.requestFullscreen();
-              } catch {
-                // requestFullscreen may throw if denied
-              }
-            }
-          }}
-        >
-          Fullscreen
-        </button>
+        <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; document.fullscreenElement ? void document.exitFullscreen() : void v.requestFullscreen(); }}>Fullscreen</button>
       </div>
       <div className="video-progress" style={{ width: `${progress}%` }} />
     </section>

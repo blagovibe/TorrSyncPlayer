@@ -27,4 +27,11 @@ contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
     }
     return ipcRenderer.invoke("torrent:createAudioTrackStreamUrl", params);
   },
+  // Multiplexed audio+video stream for perfect sync
+  createMultiplexedStreamUrl: (params) => {
+    if (!params || typeof params !== "object") {
+      return Promise.reject(new Error("Invalid mux params"));
+    }
+    return ipcRenderer.invoke("torrent:createMultiplexedStreamUrl", params);
+  },
 });

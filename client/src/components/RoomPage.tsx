@@ -31,7 +31,6 @@ interface RoomPageProps {
   onPlaybackStarted: () => void;
   onPlayerReady: (ready: boolean) => void;
   onAudioTrackChange: (trackIndex: number | null) => void;
-  resolveFallbackAudioTrackSource: (trackIndex: number, startSeconds: number) => Promise<string | null>;
   onLoadMagnet: () => void;
   onLoadTorrentFile: () => void;
   onSelectMediaFile: (file: TorrentMediaFile) => void;
@@ -50,6 +49,7 @@ interface RoomPageProps {
   maxBufferMB?: number;
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
   onSeek?: (timestamp: number) => void;
+  onMuxStreamRequest?: (startSeconds: number) => Promise<string | null>;
 }
 
 function RoomPage({
@@ -77,7 +77,6 @@ function RoomPage({
   onPlaybackStarted,
   onPlayerReady,
   onAudioTrackChange,
-  resolveFallbackAudioTrackSource,
   onLoadMagnet,
   onLoadTorrentFile,
   onSelectMediaFile,
@@ -96,6 +95,7 @@ function RoomPage({
   maxBufferMB,
   onBufferSettingsChange,
   onSeek,
+  onMuxStreamRequest,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
@@ -138,7 +138,6 @@ function RoomPage({
             selectedAudioTrackIndex={selectedAudioTrackIndex}
             onPlaybackStart={onPlaybackStarted}
             onAudioTrackChange={onAudioTrackChange}
-            resolveFallbackAudioTrackSource={resolveFallbackAudioTrackSource}
             onPlayerReady={onPlayerReady}
             onBufferingChange={onBufferingChange}
             onTimeUpdate={onTimeUpdate}
@@ -146,6 +145,7 @@ function RoomPage({
             maxBufferMB={maxBufferMB}
             onBufferSettingsChange={onBufferSettingsChange}
             onSeek={onSeek}
+            onMuxStreamRequest={onMuxStreamRequest}
           />
           {canControlTorrent ? (
             <div className="panel">

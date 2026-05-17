@@ -200,6 +200,15 @@ ipcMain.handle(
     return torrentBridge.createAudioTrackStreamUrl(params);
   },
 );
+ipcMain.handle(
+  "torrent:createMultiplexedStreamUrl",
+  async (_event, params) => {
+    if (!params || typeof params !== "object") {
+      throw new Error("Invalid mux params");
+    }
+    return torrentBridge.createMultiplexedStreamUrl(params);
+  },
+);
 
 app.whenReady().then(async () => {
   let loadUrl = devServerUrl;
