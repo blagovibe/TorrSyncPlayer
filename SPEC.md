@@ -105,6 +105,13 @@
 - **Testing**: Vitest 2.1
 - **Linting**: ESLint 9
 - **Styling**: CSS
+- **State Management**: Custom Zustand-like store
+- **Event Bus**: Custom type-safe EventBus
+- **Error Handling**: Result<T,E> pattern
+- **Logging**: Structured logging with levels
+- **Cleanup**: AbortController-based resource management
+- **Retry**: Exponential backoff with jitter
+- **Security**: CSP headers, security headers, input validation
 
 ## 6. Desktop Packaging
 
