@@ -145,11 +145,6 @@ describe("SyncService", () => {
     service.seek(33);
     video.dispatch("seeked");
 
-    // Wait for play() promise to resolve
-    await vi.waitFor(() => {
-      expect(signaling.sendSync).toHaveBeenCalledWith(expect.objectContaining({ action: "play" }));
-    });
-
     expect(signaling.sendSync).toHaveBeenCalledTimes(3);
     expect(signaling.sendSync).toHaveBeenNthCalledWith(1, {
       action: "play",
