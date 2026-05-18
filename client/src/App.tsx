@@ -127,6 +127,7 @@ function App() {
   const isLoadingTorrentRef = useRef(false);
   const isPlayerReadyRef = useRef(false);
   const pendingRemoteSyncRef = useRef<SyncMessage | null>(null);
+  const peerRoleRef = useRef<PeerRole | null>(null);
 
   const disposeSyncService = () => {
     syncServiceRef.current?.dispose();
@@ -519,7 +520,7 @@ function App() {
     });
 
     p2pService.on("sync", (message) => {
-      if (role !== "guest") {
+      if (peerRoleRef.current !== "slave") {
         return;
       }
       pendingRemoteSyncRef.current = message;
@@ -530,7 +531,7 @@ function App() {
     });
 
     p2pService.on("torrent_source", (message) => {
-      if (role !== "guest") {
+      if (peerRoleRef.current !== "slave") {
         return;
       }
 
@@ -578,6 +579,7 @@ function App() {
     try {
       await initializeP2PService("host");
       setPeerRole("master");
+      peerRoleRef.current = "master";
       setIsConnected(true);
       setPeers([{ id: "self", name: "You", role: "master", connectionState: "connected" }]);
       setCurrentView("room");
@@ -591,6 +593,7 @@ function App() {
       p2pServiceRef.current = null;
       setConnectionError(message);
       setPeerRole(null);
+      peerRoleRef.current = null;
       setPeers([]);
       setIsConnected(false);
     } finally {
@@ -616,6 +619,7 @@ function App() {
         const p2pService = await initializeP2PService("guest");
         await p2pService.connect(`torrsync-${normalizedId}`);
         setPeerRole("slave");
+        peerRoleRef.current = "slave";
         setIsConnected(true);
         setPeers([
           { id: "self", name: "You", role: "slave", connectionState: "connected" },
@@ -632,6 +636,7 @@ function App() {
         p2pServiceRef.current = null;
         setConnectionError(message);
         setPeerRole(null);
+      peerRoleRef.current = null;
         setPeers([]);
         setIsConnected(false);
       } finally {
@@ -664,6 +669,7 @@ function App() {
     setCurrentView("home");
     setPeerId("");
     setPeerRole(null);
+      peerRoleRef.current = null;
     setPeers([]);
     setIsConnected(false);
     setIsConnecting(false);
@@ -882,10 +888,23 @@ function App() {
       offTorrentProgress();
       offTorrentSpeed();
       offTorrentPeerCount();
-      void torrentService.destroy();
     };
     // Re-subscribe when torrentService instance changes (e.g. after handleResetTorrentInRoom).
   }, [getTorrentService, torrentServiceVersion]);
+
+  // Separate effect for destroying the torrent service when the version changes.
+  // This ensures the old service is fully cleaned up before a new one is created.
+  const prevVersionRef = useRef(torrentServiceVersion);
+  useEffect(() => {
+    if (prevVersionRef.current === torrentServiceVersion) return;
+    prevVersionRef.current = torrentServiceVersion;
+    // Destroy the previous service (not the current one).
+    // We create a new service first, then destroy the old one.
+    const oldService = torrentServiceRef.current;
+    if (oldService) {
+      void oldService.destroy();
+    }
+  }, [torrentServiceVersion]);
 
   useEffect(() => {
     disposeSyncService();

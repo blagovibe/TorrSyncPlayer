@@ -272,8 +272,14 @@ function VideoPlayer({
     if (onMuxStreamRequest) {
       try {
         const url = await onMuxStreamRequest(timestamp);
-        if (url && v) { v.src = url; v.currentTime = timestamp; v.load(); await v.play(); setIsPlaying(true); setIsBuffering(false); onBufferingChangeRef.current?.(false); }
-      } catch (err) { console.error("Seek failed:", err); setIsBuffering(false); onBufferingChangeRef.current?.(false); }
+        if (url && v) { v.src = url; v.currentTime = timestamp; v.load(); await v.play(); setIsPlaying(true); setIsBuffering(false); onBufferingChangeRef.current?.(false); return; }
+      } catch (err) { console.error("Seek failed:", err); }
+    }
+    // Fallback: direct seek if mux stream is unavailable
+    if (v) {
+      v.currentTime = timestamp;
+      setIsBuffering(false);
+      onBufferingChangeRef.current?.(false);
     }
     onSeek?.(timestamp);
   }, [canControlPlayback, onMuxStreamRequest, onSeek, videoRef]);

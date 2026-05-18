@@ -83,13 +83,15 @@ export class SyncService {
 
   play(): void {
     if (this.isDisposed) return;
+    if (this.role === "master") {
+      this.suppressNextEventSync.play = true;
+      // Send sync immediately — if play() fails (autoplay blocked), the sync
+      // will still inform slaves to attempt play (they may succeed where master failed).
+      this.sendMasterSync("play", this.video.currentTime, true);
+    }
     this.video.play().catch(() => {
       // Autoplay may be blocked — user interaction required
     });
-    if (this.role === "master") {
-      this.suppressNextEventSync.play = true;
-      this.sendMasterSync("play", this.video.currentTime, true);
-    }
   }
 
   pause(): void {
@@ -205,6 +207,10 @@ export class SyncService {
     this.cleanup.addEventListener(this.video, "seeked", onSeeked);
   }
 
+  private lastHeartbeatPosition = -1;
+  private lastHeartbeatPlaying = false;
+  private lastHeartbeatSent = 0;
+
   private startHeartbeat(): void {
     this.cleanup.setInterval(() => {
       if (this.role !== "master" || this.isDisposed) return;
@@ -214,7 +220,21 @@ export class SyncService {
       if (this.suppressNextEventSync.play) this.suppressNextEventSync.play = false;
       if (this.suppressNextEventSync.pause) this.suppressNextEventSync.pause = false;
 
-      this.sendMasterSync("state", this.video.currentTime, !this.video.paused);
+      const now = Date.now();
+      const position = this.video.currentTime;
+      const isPlaying = !this.video.paused;
+
+      // Dedup: skip if state hasn't changed and last send was < 2s ago
+      const posChanged = Math.abs(position - this.lastHeartbeatPosition) > 0.1;
+      const stateChanged = isPlaying !== this.lastHeartbeatPlaying;
+      const timeSinceLastSend = now - this.lastHeartbeatSent;
+
+      if (!posChanged && !stateChanged && timeSinceLastSend < 2000) return;
+
+      this.lastHeartbeatPosition = position;
+      this.lastHeartbeatPlaying = isPlaying;
+      this.lastHeartbeatSent = now;
+      this.sendMasterSync("state", position, isPlaying);
     }, SYNC_CONFIG.heartbeatIntervalMs);
   }
 

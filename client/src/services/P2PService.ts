@@ -389,6 +389,7 @@ export class P2PService {
 
       const onOpen = (id: string) => {
         p2pLogger.info("PeerJS initialized with ID:", id);
+        clearTimeout(initTimeoutId);
         if (id) {
           this.peerId = id.startsWith(P2P_CONFIG.hostPeerPrefix)
             ? id.slice(P2P_CONFIG.hostPeerPrefix.length)
@@ -431,7 +432,7 @@ export class P2PService {
       this.peer.on("disconnected", onDisconnected);
       this.cleanup.add(() => { this.peer?.off?.("disconnected", onDisconnected); });
 
-      this.cleanup.setTimeout(() => {
+      const initTimeoutId = this.cleanup.setTimeout(() => {
         if (!this.peer?.open && !isSettled) {
           settleReject(new Error("Initialization timeout"));
         }

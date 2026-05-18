@@ -116,7 +116,7 @@ function getFileExtension(name: string): string {
 }
 
 // Formats natively supported by most browsers for <video> element
-const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov"]);
+const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov", ".m4v", ".ts"]);
 const BROWSER_SUPPORTED_AUDIO_FORMATS = new Set([".mp3", ".ogg", ".opus", ".wav", ".oga", ".aac", ".m4a", ".flac", ".wma"]);
 
 export class TorrentService {
@@ -337,7 +337,7 @@ export class TorrentService {
 
       const discoveredPeerIds = this.discoveredPeerIds;
 
-      const emitPeerCount = () => {
+      const emitDiscoveredPeerCount = () => {
         torrent.discoveredPeerCount = discoveredPeerIds.size;
         this.emit("peerCount", discoveredPeerIds.size);
       };
@@ -347,23 +347,22 @@ export class TorrentService {
         const normalized = this.normalizePeerId(peerId);
         if (normalized && !discoveredPeerIds.has(normalized)) {
           discoveredPeerIds.add(normalized);
-          emitPeerCount();
+          emitDiscoveredPeerCount();
         }
       });
 
-      // Track wire connections for peer count
+      // Track wire connections separately — wire count is informational
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const onWire = (wire: any) => {
-        emitPeerCount();
         if (wire?.on) {
-          const closeHandler = () => emitPeerCount();
+          const closeHandler = () => {};
           wire.on("close", closeHandler);
           this.cleanup.add(() => wire.off?.("close", closeHandler));
         }
       };
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "wire", onWire as (...args: unknown[]) => void);
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitPeerCount);
+      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitDiscoveredPeerCount);
 
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "download", () => {
         this.emit("progress", torrent.progress);
@@ -371,13 +370,13 @@ export class TorrentService {
       });
 
       const onMetadataOrReady = (event: "metadata" | "ready") => async () => {
-        if (isSettled && event === "ready") return; // metadata already resolved
+        if (isSettled) return; // already resolved by a previous event
         try {
           const videoFile = this.getPreferredMediaFile(torrent);
           this.emit(event, torrent, videoFile);
           this.emit("progress", torrent.progress);
           this.emit("speed", torrent.downloadSpeed);
-          emitPeerCount();
+          emitDiscoveredPeerCount();
           settleResolve(torrent);
         } catch (error) {
           const normalized = this.normalizeError(error);
@@ -493,6 +492,9 @@ export class TorrentService {
 
       const onError = () => {
         cleanup();
+        // Reset the media element to a clean state so it can be reused
+        mediaElement.removeAttribute("src");
+        mediaElement.load();
         const error = mediaElement.error;
         const errorMsg = error ? `[${error.code}] ${error.message}` : "unknown error";
         settle(() => reject(new Error(`Failed to load stream from URL: ${streamUrl} (${errorMsg})`)));
@@ -518,6 +520,12 @@ export class TorrentService {
       mediaElement.addEventListener("error", onError);
       mediaElement.addEventListener("canplay", onCanPlay);
       mediaElement.addEventListener("loadeddata", onLoadedData);
+      // Set crossOrigin for CORS-enabled stream servers (mux/audio endpoints set
+      // Access-Control-Allow-Origin: *). Without this, Chromium may reject the
+      // media pipeline even for same-origin requests when CORS headers are present.
+      if (streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
+        mediaElement.crossOrigin = "anonymous";
+      }
       mediaElement.src = streamUrl;
       mediaElement.load();
     });

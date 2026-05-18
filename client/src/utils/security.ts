@@ -9,7 +9,7 @@ export const CSP_POLICY = {
   "script-src": ["'self'"],
   "style-src": ["'self'", "'unsafe-inline'"],
   "img-src": ["'self'", "data:", "blob:"],
-  "media-src": ["'self'", "blob:", "http://127.0.0.1"],
+  "media-src": ["'self'", "blob:", "http://127.0.0.1:*"],
   "connect-src": [
     "'self'",
     "wss://*.peerjs.com",

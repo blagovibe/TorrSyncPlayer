@@ -609,20 +609,77 @@ class TorrentBridge {
             "pipe:1",
           ];
 
-      const ffmpeg = spawn("ffmpeg", ffmpegArgs);
+      // Rate limit ffmpeg processes to prevent resource exhaustion
+      const ffmpeg = await new Promise((resolve, reject) => {
+        const doSpawn = () => {
+          try {
+            const proc = spawn("ffmpeg", ffmpegArgs);
+            resolve(proc);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
+          activeFfmpegCount++;
+          doSpawn();
+        } else {
+          ffmpegQueue.push(() => {
+            activeFfmpegCount++;
+            doSpawn();
+          });
+        }
+      });
       session.process = ffmpeg;
 
-      response.statusCode = 200;
-      response.setHeader("Content-Type", isMux ? "video/webm" : "audio/mpeg");
-      response.setHeader("Cache-Control", "no-store");
-      response.setHeader("Pragma", "no-cache");
-      response.setHeader("Accept-Ranges", "none");
-      response.setHeader("Access-Control-Allow-Origin", "*");
-      response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-      response.setHeader("Access-Control-Allow-Private-Network", "true");
-      response.flushHeaders?.();
+      // Wait for ffmpeg to produce its first output before committing to a 200 response.
+      // If ffmpeg exits without producing data (e.g. input URL unreachable), return 500
+      // instead of an empty body with Content-Type: video/webm which causes the browser
+      // to fail with DEMUXER_ERROR_COULD_NOT_OPEN.
+      let headersSent = false;
+      const sendHeaders = () => {
+        if (headersSent) return;
+        headersSent = true;
+        response.statusCode = 200;
+        response.setHeader("Content-Type", isMux ? "video/webm" : "audio/mpeg");
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("Pragma", "no-cache");
+        response.setHeader("Accept-Ranges", "none");
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+        response.setHeader("Access-Control-Allow-Private-Network", "true");
+        response.flushHeaders?.();
+      };
 
-      ffmpeg.stdout.pipe(response);
+      // Buffer stdout chunks until headers are sent, then pipe the rest
+      const stdoutChunks: Buffer[] = [];
+      let stdoutDone = false;
+
+      ffmpeg.stdout.on("data", (chunk: Buffer) => {
+        if (!headersSent) {
+          stdoutChunks.push(chunk);
+          // Send headers on first real data from ffmpeg
+          sendHeaders();
+          // Flush buffered chunks
+          for (const buffered of stdoutChunks) {
+            response.write(buffered);
+          }
+          stdoutChunks.length = 0;
+        } else {
+          response.write(chunk);
+        }
+      });
+
+      ffmpeg.stdout.on("end", () => {
+        stdoutDone = true;
+        if (!headersSent) {
+          // ffmpeg exited without producing any output
+          sendHeaders();
+          response.statusCode = 502;
+          response.end("FFmpeg stream produced no output — the source may not be ready yet");
+        } else {
+          response.end();
+        }
+      });
 
       const killProcess = () => {
         try {
@@ -637,12 +694,32 @@ class TorrentBridge {
       ffmpeg.on("error", (error) => {
         this.audioSessions.delete(token);
         killProcess();
-        if (!response.headersSent) {
+        if (!headersSent) {
           response.statusCode = 500;
           response.end(error instanceof Error ? error.message : "Audio stream failed");
           return;
         }
         response.destroy(error instanceof Error ? error : new Error("Audio stream failed"));
+      });
+
+      ffmpeg.on("close", (code) => {
+        activeFfmpegCount--;
+        if (ffmpegQueue.length > 0) {
+          const next = ffmpegQueue.shift();
+          next();
+        }
+        if (code !== 0 && !headersSent) {
+          // ffmpeg exited with error before producing output
+          this.audioSessions.delete(token);
+          response.statusCode = 502;
+          response.end(`FFmpeg exited with code ${code} — the source stream may be unavailable`);
+          return;
+        }
+        session.process = null;
+        session.cleanupTimer = setTimeout(() => {
+          this.audioSessions.delete(token);
+        }, AUDIO_SESSION_TTL_MS);
+        session.cleanupTimer.unref?.();
       });
 
       ffmpeg.stderr.on("data", (chunk) => {
@@ -654,18 +731,11 @@ class TorrentBridge {
 
       response.on("close", killProcess);
       response.on("finish", killProcess);
-      ffmpeg.on("close", () => {
-        session.process = null;
-        session.cleanupTimer = setTimeout(() => {
-          this.audioSessions.delete(token);
-        }, AUDIO_SESSION_TTL_MS);
-        session.cleanupTimer.unref?.();
-        response.removeListener("close", killProcess);
-        response.removeListener("finish", killProcess);
-      });
     } catch (error) {
       // Clean up the session on any error (e.g. spawn throws because ffmpeg is not installed)
-      this.audioSessions.delete(token);
+      if (token) {
+        this.audioSessions.delete(token);
+      }
       response.statusCode = 500;
       response.end(error instanceof Error ? error.message : "Audio stream failed");
     }
