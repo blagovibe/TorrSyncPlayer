@@ -518,6 +518,8 @@ export class TorrentService {
       mediaElement.addEventListener("error", onError);
       mediaElement.addEventListener("canplay", onCanPlay);
       mediaElement.addEventListener("loadeddata", onLoadedData);
+      // Enable CORS for cross-origin stream URLs (audio/mux server runs on a different port)
+      mediaElement.crossOrigin = "anonymous";
       mediaElement.src = streamUrl;
       mediaElement.load();
     });

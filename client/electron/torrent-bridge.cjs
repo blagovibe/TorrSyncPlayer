@@ -523,9 +523,21 @@ class TorrentBridge {
         return;
       }
 
+      // Handle CORS preflight (OPTIONS) for cross-origin media requests
+      if (request.method === "OPTIONS") {
+        response.statusCode = 204;
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+        response.setHeader("Access-Control-Allow-Headers", "Range, Origin");
+        response.setHeader("Access-Control-Max-Age", "86400");
+        response.setHeader("Access-Control-Allow-Private-Network", "true");
+        response.end();
+        return;
+      }
+
       if (request.method !== "GET") {
         response.statusCode = 405;
-        response.setHeader("Allow", "GET");
+        response.setHeader("Allow", "GET, OPTIONS");
         response.end();
         return;
       }
@@ -618,7 +630,8 @@ class TorrentBridge {
       response.setHeader("Pragma", "no-cache");
       response.setHeader("Accept-Ranges", "none");
       response.setHeader("Access-Control-Allow-Origin", "*");
-      response.setHeader("Access-Control-Allow-Methods", "GET");
+      response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      response.setHeader("Access-Control-Allow-Private-Network", "true");
       response.flushHeaders?.();
 
       ffmpeg.stdout.pipe(response);

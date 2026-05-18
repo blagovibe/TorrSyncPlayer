@@ -297,6 +297,7 @@ function VideoPlayer({
         ref={videoRef as RefObject<HTMLVideoElement>}
         className="video-element"
         preload="auto"
+        crossOrigin="anonymous"
         playsInline
         onClick={() => { if (canControlPlayback) void togglePlay(); }}
         onTimeUpdate={(e) => { setCurrentTime(e.currentTarget.currentTime); onTimeUpdate?.(e.currentTarget.currentTime, e.currentTarget.duration); }}
