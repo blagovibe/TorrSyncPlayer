@@ -86,6 +86,14 @@ function startStaticServer() {
           return;
         }
 
+        const { pathname } = new URL(request.url, "http://127.0.0.1");
+
+        // Route /mux/* and /audio/* to torrent bridge (same-origin, no CORS/PNA issues)
+        if (pathname.startsWith("/mux/") || pathname.startsWith("/audio/")) {
+          void torrentBridge.handleAudioRequest(request, response);
+          return;
+        }
+
         if (request.method !== "GET" && request.method !== "HEAD") {
           response.statusCode = 405;
           response.setHeader("Allow", "GET, HEAD");
@@ -93,7 +101,6 @@ function startStaticServer() {
           return;
         }
 
-        const { pathname } = new URL(request.url, "http://127.0.0.1");
         const assetPath = await resolveStaticAsset(pathname);
 
         if (!assetPath) {
@@ -112,7 +119,7 @@ function startStaticServer() {
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader(
           "Content-Security-Policy",
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: http://127.0.0.1; connect-src 'self' wss://*.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss://*.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         );
         response.end(request.method === "HEAD" ? undefined : body);
       } catch (error) {
@@ -127,6 +134,9 @@ function startStaticServer() {
         reject(new Error("Unable to start local static server"));
         return;
       }
+
+      // Inform torrent bridge about the base URL for stream URLs
+      torrentBridge.setStreamBaseUrl(`http://127.0.0.1:${address.port}`);
 
       resolve({ server, url: `http://127.0.0.1:${address.port}` });
     });

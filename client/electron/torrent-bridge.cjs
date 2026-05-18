@@ -1,4 +1,3 @@
-const http = require("node:http");
 const { spawn } = require("node:child_process");
 
 const VIDEO_EXTENSIONS = new Set([
@@ -11,8 +10,6 @@ const AUDIO_EXTENSIONS = new Set([
 const MAX_TORRENT_CONNECTIONS = 200;
 const TORRENT_SERVER_HOST = "127.0.0.1";
 const TORRENT_SERVER_PORT = 0;
-const AUDIO_SERVER_HOST = "127.0.0.1";
-const AUDIO_SERVER_PORT = 0;
 const AUDIO_SESSION_TTL_MS = 5 * 60 * 1000;
 
 // Allowed hostnames for stream URL validation — only loopback addresses
@@ -197,6 +194,14 @@ class TorrentBridge {
     this.audioServerBaseUrl = null;
     this.audioSessions = new Map();
     this.audioSessionCounter = 0;
+  }
+
+  setStreamBaseUrl(url) {
+    this.audioServerBaseUrl = url;
+    if (this._resolveAudioServerWaiter) {
+      this._resolveAudioServerWaiter(url);
+      this._resolveAudioServerWaiter = null;
+    }
   }
 
   async addMagnet(magnetLink) {
@@ -488,31 +493,14 @@ class TorrentBridge {
       return this.audioServerBaseUrl;
     }
 
-    if (this.audioServerPromise) {
-      return this.audioServerPromise;
+    // Wait for the main process to set the stream base URL via setStreamBaseUrl()
+    // The audio/mux endpoints are served on the same port as the static file server
+    if (!this._ensureAudioServerWaiter) {
+      this._ensureAudioServerWaiter = new Promise((resolve) => {
+        this._resolveAudioServerWaiter = resolve;
+      });
     }
-
-    this.audioServerPromise = new Promise((resolve, reject) => {
-      const server = http.createServer((request, response) => {
-        void this.handleAudioRequest(request, response);
-      });
-
-      server.listen(AUDIO_SERVER_PORT, AUDIO_SERVER_HOST, () => {
-        const address = server.address();
-        if (!address || typeof address === "string") {
-          reject(new Error("Unable to determine audio server address"));
-          return;
-        }
-
-        this.audioServer = server;
-        this.audioServerBaseUrl = `http://${AUDIO_SERVER_HOST}:${address.port}`;
-        resolve(this.audioServerBaseUrl);
-      });
-
-      server.on("error", reject);
-    });
-
-    return this.audioServerPromise;
+    return this._ensureAudioServerWaiter;
   }
 
   async handleAudioRequest(request, response) {
