@@ -2,26 +2,11 @@ const http = require("node:http");
 const { spawn } = require("node:child_process");
 
 const VIDEO_EXTENSIONS = new Set([
-  ".mp4",
-  ".mkv",
-  ".webm",
-  ".mov",
-  ".avi",
-  ".m4v",
-  ".ts",
-  ".ogv",
+  ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".ogv",
 ]);
 
 const AUDIO_EXTENSIONS = new Set([
-  ".mp3",
-  ".m4a",
-  ".aac",
-  ".flac",
-  ".ogg",
-  ".opus",
-  ".wav",
-  ".oga",
-  ".wma",
+  ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav", ".oga", ".wma",
 ]);
 const MAX_TORRENT_CONNECTIONS = 200;
 const TORRENT_SERVER_HOST = "127.0.0.1";
@@ -29,6 +14,55 @@ const TORRENT_SERVER_PORT = 0;
 const AUDIO_SERVER_HOST = "127.0.0.1";
 const AUDIO_SERVER_PORT = 0;
 const AUDIO_SESSION_TTL_MS = 5 * 60 * 1000;
+
+// Allowed hostnames for stream URL validation — only loopback addresses
+const ALLOWED_STREAM_HOSTS = new Set(["127.0.0.1", "::1"]);
+
+// Rate limiting for ffmpeg processes
+const MAX_CONCURRENT_FFMPEG = 3;
+let activeFfmpegCount = 0;
+const ffmpegQueue = [];
+
+function runWithFfmpegLimit(fn) {
+  return new Promise((resolve, reject) => {
+    const task = async () => {
+      activeFfmpegCount++;
+      try {
+        const result = await fn();
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      } finally {
+        activeFfmpegCount--;
+        if (ffmpegQueue.length > 0) {
+          const next = ffmpegQueue.shift();
+          next();
+        }
+      }
+    };
+
+    if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
+      task();
+    } else {
+      ffmpegQueue.push(task);
+    }
+  });
+}
+
+// Check ffmpeg availability on startup
+let ffmpegAvailable = false;
+let ffmpegChecked = false;
+
+async function checkFfmpegAvailable() {
+  if (ffmpegChecked) return ffmpegAvailable;
+  ffmpegChecked = true;
+  return new Promise((resolve) => {
+    const proc = spawn("ffmpeg", ["-version"], { timeout: 5000 });
+    proc.on("error", () => { ffmpegAvailable = false; resolve(false); });
+    proc.on("close", (code) => { ffmpegAvailable = code === 0; resolve(ffmpegAvailable); });
+    proc.on("timeout", () => { proc.kill(); ffmpegAvailable = false; resolve(false); });
+  });
+}
 
 function normalizePeerId(peerId) {
   if (peerId == null) {
@@ -583,6 +617,8 @@ class TorrentBridge {
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Pragma", "no-cache");
       response.setHeader("Accept-Ranges", "none");
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Access-Control-Allow-Methods", "GET");
       response.flushHeaders?.();
 
       ffmpeg.stdout.pipe(response);
@@ -703,11 +739,11 @@ class TorrentBridge {
       throw new Error(`Stream URL must use http or https protocol, got: ${parsed.protocol}`);
     }
 
-    const allowedHosts = ["127.0.0.1", "localhost", "::1"];
-    if (!allowedHosts.includes(parsed.hostname)) {
+    const allowedHosts = ALLOWED_STREAM_HOSTS;
+    if (!ALLOWED_STREAM_HOSTS.has(parsed.hostname)) {
       throw new Error(`Stream URL must point to a local address, got: ${parsed.hostname}`);
     }
   }
 }
 
-module.exports = { TorrentBridge, formatTorrentSnapshot };
+module.exports = { TorrentBridge, formatTorrentSnapshot, checkFfmpegAvailable };

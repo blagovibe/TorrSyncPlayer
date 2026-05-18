@@ -39,11 +39,9 @@ const stagedPackage = {
     linux: {
       target: ["AppImage"],
       category: "Video",
-      icon: "../public/icons",
     },
     win: {
       target: ["nsis", "portable"],
-      icon: "../public/icons/icon.ico",
     },
     nsis: {
       oneClick: false,

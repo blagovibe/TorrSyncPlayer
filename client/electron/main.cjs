@@ -112,7 +112,7 @@ function startStaticServer() {
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader(
           "Content-Security-Policy",
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: http://127.0.0.1:*; connect-src 'self' wss://*.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: http://127.0.0.1; connect-src 'self' wss://*.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         );
         response.end(request.method === "HEAD" ? undefined : body);
       } catch (error) {
@@ -216,6 +216,18 @@ ipcMain.handle(
 );
 
 app.whenReady().then(async () => {
+  // Check ffmpeg availability
+  try {
+    const ffmpegOk = await torrentBridge.checkFfmpegAvailable();
+    if (!ffmpegOk) {
+      console.warn("[TorrSyncPlayer] ffmpeg not found — audio track features will be unavailable");
+    } else {
+      console.log("[TorrSyncPlayer] ffmpeg detected");
+    }
+  } catch (error) {
+    console.warn("[TorrSyncPlayer] ffmpeg check failed:", error);
+  }
+
   let loadUrl = devServerUrl;
 
   if (!isDev) {

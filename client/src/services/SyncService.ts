@@ -1,5 +1,6 @@
 import { type SyncMessage } from "./types";
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
+import { SYNC_CONFIG } from "../config";
 
 type SyncEvents = {
   sync_play: (message: SyncMessage) => void;
@@ -16,9 +17,6 @@ type SyncTransport = {
   sendSync: (message: SyncMessage) => void;
 };
 
-const DEFAULT_SYNC_TOLERANCE_SECONDS = 0.5;
-const HEARTBEAT_INTERVAL_MS = 1000;
-
 export class SyncService {
   private readonly signaling: SyncTransport;
   private readonly video: HTMLVideoElement;
@@ -31,16 +29,15 @@ export class SyncService {
     sync_state: new Set(),
     outbound_sync: new Set(),
   };
-  private readonly suppressNextEventSync: Partial<
-    Record<"play" | "pause" | "seeked", boolean>
-  > = {};
-  private syncToleranceSeconds = DEFAULT_SYNC_TOLERANCE_SECONDS;
+  private readonly suppressNextEventSync: Partial<Record<"play" | "pause" | "seeked", boolean>> = {};
+  private syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds;
+  private isDisposed = false;
 
   constructor(
     signaling: SyncTransport,
     video: HTMLVideoElement,
     role: Role,
-    syncToleranceSeconds = DEFAULT_SYNC_TOLERANCE_SECONDS,
+    syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds,
   ) {
     this.signaling = signaling;
     this.video = video;
@@ -60,6 +57,7 @@ export class SyncService {
   }
 
   dispose(): void {
+    this.isDisposed = true;
     this.cleanup.abort();
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
@@ -84,7 +82,10 @@ export class SyncService {
   }
 
   play(): void {
-    void this.video.play().catch(() => undefined);
+    if (this.isDisposed) return;
+    this.video.play().catch(() => {
+      // Autoplay may be blocked — user interaction required
+    });
     if (this.role === "master") {
       this.suppressNextEventSync.play = true;
       this.sendMasterSync("play", this.video.currentTime, true);
@@ -92,6 +93,7 @@ export class SyncService {
   }
 
   pause(): void {
+    if (this.isDisposed) return;
     this.video.pause();
     if (this.role === "master") {
       this.suppressNextEventSync.pause = true;
@@ -100,6 +102,7 @@ export class SyncService {
   }
 
   seek(timestamp: number): void {
+    if (this.isDisposed) return;
     this.video.currentTime = timestamp;
     if (this.role === "master") {
       this.suppressNextEventSync.seeked = true;
@@ -112,23 +115,18 @@ export class SyncService {
   }
 
   applyRemoteSync(message: SyncMessage): void {
-    if (this.role !== "slave") {
-      return;
-    }
+    if (this.role !== "slave" || this.isDisposed) return;
 
     const isSeek = message.action === "seek";
     const latencySeconds = isSeek
       ? 0
-      : Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), 5);
+      : Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), SYNC_CONFIG.maxLatencyCompensationSeconds);
     const compensatedPosition = message.position + latencySeconds;
     const shouldAlign =
-      Math.abs(this.video.currentTime - compensatedPosition) >
-      this.syncToleranceSeconds;
+      Math.abs(this.video.currentTime - compensatedPosition) > this.syncToleranceSeconds;
     const desiredPlayState =
       message.is_playing ??
-      (message.action === "play" ||
-        message.action === "seek" ||
-        message.action === "state");
+      (message.action === "play" || message.action === "seek" || message.action === "state");
     const isPaused = this.video.paused;
 
     if (shouldAlign) {
@@ -136,8 +134,10 @@ export class SyncService {
     }
 
     const safePlay = () => {
-      if (this.video.paused && this.video.readyState >= 2) {
-        void this.video.play().catch(() => undefined);
+      if (this.video.paused && this.video.readyState >= 1) {
+        this.video.play().catch(() => {
+          // Autoplay may be blocked
+        });
       }
     };
 
@@ -207,22 +207,15 @@ export class SyncService {
 
   private startHeartbeat(): void {
     this.cleanup.setInterval(() => {
-      if (this.role !== "master") {
-        return;
-      }
+      if (this.role !== "master" || this.isDisposed) return;
 
-      if (this.suppressNextEventSync.seeked) {
-        this.suppressNextEventSync.seeked = false;
-      }
-      if (this.suppressNextEventSync.play) {
-        this.suppressNextEventSync.play = false;
-      }
-      if (this.suppressNextEventSync.pause) {
-        this.suppressNextEventSync.pause = false;
-      }
+      // Reset suppression flags to prevent stale state
+      if (this.suppressNextEventSync.seeked) this.suppressNextEventSync.seeked = false;
+      if (this.suppressNextEventSync.play) this.suppressNextEventSync.play = false;
+      if (this.suppressNextEventSync.pause) this.suppressNextEventSync.pause = false;
 
       this.sendMasterSync("state", this.video.currentTime, !this.video.paused);
-    }, HEARTBEAT_INTERVAL_MS);
+    }, SYNC_CONFIG.heartbeatIntervalMs);
   }
 
   private sendMasterSync(
@@ -230,6 +223,7 @@ export class SyncService {
     position: number,
     isPlaying: boolean,
   ): void {
+    if (this.isDisposed) return;
     const message: SyncMessage = {
       action,
       position,
@@ -241,22 +235,14 @@ export class SyncService {
   }
 
   private normalizeTolerance(value: number): number {
-    if (!Number.isFinite(value) || value < 0) {
-      return DEFAULT_SYNC_TOLERANCE_SECONDS;
-    }
+    if (!Number.isFinite(value) || value < 0) return SYNC_CONFIG.defaultToleranceSeconds;
     return value;
   }
 
-  private emit<K extends EventKey>(
-    event: K,
-    ...args: Parameters<SyncEvents[K]>
-  ) {
-    const callbacks = this.listeners[event];
-    callbacks.forEach((callback) => {
-      (callback as (...eventArgs: Parameters<SyncEvents[K]>) => void)(
-        ...args,
-      );
-    });
+  private emit<K extends EventKey>(event: K, ...args: Parameters<SyncEvents[K]>): void {
+    for (const callback of this.listeners[event]) {
+      (callback as (...eventArgs: Parameters<SyncEvents[K]>) => void)(...args);
+    }
   }
 }
 

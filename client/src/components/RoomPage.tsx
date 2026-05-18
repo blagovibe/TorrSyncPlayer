@@ -131,7 +131,7 @@ function RoomPage({
             mediaLabel={selectedMediaLabel}
             mediaKind={selectedMediaKind}
             statusMessage={playbackNotice}
-            canControlPlayback={canControlTorrent || selectedMediaLabel !== null}
+            canControlPlayback={canControlTorrent}
             canControlSeek={canControlTorrent}
             canControlAudioTracks={canControlTorrent}
             fallbackAudioTracks={selectedMediaAudioTracks}

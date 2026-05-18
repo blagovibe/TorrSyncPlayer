@@ -88,13 +88,8 @@ describe("TorrentService", () => {
         kind: "video",
       }),
     );
-    expect(ready).toHaveBeenCalledWith(
-      torrent,
-      expect.objectContaining({
-        name: "Movie.MP4",
-        kind: "video",
-      }),
-    );
+    // ready is NOT called because metadata already resolved the promise
+    expect(ready).not.toHaveBeenCalled();
     expect(peerCount).toHaveBeenCalledWith(0);
     expect(peerCount).toHaveBeenCalledWith(1);
     expect(peerCount).not.toHaveBeenCalledWith(2);
