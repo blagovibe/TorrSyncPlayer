@@ -115,6 +115,15 @@ function getFileExtension(name: string): string {
   return normalized.slice(lastDot);
 }
 
+// Formats natively supported by most browsers for <video> element
+const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov"]);
+const BROWSER_SUPPORTED_AUDIO_FORMATS = new Set([".mp3", ".ogg", ".opus", ".wav", ".oga", ".aac", ".m4a", ".flac", ".wma"]);
+
+function isBrowserSupportedFormat(fileName: string): boolean {
+  const ext = getFileExtension(fileName);
+  return BROWSER_SUPPORTED_VIDEO_FORMATS.has(ext) || BROWSER_SUPPORTED_AUDIO_FORMATS.has(ext);
+}
+
 export class TorrentService {
   private client: TorrentClient | null = null;
   private readonly electronBackend: ElectronTorrentBackend | null = this.getElectronBackend();
@@ -135,6 +144,12 @@ export class TorrentService {
   private prioritizeTimerId: ReturnType<typeof setTimeout> | null = null;
   private addQueue: Promise<void> = Promise.resolve();
   private isDestroyed = false;
+
+  /** Check if a file format is natively supported by browsers for <video>/<audio> */
+  private isBrowserSupportedFormat(fileName: string): boolean {
+    const ext = getFileExtension(fileName);
+    return BROWSER_SUPPORTED_VIDEO_FORMATS.has(ext) || BROWSER_SUPPORTED_AUDIO_FORMATS.has(ext);
+  }
 
   private readonly listeners: { [K in EventKey]: Set<TorrentEvents[K]> } = {
     progress: new Set(),
@@ -423,6 +438,21 @@ export class TorrentService {
     mediaElement.load();
 
     if (file.streamUrl) {
+      // For formats not natively supported by browsers (e.g. MKV), use mux conversion
+      const isNativeSupported = this.isBrowserSupportedFormat(file.name);
+      if (!isNativeSupported && this.electronBackend?.createMultiplexedStreamUrl) {
+        torrentLogger.info(`Format not browser-supported, using mux conversion for: ${file.name}`);
+        const muxUrl = await this.createMuxStreamUrl(
+          file,
+          null, // use default audio track
+          0,
+        );
+        if (muxUrl) {
+          await this.streamFromUrl(muxUrl, mediaElement);
+          return;
+        }
+        torrentLogger.warn("Mux conversion failed, falling back to direct stream");
+      }
       await this.streamFromUrl(file.streamUrl, mediaElement);
       return;
     }
