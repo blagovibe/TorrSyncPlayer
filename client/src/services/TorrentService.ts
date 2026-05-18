@@ -119,11 +119,6 @@ function getFileExtension(name: string): string {
 const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov"]);
 const BROWSER_SUPPORTED_AUDIO_FORMATS = new Set([".mp3", ".ogg", ".opus", ".wav", ".oga", ".aac", ".m4a", ".flac", ".wma"]);
 
-function isBrowserSupportedFormat(fileName: string): boolean {
-  const ext = getFileExtension(fileName);
-  return BROWSER_SUPPORTED_VIDEO_FORMATS.has(ext) || BROWSER_SUPPORTED_AUDIO_FORMATS.has(ext);
-}
-
 export class TorrentService {
   private client: TorrentClient | null = null;
   private readonly electronBackend: ElectronTorrentBackend | null = this.getElectronBackend();
@@ -394,7 +389,6 @@ export class TorrentService {
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "metadata", onMetadataOrReady("metadata"));
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "ready", onMetadataOrReady("ready"));
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "error", ((error?: Error) => {
         const normalized = this.normalizeError(error);
         this.emit("error", normalized);

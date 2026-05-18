@@ -216,7 +216,7 @@ function App() {
     if (playbackSnapshot) {
       p2pService.sendSync(enrichSyncMessage(playbackSnapshot), targetPeerId);
     }
-  }, [syncToleranceSeconds, enrichSyncMessage]);
+  }, [syncToleranceSeconds, enrichSyncMessage, roomPassword]);
 
   const scheduleBroadcast = useCallback((targetPeerId?: string) => {
     clearBroadcastTimeout();
