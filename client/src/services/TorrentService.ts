@@ -460,24 +460,40 @@ export class TorrentService {
         settled = true;
         fn();
       };
+
+      const cleanup = () => {
+        mediaElement.removeEventListener("error", onError);
+        mediaElement.removeEventListener("canplay", onCanPlay);
+        mediaElement.removeEventListener("loadeddata", onLoadedData);
+      };
+
       const onError = () => {
         cleanup();
-        settle(() => reject(new Error(`Failed to load stream from URL: ${streamUrl}`)));
+        const error = mediaElement.error;
+        const errorMsg = error ? `[${error.code}] ${error.message}` : "unknown error";
+        settle(() => reject(new Error(`Failed to load stream from URL: ${streamUrl} (${errorMsg})`)));
       };
+
       const onCanPlay = () => {
         cleanup();
         settle(resolve);
       };
-      const cleanup = () => {
-        mediaElement.removeEventListener("error", onError);
-        mediaElement.removeEventListener("canplay", onCanPlay);
+
+      const onLoadedData = () => {
+        // loadeddata fires when first frame is available — good enough for streaming
+        cleanup();
+        settle(resolve);
       };
+
+      // Timeout: if neither error nor canplay fires within 60s, reject
       this.cleanup.setTimeout(() => {
         cleanup();
         settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
-      }, STREAM_CONFIG.streamLoadTimeoutMs);
-      mediaElement.addEventListener("error", onError, { once: true });
-      mediaElement.addEventListener("canplay", onCanPlay, { once: true });
+      }, 60_000);
+
+      mediaElement.addEventListener("error", onError);
+      mediaElement.addEventListener("canplay", onCanPlay);
+      mediaElement.addEventListener("loadeddata", onLoadedData);
       mediaElement.src = streamUrl;
       mediaElement.load();
     });
