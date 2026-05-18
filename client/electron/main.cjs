@@ -228,7 +228,7 @@ ipcMain.handle(
 app.whenReady().then(async () => {
   // Check ffmpeg availability
   try {
-    const ffmpegOk = await torrentBridge.checkFfmpegAvailable();
+    const ffmpegOk = await TorrentBridge.checkFfmpegAvailable();
     if (!ffmpegOk) {
       console.warn("[TorrSyncPlayer] ffmpeg not found — audio track features will be unavailable");
     } else {
