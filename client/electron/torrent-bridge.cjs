@@ -696,8 +696,12 @@ class TorrentBridge {
     } catch (error) {
       // Clean up the session on any error (e.g. spawn throws because ffmpeg is not installed)
       this.audioSessions.delete(token);
-      response.statusCode = 500;
-      response.end(error instanceof Error ? error.message : "Audio stream failed");
+      if (!response.headersSent) {
+        response.statusCode = 500;
+        response.end(error instanceof Error ? error.message : "Audio stream failed");
+      } else {
+        response.destroy();
+      }
     }
   }
 

@@ -496,7 +496,9 @@ export class TorrentService {
         mediaElement.removeAttribute("src");
         mediaElement.load();
         const error = mediaElement.error;
-        const errorMsg = error ? `[${error.code}] ${error.message}` : "unknown error";
+        const errorMsg = error
+          ? `[${error.code}] ${error.message}`
+          : "network error (connection reset or truncated response — ffmpeg may have failed)";
         settle(() => reject(new Error(`Failed to load stream from URL: ${streamUrl} (${errorMsg})`)));
       };
 

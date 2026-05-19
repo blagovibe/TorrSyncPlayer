@@ -90,7 +90,15 @@ function startStaticServer() {
 
         // Route /mux/* and /audio/* to torrent bridge (same-origin, no CORS/PNA issues)
         if (pathname.startsWith("/mux/") || pathname.startsWith("/audio/")) {
-          void torrentBridge.handleAudioRequest(request, response);
+          torrentBridge.handleAudioRequest(request, response).catch((error) => {
+            console.error("[TorrSyncPlayer] Audio/mux request failed:", error);
+            if (!response.headersSent) {
+              response.statusCode = 500;
+              response.end("Stream request failed");
+            } else {
+              response.destroy();
+            }
+          });
           return;
         }
 
