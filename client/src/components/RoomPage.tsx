@@ -4,7 +4,7 @@ import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
 import type { TorrentMediaFile } from "../services/TorrentService";
-import type { AudioTrackInfo } from "../services/types";
+import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
 
 interface RoomPageProps {
   peerId: string;
@@ -31,6 +31,9 @@ interface RoomPageProps {
   onPlaybackStarted: () => void;
   onPlayerReady: (ready: boolean) => void;
   onAudioTrackChange: (trackIndex: number | null) => void;
+  selectedSubtitles: SubtitleTrackInfo[];
+  selectedSubtitleIndex: number | null;
+  onSubtitleTrackChange: (trackIndex: number | null) => void;
   onLoadMagnet: () => void;
   onLoadTorrentFile: () => void;
   onSelectMediaFile: (file: TorrentMediaFile) => void;
@@ -77,6 +80,9 @@ function RoomPage({
   onPlaybackStarted,
   onPlayerReady,
   onAudioTrackChange,
+  selectedSubtitles,
+  selectedSubtitleIndex,
+  onSubtitleTrackChange,
   onLoadMagnet,
   onLoadTorrentFile,
   onSelectMediaFile,
@@ -126,19 +132,23 @@ function RoomPage({
     <section className="room-page">
       <div className="room-layout">
         <div className="player-column">
-          <VideoPlayer
-            videoRef={videoRef}
-            mediaLabel={selectedMediaLabel}
-            mediaKind={selectedMediaKind}
-            statusMessage={playbackNotice}
-            canControlPlayback={canControlTorrent}
-            canControlSeek={canControlTorrent}
-            canControlAudioTracks={canControlTorrent}
-            fallbackAudioTracks={selectedMediaAudioTracks}
-            selectedAudioTrackIndex={selectedAudioTrackIndex}
-            onPlaybackStart={onPlaybackStarted}
-            onAudioTrackChange={onAudioTrackChange}
-            onPlayerReady={onPlayerReady}
+<VideoPlayer
+             videoRef={videoRef}
+             mediaLabel={selectedMediaLabel}
+             mediaKind={selectedMediaKind}
+             statusMessage={playbackNotice}
+             canControlPlayback={canControlTorrent}
+             canControlSeek={canControlTorrent}
+             canControlAudioTracks={canControlTorrent}
+             canControlSubtitleTracks={canControlTorrent}
+             fallbackAudioTracks={selectedMediaAudioTracks}
+             selectedAudioTrackIndex={selectedAudioTrackIndex}
+             fallbackSubtitles={selectedSubtitles}
+             selectedSubtitleIndex={selectedSubtitleIndex}
+             onPlaybackStart={onPlaybackStarted}
+             onAudioTrackChange={onAudioTrackChange}
+             onSubtitleTrackChange={onSubtitleTrackChange}
+             onPlayerReady={onPlayerReady}
             onBufferingChange={onBufferingChange}
             onTimeUpdate={onTimeUpdate}
             bufferWindowMB={bufferWindowMB}

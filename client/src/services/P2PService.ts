@@ -12,6 +12,7 @@ type TorrentSourceMessage = {
   source: SharedTorrentSource;
   selectedMediaIndex: number | null;
   selectedAudioTrackIndex: number | null;
+  selectedSubtitleIndex: number | null;
 };
 
 type P2PEvents = {
@@ -23,6 +24,7 @@ type P2PEvents = {
   torrent_source: (message: TorrentSourceMessage) => void;
   room_config: (message: RoomConfigMessage) => void;
   error: (error: Error) => void;
+  reconnecting: (attempt: number, delayMs: number) => void;
 };
 
 type EventKey = keyof P2PEvents;
@@ -34,6 +36,7 @@ type OutboundMessage =
       source: SharedTorrentSource;
       selectedMediaIndex: number | null;
       selectedAudioTrackIndex: number | null;
+      selectedSubtitleIndex: number | null;
     }
   | { type: "room_config"; syncToleranceSeconds: number; roomPassword?: string };
 
@@ -151,7 +154,8 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
       if (!message.source) return null;
       const smi = message.selectedMediaIndex;
       const sati = message.selectedAudioTrackIndex;
-      if ((typeof smi !== "number" && smi !== null) || (typeof sati !== "number" && sati !== null)) {
+      const ssti = message.selectedSubtitleIndex;
+      if ((typeof smi !== "number" && smi !== null) || (typeof sati !== "number" && sati !== null) || (typeof ssti !== "number" && ssti !== null)) {
         return null;
       }
       // Validate source.bytes if present (must be array of numbers 0-255)
@@ -166,6 +170,7 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
         source: message.source as SharedTorrentSource,
         selectedMediaIndex: smi,
         selectedAudioTrackIndex: sati,
+        selectedSubtitleIndex: ssti,
       };
     }
     case "room_config":
@@ -219,6 +224,9 @@ export class P2PService {
   private isConnecting = false;
   private isDisconnecting = false;
   private isDestroyed = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private isReconnecting = false;
   private readonly cleanup: CleanupHandle;
   private listeners: { [K in EventKey]: Set<P2PEvents[K]> } = {
     connected: new Set(),
@@ -229,6 +237,7 @@ export class P2PService {
     torrent_source: new Set(),
     room_config: new Set(),
     error: new Set(),
+    reconnecting: new Set(),
   };
 
   constructor() {
@@ -428,6 +437,7 @@ export class P2PService {
 
       const onDisconnected = () => {
         this.emit("disconnected");
+        this.attemptReconnect();
       };
       this.peer.on("disconnected", onDisconnected);
       this.cleanup.add(() => { this.peer?.off?.("disconnected", onDisconnected); });
@@ -440,6 +450,44 @@ export class P2PService {
     });
   }
 
+  private attemptReconnect(): void {
+    if (this.isDestroyed || this.isDisconnecting || this.isReconnecting) return;
+    if (this.role === "host") return; // Hosts don't reconnect — guests connect to them
+    if (!this.remotePeerId) return;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      p2pLogger.warn("Max reconnect attempts reached, giving up");
+      this.emit("error", new Error("Connection lost. Please rejoin the room."));
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30_000);
+    p2pLogger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    this.emit("reconnecting", this.reconnectAttempts, delay);
+
+    this.cleanup.setTimeout(async () => {
+      if (this.isDestroyed || this.isDisconnecting) {
+        this.isReconnecting = false;
+        return;
+      }
+      try {
+        if (this.peer && !this.peer.destroyed) {
+          this.peer.reconnect();
+        }
+        if (this.remotePeerId) {
+          await this.connect(this.remotePeerId);
+        }
+        this.reconnectAttempts = 0;
+        this.isReconnecting = false;
+      } catch (error) {
+        this.isReconnecting = false;
+        p2pLogger.warn("Reconnect failed:", error);
+        this.attemptReconnect();
+      }
+    }, delay);
+  }
+
   sendSync(message: SyncMessage, targetPeerId?: string): void {
     this.sendPayload({ type: "sync", message }, targetPeerId);
   }
@@ -449,6 +497,7 @@ export class P2PService {
       source: SharedTorrentSource;
       selectedMediaIndex: number | null;
       selectedAudioTrackIndex: number | null;
+      selectedSubtitleIndex: number | null;
     },
     targetPeerId?: string,
   ): void {
@@ -466,6 +515,8 @@ export class P2PService {
   disconnect(): void {
     if (this.isDisconnecting) return;
     this.isDisconnecting = true;
+    this.isReconnecting = false;
+    this.reconnectAttempts = 0;
 
     this.cleanup.abort();
     this.isConnecting = false;
@@ -491,7 +542,6 @@ export class P2PService {
   destroy(): void {
     this.isDestroyed = true;
     this.disconnect();
-    // Clear all listener sets to prevent stale callbacks
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
     }
@@ -565,6 +615,7 @@ export class P2PService {
             source: message.source,
             selectedMediaIndex: message.selectedMediaIndex,
             selectedAudioTrackIndex: message.selectedAudioTrackIndex,
+            selectedSubtitleIndex: message.selectedSubtitleIndex,
           });
           break;
         case "room_config":

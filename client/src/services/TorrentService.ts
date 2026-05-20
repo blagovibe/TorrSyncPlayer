@@ -1,4 +1,4 @@
-import type { AudioTrackInfo } from "./types";
+import type { AudioTrackInfo, SubtitleTrackInfo } from "./types";
 import { formatBytes } from "../utils/format";
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import { torrentLogger } from "../utils/logger";
@@ -69,7 +69,13 @@ type ElectronTorrentBackend = {
   getStats: () => Promise<TorrentInstance | null>;
   clear: () => Promise<void>;
   probeAudioTracks?: (streamUrl: string) => Promise<AudioTrackInfo[]>;
+  probeSubtitles?: (streamUrl: string) => Promise<SubtitleTrackInfo[]>;
   createAudioTrackStreamUrl?: (params: {
+    streamUrl: string;
+    trackIndex: number;
+    startSeconds: number;
+  }) => Promise<string>;
+  createSubtitleStreamUrl?: (params: {
     streamUrl: string;
     trackIndex: number;
     startSeconds: number;
@@ -270,6 +276,34 @@ export class TorrentService {
       });
     } catch (error) {
       torrentLogger.warn("Mux stream creation failed", error);
+      return null;
+    }
+  }
+
+  async probeSubtitles(file: TorrentFile): Promise<SubtitleTrackInfo[]> {
+    if (!this.electronBackend?.probeSubtitles || !file.streamUrl) return [];
+    try {
+      return await this.electronBackend.probeSubtitles(file.streamUrl);
+    } catch (error) {
+      torrentLogger.warn("Subtitle probe failed", error);
+      return [];
+    }
+  }
+
+  async createSubtitleStreamUrl(
+    file: TorrentFile,
+    trackIndex: number,
+    startSeconds: number,
+  ): Promise<string | null> {
+    if (!this.electronBackend?.createSubtitleStreamUrl || !file.streamUrl) return null;
+    try {
+      return await this.electronBackend.createSubtitleStreamUrl({
+        streamUrl: file.streamUrl,
+        trackIndex,
+        startSeconds,
+      });
+    } catch (error) {
+      torrentLogger.warn("Subtitle stream creation failed", error);
       return null;
     }
   }
@@ -492,7 +526,6 @@ export class TorrentService {
 
       const onError = () => {
         cleanup();
-        // Reset the media element to a clean state so it can be reused
         mediaElement.removeAttribute("src");
         mediaElement.load();
         const error = mediaElement.error;
@@ -508,12 +541,10 @@ export class TorrentService {
       };
 
       const onLoadedData = () => {
-        // loadeddata fires when first frame is available — good enough for streaming
         cleanup();
         settle(resolve);
       };
 
-      // Timeout: if neither error nor canplay fires within 60s, reject
       this.cleanup.setTimeout(() => {
         cleanup();
         settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
@@ -522,9 +553,6 @@ export class TorrentService {
       mediaElement.addEventListener("error", onError);
       mediaElement.addEventListener("canplay", onCanPlay);
       mediaElement.addEventListener("loadeddata", onLoadedData);
-      // Set crossOrigin for CORS-enabled stream servers (mux/audio endpoints set
-      // Access-Control-Allow-Origin: *). Without this, Chromium may reject the
-      // media pipeline even for same-origin requests when CORS headers are present.
       if (streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
         mediaElement.crossOrigin = "anonymous";
       }
@@ -673,9 +701,8 @@ export class TorrentService {
     const file = mediaFile?.file ?? torrent.files.find((f) => f.length && f.length > 0);
     if (!file?.length) return;
 
-    const fileStart = 0;
     const fileEnd = file.length - 1;
-    const bufferStart = Math.max(fileStart, this.currentPlaybackBytes - this.bufferWindowBytes);
+    const bufferStart = Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes);
     const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + this.bufferWindowBytes);
 
     const prev = this.lastBufferWindow;
@@ -693,7 +720,7 @@ export class TorrentService {
         torrent.select(prev.end + 1, bufferEnd, 1);
       }
     } else {
-      torrent.deselect(fileStart, fileEnd, 0);
+      torrent.deselect(0, fileEnd, 0);
       torrent.select(bufferStart, bufferEnd, 1);
     }
 
@@ -736,11 +763,11 @@ export class TorrentService {
   }
 
   private async refreshBackendStats(): Promise<void> {
-    if (this.backendStatsInFlight || !this.electronBackend || !this.activeTorrent) return;
+    if (this.backendStatsInFlight || !this.electronBackend || !this.activeTorrent || this.isDestroyed) return;
     this.backendStatsInFlight = true;
     try {
       const snapshot = await this.electronBackend.getStats();
-      if (!snapshot || !this.activeTorrent) return;
+      if (!snapshot || !this.activeTorrent || this.isDestroyed) return;
       this.mergeTorrentSnapshot(this.activeTorrent, snapshot);
       this.emitTorrentStats(this.activeTorrent);
     } catch (error) {

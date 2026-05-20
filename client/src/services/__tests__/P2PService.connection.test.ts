@@ -157,6 +157,7 @@ describe("P2PService connection lifecycle", () => {
       source,
       selectedMediaIndex: 4,
       selectedAudioTrackIndex: 2,
+      selectedSubtitleIndex: null,
     });
 
     expect(connection.sent).toEqual([
@@ -165,6 +166,7 @@ describe("P2PService connection lifecycle", () => {
         source,
         selectedMediaIndex: 4,
         selectedAudioTrackIndex: 2,
+        selectedSubtitleIndex: null,
       },
     ]);
 
@@ -174,6 +176,7 @@ describe("P2PService connection lifecycle", () => {
         source,
         selectedMediaIndex: 1,
         selectedAudioTrackIndex: 3,
+        selectedSubtitleIndex: null,
       }),
     );
 
@@ -181,6 +184,7 @@ describe("P2PService connection lifecycle", () => {
       source,
       selectedMediaIndex: 1,
       selectedAudioTrackIndex: 3,
+      selectedSubtitleIndex: null,
     });
   });
 });

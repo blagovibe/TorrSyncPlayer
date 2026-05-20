@@ -181,6 +181,37 @@ function parseProbeResult(stdout) {
     .filter((stream) => stream.codecName || stream.label);
 }
 
+function parseSubtitleResult(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+
+  const streams = Array.isArray(parsed?.streams) ? parsed.streams : [];
+  return streams
+    .map((stream, index) => {
+      const tags = stream?.tags ?? {};
+      const codecName = typeof stream?.codec_name === "string" ? stream.codec_name : "";
+      const title = typeof tags.title === "string" ? tags.title.trim() : "";
+      const language = typeof tags.language === "string" ? tags.language.trim() : "";
+      const forced = tags.forced === "1" || tags.forced === 1;
+      const defaultTrack = tags.default === "1" || tags.default === 1;
+      const label = title || language || codecName || `Subtitle ${index + 1}`;
+
+      return {
+        index,
+        label,
+        language,
+        codecName,
+        forced,
+        default: defaultTrack,
+      };
+    })
+    .filter((stream) => stream.codecName || stream.label);
+}
+
 class TorrentBridge {
   static async checkFfmpegAvailable() {
     if (ffmpegChecked) return ffmpegAvailable;
@@ -356,6 +387,54 @@ class TorrentBridge {
     }
   }
 
+  async probeSubtitles(streamUrl) {
+    if (!streamUrl) {
+      return [];
+    }
+
+    this.validateLocalStreamUrl(streamUrl);
+
+    try {
+      const result = await this.runFfprobeSubtitles(streamUrl);
+      return parseSubtitleResult(result.stdout);
+    } catch (error) {
+      console.error("Subtitle probe failed:", error);
+      return [];
+    }
+  }
+
+  async createSubtitleStreamUrl({ streamUrl, trackIndex, startSeconds }) {
+    if (!streamUrl) {
+      throw new Error("Subtitle stream URL is unavailable");
+    }
+
+    this.validateLocalStreamUrl(streamUrl);
+
+    if (typeof trackIndex !== "number" || !Number.isInteger(trackIndex) || trackIndex < 0) {
+      throw new Error("Invalid track index");
+    }
+
+    if (typeof startSeconds !== "number" || !Number.isFinite(startSeconds) || startSeconds < 0 || startSeconds > 86400) {
+      throw new Error("Invalid start seconds");
+    }
+
+    const audioServerBaseUrl = await this.ensureAudioServer();
+    const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
+    const session = {
+      streamUrl,
+      trackIndex,
+      kind: "subtitle",
+      startSeconds: Math.max(0, startSeconds),
+      process: null,
+      cleanupTimer: setTimeout(() => {
+        this.audioSessions.delete(token);
+      }, AUDIO_SESSION_TTL_MS),
+    };
+    session.cleanupTimer.unref?.();
+    this.audioSessions.set(token, session);
+    return `${audioServerBaseUrl}/subtitle/${token}`;
+  }
+
   async createAudioTrackStreamUrl({ streamUrl, trackIndex, startSeconds }) {
     if (!streamUrl) {
       throw new Error("Audio stream URL is unavailable");
@@ -515,57 +594,57 @@ class TorrentBridge {
   }
 
   async handleAudioRequest(request, response) {
+    if (!request.url) {
+      response.statusCode = 400;
+      response.end();
+      return;
+    }
+
+    // Handle CORS preflight (OPTIONS) for cross-origin media requests
+    if (request.method === "OPTIONS") {
+      response.statusCode = 204;
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      response.setHeader("Access-Control-Allow-Headers", "Range, Origin");
+      response.setHeader("Access-Control-Max-Age", "86400");
+      response.setHeader("Access-Control-Allow-Private-Network", "true");
+      response.end();
+      return;
+    }
+
+    if (request.method !== "GET") {
+      response.statusCode = 405;
+      response.setHeader("Allow", "GET, OPTIONS");
+      response.end();
+      return;
+    }
+
+    const { pathname } = new URL(request.url, "http://127.0.0.1");
+    const isSubtitle = pathname.startsWith("/subtitle/");
+    if (!pathname.startsWith("/audio/") && !pathname.startsWith("/mux/") && !isSubtitle) {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+
+    const isMux = pathname.startsWith("/mux/");
+    const token = pathname.slice(isSubtitle ? "/subtitle/".length : isMux ? "/mux/".length : "/audio/".length);
+    const session = this.audioSessions.get(token);
+
+    if (!session) {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+
+    if (session.cleanupTimer) {
+      clearTimeout(session.cleanupTimer);
+      session.cleanupTimer = null;
+    }
+
     try {
-      if (!request.url) {
-        response.statusCode = 400;
-        response.end();
-        return;
-      }
-
-      // Handle CORS preflight (OPTIONS) for cross-origin media requests
-      if (request.method === "OPTIONS") {
-        response.statusCode = 204;
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-        response.setHeader("Access-Control-Allow-Headers", "Range, Origin");
-        response.setHeader("Access-Control-Max-Age", "86400");
-        response.setHeader("Access-Control-Allow-Private-Network", "true");
-        response.end();
-        return;
-      }
-
-      if (request.method !== "GET") {
-        response.statusCode = 405;
-        response.setHeader("Allow", "GET, OPTIONS");
-        response.end();
-        return;
-      }
-
-      const { pathname } = new URL(request.url, "http://127.0.0.1");
-      if (!pathname.startsWith("/audio/") && !pathname.startsWith("/mux/")) {
-        response.statusCode = 404;
-        response.end();
-        return;
-      }
-
-      const isMux = pathname.startsWith("/mux/");
-      const token = pathname.slice(isMux ? "/mux/".length : "/audio/".length);
-      const session = this.audioSessions.get(token);
-
-      if (!session) {
-        response.statusCode = 404;
-        response.end();
-        return;
-      }
-
-      if (session.cleanupTimer) {
-        clearTimeout(session.cleanupTimer);
-        session.cleanupTimer = null;
-      }
-
       const ffmpegArgs = isMux
         ? [
-            // Multiplexed stream: video + audio in one container (WebM for browser compatibility)
             "-hide_banner",
             "-loglevel",
             "error",
@@ -596,41 +675,57 @@ class TorrentBridge {
             "webm",
             "pipe:1",
           ]
-        : [
-            // Audio-only stream (legacy fallback)
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-ss",
-            String(session.startSeconds ?? 0),
-            "-i",
-            session.streamUrl,
-            "-map",
-            `0:a:${session.trackIndex}`,
-            "-vn",
-            "-sn",
-            "-dn",
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            "4",
-            "-f",
-            "mp3",
-            "pipe:1",
-          ];
+        : isSubtitle
+          ? [
+              "-hide_banner",
+              "-loglevel",
+              "error",
+              "-nostdin",
+              "-ss",
+              String(session.startSeconds ?? 0),
+              "-i",
+              session.streamUrl,
+              "-map",
+              `0:s:${session.trackIndex}`,
+              "-f",
+              "webvtt",
+              "pipe:1",
+            ]
+          : [
+              "-hide_banner",
+              "-loglevel",
+              "error",
+              "-nostdin",
+              "-ss",
+              String(session.startSeconds ?? 0),
+              "-i",
+              session.streamUrl,
+              "-map",
+              `0:a:${session.trackIndex}`,
+              "-vn",
+              "-sn",
+              "-dn",
+              "-c:a",
+              "libmp3lame",
+              "-q:a",
+              "4",
+              "-f",
+              "mp3",
+              "pipe:1",
+            ];
 
       // Rate limit ffmpeg processes to prevent resource exhaustion
-      var ffmpeg;
+      const spawnFfmpeg = () => spawn("ffmpeg", ffmpegArgs);
+      let ffmpeg;
+
       if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
         activeFfmpegCount++;
-        ffmpeg = spawn("ffmpeg", ffmpegArgs);
+        ffmpeg = spawnFfmpeg();
       } else {
-        // Queue the request until a slot is available
-        await new Promise(function(resolve) {
-          ffmpegQueue.push(function() {
+        await new Promise((resolve) => {
+          ffmpegQueue.push(() => {
             activeFfmpegCount++;
-            ffmpeg = spawn("ffmpeg", ffmpegArgs);
+            ffmpeg = spawnFfmpeg();
             resolve();
           });
         });
@@ -638,7 +733,7 @@ class TorrentBridge {
       session.process = ffmpeg;
 
       response.statusCode = 200;
-      response.setHeader("Content-Type", isMux ? "video/webm" : "audio/mpeg");
+      response.setHeader("Content-Type", isSubtitle ? "text/vtt" : isMux ? "video/webm" : "audio/mpeg");
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Pragma", "no-cache");
       response.setHeader("Accept-Ranges", "none");
@@ -664,10 +759,10 @@ class TorrentBridge {
         killProcess();
         if (!response.headersSent) {
           response.statusCode = 500;
-          response.end(error instanceof Error ? error.message : "Audio stream failed");
-          return;
+          response.end(error instanceof Error ? error.message : "Stream failed");
+        } else {
+          response.destroy(error instanceof Error ? error : new Error("Stream failed"));
         }
-        response.destroy(error instanceof Error ? error : new Error("Audio stream failed"));
       });
 
       ffmpeg.stderr.on("data", (chunk) => {
@@ -680,9 +775,9 @@ class TorrentBridge {
       response.on("close", killProcess);
       response.on("finish", killProcess);
       ffmpeg.on("close", () => {
-        activeFfmpegCount--;
+        activeFfmpegCount = Math.max(0, activeFfmpegCount - 1);
         if (ffmpegQueue.length > 0) {
-          var next = ffmpegQueue.shift();
+          const next = ffmpegQueue.shift();
           next();
         }
         session.process = null;
@@ -694,11 +789,10 @@ class TorrentBridge {
         response.removeListener("finish", killProcess);
       });
     } catch (error) {
-      // Clean up the session on any error (e.g. spawn throws because ffmpeg is not installed)
       this.audioSessions.delete(token);
       if (!response.headersSent) {
         response.statusCode = 500;
-        response.end(error instanceof Error ? error.message : "Audio stream failed");
+        response.end(error instanceof Error ? error.message : "Stream failed");
       } else {
         response.destroy();
       }
@@ -721,26 +815,79 @@ class TorrentBridge {
 
       let stdout = "";
       let stderr = "";
+      let timedOut = false;
+
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        ffprobe.kill("SIGKILL");
+        reject(new Error("ffprobe timed out after 15s"));
+      }, 15_000);
+      timeout.unref?.();
 
       ffprobe.stdout.setEncoding("utf8");
-      ffprobe.stdout.on("data", (chunk) => {
-        stdout += chunk;
-      });
+      ffprobe.stdout.on("data", (chunk) => { stdout += chunk; });
       ffprobe.stderr.setEncoding("utf8");
-      ffprobe.stderr.on("data", (chunk) => {
-        stderr += chunk;
-      });
+      ffprobe.stderr.on("data", (chunk) => { stderr += chunk; });
 
       ffprobe.on("error", (error) => {
+        clearTimeout(timeout);
         reject(createErrorFromSpawn(error, "ffprobe failed"));
       });
 
       ffprobe.on("close", (code) => {
+        clearTimeout(timeout);
+        if (timedOut) return;
         if (code !== 0) {
           reject(new Error(stderr.trim() || `ffprobe exited with code ${code}`));
           return;
         }
+        resolve({ stdout, stderr });
+      });
+    });
+  }
 
+  async runFfprobeSubtitles(streamUrl) {
+    return new Promise((resolve, reject) => {
+      const ffprobe = spawn("ffprobe", [
+        "-v",
+        "error",
+        "-select_streams",
+        "s",
+        "-show_entries",
+        "stream=index,codec_name:stream_tags=language,title,forced,default",
+        "-of",
+        "json",
+        streamUrl,
+      ]);
+
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        ffprobe.kill("SIGKILL");
+        reject(new Error("ffprobe timed out after 15s"));
+      }, 15_000);
+      timeout.unref?.();
+
+      ffprobe.stdout.setEncoding("utf8");
+      ffprobe.stdout.on("data", (chunk) => { stdout += chunk; });
+      ffprobe.stderr.setEncoding("utf8");
+      ffprobe.stderr.on("data", (chunk) => { stderr += chunk; });
+
+      ffprobe.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(createErrorFromSpawn(error, "ffprobe failed"));
+      });
+
+      ffprobe.on("close", (code) => {
+        clearTimeout(timeout);
+        if (timedOut) return;
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `ffprobe exited with code ${code}`));
+          return;
+        }
         resolve({ stdout, stderr });
       });
     });

@@ -9,6 +9,15 @@ export interface AudioTrackInfo {
   sampleRate: number | null;
 }
 
+export interface SubtitleTrackInfo {
+  index: number;
+  label: string;
+  language: string;
+  codecName: string;
+  forced: boolean;
+  default: boolean;
+}
+
 export interface SyncMessage {
   action: SyncAction;
   position: number;
@@ -33,4 +42,11 @@ export type SharedTorrentSource =
 export interface RoomConfigMessage {
   syncToleranceSeconds: number;
   roomPassword?: string;
+}
+
+export interface TorrentSourceMessage {
+  source: SharedTorrentSource;
+  selectedMediaIndex: number | null;
+  selectedAudioTrackIndex: number | null;
+  selectedSubtitleIndex: number | null;
 }

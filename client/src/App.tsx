@@ -4,8 +4,9 @@ import RoomPage from "./components/RoomPage";
 import P2PService from "./services/P2PService";
 import SyncService from "./services/SyncService";
 import TorrentService, { type TorrentMediaFile } from "./services/TorrentService";
-import { type AudioTrackInfo, type SharedTorrentSource, type SyncMessage } from "./services/types";
+import { type AudioTrackInfo, type SharedTorrentSource, type SubtitleTrackInfo, type SyncMessage } from "./services/types";
 import { formatSpeed } from "./utils/format";
+import { p2pLogger } from "./utils/logger";
 
 import "./App.css";
 
@@ -24,6 +25,7 @@ type TorrentLoadRequest = {
   source: SharedTorrentSource;
   selectedMediaIndex: number | null;
   selectedAudioTrackIndex: number | null;
+  selectedSubtitleIndex: number | null;
   autoplay: boolean;
   broadcast: boolean;
 };
@@ -98,6 +100,8 @@ function App() {
   const [selectedMediaFile, setSelectedMediaFile] = useState<TorrentMediaFile | null>(null);
   const [selectedMediaAudioTracks, setSelectedMediaAudioTracks] = useState<AudioTrackInfo[]>([]);
   const [selectedAudioTrackIndex, setSelectedAudioTrackIndex] = useState<number | null>(null);
+  const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
+  const [selectedSubtitles, setSelectedSubtitles] = useState<SubtitleTrackInfo[]>([]);
   const [torrentPeerCount, setTorrentPeerCount] = useState(0);
   const [trackerLost, setTrackerLost] = useState(false);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
@@ -122,6 +126,7 @@ function App() {
   const selectedMediaIndexRef = useRef<number | null>(null);
   const selectedMediaFileRef = useRef<TorrentMediaFile | null>(null);
   const selectedAudioTrackIndexRef = useRef<number | null>(null);
+  const selectedSubtitleIndexRef = useRef<number | null>(null);
   const pendingTorrentLoadRef = useRef<TorrentLoadRequest | null>(null);
   const isProcessingTorrentLoadRef = useRef(false);
   const isLoadingTorrentRef = useRef(false);
@@ -147,6 +152,8 @@ function App() {
     setSelectedMediaFile(null);
     setSelectedMediaAudioTracks([]);
     setSelectedAudioTrackIndex(null);
+    setSelectedSubtitleIndex(null);
+    setSelectedSubtitles([]);
     setTorrentPeerCount(0);
     setPlaybackNotice(null);
     setIsPlayerReady(false);
@@ -154,6 +161,7 @@ function App() {
     selectedMediaIndexRef.current = null;
     selectedMediaFileRef.current = null;
     selectedAudioTrackIndexRef.current = null;
+    selectedSubtitleIndexRef.current = null;
     currentTorrentSourceRef.current = null;
     pendingTorrentLoadRef.current = null;
     pendingRemoteSyncRef.current = null;
@@ -164,6 +172,11 @@ function App() {
   const setSelectedAudioTrackSelection = (trackIndex: number | null) => {
     setSelectedAudioTrackIndex(trackIndex);
     selectedAudioTrackIndexRef.current = trackIndex;
+  };
+
+  const setSelectedSubtitleSelection = (trackIndex: number | null) => {
+    setSelectedSubtitleIndex(trackIndex);
+    selectedSubtitleIndexRef.current = trackIndex;
   };
 
   const getCurrentSourceKey = () => currentTorrentSourceRef.current?.sourceKey ?? null;
@@ -206,6 +219,7 @@ function App() {
           source: currentSource,
           selectedMediaIndex: selectedMediaIndexRef.current,
           selectedAudioTrackIndex: selectedAudioTrackIndexRef.current,
+          selectedSubtitleIndex: selectedSubtitleIndexRef.current,
         },
         targetPeerId,
       );
@@ -264,17 +278,26 @@ function App() {
       throw new Error("Media player is not ready");
     }
 
-    await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
-    selectedMediaFileRef.current = mediaFile;
-    setSelectedMediaAudioTracks([]);
-    void getTorrentService()
-      .probeAudioTracks(mediaFile.file)
-      .then((audioTracks) => {
-        if (selectedMediaFileRef.current === mediaFile) {
-          setSelectedMediaAudioTracks(audioTracks);
-        }
-      })
-      .catch(() => undefined);
+await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
+     selectedMediaFileRef.current = mediaFile;
+     setSelectedMediaAudioTracks([]);
+     setSelectedSubtitles([]);
+     void getTorrentService()
+       .probeAudioTracks(mediaFile.file)
+       .then((audioTracks) => {
+         if (selectedMediaFileRef.current === mediaFile) {
+           setSelectedMediaAudioTracks(audioTracks);
+         }
+       })
+       .catch(() => undefined);
+     void getTorrentService()
+       .probeSubtitles(mediaFile.file)
+       .then((subtitles) => {
+         if (selectedMediaFileRef.current === mediaFile) {
+           setSelectedSubtitles(subtitles);
+         }
+       })
+       .catch(() => undefined);
     mediaElement.defaultMuted = false;
     mediaElement.muted = false;
     if (mediaElement.volume <= 0) {
@@ -307,13 +330,14 @@ function App() {
       return;
     }
 
-    try {
+        try {
       const torrentBytes = new Uint8Array(await file.arrayBuffer());
       setMagnetLink("");
       requestTorrentLoad({
         source: createTorrentFileSource(file.name, torrentBytes),
         selectedMediaIndex: null,
         selectedAudioTrackIndex: null,
+        selectedSubtitleIndex: null,
         autoplay: true,
         broadcast: true,
       });
@@ -330,12 +354,15 @@ function App() {
     const currentSource = currentTorrentSourceRef.current;
     const currentSelectedIndex = selectedMediaIndexRef.current;
     const currentSelectedAudioTrackIndex = selectedAudioTrackIndexRef.current;
+    const currentSelectedSubtitleIndex = selectedSubtitleIndexRef.current;
 
     if (currentSource?.sourceKey === request.source.sourceKey) {
       const desiredIndex =
         request.selectedMediaIndex !== null ? request.selectedMediaIndex : currentSelectedIndex;
       const desiredAudioTrackIndex =
         request.selectedAudioTrackIndex ?? currentSelectedAudioTrackIndex;
+      const desiredSubtitleIndex =
+        request.selectedSubtitleIndex ?? currentSelectedSubtitleIndex;
       const currentMediaFile =
         selectedMediaFileRef.current ??
         (currentSelectedIndex !== null
@@ -344,6 +371,10 @@ function App() {
 
       if (desiredAudioTrackIndex !== currentSelectedAudioTrackIndex) {
         setSelectedAudioTrackSelection(desiredAudioTrackIndex);
+      }
+
+      if (desiredSubtitleIndex !== currentSelectedSubtitleIndex) {
+        setSelectedSubtitleSelection(desiredSubtitleIndex);
       }
 
       if (desiredIndex !== null && desiredIndex !== currentSelectedIndex) {
@@ -546,6 +577,7 @@ function App() {
         source: message.source,
         selectedMediaIndex: message.selectedMediaIndex,
         selectedAudioTrackIndex: message.selectedAudioTrackIndex,
+        selectedSubtitleIndex: message.selectedSubtitleIndex,
         autoplay: true,
         broadcast: false,
       });
@@ -555,6 +587,11 @@ function App() {
       const nextTolerance = clampSyncTolerance(message.syncToleranceSeconds);
       setSyncToleranceSeconds(nextTolerance);
       syncServiceRef.current?.setSyncToleranceSeconds(nextTolerance);
+    });
+
+    p2pService.on("reconnecting", (attempt, delayMs) => {
+      p2pLogger.info(`Reconnecting attempt ${attempt}, delay ${delayMs}ms`);
+      setConnectionError(`Connection lost. Reconnecting in ${Math.round(delayMs / 1000)}s... (attempt ${attempt})`);
     });
 
     p2pService.on("error", (error) => {
@@ -686,19 +723,18 @@ function App() {
     if (peerRole !== "master") {
       return;
     }
-    // Destroy the current service instance before nulling the ref.
-    // getTorrentService() returns the existing instance or creates a new one,
-    // but we want to destroy the CURRENT instance, not create a new one.
-    const currentService = torrentServiceRef.current;
-    if (currentService) {
-      await currentService.destroy().catch(() => undefined);
-    }
+    // Track the old service for cleanup, then null the ref.
+    const oldService = torrentServiceRef.current;
     torrentServiceRef.current = null;
     selectedMediaFileRef.current = null;
     currentTorrentSourceRef.current = null;
     resetTorrentState();
     setMagnetLink("");
     setTorrentFile(null);
+    // Destroy the old service after nulling the ref so the effect doesn't double-destroy.
+    if (oldService) {
+      await oldService.destroy().catch(() => undefined);
+    }
     // Force re-subscription on the new torrentService instance.
     setTorrentServiceVersion((v) => v + 1);
   };
@@ -713,6 +749,7 @@ function App() {
       source: createMagnetSource(magnetLink),
       selectedMediaIndex: null,
       selectedAudioTrackIndex: null,
+      selectedSubtitleIndex: null,
       autoplay: true,
       broadcast: true,
     });
@@ -744,6 +781,7 @@ function App() {
       source: currentTorrentSourceRef.current,
       selectedMediaIndex: mediaFile.index,
       selectedAudioTrackIndex: null,
+      selectedSubtitleIndex: null,
       autoplay: true,
       broadcast: true,
     });
@@ -768,6 +806,22 @@ function App() {
 
   const handleAudioTrackChange = (trackIndex: number | null) => {
     setSelectedAudioTrackSelection(trackIndex);
+
+    if (
+      peerRole !== "master" ||
+      isLoadingTorrentRef.current ||
+      !currentTorrentSourceRef.current ||
+      !p2pServiceRef.current?.isHost() ||
+      !p2pServiceRef.current.isConnected()
+    ) {
+      return;
+    }
+
+    broadcastCurrentRoomState();
+  };
+
+  const handleSubtitleTrackChange = (trackIndex: number | null) => {
+    setSelectedSubtitleSelection(trackIndex);
 
     if (
       peerRole !== "master" ||
@@ -889,22 +943,7 @@ function App() {
       offTorrentSpeed();
       offTorrentPeerCount();
     };
-    // Re-subscribe when torrentService instance changes (e.g. after handleResetTorrentInRoom).
   }, [getTorrentService, torrentServiceVersion]);
-
-  // Separate effect for destroying the torrent service when the version changes.
-  // This ensures the old service is fully cleaned up before a new one is created.
-  const prevVersionRef = useRef(torrentServiceVersion);
-  useEffect(() => {
-    if (prevVersionRef.current === torrentServiceVersion) return;
-    prevVersionRef.current = torrentServiceVersion;
-    // Destroy the previous service (not the current one).
-    // We create a new service first, then destroy the old one.
-    const oldService = torrentServiceRef.current;
-    if (oldService) {
-      void oldService.destroy();
-    }
-  }, [torrentServiceVersion]);
 
   useEffect(() => {
     disposeSyncService();
@@ -1009,9 +1048,12 @@ function App() {
           selectedMediaIndex={selectedMediaIndex}
           selectedMediaLabel={selectedMediaLabel}
           selectedMediaKind={selectedMediaKind}
-          selectedMediaAudioTracks={selectedMediaAudioTracks}
-          selectedAudioTrackIndex={selectedAudioTrackIndex}
-          torrentPeerCount={torrentPeerCount}
+selectedMediaAudioTracks={selectedMediaAudioTracks}
+           selectedAudioTrackIndex={selectedAudioTrackIndex}
+           selectedSubtitles={selectedSubtitles}
+           selectedSubtitleIndex={selectedSubtitleIndex}
+           onSubtitleTrackChange={handleSubtitleTrackChange}
+           torrentPeerCount={torrentPeerCount}
           syncToleranceSeconds={syncToleranceSeconds}
           onSyncToleranceChange={handleSyncToleranceChange}
           onMagnetLinkChange={setMagnetLink}

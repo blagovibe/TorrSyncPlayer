@@ -38,10 +38,15 @@ export const STREAM_CONFIG = {
   electronForceExitTimeoutMs: 5000,
 } as const;
 
+export const PROXY_CONFIG = {
+  defaultMode: "tracker" as const,
+} as const;
+
 export const BACKEND_CONFIG = {
   audioSessionTtlMs: 5 * 60 * 1000,
   validateStreamUrls: true,
   allowedStreamHosts: ["127.0.0.1", "::1"] as readonly string[],
+  subtitleSessionTtlMs: 5 * 60 * 1000,
 } as const;
 
 export const UI_CONFIG = {

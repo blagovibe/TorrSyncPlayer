@@ -72,13 +72,17 @@ export class SyncService {
     return this.syncToleranceSeconds;
   }
 
-  createSnapshot(): SyncMessage {
-    return {
+  createSnapshot(sourceKey?: string): SyncMessage {
+    const message: SyncMessage = {
       action: "state",
       position: this.video.currentTime,
       server_ts: Date.now(),
       is_playing: !this.video.paused,
     };
+    if (sourceKey) {
+      message.sourceKey = sourceKey;
+    }
+    return message;
   }
 
   play(): void {
@@ -129,7 +133,6 @@ export class SyncService {
     const desiredPlayState =
       message.is_playing ??
       (message.action === "play" || message.action === "seek" || message.action === "state");
-    const isPaused = this.video.paused;
 
     if (shouldAlign) {
       this.video.currentTime = compensatedPosition;
@@ -143,37 +146,30 @@ export class SyncService {
       }
     };
 
+    const applyState = () => {
+      const isPaused = this.video.paused;
+      if (desiredPlayState && isPaused) {
+        safePlay();
+      } else if (!desiredPlayState && !isPaused) {
+        this.video.pause();
+      }
+    };
+
     switch (message.action) {
       case "play":
-        if (desiredPlayState && isPaused) {
-          safePlay();
-        } else if (!desiredPlayState && !isPaused) {
-          this.video.pause();
-        }
+        applyState();
         this.emit("sync_play", message);
         break;
       case "pause":
-        if (desiredPlayState && isPaused) {
-          safePlay();
-        } else if (!desiredPlayState && !isPaused) {
-          this.video.pause();
-        }
+        applyState();
         this.emit("sync_pause", message);
         break;
       case "seek":
-        if (desiredPlayState && isPaused) {
-          safePlay();
-        } else if (!desiredPlayState && !isPaused) {
-          this.video.pause();
-        }
+        applyState();
         this.emit("sync_seek", message);
         break;
       case "state":
-        if (desiredPlayState && isPaused) {
-          safePlay();
-        } else if (!desiredPlayState && !isPaused) {
-          this.video.pause();
-        }
+        applyState();
         this.emit("sync_state", message);
         break;
     }
@@ -215,7 +211,7 @@ export class SyncService {
     this.cleanup.setInterval(() => {
       if (this.role !== "master" || this.isDisposed) return;
 
-      // Reset suppression flags to prevent stale state
+      // Reset suppression flags to prevent stale state from blocking heartbeats
       if (this.suppressNextEventSync.seeked) this.suppressNextEventSync.seeked = false;
       if (this.suppressNextEventSync.play) this.suppressNextEventSync.play = false;
       if (this.suppressNextEventSync.pause) this.suppressNextEventSync.pause = false;
@@ -224,12 +220,12 @@ export class SyncService {
       const position = this.video.currentTime;
       const isPlaying = !this.video.paused;
 
-      // Dedup: skip if state hasn't changed and last send was < 2s ago
-      const posChanged = Math.abs(position - this.lastHeartbeatPosition) > 0.1;
+      // Dedup: skip if state hasn't changed materially and last send was < heartbeatInterval
+      const posChanged = Math.abs(position - this.lastHeartbeatPosition) > 0.5;
       const stateChanged = isPlaying !== this.lastHeartbeatPlaying;
       const timeSinceLastSend = now - this.lastHeartbeatSent;
 
-      if (!posChanged && !stateChanged && timeSinceLastSend < 2000) return;
+      if (!posChanged && !stateChanged && timeSinceLastSend < SYNC_CONFIG.heartbeatIntervalMs * 2) return;
 
       this.lastHeartbeatPosition = position;
       this.lastHeartbeatPlaying = isPlaying;

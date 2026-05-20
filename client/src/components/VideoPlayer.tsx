@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./VideoPlayer.css";
-import type { AudioTrackInfo } from "../services/types";
+import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
 
 const HIDE_DELAY_MS = 3000;
 const VIDEO_SCALE_STORAGE_KEY = "torrsyncplayer.videoScale";
@@ -42,10 +42,14 @@ interface VideoPlayerProps {
   canControlPlayback?: boolean;
   canControlSeek?: boolean;
   canControlAudioTracks?: boolean;
+  canControlSubtitleTracks?: boolean;
   fallbackAudioTracks?: AudioTrackInfo[];
   selectedAudioTrackIndex?: number | null;
+  fallbackSubtitles?: SubtitleTrackInfo[];
+  selectedSubtitleIndex?: number | null;
   onPlaybackStart?: () => void;
   onAudioTrackChange?: (trackIndex: number | null) => void;
+  onSubtitleTrackChange?: (trackIndex: number | null) => void;
   onPlayerReady?: (ready: boolean) => void;
   onBufferingChange?: (isBuffering: boolean) => void;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
@@ -87,10 +91,14 @@ function VideoPlayer({
   canControlPlayback = true,
   canControlSeek = true,
   canControlAudioTracks = true,
+  canControlSubtitleTracks = true,
   fallbackAudioTracks = [],
   selectedAudioTrackIndex = null,
+  fallbackSubtitles = [],
+  selectedSubtitleIndex = null,
   onPlaybackStart,
   onAudioTrackChange,
+  onSubtitleTrackChange,
   onPlayerReady,
   onBufferingChange,
   onTimeUpdate,
@@ -105,6 +113,7 @@ function VideoPlayer({
   const hideTimerRef = useRef<number | null>(null);
   const onPlayerReadyRef = useRef(onPlayerReady);
   const onAudioTrackChangeRef = useRef(onAudioTrackChange);
+  const onSubtitleTrackChangeRef = useRef(onSubtitleTrackChange);
   const onBufferingChangeRef = useRef(onBufferingChange);
   const hasMediaMetadataRef = useRef(false);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -132,6 +141,17 @@ function VideoPlayer({
     })),
     [fallbackAudioTracks],
   );
+
+  const fallbackSubtitleSnapshots = useMemo(
+    () => fallbackSubtitles.map((track, index) => ({
+      sourceIndex: index,
+      label: track.label || `Subtitle ${index + 1}`,
+      language: track.language || "",
+    })),
+    [fallbackSubtitles],
+  );
+
+  useEffect(() => { onSubtitleTrackChangeRef.current = onSubtitleTrackChange; }, [onSubtitleTrackChange]);
 
   useEffect(() => { setEditBufferWindowMB(bufferWindowMB); }, [bufferWindowMB]);
   useEffect(() => { setEditMaxBufferMB(maxBufferMB); }, [maxBufferMB]);
@@ -191,7 +211,6 @@ function VideoPlayer({
     const res = req ?? en;
     if (res) { for (const [i, t] of Array.from(tl).entries()) { t.enabled = i === res.sourceIndex; } }
     setAudioTracks(snap.map((t) => ({ ...t, enabled: res ? t.sourceIndex === res.sourceIndex : t.enabled })));
-    if (res?.sourceIndex !== selectedAudioTrackIndex) onAudioTrackChangeRef.current?.(res?.sourceIndex ?? null);
   }, [mediaLabel, selectedAudioTrackIndex, videoRef]);
 
   const activateAudioTrack = useCallback((idx: number) => {
@@ -208,6 +227,10 @@ function VideoPlayer({
     const sel = fallbackAudioTrackSnapshots.find((t) => t.sourceIndex === idx);
     if (sel) onAudioTrackChangeRef.current?.(sel.sourceIndex);
   }, [audioTracks, fallbackAudioTrackSnapshots, videoRef]);
+
+  const activateSubtitleTrack = useCallback((idx: number | null) => {
+    onSubtitleTrackChangeRef.current?.(idx);
+  }, []);
 
   // Buffering / stalled listeners
   useEffect(() => {
@@ -268,18 +291,34 @@ function VideoPlayer({
   const handleSeek = useCallback(async (timestamp: number) => {
     if (!canControlPlayback) return;
     const v = videoRef.current;
-    if (v) { v.pause(); setIsBuffering(true); onBufferingChangeRef.current?.(true); }
+    if (!v) return;
+
     if (onMuxStreamRequest) {
+      v.pause();
+      setIsBuffering(true);
+      onBufferingChangeRef.current?.(true);
       try {
         const url = await onMuxStreamRequest(timestamp);
-        if (url && v) { v.src = url; v.currentTime = timestamp; v.load(); await v.play(); setIsPlaying(true); setIsBuffering(false); onBufferingChangeRef.current?.(false); return; }
-      } catch (err) { console.error("Seek failed:", err); }
+        if (url && v) {
+          v.src = url;
+          v.load();
+          await v.play();
+          setIsPlaying(true);
+          setIsBuffering(false);
+          onBufferingChangeRef.current?.(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Seek mux stream failed:", err);
+      }
+      // Fallback if mux stream failed
+      setIsBuffering(false);
+      onBufferingChangeRef.current?.(false);
     }
+
     // Fallback: direct seek if mux stream is unavailable
     if (v) {
       v.currentTime = timestamp;
-      setIsBuffering(false);
-      onBufferingChangeRef.current?.(false);
     }
     onSeek?.(timestamp);
   }, [canControlPlayback, onMuxStreamRequest, onSeek, videoRef]);
@@ -288,6 +327,7 @@ function VideoPlayer({
   const audioTrackStatusText = audioTracksSupported
     ? audioTracks.length > 0 ? `${audioTracks.length} available` : "Waiting for media metadata"
     : fallbackAudioTrackSnapshots.length > 0 ? `${fallbackAudioTrackSnapshots.length} available via ffmpeg` : "Unavailable in this runtime";
+  const subtitleStatusText = fallbackSubtitleSnapshots.length > 0 ? `${fallbackSubtitleSnapshots.length} available` : "No subtitles";
   const audioTracksUnavailableMessage = <>This runtime does not expose <code>audioTracks</code>, and no ffmpeg fallback track is available for this file.</>;
 
   return (
@@ -366,16 +406,37 @@ function VideoPlayer({
                   </div>
                 ) : hasSelectedMedia && audioTracksSupported ? (
                   <p className="settings-empty">No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.</p>
-                ) : hasSelectedMedia && fallbackAudioTrackSnapshots.length > 0 ? (
-                  <p className="settings-empty">FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to finish.</p>
-                ) : hasSelectedMedia ? (
-                  <p className="settings-empty">{audioTracksUnavailableMessage}</p>
-                ) : (
-                  <p className="settings-empty">Load media to inspect audio tracks.</p>
-                )}
-              </div>
-              <div className="settings-section">
-                <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
+) : hasSelectedMedia && fallbackAudioTrackSnapshots.length > 0 ? (
+                   <p className="settings-empty">FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to finish.</p>
+                 ) : hasSelectedMedia ? (
+                   <p className="settings-empty">{audioTracksUnavailableMessage}</p>
+                 ) : (
+                   <p className="settings-empty">Load media to inspect audio tracks.</p>
+                 )}
+               </div>
+               <div className="settings-section">
+                 <div className="settings-section-header"><span>Subtitles</span><span>{subtitleStatusText}</span></div>
+                 {hasSelectedMedia && fallbackSubtitleSnapshots.length > 0 ? (
+                   <div className="audio-track-list">
+                     {fallbackSubtitleSnapshots.map((t) => (
+                       <button key={t.sourceIndex} type="button" className={`audio-track-button ${selectedSubtitleIndex === t.sourceIndex ? "active" : ""}`} onClick={() => activateSubtitleTrack(t.sourceIndex)} disabled={!canControlSubtitleTracks}>
+                         <span className="audio-track-name">{t.label}</span>
+                         <span className="audio-track-meta">{t.language ? t.language.toUpperCase() : "Unknown language"}</span>
+                       </button>
+                     ))}
+                     <button type="button" className={`audio-track-button ${selectedSubtitleIndex === null ? "active" : ""}`} onClick={() => activateSubtitleTrack(null)} disabled={!canControlSubtitleTracks}>
+                       <span className="audio-track-name">None</span>
+                       <span className="audio-track-meta">Disable subtitles</span>
+                     </button>
+                   </div>
+                 ) : hasSelectedMedia ? (
+                   <p className="settings-empty">No subtitle tracks available for this file.</p>
+                 ) : (
+                   <p className="settings-empty">Load media to inspect subtitle tracks.</p>
+                 )}
+               </div>
+               <div className="settings-section">
+                 <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
                 <div className="buffer-settings-row">
                   <label htmlFor="buffer-window-mb">Window (MB)</label>
                   <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => setEditBufferWindowMB(Math.max(1, Math.min(1000, Number(e.target.value) || 50)))} />
