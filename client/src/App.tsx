@@ -194,19 +194,17 @@ function App() {
       return;
     }
 
-    if (currentSource) {
-      p2pService.sendTorrentSource(
-        {
-          source: currentSource,
-          selectedMediaIndex: selectedMediaIndexRef.current,
-          selectedAudioTrackIndex: selectedAudioTrackIndexRef.current,
-          selectedSubtitleIndex: selectedSubtitleIndexRef.current,
-        },
-        targetPeerId,
-      );
-    }
+     if (currentSource) {
+       p2pService.sendTorrentSource(
+         currentSource,
+         selectedMediaIndexRef.current,
+         selectedAudioTrackIndexRef.current,
+         selectedSubtitleIndexRef.current,
+         targetPeerId,
+       );
+     }
 
-    p2pService.sendRoomConfig({ syncToleranceSeconds, roomPassword }, targetPeerId);
+    p2pService.sendRoomConfig(syncToleranceSeconds, roomPassword, targetPeerId);
 
     const playbackSnapshot = syncServiceRef.current?.createSnapshot();
     if (playbackSnapshot) {
@@ -862,7 +860,7 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     syncServiceRef.current?.setSyncToleranceSeconds(nextTolerance);
 
     if (p2pServiceRef.current?.isHost() && p2pServiceRef.current.isConnected()) {
-      p2pServiceRef.current.sendRoomConfig({ syncToleranceSeconds: nextTolerance, roomPassword });
+      p2pServiceRef.current.sendRoomConfig(nextTolerance, roomPassword);
     }
   };
 

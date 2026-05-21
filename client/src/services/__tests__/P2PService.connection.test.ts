@@ -153,12 +153,12 @@ describe("P2PService connection lifecycle", () => {
       sourceKey: "magnet:magnet:?xt=urn:btih:test",
     } as const;
 
-    service.sendTorrentSource({
-      source,
-      selectedMediaIndex: 4,
-      selectedAudioTrackIndex: 2,
-      selectedSubtitleIndex: null,
-    });
+     service.sendTorrentSource(
+       source,
+       4,
+       2,
+       null,
+     );
 
     expect(connection.sent).toEqual([
       {

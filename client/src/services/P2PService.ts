@@ -309,15 +309,10 @@ export class P2PService {
     return this.peer !== null && this.state !== "disconnected" && this.state !== "destroyed";
   }
 
-  on<K extends EventKey>(event: K, callback: P2PEvents[K]): () => void {
-    this.listeners[event].add(callback);
-    return () => this.listeners[event].delete(callback);
-  }
-
-  on<K extends EventKey>(event: K, callback: P2PEvents[K]): () => void {
-    this.listeners[event].add(callback);
-    return () => this.listeners[event].delete(callback);
-  }
+   on<K extends EventKey>(event: K, callback: P2PEvents[K]): () => void {
+     this.listeners[event].add(callback);
+     return () => this.listeners[event].delete(callback);
+   }
 
   async connect(remotePeerId: string): Promise<void> {
     if (this.state === "connecting") {
@@ -720,13 +715,50 @@ export class P2PService {
     }
   }
 
-  private handlePong(pongTs: number): void {
-    const rtt = Date.now() - pongTs;
-    if (rtt >= 0) {
-      this.lastRttMs = rtt;
-      this.emit("connection_quality", this.getConnectionQuality());
-    }
-  }
-}
+   private handlePong(pongTs: number): void {
+     const rtt = Date.now() - pongTs;
+     if (rtt >= 0) {
+       this.lastRttMs = rtt;
+       this.emit("connection_quality", this.getConnectionQuality());
+     }
+   }
 
+   public sendTorrentSource(source: SharedTorrentSource, selectedMediaIndex: number | null, selectedAudioTrackIndex: number | null, selectedSubtitleIndex: number | null, targetPeerId?: string): void {
+     this.sendPayload({
+       type: "torrent_source",
+       source,
+       selectedMediaIndex,
+       selectedAudioTrackIndex,
+       selectedSubtitleIndex,
+     }, targetPeerId);
+   }
+
+   public sendRoomConfig(syncToleranceSeconds: number, roomPassword?: string, targetPeerId?: string): void {
+     this.sendPayload({
+       type: "room_config",
+       syncToleranceSeconds,
+       roomPassword,
+     }, targetPeerId);
+   }
+
+   public sendSync(message: SyncMessage, targetPeerId?: string): void {
+     this.sendPayload({
+       type: "sync",
+       message,
+     }, targetPeerId);
+   }
+
+   public disconnect(): void {
+     this.state = "disconnecting";
+     this.stopPingInterval();
+     this.connections.forEach((conn) => conn.close());
+     this.connections.clear();
+     if (this.peer && !this.peer.destroyed) {
+       this.peer.disconnect();
+     }
+     this.remotePeerId = null;
+     this.emit("disconnected");
+   }
+ }
+ 
 export default P2PService;
