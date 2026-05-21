@@ -143,6 +143,10 @@ export class TorrentService {
   private currentPlaybackBytes = 0;
   private lastBufferWindow: { start: number; end: number } | null = null;
   private prioritizeTimerId: ReturnType<typeof setTimeout> | null = null;
+  private lastProgress = -1;
+  private lastSpeed = -1;
+  private lastPeerCount = -1;
+  private statsIntervalId: ReturnType<typeof setInterval> | null = null;
   private addQueue: Promise<void> = Promise.resolve();
   private isDestroyed = false;
 
@@ -309,7 +313,6 @@ export class TorrentService {
   }
 
   private async addTorrentSource(torrentSource: TorrentSource): Promise<TorrentInstance> {
-    // Queue additions to prevent race conditions — each add waits for the previous.
     const prevQueue = this.addQueue;
     let releaseQueue: () => void;
     this.addQueue = new Promise<void>((resolve) => { releaseQueue = resolve; });
@@ -399,12 +402,20 @@ export class TorrentService {
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitDiscoveredPeerCount);
 
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "download", () => {
-        this.emit("progress", torrent.progress);
-        this.emit("speed", torrent.downloadSpeed);
+        const prog = Math.round(torrent.progress * 100) / 100;
+        const spd = Math.round(torrent.downloadSpeed);
+        if (prog !== this.lastProgress) {
+          this.lastProgress = prog;
+          this.emit("progress", torrent.progress);
+        }
+        if (spd !== this.lastSpeed) {
+          this.lastSpeed = spd;
+          this.emit("speed", torrent.downloadSpeed);
+        }
       });
 
-      const onMetadataOrReady = (event: "metadata" | "ready") => async () => {
-        if (isSettled) return; // already resolved by a previous event
+      const onMetadataOrReady = (event: "metadata" | "ready") => () => {
+        if (isSettled) return; // already resolved/rejected by a previous event
         try {
           const videoFile = this.getPreferredMediaFile(torrent);
           this.emit(event, torrent, videoFile);
@@ -457,9 +468,14 @@ export class TorrentService {
 
   async streamToMedia(file: TorrentFile, mediaElement: HTMLMediaElement): Promise<void> {
     this.revokeActiveObjectUrl();
+    const previousFile = this.activeMediaFile?.file;
     this.activeMediaFile = this.activeTorrent
       ? this.getPlayableMediaFiles(this.activeTorrent).find((mf) => mf.file === file) ?? null
       : null;
+    if (previousFile !== file) {
+      this.lastBufferWindow = null;
+      this.currentPlaybackBytes = 0;
+    }
     mediaElement.pause();
     mediaElement.removeAttribute("src");
     mediaElement.load();
@@ -495,9 +511,10 @@ export class TorrentService {
       mediaElement.load();
       return;
     } catch (error) {
-      if (!this.isMissingServerError(error) || !file.blob) {
+      if (!file.blob) {
         throw error;
       }
+      torrentLogger.warn("streamTo failed, falling back to blob", error);
     }
 
     // Fallback: download as blob and create object URL
@@ -512,22 +529,17 @@ export class TorrentService {
   private streamFromUrl(streamUrl: string, mediaElement: HTMLMediaElement): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
+      const abortController = new AbortController();
+      const { signal } = abortController;
+
       const settle = (fn: () => void) => {
         if (settled) return;
         settled = true;
+        abortController.abort();
         fn();
       };
 
-      const cleanup = () => {
-        mediaElement.removeEventListener("error", onError);
-        mediaElement.removeEventListener("canplay", onCanPlay);
-        mediaElement.removeEventListener("loadeddata", onLoadedData);
-      };
-
       const onError = () => {
-        cleanup();
-        mediaElement.removeAttribute("src");
-        mediaElement.load();
         const error = mediaElement.error;
         const errorMsg = error
           ? `[${error.code}] ${error.message}`
@@ -536,23 +548,30 @@ export class TorrentService {
       };
 
       const onCanPlay = () => {
-        cleanup();
         settle(resolve);
       };
 
       const onLoadedData = () => {
-        cleanup();
         settle(resolve);
       };
 
-      this.cleanup.setTimeout(() => {
-        cleanup();
-        settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
-      }, 60_000);
+      signal.addEventListener("abort", () => {
+        mediaElement.removeEventListener("error", onError);
+        mediaElement.removeEventListener("canplay", onCanPlay);
+        mediaElement.removeEventListener("loadeddata", onLoadedData);
+      }, { once: true });
 
-      mediaElement.addEventListener("error", onError);
-      mediaElement.addEventListener("canplay", onCanPlay);
-      mediaElement.addEventListener("loadeddata", onLoadedData);
+      const timeoutId = this.cleanup.setTimeout(() => {
+        settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
+      }, STREAM_CONFIG.streamLoadTimeoutMs);
+
+      signal.addEventListener("abort", () => {
+        clearTimeout(timeoutId);
+      }, { once: true });
+
+      mediaElement.addEventListener("error", onError, { signal });
+      mediaElement.addEventListener("canplay", onCanPlay, { signal });
+      mediaElement.addEventListener("loadeddata", onLoadedData, { signal });
       if (streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
         mediaElement.crossOrigin = "anonymous";
       }
@@ -574,6 +593,9 @@ export class TorrentService {
     this.activeTorrent = null;
     this.activeMediaFile = null;
     this.lastBufferWindow = null;
+    this.lastProgress = -1;
+    this.lastSpeed = -1;
+    this.lastPeerCount = -1;
     this.stopPrioritizeLoop();
     this.stopBackendStatsPolling();
     this.revokeActiveObjectUrl();
@@ -752,14 +774,18 @@ export class TorrentService {
 
   private startBackendStatsPolling(): void {
     this.stopBackendStatsPolling();
-    this.cleanup.setInterval(() => {
+    this.statsIntervalId = this.cleanup.setInterval(() => {
       void this.refreshBackendStats();
-    }, 500);
+    }, 1000);
     void this.refreshBackendStats();
   }
 
   private stopBackendStatsPolling(): void {
     this.backendStatsInFlight = false;
+    if (this.statsIntervalId !== null) {
+      clearInterval(this.statsIntervalId);
+      this.statsIntervalId = null;
+    }
   }
 
   private async refreshBackendStats(): Promise<void> {
@@ -797,16 +823,27 @@ export class TorrentService {
       file.streamUrl = snapshotFile.streamUrl ?? file.streamUrl;
     }
     for (const [index, snapshotFile] of filesByIndex.entries()) {
-      if (index >= target.files.length) {
-        target.files[index] = { ...snapshotFile };
-      }
+      if (index >= 0 && index < target.files.length) continue;
+      target.files[index] = { ...snapshotFile };
     }
   }
 
   private emitTorrentStats(torrent: TorrentInstance): void {
-    this.emit("progress", torrent.progress);
-    this.emit("speed", torrent.downloadSpeed);
-    this.emit("peerCount", torrent.discoveredPeerCount ?? this.discoveredPeerIds.size);
+    const prog = Math.round(torrent.progress * 100) / 100;
+    const spd = Math.round(torrent.downloadSpeed);
+    const peers = torrent.discoveredPeerCount ?? this.discoveredPeerIds.size;
+    if (prog !== this.lastProgress) {
+      this.lastProgress = prog;
+      this.emit("progress", torrent.progress);
+    }
+    if (spd !== this.lastSpeed) {
+      this.lastSpeed = spd;
+      this.emit("speed", torrent.downloadSpeed);
+    }
+    if (peers !== this.lastPeerCount) {
+      this.lastPeerCount = peers;
+      this.emit("peerCount", peers);
+    }
   }
 
   private async ensureStreamServer(): Promise<void> {
@@ -851,10 +888,6 @@ export class TorrentService {
       URL.revokeObjectURL(url);
     }
     this.activeBlobUrls.clear();
-  }
-
-  private isMissingServerError(error: unknown): boolean {
-    return error instanceof Error && error.message === "No server created";
   }
 
   private normalizePeerId(peerId: unknown): string | null {

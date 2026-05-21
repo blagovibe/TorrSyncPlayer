@@ -1,4 +1,4 @@
-import { Peer, PeerRole } from "../App";
+import { type Peer, type PeerRole } from "../services/types";
 
 interface RoomInfoProps {
   peerId: string;
@@ -11,6 +11,7 @@ interface RoomInfoProps {
 }
 
 function RoomInfo({ peerId, peerRole, peers, isConnected, onLeaveRoom, onCopyPeerId, copied }: RoomInfoProps) {
+  const isGuest = peerRole === "slave";
   return (
     <aside className="room-info panel">
       <h2>Room</h2>
@@ -21,7 +22,12 @@ function RoomInfo({ peerId, peerRole, peers, isConnected, onLeaveRoom, onCopyPee
         </button>
       </div>
       <p className="hint">Your role: {peerRole ?? "unknown"}</p>
-      <p className="hint">Status: {isConnected ? "Connected" : "Disconnected"}</p>
+      <p className="hint">
+        Status:{" "}
+        <span className={`connection-status ${isConnected ? "connected" : "disconnected"}`}>
+          {isConnected ? "Connected" : isGuest ? "Waiting for host..." : "Disconnected"}
+        </span>
+      </p>
 
       <h3>Peers ({peers.length})</h3>
       <ul className="peer-list">

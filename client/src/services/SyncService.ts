@@ -89,12 +89,12 @@ export class SyncService {
     if (this.isDisposed) return;
     if (this.role === "master") {
       this.suppressNextEventSync.play = true;
-      // Send sync immediately — if play() fails (autoplay blocked), the sync
-      // will still inform slaves to attempt play (they may succeed where master failed).
       this.sendMasterSync("play", this.video.currentTime, true);
     }
     this.video.play().catch(() => {
-      // Autoplay may be blocked — user interaction required
+      if (this.role === "master") {
+        this.suppressNextEventSync.play = false;
+      }
     });
   }
 
@@ -122,6 +122,10 @@ export class SyncService {
 
   applyRemoteSync(message: SyncMessage): void {
     if (this.role !== "slave" || this.isDisposed) return;
+
+    if (this.video.readyState === 0 && message.action !== "seek") {
+      return;
+    }
 
     const isSeek = message.action === "seek";
     const latencySeconds = isSeek
@@ -225,7 +229,7 @@ export class SyncService {
       const stateChanged = isPlaying !== this.lastHeartbeatPlaying;
       const timeSinceLastSend = now - this.lastHeartbeatSent;
 
-      if (!posChanged && !stateChanged && timeSinceLastSend < SYNC_CONFIG.heartbeatIntervalMs * 2) return;
+      if (!posChanged && !stateChanged && timeSinceLastSend < SYNC_CONFIG.heartbeatIntervalMs) return;
 
       this.lastHeartbeatPosition = position;
       this.lastHeartbeatPlaying = isPlaying;

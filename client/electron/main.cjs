@@ -88,8 +88,8 @@ function startStaticServer() {
 
         const { pathname } = new URL(request.url, "http://127.0.0.1");
 
-        // Route /mux/* and /audio/* to torrent bridge (same-origin, no CORS/PNA issues)
-        if (pathname.startsWith("/mux/") || pathname.startsWith("/audio/")) {
+        // Route /mux/*, /audio/*, and /subtitle/* to torrent bridge (same-origin, no CORS/PNA issues)
+        if (pathname.startsWith("/mux/") || pathname.startsWith("/audio/") || pathname.startsWith("/subtitle/")) {
           torrentBridge.handleAudioRequest(request, response).catch((error) => {
             console.error("[TorrSyncPlayer] Audio/mux request failed:", error);
             if (!response.headersSent) {
@@ -184,6 +184,12 @@ function createWindow(loadUrl) {
     return { action: "deny" };
   });
 
+  mainWindow.on("close", (event) => {
+    if (mainWindow.webContents.isLoading()) return;
+    event.preventDefault();
+    mainWindow.webContents.send("window-close-request");
+  });
+
   if (isDev) {
     void mainWindow.loadURL(loadUrl);
     mainWindow.webContents.openDevTools({ mode: "detach" });
@@ -232,6 +238,26 @@ ipcMain.handle(
     return torrentBridge.createMultiplexedStreamUrl(params);
   },
 );
+ipcMain.handle(
+  "torrent:createSubtitleStreamUrl",
+  async (_event, params) => {
+    if (!params || typeof params !== "object") {
+      throw new Error("Invalid subtitle params");
+    }
+    return torrentBridge.createSubtitleStreamUrl(params);
+  },
+);
+
+ipcMain.on("window-close-confirmed", () => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.destroy();
+  }
+  app.exit(0);
+});
+
+ipcMain.on("window-close-cancelled", () => {
+  // User cancelled, do nothing
+});
 
 app.whenReady().then(async () => {
   // Check ffmpeg availability
@@ -249,14 +275,15 @@ app.whenReady().then(async () => {
   let loadUrl = devServerUrl;
 
   if (!isDev) {
-    try {
-      const staticApp = await startStaticServer();
-      loadUrl = `${staticApp.url}/index.html`;
-    } catch (error) {
-      console.error("Failed to start local static server, falling back to file URL:", error);
-      loadUrl = pathToFileURL(path.join(distDir, "index.html")).href;
-    }
-  }
+     try {
+       const staticApp = await startStaticServer();
+       loadUrl = `${staticApp.url}/index.html`;
+     } catch (error) {
+       console.error("Failed to start local static server:", error);
+       app.quit();
+       return;
+     }
+   }
 
   createWindow(loadUrl);
 
@@ -267,41 +294,48 @@ app.whenReady().then(async () => {
   });
 });
 
+const ELECTRON_FORCE_EXIT_TIMEOUT_MS = 5000;
+
 app.on("before-quit", (event) => {
-  if (BrowserWindow.getAllWindows().length > 0) {
-    event.preventDefault();
-    let hasExited = false;
-    const forceExit = () => {
-      if (!hasExited) {
-        hasExited = true;
-        app.exit(0);
-      }
-    };
-    // Force exit after 5 seconds if cleanup hangs
-    setTimeout(forceExit, 5000);
-    (async () => {
-      try {
-        await torrentBridge.destroy();
-      } catch {
-        // Ignore cleanup errors during shutdown
-      }
-      if (staticServerInstance) {
-        try {
-          staticServerInstance.server.close();
-        } catch {
-          // Ignore
-        }
-        staticServerInstance = null;
-      }
-      // Close all windows without triggering before-quit again
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.destroy();
-      }
-      // Use exit() instead of quit() to avoid re-triggering before-quit
-      forceExit();
-    })();
-  }
-});
+   const windows = BrowserWindow.getAllWindows();
+   if (windows.length === 0) {
+     return;
+   }
+   if (torrentBridge.isDestroyed?.()) {
+     for (const win of windows) {
+       win.destroy();
+     }
+     return;
+   }
+   event.preventDefault();
+   let hasExited = false;
+   const forceExit = () => {
+     if (hasExited) return;
+     hasExited = true;
+     for (const win of BrowserWindow.getAllWindows()) {
+       win.destroy();
+     }
+     app.exit(0);
+   };
+   const safetyTimeout = setTimeout(forceExit, ELECTRON_FORCE_EXIT_TIMEOUT_MS);
+   (async () => {
+     try {
+       await torrentBridge.destroy();
+     } catch {
+       // Ignore cleanup errors during shutdown
+     }
+     if (staticServerInstance) {
+       try {
+         staticServerInstance.server.close();
+       } catch {
+         // Ignore
+       }
+       staticServerInstance = null;
+     }
+     clearTimeout(safetyTimeout);
+     forceExit();
+   })();
+ });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

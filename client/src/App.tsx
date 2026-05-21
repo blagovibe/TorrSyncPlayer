@@ -4,22 +4,15 @@ import RoomPage from "./components/RoomPage";
 import P2PService from "./services/P2PService";
 import SyncService from "./services/SyncService";
 import TorrentService, { type TorrentMediaFile } from "./services/TorrentService";
-import { type AudioTrackInfo, type SharedTorrentSource, type SubtitleTrackInfo, type SyncMessage } from "./services/types";
+import { type AudioTrackInfo, type ConnectionQuality, type Peer, type PeerConnectionState, type PeerRole, type SharedTorrentSource, type SubtitleTrackInfo, type SyncMessage } from "./services/types";
+import { clampSyncTolerance, isPlaybackBlockedError } from "./utils/syncUtils";
 import { formatSpeed } from "./utils/format";
 import { p2pLogger } from "./utils/logger";
+import ConfirmModal from "./components/ConfirmModal";
 
 import "./App.css";
 
 export type View = "home" | "room";
-export type PeerRole = "master" | "slave";
-export type PeerConnectionState = "connected" | "connecting" | "disconnected" | "error";
-
-export interface Peer {
-  id: string;
-  name: string;
-  role: PeerRole;
-  connectionState: PeerConnectionState;
-}
 
 type TorrentLoadRequest = {
   source: SharedTorrentSource;
@@ -31,25 +24,6 @@ type TorrentLoadRequest = {
 };
 
 const DEFAULT_SYNC_TOLERANCE_SECONDS = 0.5;
-
-function isPlaybackBlockedError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const maybeDomException = error as { name?: string; message?: string };
-  return (
-    maybeDomException.name === "NotAllowedError" ||
-    maybeDomException.message?.includes("play() failed because the user didn't interact") === true
-  );
-}
-
-function clampSyncTolerance(value: number): number {
-  if (!Number.isFinite(value) || value < 0) {
-    return DEFAULT_SYNC_TOLERANCE_SECONDS;
-  }
-  return value;
-}
 
 function hashBytes(bytes: Uint8Array): string {
   let hash = 0x811c9dc5;
@@ -110,6 +84,11 @@ function App() {
   const [roomPassword, setRoomPassword] = useState("");
   const [bufferWindowMB, setBufferWindowMB] = useState(50);
   const [maxBufferMB, setMaxBufferMB] = useState(500);
+  const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>("unknown");
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -133,6 +112,8 @@ function App() {
   const isPlayerReadyRef = useRef(false);
   const pendingRemoteSyncRef = useRef<SyncMessage | null>(null);
   const peerRoleRef = useRef<PeerRole | null>(null);
+  const torrentLoadAbortRef = useRef<AbortController | null>(null);
+  const torrentLoadVersionRef = useRef(0);
 
   const disposeSyncService = () => {
     syncServiceRef.current?.dispose();
@@ -330,7 +311,13 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
       return;
     }
 
-        try {
+    const MAX_TORRENT_FILE_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_TORRENT_FILE_SIZE) {
+      setTorrentError(`Torrent file too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is ${MAX_TORRENT_FILE_SIZE / 1024 / 1024} MB.`);
+      return;
+    }
+
+    try {
       const torrentBytes = new Uint8Array(await file.arrayBuffer());
       setMagnetLink("");
       requestTorrentLoad({
@@ -349,6 +336,10 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
   const loadTorrentRequest = useCallback(async (request: TorrentLoadRequest) => {
     if (!videoRef.current) {
       throw new Error("Media player is not ready");
+    }
+
+    if (torrentLoadAbortRef.current?.signal.aborted) {
+      throw new Error("Torrent load cancelled");
     }
 
     const currentSource = currentTorrentSourceRef.current;
@@ -411,6 +402,10 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
         ? await getTorrentService().addMagnet(request.source.magnetLink)
         : await getTorrentService().addTorrentFile(new Uint8Array(request.source.bytes));
 
+    if (torrentLoadAbortRef.current?.signal.aborted) {
+      return;
+    }
+
     const playableMediaFiles = getTorrentService().getPlayableMediaFiles(torrent);
     setMediaFiles(playableMediaFiles);
 
@@ -461,17 +456,26 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     setTorrentPeerCount(0);
     setPlaybackNotice(null);
 
+    torrentLoadVersionRef.current++;
+    torrentLoadAbortRef.current?.abort();
+    const abortController = new AbortController();
+    torrentLoadAbortRef.current = abortController;
+
     try {
       await loadTorrentRequest(nextRequest);
     } catch (error) {
+      if (abortController.signal.aborted) return;
       const message = error instanceof Error ? error.message : "Unable to load torrent";
       setTorrentError(message);
       console.error("Torrent load failed:", error);
     } finally {
-      isLoadingTorrentRef.current = false;
-      isProcessingTorrentLoadRef.current = false;
+      if (torrentLoadAbortRef.current === abortController) {
+        isLoadingTorrentRef.current = false;
+        isProcessingTorrentLoadRef.current = false;
+        torrentLoadAbortRef.current = null;
+      }
       setIsLoadingTorrent(false);
-      if (pendingTorrentLoadRef.current) {
+      if (pendingTorrentLoadRef.current && !abortController.signal.aborted) {
         void processTorrentLoadQueueRef.current();
       }
     }
@@ -489,15 +493,6 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
       void processTorrentLoadQueueRef.current();
     }
   };
-
-  // Called when isPlayerReady changes — process any pending torrent load.
-  useEffect(() => {
-    if (isPlayerReady && currentView === "room" && !isProcessingTorrentLoadRef.current) {
-      if (pendingTorrentLoadRef.current) {
-        void processTorrentLoadQueueRef.current();
-      }
-    }
-  }, [isPlayerReady, currentView]);
 
   const initializeP2PService = async (role: "host" | "guest") => {
     p2pServiceRef.current?.disconnect();
@@ -587,6 +582,9 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
       const nextTolerance = clampSyncTolerance(message.syncToleranceSeconds);
       setSyncToleranceSeconds(nextTolerance);
       syncServiceRef.current?.setSyncToleranceSeconds(nextTolerance);
+      if (peerRoleRef.current === "slave" && message.roomPassword !== undefined) {
+        setRoomPassword(message.roomPassword);
+      }
     });
 
     p2pService.on("reconnecting", (attempt, delayMs) => {
@@ -598,6 +596,11 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
       console.error("P2P error:", error);
       setConnectionError(error.message);
       setIsConnecting(false);
+    });
+
+    p2pService.on("connection_quality", (quality) => {
+      setConnectionQuality(quality);
+      setRttMs(p2pService.getLastRttMs());
     });
 
     await p2pService.initialize();
@@ -617,7 +620,6 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
       await initializeP2PService("host");
       setPeerRole("master");
       peerRoleRef.current = "master";
-      setIsConnected(true);
       setPeers([{ id: "self", name: "You", role: "master", connectionState: "connected" }]);
       setCurrentView("room");
     } catch (error) {
@@ -686,27 +688,27 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
   };
 
   const handleLeaveRoom = async () => {
-    const shouldLeave = window.confirm("Are you sure you want to leave the room?");
-    if (!shouldLeave) {
-      return;
-    }
     clearBroadcastTimeout();
+    torrentLoadAbortRef.current?.abort();
+    torrentLoadAbortRef.current = null;
     if (p2pServiceRef.current) {
       p2pServiceRef.current.disconnect();
       p2pServiceRef.current = null;
     }
     disposeSyncService();
-    // Destroy the current service instance before nulling the ref
     const torrentService = torrentServiceRef.current ?? getTorrentService();
     await torrentService.destroy().catch(() => undefined);
     torrentServiceRef.current = null;
-    videoRef.current?.pause();
-    videoRef.current?.removeAttribute("src");
-    videoRef.current?.load();
+    const video = videoRef.current;
+    video?.pause();
+    if (video) {
+      video.removeAttribute("src");
+      video.load();
+    }
     setCurrentView("home");
     setPeerId("");
     setPeerRole(null);
-      peerRoleRef.current = null;
+    peerRoleRef.current = null;
     setPeers([]);
     setIsConnected(false);
     setIsConnecting(false);
@@ -716,6 +718,7 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     setPlaybackNotice(null);
     pendingRemoteSyncRef.current = null;
     setTrackerLost(false);
+    setShowLeaveConfirm(false);
     resetTorrentState();
   };
 
@@ -723,7 +726,8 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     if (peerRole !== "master") {
       return;
     }
-    // Track the old service for cleanup, then null the ref.
+    torrentLoadAbortRef.current?.abort();
+    torrentLoadAbortRef.current = null;
     const oldService = torrentServiceRef.current;
     torrentServiceRef.current = null;
     selectedMediaFileRef.current = null;
@@ -731,13 +735,20 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     resetTorrentState();
     setMagnetLink("");
     setTorrentFile(null);
-    // Destroy the old service after nulling the ref so the effect doesn't double-destroy.
     if (oldService) {
       await oldService.destroy().catch(() => undefined);
     }
-    // Force re-subscription on the new torrentService instance.
     setTorrentServiceVersion((v) => v + 1);
+    setShowResetConfirm(false);
   };
+
+  const handleBufferingChange = useCallback((isBuffering: boolean) => {
+    if (isBuffering) {
+      setPlaybackNotice("Buffering...");
+    } else {
+      setPlaybackNotice((prev) => (prev === "Buffering..." ? null : prev));
+    }
+  }, []);
 
   const handleLoadMagnet = async () => {
     if (peerRole !== "master" || !magnetLink.trim()) {
@@ -946,6 +957,10 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
   }, [getTorrentService, torrentServiceVersion]);
 
   useEffect(() => {
+    syncServiceRef.current?.setSyncToleranceSeconds(syncToleranceSeconds);
+  }, [syncToleranceSeconds]);
+
+  useEffect(() => {
     disposeSyncService();
 
     if (currentView !== "room" || !videoRef.current || !peerRole || !p2pServiceRef.current) {
@@ -977,13 +992,9 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
         syncServiceRef.current = null;
       }
     };
-    // syncServiceRef and videoRef are stable refs; enrichSyncMessage, broadcastCurrentRoomState,
-    // and tryApplyPendingRemoteSync use only refs/stable callbacks — safe to exclude from deps.
-    // Re-create SyncService when torrentServiceVersion or syncToleranceSeconds changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, peerRole, torrentServiceVersion, syncToleranceSeconds]);
+  }, [currentView, peerRole, torrentServiceVersion]);
 
-  // Cleanup on unmount / window close
   useEffect(() => {
     const doCleanup = () => {
       p2pServiceRef.current?.disconnect();
@@ -1021,6 +1032,36 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     tryApplyPendingRemoteSync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, isPlayerReady]);
+
+  useEffect(() => {
+    const win = window as Window & {
+      torrsyncElectronWindow?: {
+        onCloseRequest: (callback: () => void) => void;
+        closeConfirmed: () => void;
+        closeCancelled: () => void;
+      };
+    };
+    if (!win.torrsyncElectronWindow) return;
+    const electronWindow = win.torrsyncElectronWindow;
+    if (!electronWindow) return;
+    const { onCloseRequest } = electronWindow;
+    onCloseRequest(() => {
+      setShowCloseConfirm(true);
+    });
+    return () => {};
+  }, []);
+
+  const handleCloseConfirmed = useCallback(() => {
+    setShowCloseConfirm(false);
+    const win = window as Window & { torrsyncElectronWindow?: { closeConfirmed: () => void } };
+    win.torrsyncElectronWindow?.closeConfirmed();
+  }, []);
+
+  const handleCloseCancelled = useCallback(() => {
+    setShowCloseConfirm(false);
+    const win = window as Window & { torrsyncElectronWindow?: { closeCancelled: () => void } };
+    win.torrsyncElectronWindow?.closeCancelled();
+  }, []);
 
   return (
     <main className="app-shell">
@@ -1082,13 +1123,45 @@ selectedMediaAudioTracks={selectedMediaAudioTracks}
           bufferHint={bufferHint}
           trackerLost={trackerLost}
           onTimeUpdate={handleTimeUpdate}
+          onBufferingChange={handleBufferingChange}
           bufferWindowMB={bufferWindowMB}
           maxBufferMB={maxBufferMB}
           onBufferSettingsChange={handleBufferSettingsChange}
           onSeek={handleSeek}
           onMuxStreamRequest={handleMuxStreamRequest}
+          connectionQuality={connectionQuality}
+          rttMs={rttMs}
+          onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
+          onShowResetConfirm={() => setShowResetConfirm(true)}
         />
       )}
+      <ConfirmModal
+        isOpen={showLeaveConfirm}
+        title="Leave room?"
+        message="Are you sure you want to leave the room? All connections will be closed."
+        confirmLabel="Leave"
+        danger
+        onConfirm={handleLeaveRoom}
+        onCancel={() => setShowLeaveConfirm(false)}
+      />
+      <ConfirmModal
+        isOpen={showResetConfirm}
+        title="Change torrent source?"
+        message="Current playback will stop and the room will be reset."
+        confirmLabel="Change"
+        danger
+        onConfirm={handleResetTorrentInRoom}
+        onCancel={() => setShowResetConfirm(false)}
+      />
+      <ConfirmModal
+        isOpen={showCloseConfirm}
+        title="Close application?"
+        message="Are you sure you want to close TorrSyncPlayer? All connections will be lost."
+        confirmLabel="Close"
+        danger
+        onConfirm={handleCloseConfirmed}
+        onCancel={handleCloseCancelled}
+      />
     </main>
   );
 }

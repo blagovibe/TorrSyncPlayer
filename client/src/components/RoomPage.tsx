@@ -1,10 +1,10 @@
-import { type RefObject, useEffect, useRef, useState } from "react";
-import { Peer, PeerRole } from "../App";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type Peer, type PeerRole } from "../services/types";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
 import type { TorrentMediaFile } from "../services/TorrentService";
-import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
+import type { AudioTrackInfo, ConnectionQuality, SubtitleTrackInfo } from "../services/types";
 
 interface RoomPageProps {
   peerId: string;
@@ -53,6 +53,10 @@ interface RoomPageProps {
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
   onSeek?: (timestamp: number) => void;
   onMuxStreamRequest?: (startSeconds: number) => Promise<string | null>;
+  connectionQuality?: ConnectionQuality;
+  rttMs?: number | null;
+  onShowLeaveConfirm?: () => void;
+  onShowResetConfirm?: () => void;
 }
 
 function RoomPage({
@@ -102,9 +106,15 @@ function RoomPage({
   onBufferSettingsChange,
   onSeek,
   onMuxStreamRequest,
+  connectionQuality,
+  rttMs,
+  onShowLeaveConfirm,
+  onShowResetConfirm,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -113,6 +123,46 @@ function RoomPage({
       }
     };
   }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    dragCounterRef.current = 0;
+    if (!canControlTorrent) return;
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const torrentFile = Array.from(files).find(
+        (f) => f.name.endsWith(".torrent") || f.type === "application/x-bittorrent"
+      );
+      if (torrentFile) {
+        onTorrentFileChange(torrentFile);
+      }
+    }
+  }, [canControlTorrent, onTorrentFileChange]);
 
   const copyPeerId = async () => {
     if (!peerId) return;
@@ -129,7 +179,21 @@ function RoomPage({
   };
 
   return (
-    <section className="room-page">
+    <section
+      className={`room-page ${isDragOver ? "drag-over" : ""}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {isDragOver && canControlTorrent && (
+        <div className="drag-overlay">
+          <div className="drag-overlay-content">
+            <span className="drag-icon">📥</span>
+            <p>Drop .torrent file here</p>
+          </div>
+        </div>
+      )}
       <div className="room-layout">
         <div className="player-column">
 <VideoPlayer
@@ -214,17 +278,13 @@ function RoomPage({
                   {isLoadingTorrent ? "Loading metadata..." : "Load File"}
                 </button>
               </div>
-              {sharedSourceLabel && onResetTorrentInRoom && (
+              {sharedSourceLabel && onResetTorrentInRoom && onShowResetConfirm && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (window.confirm("Change torrent source? Current playback will stop.")) {
-                      onResetTorrentInRoom();
-                    }
-                  }}
+                  onClick={() => onShowResetConfirm()}
                   disabled={isLoadingTorrent}
                 >
-                  Change Source
+                  {isLoadingTorrent ? <><span className="spinner" /> Changing...</> : "Change Source"}
                 </button>
               )}
               {isLoadingTorrent && (
@@ -358,7 +418,7 @@ function RoomPage({
           peerRole={peerRole}
           peers={peers}
           isConnected={isConnected}
-          onLeaveRoom={onLeaveRoom}
+          onLeaveRoom={onShowLeaveConfirm ?? onLeaveRoom}
           onCopyPeerId={copyPeerId}
           copied={copied}
         />
@@ -371,6 +431,8 @@ function RoomPage({
         torrentPeerHint={torrentPeerHint}
         bufferHint={bufferHint}
         trackerLost={trackerLost ?? false}
+        connectionQuality={connectionQuality}
+        rttMs={rttMs}
       />
       </section>
   );

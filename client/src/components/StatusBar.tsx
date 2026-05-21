@@ -1,3 +1,5 @@
+import type { ConnectionQuality } from "../services/types";
+
 interface StatusBarProps {
   isConnected: boolean;
   torrentPeerCount: number;
@@ -6,6 +8,8 @@ interface StatusBarProps {
   torrentPeerHint: string;
   bufferHint: string;
   trackerLost: boolean;
+  connectionQuality?: ConnectionQuality;
+  rttMs?: number | null;
 }
 
 function StatusBar({
@@ -16,7 +20,12 @@ function StatusBar({
   torrentPeerHint,
   bufferHint,
   trackerLost,
+  connectionQuality = "unknown",
+  rttMs = null,
 }: StatusBarProps) {
+  const qualityLabel = connectionQuality === "unknown" ? "—" : connectionQuality;
+  const qualityClass = connectionQuality === "good" ? "ok" : connectionQuality === "fair" ? "warning" : connectionQuality === "poor" ? "error" : "";
+  const rttLabel = rttMs !== null ? `${rttMs}ms` : "—";
   return (
     <footer className="status-bar panel">
       <span>
@@ -27,7 +36,13 @@ function StatusBar({
       </span>
       <span>Public peers seen: {torrentPeerCount}</span>
       <span>Speed: {downloadSpeed}</span>
-      <span>Buffer: {bufferingProgress}%</span>
+      <span>Buffer: {Math.min(100, Math.max(0, bufferingProgress))}%</span>
+      <span>
+        Latency:{" "}
+        <strong className={qualityClass}>
+          {rttLabel} ({qualityLabel})
+        </strong>
+      </span>
       <div className="buffer-bar" role="progressbar" aria-valuenow={Math.min(100, Math.max(0, bufferingProgress))} aria-valuemin={0} aria-valuemax={100}>
         <div style={{ width: `${Math.min(100, Math.max(0, bufferingProgress))}%` }} />
       </div>

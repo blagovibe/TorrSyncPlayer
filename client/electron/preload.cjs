@@ -34,4 +34,22 @@ contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
     }
     return ipcRenderer.invoke("torrent:createMultiplexedStreamUrl", params);
   },
+  createSubtitleStreamUrl: (params) => {
+    if (!params || typeof params !== "object") {
+      return Promise.reject(new Error("Invalid subtitle params"));
+    }
+    return ipcRenderer.invoke("torrent:createSubtitleStreamUrl", params);
+  },
+});
+
+contextBridge.exposeInMainWorld("torrsyncElectronWindow", {
+  onCloseRequest: (callback) => {
+    ipcRenderer.on("window-close-request", callback);
+  },
+  closeConfirmed: () => {
+    ipcRenderer.send("window-close-confirmed");
+  },
+  closeCancelled: () => {
+    ipcRenderer.send("window-close-cancelled");
+  },
 });

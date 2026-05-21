@@ -243,6 +243,7 @@ class TorrentBridge {
     if (this._resolveAudioServerWaiter) {
       this._resolveAudioServerWaiter(url);
       this._resolveAudioServerWaiter = null;
+      this._ensureAudioServerWaiter = null;
     }
   }
 
@@ -291,6 +292,12 @@ class TorrentBridge {
     }
     this.audioServerPromise = null;
     this.audioServerBaseUrl = null;
+    // Reject any pending audio server waiter
+    if (this._resolveAudioServerWaiter) {
+      this._resolveAudioServerWaiter(null);
+      this._resolveAudioServerWaiter = null;
+    }
+    this._ensureAudioServerWaiter = null;
     this.client = null;
     this.clientPromise = null;
 
@@ -583,14 +590,17 @@ class TorrentBridge {
       return this.audioServerBaseUrl;
     }
 
-    // Wait for the main process to set the stream base URL via setStreamBaseUrl()
-    // The audio/mux endpoints are served on the same port as the static file server
     if (!this._ensureAudioServerWaiter) {
       this._ensureAudioServerWaiter = new Promise((resolve) => {
         this._resolveAudioServerWaiter = resolve;
       });
     }
-    return this._ensureAudioServerWaiter;
+    const result = await this._ensureAudioServerWaiter;
+    if (!result) {
+      this._ensureAudioServerWaiter = null;
+      throw new Error("Audio server is unavailable — the application is shutting down");
+    }
+    return result;
   }
 
   async handleAudioRequest(request, response) {
@@ -775,6 +785,8 @@ class TorrentBridge {
       response.on("close", killProcess);
       response.on("finish", killProcess);
       ffmpeg.on("close", () => {
+        if (session.process !== ffmpeg) return;
+        this.audioSessions.delete(token);
         activeFfmpegCount = Math.max(0, activeFfmpegCount - 1);
         if (ffmpegQueue.length > 0) {
           const next = ffmpegQueue.shift();
@@ -901,12 +913,15 @@ class TorrentBridge {
       if (session?.process && !session.process.killed) {
         try {
           session.process.kill("SIGKILL");
+          activeFfmpegCount = Math.max(0, activeFfmpegCount - 1);
         } catch {
           // Process may have already exited
         }
       }
     }
     this.audioSessions.clear();
+    // Drain the queue since we're clearing everything
+    ffmpegQueue.length = 0;
   }
 
   validateLocalStreamUrl(streamUrl) {

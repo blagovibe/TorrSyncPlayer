@@ -3,6 +3,7 @@ import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import { p2pLogger } from "../utils/logger";
 import { P2P_CONFIG } from "../config";
 import {
+  type ConnectionQuality,
   type RoomConfigMessage,
   type SharedTorrentSource,
   type SyncMessage,
@@ -25,6 +26,7 @@ type P2PEvents = {
   room_config: (message: RoomConfigMessage) => void;
   error: (error: Error) => void;
   reconnecting: (attempt: number, delayMs: number) => void;
+  connection_quality: (quality: ConnectionQuality) => void;
 };
 
 type EventKey = keyof P2PEvents;
@@ -38,7 +40,9 @@ type OutboundMessage =
       selectedAudioTrackIndex: number | null;
       selectedSubtitleIndex: number | null;
     }
-  | { type: "room_config"; syncToleranceSeconds: number; roomPassword?: string };
+  | { type: "room_config"; syncToleranceSeconds: number; roomPassword?: string }
+  | { type: "ping"; ts: number }
+  | { type: "pong"; ts: number };
 
 export const WEBRTC_UNAVAILABLE_MESSAGE =
   "WebRTC data channels are not available in the current desktop runtime. Use the Electron build, which ships Chromium with WebRTC support.";
@@ -152,6 +156,10 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
       return null;
     case "torrent_source": {
       if (!message.source) return null;
+      const src = message.source as { magnetLink?: unknown; fileName?: unknown; bytes?: unknown; sourceKey?: unknown };
+      if (src.magnetLink !== undefined && typeof src.magnetLink !== "string") return null;
+      if (src.fileName !== undefined && typeof src.fileName !== "string") return null;
+      if (src.sourceKey !== undefined && typeof src.sourceKey !== "string") return null;
       const smi = message.selectedMediaIndex;
       const sati = message.selectedAudioTrackIndex;
       const ssti = message.selectedSubtitleIndex;
@@ -159,7 +167,6 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
         return null;
       }
       // Validate source.bytes if present (must be array of numbers 0-255)
-      const src = message.source as { bytes?: unknown };
       if (src.bytes !== undefined) {
         if (!Array.isArray(src.bytes) || !src.bytes.every((b: unknown) => typeof b === "number" && b >= 0 && b <= 255)) {
           return null;
@@ -180,6 +187,16 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
           syncToleranceSeconds: message.syncToleranceSeconds,
           roomPassword: typeof message.roomPassword === "string" ? message.roomPassword : undefined,
         };
+      }
+      return null;
+    case "ping":
+      if (typeof message.ts === "number") {
+        return { type: "ping", ts: message.ts };
+      }
+      return null;
+    case "pong":
+      if (typeof message.ts === "number") {
+        return { type: "pong", ts: message.ts };
       }
       return null;
     default:
@@ -227,6 +244,8 @@ export class P2PService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private isReconnecting = false;
+  private lastRttMs: number | null = null;
+  private pingIntervalId: ReturnType<typeof setInterval> | null = null;
   private readonly cleanup: CleanupHandle;
   private listeners: { [K in EventKey]: Set<P2PEvents[K]> } = {
     connected: new Set(),
@@ -238,6 +257,7 @@ export class P2PService {
     room_config: new Set(),
     error: new Set(),
     reconnecting: new Set(),
+    connection_quality: new Set(),
   };
 
   constructor() {
@@ -247,6 +267,17 @@ export class P2PService {
 
   getPeerId(): string {
     return this.peerId;
+  }
+
+  getLastRttMs(): number | null {
+    return this.lastRttMs;
+  }
+
+  getConnectionQuality(): ConnectionQuality {
+    if (this.lastRttMs === null) return "unknown";
+    if (this.lastRttMs < 100) return "good";
+    if (this.lastRttMs < 300) return "fair";
+    return "poor";
   }
 
   setHost(): void {
@@ -314,10 +345,16 @@ export class P2PService {
         });
 
         let isSettled = false;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
         const settleResolve = () => {
           if (isSettled) return;
           isSettled = true;
           this.isConnecting = false;
+          if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
           if (!conn.open) {
             reject(new Error("Connection closed before it was established"));
             return;
@@ -331,11 +368,15 @@ export class P2PService {
           if (isSettled) return;
           isSettled = true;
           this.isConnecting = false;
+          if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
           reject(error);
         };
 
-        // Timeout: clear on settle or fire reject
-        const timeoutId = this.cleanup.setTimeout(() => {
+        timeoutId = this.cleanup.setTimeout(() => {
+          timeoutId = null;
           if (!isSettled) {
             conn.close();
             settleReject(new Error("Connection timeout"));
@@ -345,11 +386,9 @@ export class P2PService {
         this.bindConnection(remotePeerId, conn, {
           emitPeerConnected: true,
           onOpen: () => {
-            clearTimeout(timeoutId);
             settleResolve();
           },
           onClose: () => {
-            clearTimeout(timeoutId);
             settleReject(new Error("Connection closed before it was established"));
           },
         });
@@ -436,6 +475,7 @@ export class P2PService {
       this.cleanup.add(() => { this.peer?.off?.("error", onError); });
 
       const onDisconnected = () => {
+        if (this.isDisconnecting) return;
         this.emit("disconnected");
         this.attemptReconnect();
       };
@@ -452,7 +492,7 @@ export class P2PService {
 
   private attemptReconnect(): void {
     if (this.isDestroyed || this.isDisconnecting || this.isReconnecting) return;
-    if (this.role === "host") return; // Hosts don't reconnect — guests connect to them
+    if (this.role === "host") return;
     if (!this.remotePeerId) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       p2pLogger.warn("Max reconnect attempts reached, giving up");
@@ -518,6 +558,7 @@ export class P2PService {
     this.isReconnecting = false;
     this.reconnectAttempts = 0;
 
+    this.stopPingInterval();
     this.cleanup.abort();
     this.isConnecting = false;
 
@@ -587,20 +628,25 @@ export class P2PService {
 
     this.connections.set(peerId, conn);
 
-    if (conn.open) {
-      if (this.isDisconnecting) return;
-      if (options.emitPeerConnected) this.emit("peer_connected", peerId);
-      options.onOpen?.();
-    }
+    const wasAlreadyOpen = conn.open;
 
     const onConnOpen = () => {
       if (this.connections.get(peerId) !== conn) return;
       if (this.isDisconnecting) return;
       if (options.emitPeerConnected) this.emit("peer_connected", peerId);
       options.onOpen?.();
+      this.startPingInterval();
     };
-    conn.on("open", onConnOpen);
-    this.cleanup.add(() => { conn.off?.("open", onConnOpen); });
+
+    if (wasAlreadyOpen) {
+      if (this.isDisconnecting) return;
+      if (options.emitPeerConnected) this.emit("peer_connected", peerId);
+      options.onOpen?.();
+      this.startPingInterval();
+    } else {
+      conn.on("open", onConnOpen);
+      this.cleanup.add(() => { conn.off?.("open", onConnOpen); });
+    }
 
     const onConnData = (data: unknown) => {
       if (this.connections.get(peerId) !== conn) return;
@@ -621,7 +667,15 @@ export class P2PService {
         case "room_config":
           this.emit("room_config", {
             syncToleranceSeconds: message.syncToleranceSeconds,
+            roomPassword: message.roomPassword,
           });
+          break;
+        case "ping":
+          // Respond with pong, echoing the timestamp
+          this.sendPayload({ type: "pong", ts: message.ts });
+          break;
+        case "pong":
+          this.handlePong(message.ts);
           break;
       }
     };
@@ -656,7 +710,7 @@ export class P2PService {
 
   private sendPayload(payload: OutboundMessage, targetPeerId?: string): void {
     if (!this.isConnected()) {
-      p2pLogger.warn("Attempted to send payload while not connected");
+      p2pLogger.warn("sendPayload dropped: not connected", payload.type);
       return;
     }
     const targetConnections = targetPeerId
@@ -686,6 +740,41 @@ export class P2PService {
   private emit<K extends EventKey>(event: K, ...args: Parameters<P2PEvents[K]>): void {
     for (const callback of this.listeners[event]) {
       (callback as (...eventArgs: Parameters<P2PEvents[K]>) => void)(...args);
+    }
+  }
+
+  private startPingInterval(): void {
+    this.stopPingInterval();
+    this.pingIntervalId = this.cleanup.setInterval(() => {
+      this.sendPing();
+    }, 5000);
+  }
+
+  private stopPingInterval(): void {
+    if (this.pingIntervalId !== null) {
+      clearInterval(this.pingIntervalId);
+      this.pingIntervalId = null;
+    }
+  }
+
+  private sendPing(): void {
+    if (!this.isConnected()) return;
+    const pingPayload = { type: "ping", ts: Date.now() };
+    const targetConnections = Array.from(this.connections.values()).filter((c) => c.open);
+    for (const connection of targetConnections) {
+      try {
+        connection.send(pingPayload);
+      } catch {
+        // Connection may have closed
+      }
+    }
+  }
+
+  private handlePong(pongTs: number): void {
+    const rtt = Date.now() - pongTs;
+    if (rtt >= 0) {
+      this.lastRttMs = rtt;
+      this.emit("connection_quality", this.getConnectionQuality());
     }
   }
 }

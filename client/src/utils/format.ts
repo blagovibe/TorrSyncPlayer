@@ -10,7 +10,7 @@ function formatUnit(value: number, units: readonly string[]): string {
     unitIndex += 1;
   }
   const precision = v >= 100 ? 0 : v >= 10 ? 1 : 2;
-  return `${v.toFixed(precision)} ${units[unitIndex]}`;
+  return `${parseFloat(v.toFixed(precision))} ${units[unitIndex]}`;
 }
 
 export function formatBytes(size: number): string {

@@ -129,8 +129,11 @@ function VideoPlayer({
   const [audioTracks, setAudioTracks] = useState<AudioTrackSnapshot[]>([]);
   const [isBuffering, setIsBuffering] = useState(false);
   const [isStalled, setIsStalled] = useState(false);
+  const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
   const [editBufferWindowMB, setEditBufferWindowMB] = useState(bufferWindowMB);
   const [editMaxBufferMB, setEditMaxBufferMB] = useState(maxBufferMB);
+
+  const seekAbortRef = useRef<AbortController | null>(null);
 
   const fallbackAudioTrackSnapshots = useMemo(
     () => fallbackAudioTracks.map((track, index) => ({
@@ -169,6 +172,17 @@ function VideoPlayer({
   useEffect(() => { onPlayerReadyRef.current = onPlayerReady; }, [onPlayerReady]);
   useEffect(() => { onAudioTrackChangeRef.current = onAudioTrackChange; }, [onAudioTrackChange]);
   useEffect(() => { onBufferingChangeRef.current = onBufferingChange; }, [onBufferingChange]);
+
+  useEffect(() => {
+    if (selectedSubtitleIndex === null || selectedSubtitleIndex === undefined) {
+      setSubtitleUrl(null);
+      return;
+    }
+    const track = fallbackSubtitles.find((t) => t.index === selectedSubtitleIndex);
+    if (track?.streamUrl) {
+      setSubtitleUrl(track.streamUrl);
+    }
+  }, [selectedSubtitleIndex, fallbackSubtitles]);
   useEffect(() => { try { window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale); } catch { /* ok */ } }, [videoScale]);
   useEffect(() => { onPlayerReadyRef.current?.(true); return () => onPlayerReadyRef.current?.(false); }, []);
 
@@ -287,11 +301,28 @@ function VideoPlayer({
   useEffect(() => { hasMediaMetadataRef.current = false; setAudioTracks([]); setAudioTracksSupported(detectAudioTracksSupport()); setSettingsOpen(false); setIsBuffering(false); setIsStalled(false); }, [mediaLabel]);
   useEffect(() => { if (audioTracksSupported) syncAudioTracks(); }, [audioTracksSupported, syncAudioTracks]);
 
+  // Cleanup seek abort controller on unmount
+  useEffect(() => {
+    return () => {
+      seekAbortRef.current?.abort();
+    };
+  }, []);
+
+  const lastSeekTimestampRef = useRef<number | null>(null);
+  const isSeekingRef = useRef(false);
+
   // Seek handler: request new mux stream and update video src
   const handleSeek = useCallback(async (timestamp: number) => {
     if (!canControlPlayback) return;
     const v = videoRef.current;
     if (!v) return;
+
+    if (seekAbortRef.current) {
+      seekAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    seekAbortRef.current = abortController;
+    isSeekingRef.current = true;
 
     if (onMuxStreamRequest) {
       v.pause();
@@ -299,27 +330,40 @@ function VideoPlayer({
       onBufferingChangeRef.current?.(true);
       try {
         const url = await onMuxStreamRequest(timestamp);
-        if (url && v) {
+        if (abortController.signal.aborted) {
+          isSeekingRef.current = false;
+          return;
+        }
+        if (url) {
           v.src = url;
           v.load();
           await v.play();
           setIsPlaying(true);
+          setCurrentTime(timestamp);
           setIsBuffering(false);
           onBufferingChangeRef.current?.(false);
+          lastSeekTimestampRef.current = timestamp;
+          isSeekingRef.current = false;
           return;
         }
       } catch (err) {
-        console.error("Seek mux stream failed:", err);
+        if (!abortController.signal.aborted) {
+          console.error("Seek mux stream failed:", err);
+        }
       }
-      // Fallback if mux stream failed
       setIsBuffering(false);
       onBufferingChangeRef.current?.(false);
     }
 
-    // Fallback: direct seek if mux stream is unavailable
-    if (v) {
+    if (!abortController.signal.aborted) {
       v.currentTime = timestamp;
+      setCurrentTime(timestamp);
+      lastSeekTimestampRef.current = timestamp;
+      if (!v.paused) {
+        await v.play().catch(() => undefined);
+      }
     }
+    isSeekingRef.current = false;
     onSeek?.(timestamp);
   }, [canControlPlayback, onMuxStreamRequest, onSeek, videoRef]);
 
@@ -344,15 +388,36 @@ function VideoPlayer({
         className="video-element"
         preload="auto"
         playsInline
+        crossOrigin="anonymous"
         onClick={() => { if (canControlPlayback) void togglePlay(); }}
         onTimeUpdate={(e) => { setCurrentTime(e.currentTarget.currentTime); onTimeUpdate?.(e.currentTarget.currentTime, e.currentTarget.duration); }}
         onLoadedMetadata={(e) => { hasMediaMetadataRef.current = true; setDuration(e.currentTarget.duration); syncAudioTracks(); }}
-        onSeeking={() => {}}
-        onSeeked={(e) => { if (canControlPlayback) void handleSeek(e.currentTarget.currentTime); }}
+        onSeeking={(e) => { setCurrentTime(e.currentTarget.currentTime); }}
+        onSeeked={(e) => {
+          if (!canControlPlayback) return;
+          const targetTime = e.currentTarget.currentTime;
+          if (isSeekingRef.current) return;
+          if (lastSeekTimestampRef.current !== null && Math.abs(targetTime - lastSeekTimestampRef.current) < 1) {
+            lastSeekTimestampRef.current = null;
+            return;
+          }
+          lastSeekTimestampRef.current = null;
+          void handleSeek(targetTime);
+        }}
         onCanPlay={() => { setIsBuffering(false); setIsStalled(false); onBufferingChangeRef.current?.(false); }}
         onPause={() => setIsPlaying(false)}
         onPlay={() => { setIsPlaying(true); onPlaybackStart?.(); }}
-      />
+      >
+        {subtitleUrl && (
+          <track
+            kind="subtitles"
+            src={subtitleUrl}
+            label={fallbackSubtitles.find((t) => t.streamUrl === subtitleUrl)?.label ?? "Subtitles"}
+            srcLang={fallbackSubtitles.find((t) => t.streamUrl === subtitleUrl)?.language ?? "en"}
+            default
+          />
+        )}
+      </video>
       {hasSelectedMedia && (
         <div className="video-legend">
           <span className={`video-kind ${mediaKind ?? "video"}`}>{mediaKind === "audio" ? "Audio" : "Video"}</span>
@@ -424,33 +489,43 @@ function VideoPlayer({
                          <span className="audio-track-meta">{t.language ? t.language.toUpperCase() : "Unknown language"}</span>
                        </button>
                      ))}
-                     <button type="button" className={`audio-track-button ${selectedSubtitleIndex === null ? "active" : ""}`} onClick={() => activateSubtitleTrack(null)} disabled={!canControlSubtitleTracks}>
-                       <span className="audio-track-name">None</span>
-                       <span className="audio-track-meta">Disable subtitles</span>
-                     </button>
-                   </div>
-                 ) : hasSelectedMedia ? (
-                   <p className="settings-empty">No subtitle tracks available for this file.</p>
-                 ) : (
-                   <p className="settings-empty">Load media to inspect subtitle tracks.</p>
-                 )}
-               </div>
-               <div className="settings-section">
-                 <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
-                <div className="buffer-settings-row">
-                  <label htmlFor="buffer-window-mb">Window (MB)</label>
-                  <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => setEditBufferWindowMB(Math.max(1, Math.min(1000, Number(e.target.value) || 50)))} />
+                      <button type="button" className={`audio-track-button ${selectedSubtitleIndex === null ? "active" : ""}`} onClick={() => activateSubtitleTrack(null)} disabled={!canControlSubtitleTracks}>
+                        <span className="audio-track-name">None</span>
+                        <span className="audio-track-meta">Disable subtitles</span>
+                      </button>
+                    </div>
+                  ) : hasSelectedMedia ? (
+                    <p className="settings-empty">No subtitle tracks available for this file.</p>
+                  ) : (
+                    <p className="settings-empty">Load media to inspect subtitle tracks.</p>
+                  )}
                 </div>
-                <div className="buffer-settings-row">
-                  <label htmlFor="max-buffer-mb">Max buffer (MB)</label>
-                  <input id="max-buffer-mb" type="number" min={10} max={2000} step={10} value={editMaxBufferMB} onChange={(e) => setEditMaxBufferMB(Math.max(10, Math.min(2000, Number(e.target.value) || 500)))} />
+                <div className="settings-section">
+                  <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
+                  <div className="buffer-settings-row">
+                    <label htmlFor="buffer-window-mb">Window (MB)</label>
+                    <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => setEditBufferWindowMB(Math.max(1, Math.min(1000, Number(e.target.value) || 50)))} />
+                  </div>
+                  <div className="buffer-settings-row">
+                    <label htmlFor="max-buffer-mb">Max buffer (MB)</label>
+                    <input id="max-buffer-mb" type="number" min={10} max={2000} step={10} value={editMaxBufferMB} onChange={(e) => setEditMaxBufferMB(Math.max(10, Math.min(2000, Number(e.target.value) || 500)))} />
+                  </div>
+                  <button type="button" className="secondary-btn" onClick={() => onBufferSettingsChange?.(editBufferWindowMB, editMaxBufferMB)}>Apply buffer settings</button>
+                  <p className="settings-hint">Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.</p>
                 </div>
-                <button type="button" className="secondary-btn" onClick={() => onBufferSettingsChange?.(editBufferWindowMB, editMaxBufferMB)}>Apply buffer settings</button>
-                <p className="settings-hint">Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.</p>
+                <div className="settings-section">
+                  <div className="settings-section-header"><span>Keyboard shortcuts</span></div>
+                  <div className="shortcuts-list">
+                    <div className="shortcut-row"><kbd>Space</kbd><span>Play / Pause</span></div>
+                    <div className="shortcut-row"><kbd>F</kbd><span>Toggle fullscreen</span></div>
+                    <div className="shortcut-row"><kbd>←</kbd><span>Seek back 5s</span></div>
+                    <div className="shortcut-row"><kbd>→</kbd><span>Seek forward 5s</span></div>
+                    <div className="shortcut-row"><kbd>Esc</kbd><span>Close settings</span></div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
         <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; if (document.fullscreenElement) { void document.exitFullscreen(); } else { void v.requestFullscreen(); } }}>Fullscreen</button>
       </div>
       <div className="video-progress" style={{ width: `${progress}%` }} />

@@ -16,6 +16,7 @@ export interface SubtitleTrackInfo {
   codecName: string;
   forced: boolean;
   default: boolean;
+  streamUrl?: string;
 }
 
 export interface SyncMessage {
@@ -49,4 +50,17 @@ export interface TorrentSourceMessage {
   selectedMediaIndex: number | null;
   selectedAudioTrackIndex: number | null;
   selectedSubtitleIndex: number | null;
+}
+
+export type ConnectionQuality = "good" | "fair" | "poor" | "unknown";
+
+export type PeerRole = "master" | "slave";
+
+export type PeerConnectionState = "connected" | "connecting" | "disconnected" | "error";
+
+export interface Peer {
+  id: string;
+  name: string;
+  role: PeerRole;
+  connectionState: PeerConnectionState;
 }
