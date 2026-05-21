@@ -450,4 +450,86 @@ describe("TorrentService", () => {
       }),
     );
   });
+
+  describe("buffer settings", () => {
+    it("persists and retrieves buffer settings", () => {
+      const service = new TorrentService();
+      const mockStorage = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => mockStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => mockStorage.set(key, value),
+      });
+
+      service.setBufferSettings(100, 1000);
+
+      const settings = service.getBufferSettings();
+      expect(settings.bufferWindowMB).toBe(100);
+      expect(settings.maxBufferMB).toBe(1000);
+    });
+
+    it("applies maxBufferBytes to limit buffer window", () => {
+      const service = new TorrentService();
+      const mockStorage = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => mockStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => mockStorage.set(key, value),
+      });
+
+      service.setBufferSettings(50, 100);
+
+      expect(service.getBufferSettings().maxBufferMB).toBe(100);
+    });
+
+    it("enforces buffer limit by pausing torrent when exceeded", () => {
+      const service = new TorrentService();
+      const mockStorage = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => mockStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => mockStorage.set(key, value),
+      });
+
+      service.setBufferSettings(50, 10);
+
+      const torrent = {
+        pause: vi.fn(),
+        resume: vi.fn(),
+        paused: false,
+        downloaded: 15 * 1024 * 1024,
+      };
+
+      (service as unknown as { activeTorrent: typeof torrent }).activeTorrent = torrent;
+      (service as unknown as { maxBufferBytes: number }).maxBufferBytes = 10 * 1024 * 1024;
+
+      (service as unknown as { enforceBufferLimit: () => void }).enforceBufferLimit();
+
+      expect(torrent.pause).toHaveBeenCalled();
+      expect(torrent.resume).not.toHaveBeenCalled();
+    });
+
+    it("resumes torrent when buffer drops below 90% of limit", () => {
+      const service = new TorrentService();
+      const mockStorage = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (key: string) => mockStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => mockStorage.set(key, value),
+      });
+
+      service.setBufferSettings(50, 10);
+
+      const torrent = {
+        pause: vi.fn(),
+        resume: vi.fn(),
+        paused: true,
+        downloaded: 8 * 1024 * 1024,
+      };
+
+      (service as unknown as { activeTorrent: typeof torrent }).activeTorrent = torrent;
+      (service as unknown as { maxBufferBytes: number }).maxBufferBytes = 10 * 1024 * 1024;
+
+      (service as unknown as { enforceBufferLimit: () => void }).enforceBufferLimit();
+
+      expect(torrent.resume).toHaveBeenCalled();
+      expect(torrent.pause).not.toHaveBeenCalled();
+    });
+  });
 });

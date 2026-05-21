@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
   },
   getStats: () => ipcRenderer.invoke("torrent:getStats"),
   clear: () => ipcRenderer.invoke("torrent:clear"),
+  setMaxBufferMB: (mb) => {
+    if (typeof mb !== "number" || mb <= 0) {
+      return Promise.reject(new Error("Invalid buffer size"));
+    }
+    return ipcRenderer.invoke("torrent:setMaxBufferMB", mb);
+  },
   probeAudioTracks: (streamUrl) => {
     if (typeof streamUrl !== "string" || streamUrl.length > 5000) {
       return Promise.reject(new Error("Invalid stream URL"));

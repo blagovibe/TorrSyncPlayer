@@ -362,9 +362,9 @@ function VideoPlayer({
       if (!v.paused) {
         await v.play().catch(() => undefined);
       }
+      onSeek?.(timestamp);
     }
     isSeekingRef.current = false;
-    onSeek?.(timestamp);
   }, [canControlPlayback, onMuxStreamRequest, onSeek, videoRef]);
 
   const hasSelectedMedia = Boolean(mediaLabel);

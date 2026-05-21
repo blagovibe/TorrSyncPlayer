@@ -214,6 +214,12 @@ ipcMain.handle("torrent:addTorrentFile", async (_event, torrentFile) => {
 });
 ipcMain.handle("torrent:getStats", async () => torrentBridge.getStats());
 ipcMain.handle("torrent:clear", async () => torrentBridge.clear());
+ipcMain.handle("torrent:setMaxBufferMB", async (_event, mb) => {
+  if (typeof mb !== "number" || mb <= 0) {
+    throw new Error("Invalid buffer size");
+  }
+  torrentBridge.setMaxBufferMB(mb);
+});
 ipcMain.handle("torrent:probeAudioTracks", async (_event, streamUrl) => {
   if (typeof streamUrl !== "string" || streamUrl.length > 5000) {
     throw new Error("Invalid stream URL");

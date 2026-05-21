@@ -1,6 +1,14 @@
 const { spawn } = require("node:child_process");
+const { randomBytes } = require("node:crypto");
 const path = require("node:path");
 const MemoryChunkStore = require(path.join(__dirname, "..", "node_modules", "memory-chunk-store"));
+const { BoundedChunkStore } = require(path.join(__dirname, "bounded-chunk-store.cjs"));
+
+const DEFAULT_MAX_BUFFER_MB = 500;
+
+function generateSessionToken() {
+  return randomBytes(16).toString("hex");
+}
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".ogv",
@@ -238,6 +246,11 @@ class TorrentBridge {
     this.audioServerBaseUrl = null;
     this.audioSessions = new Map();
     this.audioSessionCounter = 0;
+    this.maxBufferBytes = DEFAULT_MAX_BUFFER_MB * 1024 * 1024;
+  }
+
+  setMaxBufferMB(mb) {
+    this.maxBufferBytes = Math.max(1, mb) * 1024 * 1024;
   }
 
   setStreamBaseUrl(url) {
@@ -276,7 +289,20 @@ class TorrentBridge {
     }
 
     await new Promise((resolve) => {
-      torrent.destroy(() => resolve());
+      const timeout = setTimeout(() => {
+        resolve();
+      }, 10_000);
+      timeout.unref?.();
+
+      try {
+        torrent.destroy(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      } catch {
+        clearTimeout(timeout);
+        resolve();
+      }
     });
   }
 
@@ -348,7 +374,10 @@ class TorrentBridge {
 
       let addedTorrent;
       try {
-        addedTorrent = client.add(torrentSource, { store: MemoryChunkStore }, (readyTorrent) => {
+        const storeOpts = {
+          maxBytes: this.maxBufferBytes,
+        };
+        addedTorrent = client.add(torrentSource, { store: BoundedChunkStore, storeOpts }, (readyTorrent) => {
           settleResolve(readyTorrent);
         });
       } catch (error) {
@@ -428,7 +457,7 @@ class TorrentBridge {
     }
 
     const audioServerBaseUrl = await this.ensureAudioServer();
-    const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
+    const token = generateSessionToken();
     const session = {
       streamUrl,
       trackIndex,
@@ -460,7 +489,7 @@ class TorrentBridge {
     }
 
     const audioServerBaseUrl = await this.ensureAudioServer();
-    const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
+    const token = generateSessionToken();
     const session = {
       streamUrl,
       trackIndex,
@@ -489,7 +518,7 @@ class TorrentBridge {
     }
 
     const audioServerBaseUrl = await this.ensureAudioServer();
-    const token = `${Date.now().toString(36)}-${(++this.audioSessionCounter).toString(36)}`;
+    const token = generateSessionToken();
     const session = {
       streamUrl,
       audioTrackIndex: audioTrackIndex ?? 0,
@@ -614,8 +643,10 @@ class TorrentBridge {
 
     // Handle CORS preflight (OPTIONS) for cross-origin media requests
     if (request.method === "OPTIONS") {
+      const origin = request.headers.origin;
+      const allowedOrigin = (origin && origin.startsWith("http://127.0.0.1")) ? origin : (this.streamBaseUrl || "http://127.0.0.1");
       response.statusCode = 204;
-      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
       response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
       response.setHeader("Access-Control-Allow-Headers", "Range, Origin");
       response.setHeader("Access-Control-Max-Age", "86400");
@@ -749,7 +780,7 @@ class TorrentBridge {
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Pragma", "no-cache");
       response.setHeader("Accept-Ranges", "none");
-      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Access-Control-Allow-Origin", this.streamBaseUrl || "http://127.0.0.1");
       response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
       response.setHeader("Access-Control-Allow-Private-Network", "true");
       response.flushHeaders?.();

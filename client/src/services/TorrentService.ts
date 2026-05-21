@@ -68,6 +68,7 @@ type ElectronTorrentBackend = {
   addTorrentFile: (torrentFile: Uint8Array) => Promise<TorrentInstance>;
   getStats: () => Promise<TorrentInstance | null>;
   clear: () => Promise<void>;
+  setMaxBufferMB?: (mb: number) => Promise<void>;
   probeAudioTracks?: (streamUrl: string) => Promise<AudioTrackInfo[]>;
   probeSubtitles?: (streamUrl: string) => Promise<SubtitleTrackInfo[]>;
   createAudioTrackStreamUrl?: (params: {
@@ -183,6 +184,10 @@ export class TorrentService {
     this.maxBufferBytes = maxBytes;
     saveBufferSetting(TORRENT_CONFIG.bufferWindowStorageKey, bufferWindowMB);
     saveBufferSetting(TORRENT_CONFIG.maxBufferStorageKey, maxBufferMB);
+
+    if (this.electronBackend?.setMaxBufferMB) {
+      void this.electronBackend.setMaxBufferMB(maxBufferMB);
+    }
   }
 
   getBufferSettings(): { bufferWindowMB: number; maxBufferMB: number } {
@@ -765,22 +770,42 @@ export class TorrentService {
     if (!file?.length) return;
 
     const fileEnd = file.length - 1;
-    const bufferStart = Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes);
-    const bufferEnd = Math.min(fileEnd, this.currentPlaybackBytes + this.bufferWindowBytes);
+
+    const maxBufferHalf = this.maxBufferBytes / 2;
+    const absoluteMaxStart = Math.max(0, this.currentPlaybackBytes - maxBufferHalf);
+    const absoluteMaxEnd = Math.min(fileEnd, this.currentPlaybackBytes + maxBufferHalf);
+
+    const windowStart = Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes);
+    const windowEnd = Math.min(fileEnd, this.currentPlaybackBytes + this.bufferWindowBytes);
+
+    const bufferStart = Math.max(windowStart, absoluteMaxStart);
+    const bufferEnd = Math.min(windowEnd, absoluteMaxEnd);
 
     const prev = this.lastBufferWindow;
     if (prev) {
       if (bufferStart > prev.start) {
-        torrent.deselect(prev.start, Math.min(bufferStart - 1, prev.end), 0);
+        const deselectEnd = Math.min(bufferStart - 1, prev.end);
+        if (prev.start <= deselectEnd) {
+          torrent.deselect(prev.start, deselectEnd, 0);
+        }
       }
       if (bufferEnd < prev.end) {
-        torrent.deselect(Math.max(bufferEnd + 1, prev.start), prev.end, 0);
+        const deselectStart = Math.max(bufferEnd + 1, prev.start);
+        if (deselectStart <= prev.end) {
+          torrent.deselect(deselectStart, prev.end, 0);
+        }
       }
       if (bufferStart < prev.start) {
-        torrent.select(bufferStart, prev.start - 1, 1);
+        const selectEnd = prev.start - 1;
+        if (bufferStart <= selectEnd) {
+          torrent.select(bufferStart, selectEnd, 1);
+        }
       }
       if (bufferEnd > prev.end) {
-        torrent.select(prev.end + 1, bufferEnd, 1);
+        const selectStart = prev.end + 1;
+        if (selectStart <= bufferEnd) {
+          torrent.select(selectStart, bufferEnd, 1);
+        }
       }
     } else {
       torrent.deselect(0, fileEnd, 0);
@@ -788,6 +813,26 @@ export class TorrentService {
     }
 
     this.lastBufferWindow = { start: bufferStart, end: bufferEnd };
+    this.enforceBufferLimit();
+  }
+
+  private enforceBufferLimit(): void {
+    const torrent = this.activeTorrent as unknown as {
+      paused?: boolean;
+      pause?: () => void;
+      resume?: () => void;
+      downloaded?: number;
+    } | null;
+
+    if (!torrent?.pause || !torrent?.resume) return;
+
+    const downloaded = torrent.downloaded ?? 0;
+
+    if (downloaded > this.maxBufferBytes && !torrent.paused) {
+      torrent.pause();
+    } else if (downloaded < this.maxBufferBytes * 0.9 && torrent.paused) {
+      torrent.resume();
+    }
   }
 
   private async getClient(): Promise<TorrentClient> {
