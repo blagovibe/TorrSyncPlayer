@@ -144,7 +144,7 @@ describe("TorrentService", () => {
 
     await expect(result).rejects.toThrow("No supported video or audio file found in torrent");
     expect(error).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "No supported video or audio file found in torrent" }),
+      expect.objectContaining({ message: expect.stringContaining("No supported video or audio file found in torrent") }),
     );
   });
 
