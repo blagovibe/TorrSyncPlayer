@@ -551,7 +551,7 @@ export class TorrentService {
       mediaElement.src = objectUrl;
       mediaElement.load();
     } catch (blobError) {
-      throw new Error(`Failed to load media using all available methods. Last error: ${blobError.message}`);
+      throw new Error(`Failed to load media using all available methods. Last error: ${(blobError as Error)?.message ?? String(blobError)}`);
     }
   }
 

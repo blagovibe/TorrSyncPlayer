@@ -237,7 +237,8 @@ type P2PServiceState =
   | "connecting"
   | "connected"
   | "disconnecting"
-  | "destroyed";
+  | "destroyed"
+  | "reconnecting";
 
 export class P2PService {
   private peerId: string;
@@ -269,16 +270,48 @@ export class P2PService {
     this.cleanup = createCleanup();
   }
 
+  getPeerId(): string {
+    return this.peerId;
+  }
+
+  getLastRttMs(): number | null {
+    return this.lastRttMs;
+  }
+
+  getConnectionQuality(): ConnectionQuality {
+    if (this.lastRttMs === null) return "unknown";
+    if (this.lastRttMs < 100) return "good";
+    if (this.lastRttMs < 300) return "fair";
+    return "poor";
+  }
+
+  setHost(): void {
+    this.role = "host";
+  }
+
+  setGuest(): void {
+    this.role = "guest";
+  }
+
+  isHost(): boolean {
+    return this.role === "host";
+  }
+
   getState(): P2PServiceState {
     return this.state;
   }
 
   isConnected(): boolean {
-    return this.state === "connected";
+    return this.getOpenConnectionCount() > 0;
   }
 
   isInRoom(): boolean {
     return this.peer !== null && this.state !== "disconnected" && this.state !== "destroyed";
+  }
+
+  on<K extends EventKey>(event: K, callback: P2PEvents[K]): () => void {
+    this.listeners[event].add(callback);
+    return () => this.listeners[event].delete(callback);
   }
 
   on<K extends EventKey>(event: K, callback: P2PEvents[K]): () => void {
@@ -394,7 +427,7 @@ export class P2PService {
         resolve();
         return;
       }
-      if (this.isDestroyed) {
+      if (this.state === "destroyed") {
         reject(new Error("P2PService has been destroyed"));
         return;
       }
@@ -464,7 +497,7 @@ export class P2PService {
       this.cleanup.add(() => { this.peer?.off?.("error", onError); });
 
       const onDisconnected = () => {
-        if (this.isDisconnecting) return;
+        if (this.state === "disconnecting") return;
         this.emit("disconnected");
         this.attemptReconnect();
       };
@@ -517,75 +550,6 @@ export class P2PService {
     }, delay);
   }
 
-  sendSync(message: SyncMessage, targetPeerId?: string): void {
-    this.sendPayload({ type: "sync", message }, targetPeerId);
-  }
-
-  sendTorrentSource(
-    payload: {
-      source: SharedTorrentSource;
-      selectedMediaIndex: number | null;
-      selectedAudioTrackIndex: number | null;
-      selectedSubtitleIndex: number | null;
-    },
-    targetPeerId?: string,
-  ): void {
-    this.sendPayload({ type: "torrent_source", ...payload }, targetPeerId);
-  }
-
-  sendRoomConfig(payload: RoomConfigMessage, targetPeerId?: string): void {
-    this.sendPayload({
-      type: "room_config",
-      syncToleranceSeconds: payload.syncToleranceSeconds,
-      roomPassword: payload.roomPassword,
-    }, targetPeerId);
-  }
-
-  disconnect(): void {
-    if (this.state === "disconnecting" || this.state === "disconnected" || this.state === "destroyed") return;
-    
-    this.state = "disconnecting";
-    this.stopPingInterval();
-    this.cleanup.abort();
-
-    for (const connection of this.connections.values()) {
-      connection.close();
-    }
-    this.connections.clear();
-
-    if (this.peer) {
-      this.peer.destroy();
-      this.peer = null;
-    }
-
-    this.remotePeerId = null;
-    this.emit("disconnected");
-    this.state = "disconnected";
-  }
-
-  /**
-   * Full destruction. After calling this, the service cannot be reused.
-   */
-  destroy(): void {
-    this.state = "destroyed";
-    this.disconnect();
-    for (const key of Object.keys(this.listeners) as EventKey[]) {
-      this.listeners[key].clear();
-    }
-  }
-
-  isConnected(): boolean {
-    return this.getOpenConnectionCount() > 0;
-  }
-
-  isInRoom(): boolean {
-    return this.peer !== null && this.state !== "disconnected" && this.state !== "destroyed";
-  }
-
-  getRemotePeerId(): string | null {
-    return this.remotePeerId ?? (this.connections.size > 0 ? this.connections.keys().next().value ?? null : null);
-  }
-
   private handleIncomingConnection(conn: DataConnection): void {
     this.remotePeerId = conn.peer;
     this.bindConnection(conn.peer, conn, {
@@ -618,14 +582,14 @@ export class P2PService {
 
     const onConnOpen = () => {
       if (this.connections.get(peerId) !== conn) return;
-      if (this.isDisconnecting) return;
+      if (this.state === "disconnecting") return;
       if (options.emitPeerConnected) this.emit("peer_connected", peerId);
       options.onOpen?.();
       this.startPingInterval();
     };
 
     if (wasAlreadyOpen) {
-      if (this.isDisconnecting) return;
+      if (this.state === "disconnecting") return;
       if (options.emitPeerConnected) this.emit("peer_connected", peerId);
       options.onOpen?.();
       this.startPingInterval();
@@ -676,7 +640,7 @@ export class P2PService {
       if (this.remotePeerId === peerId) {
         this.remotePeerId = null;
       }
-      if (this.isDisconnecting) return;
+      if (this.state === "disconnecting") return;
       this.emit("peer_disconnected", peerId);
       options.onClose?.();
       if (this.getOpenConnectionCount() === 0) {
