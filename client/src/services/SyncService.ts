@@ -17,6 +17,12 @@ type SyncTransport = {
   sendSync: (message: SyncMessage) => void;
 };
 
+type SuppressFlags = {
+  play: boolean;
+  pause: boolean;
+  seeked: boolean;
+};
+
 export class SyncService {
   private readonly signaling: SyncTransport;
   private readonly video: HTMLVideoElement;
@@ -29,7 +35,11 @@ export class SyncService {
     sync_state: new Set(),
     outbound_sync: new Set(),
   };
-  private readonly suppressNextEventSync: Partial<Record<"play" | "pause" | "seeked", boolean>> = {};
+  private suppressNextEventSync: SuppressFlags = {
+    play: false,
+    pause: false,
+    seeked: false,
+  };
   private syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds;
   private isDisposed = false;
 

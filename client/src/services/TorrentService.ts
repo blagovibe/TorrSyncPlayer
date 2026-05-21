@@ -233,7 +233,9 @@ export class TorrentService {
   getPreferredMediaFile(torrent: TorrentInstance): TorrentMediaFile {
     const playableFiles = this.getPlayableMediaFiles(torrent);
     if (playableFiles.length === 0) {
-      throw new Error("No supported video or audio file found in torrent");
+      // Provide more detailed error information
+      const allFiles = torrent.files.map(f => f.name).join(', ');
+      throw new Error(`No supported video or audio file found in torrent. Available files: ${allFiles}`);
     }
     return playableFiles[0];
   }
@@ -481,21 +483,44 @@ export class TorrentService {
     mediaElement.load();
 
     if (file.streamUrl) {
-      // For formats not natively supported by browsers (e.g. MKV), use mux conversion
+      // Try multiple approaches in order of preference:
+      // 1. Native browser support (fastest, no conversion needed)
+      // 2. Electron mux conversion (for formats like MKV)
+      // 3. Direct stream URL (fallback)
+      
       const isNativeSupported = this.isBrowserSupportedFormat(file.name);
-      if (!isNativeSupported && this.electronBackend?.createMultiplexedStreamUrl) {
-        torrentLogger.info(`Format not browser-supported, using mux conversion for: ${file.name}`);
-        const muxUrl = await this.createMuxStreamUrl(
-          file,
-          null, // use default audio track
-          0,
-        );
-        if (muxUrl) {
-          await this.streamFromUrl(muxUrl, mediaElement);
-          return;
-        }
-        torrentLogger.warn("Mux conversion failed, falling back to direct stream");
+      
+      // Try native browser support first
+      if (isNativeSupported) {
+        torrentLogger.debug(`Using native browser support for: ${file.name}`);
+        await this.streamFromUrl(file.streamUrl, mediaElement);
+        return;
       }
+      
+      // Try mux conversion for non-native formats (if electron backend available)
+      if (this.electronBackend?.createMultiplexedStreamUrl) {
+        torrentLogger.info(`Format not browser-supported, attempting mux conversion for: ${file.name}`);
+        try {
+          const muxUrl = await this.createMuxStreamUrl(
+            file,
+            null, // use default audio track
+            0,
+          );
+          
+          if (muxUrl) {
+            torrentLogger.debug(`Mux conversion successful for: ${file.name}`);
+            await this.streamFromUrl(muxUrl, mediaElement);
+            return;
+          }
+        } catch (muxError) {
+          torrentLogger.warn("Mux conversion failed, will try direct stream", muxError);
+        }
+      } else {
+        torrentLogger.debug("Electron backend not available for mux conversion");
+      }
+      
+      // Fallback to direct stream
+      torrentLogger.info(`Falling back to direct stream for: ${file.name}`);
       await this.streamFromUrl(file.streamUrl, mediaElement);
       return;
     }
@@ -518,12 +543,16 @@ export class TorrentService {
     }
 
     // Fallback: download as blob and create object URL
-    const blob = await file.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    this.activeObjectUrl = objectUrl;
-    this.activeBlobUrls.add(objectUrl);
-    mediaElement.src = objectUrl;
-    mediaElement.load();
+    try {
+      const blob = await file.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      this.activeObjectUrl = objectUrl;
+      this.activeBlobUrls.add(objectUrl);
+      mediaElement.src = objectUrl;
+      mediaElement.load();
+    } catch (blobError) {
+      throw new Error(`Failed to load media using all available methods. Last error: ${blobError.message}`);
+    }
   }
 
   private streamFromUrl(streamUrl: string, mediaElement: HTMLMediaElement): Promise<void> {
