@@ -483,33 +483,21 @@ export class TorrentService {
     mediaElement.load();
 
     if (file.streamUrl) {
-      // Try multiple approaches in order of preference:
-      // 1. Native browser support (fastest, no conversion needed)
-      // 2. Electron mux conversion (for formats like MKV)
-      // 3. Direct stream URL (fallback)
-      
       const isNativeSupported = this.isBrowserSupportedFormat(file.name);
-      
-      // Try native browser support first
+
       if (isNativeSupported) {
         torrentLogger.debug(`Using native browser support for: ${file.name}`);
-        await this.streamFromUrl(file.streamUrl, mediaElement);
+        await this.streamWithRetry(file.streamUrl, mediaElement, file.name);
         return;
       }
-      
-      // Try mux conversion for non-native formats (if electron backend available)
+
       if (this.electronBackend?.createMultiplexedStreamUrl) {
         torrentLogger.info(`Format not browser-supported, attempting mux conversion for: ${file.name}`);
         try {
-          const muxUrl = await this.createMuxStreamUrl(
-            file,
-            null, // use default audio track
-            0,
-          );
-          
+          const muxUrl = await this.createMuxStreamUrl(file, null, 0);
           if (muxUrl) {
             torrentLogger.debug(`Mux conversion successful for: ${file.name}`);
-            await this.streamFromUrl(muxUrl, mediaElement);
+            await this.streamWithRetry(muxUrl, mediaElement, file.name);
             return;
           }
         } catch (muxError) {
@@ -518,10 +506,9 @@ export class TorrentService {
       } else {
         torrentLogger.debug("Electron backend not available for mux conversion");
       }
-      
-      // Fallback to direct stream
+
       torrentLogger.info(`Falling back to direct stream for: ${file.name}`);
-      await this.streamFromUrl(file.streamUrl, mediaElement);
+      await this.streamWithRetry(file.streamUrl, mediaElement, file.name);
       return;
     }
 
@@ -584,29 +571,54 @@ export class TorrentService {
         settle(resolve);
       };
 
+      const resettableTimeout = () => {
+        let id = this.cleanup.setTimeout(() => {
+          settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
+        }, STREAM_CONFIG.streamLoadTimeoutMs);
+        return {
+          clear: () => clearTimeout(id),
+          reset: () => { clearTimeout(id); id = this.cleanup.setTimeout(() => {
+            settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
+          }, STREAM_CONFIG.streamLoadTimeoutMs); },
+        };
+      };
+      const timeout = resettableTimeout();
+
+      const onLoadedMetadata = () => {
+        timeout.reset();
+      };
+
       signal.addEventListener("abort", () => {
+        timeout.clear();
         mediaElement.removeEventListener("error", onError);
         mediaElement.removeEventListener("canplay", onCanPlay);
         mediaElement.removeEventListener("loadeddata", onLoadedData);
-      }, { once: true });
-
-      const timeoutId = this.cleanup.setTimeout(() => {
-        settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
-      }, STREAM_CONFIG.streamLoadTimeoutMs);
-
-      signal.addEventListener("abort", () => {
-        clearTimeout(timeoutId);
+        mediaElement.removeEventListener("loadedmetadata", onLoadedMetadata);
       }, { once: true });
 
       mediaElement.addEventListener("error", onError, { signal });
       mediaElement.addEventListener("canplay", onCanPlay, { signal });
       mediaElement.addEventListener("loadeddata", onLoadedData, { signal });
+      mediaElement.addEventListener("loadedmetadata", onLoadedMetadata, { signal });
       if (streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
         mediaElement.crossOrigin = "anonymous";
       }
       mediaElement.src = streamUrl;
       mediaElement.load();
     });
+  }
+
+  private async streamWithRetry(streamUrl: string, mediaElement: HTMLMediaElement, fileName: string): Promise<void> {
+    try {
+      await this.streamFromUrl(streamUrl, mediaElement);
+    } catch (error) {
+      const isTimeout = error instanceof Error && error.message.startsWith("Stream load timed out");
+      if (!isTimeout) throw error;
+      torrentLogger.warn(`Stream timed out for ${fileName}, retrying once...`);
+      mediaElement.removeAttribute("src");
+      mediaElement.load();
+      await this.streamFromUrl(streamUrl, mediaElement);
+    }
   }
 
   formatMediaFileLabel(mediaFile: TorrentMediaFile): string {

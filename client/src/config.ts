@@ -32,7 +32,7 @@ export const SYNC_CONFIG = {
 } satisfies Record<string, number>;
 
 export const STREAM_CONFIG = {
-  streamLoadTimeoutMs: 30_000,
+  streamLoadTimeoutMs: 60_000,
   torrentAddTimeoutMs: 60_000,
   torrentDestroyTimeoutMs: 10_000,
   electronForceExitTimeoutMs: 5000,
