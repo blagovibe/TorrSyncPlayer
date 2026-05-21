@@ -1,4 +1,6 @@
 const { spawn } = require("node:child_process");
+const path = require("node:path");
+const MemoryChunkStore = require(path.join(__dirname, "..", "node_modules", "memory-chunk-store"));
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".ogv",
@@ -346,7 +348,7 @@ class TorrentBridge {
 
       let addedTorrent;
       try {
-        addedTorrent = client.add(torrentSource, (readyTorrent) => {
+        addedTorrent = client.add(torrentSource, { store: MemoryChunkStore }, (readyTorrent) => {
           settleResolve(readyTorrent);
         });
       } catch (error) {
