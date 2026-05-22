@@ -137,8 +137,9 @@ function App() {
     setSelectedSubtitles([]);
     setTorrentPeerCount(0);
     setPlaybackNotice(null);
-    setIsPlayerReady(false);
-    isPlayerReadyRef.current = false;
+    // Preserve player readiness across torrent resets to allow immediate playback after loading a new torrent.
+    // setIsPlayerReady(false);
+    // isPlayerReadyRef.current = false;
     selectedMediaIndexRef.current = null;
     selectedMediaFileRef.current = null;
     selectedAudioTrackIndexRef.current = null;

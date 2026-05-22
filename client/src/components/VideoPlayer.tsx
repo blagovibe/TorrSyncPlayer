@@ -133,8 +133,6 @@ function VideoPlayer({
   const [editBufferWindowMB, setEditBufferWindowMB] = useState(bufferWindowMB);
   const [editMaxBufferMB, setEditMaxBufferMB] = useState(maxBufferMB);
 
-  const seekAbortRef = useRef<AbortController | null>(null);
-
   const fallbackAudioTrackSnapshots = useMemo(
     () => fallbackAudioTracks.map((track, index) => ({
       sourceIndex: index,
@@ -301,88 +299,7 @@ function VideoPlayer({
   useEffect(() => { hasMediaMetadataRef.current = false; setAudioTracks([]); setAudioTracksSupported(detectAudioTracksSupport()); setSettingsOpen(false); setIsBuffering(false); setIsStalled(false); }, [mediaLabel]);
   useEffect(() => { if (audioTracksSupported) syncAudioTracks(); }, [audioTracksSupported, syncAudioTracks]);
 
-  // Cleanup seek abort controller on unmount
-  useEffect(() => {
-    return () => {
-      seekAbortRef.current?.abort();
-    };
-  }, []);
 
-  const lastSeekTimestampRef = useRef<number | null>(null);
-  const isSeekingRef = useRef(false);
-
-  // Seek handler: request new mux stream and update video src
-  const handleSeek = useCallback(async (timestamp: number) => {
-    if (!canControlPlayback) return;
-    const v = videoRef.current;
-    if (!v) return;
-
-    if (seekAbortRef.current) {
-      seekAbortRef.current.abort();
-    }
-    const abortController = new AbortController();
-    seekAbortRef.current = abortController;
-    isSeekingRef.current = true;
-
-    // Remember if video was playing before we potentially pause it
-    const wasPlaying = !v.paused;
-
-    if (onMuxStreamRequest) {
-      // We need to pause to change src in some browsers
-      v.pause();
-      setIsBuffering(true);
-      onBufferingChangeRef.current?.(true);
-      try {
-        const url = await onMuxStreamRequest(timestamp);
-        if (abortController.signal.aborted) {
-          isSeekingRef.current = false;
-          return;
-        }
-        if (url) {
-          v.src = url;
-          v.load();
-          await v.play();
-          setIsPlaying(true); // Video is now playing after seek
-          setCurrentTime(timestamp);
-          setIsBuffering(false);
-          onBufferingChangeRef.current?.(false);
-          lastSeekTimestampRef.current = timestamp;
-          isSeekingRef.current = false;
-          return;
-        }
-      } catch (err) {
-        if (!abortController.signal.aborted) {
-          console.error("Seek mux stream failed:", err);
-        }
-      }
-      setIsBuffering(false);
-      onBufferingChangeRef.current?.(false);
-      // If we get here, mux stream request failed or returned no URL
-      // Restore the previous play state since we didn't actually seek
-      if (wasPlaying) {
-        await v.play().catch(() => undefined);
-        setIsPlaying(true);
-      } else {
-        setIsPlaying(false);
-      }
-      return; // Important: return early to avoid falling through to fallback logic
-    }
-
-    // Fallback: direct seeking without changing src
-    if (!abortController.signal.aborted) {
-      v.currentTime = timestamp;
-      setCurrentTime(timestamp);
-      lastSeekTimestampRef.current = timestamp;
-      // Only play if we were playing before (to maintain state)
-      if (wasPlaying && v.paused) {
-        await v.play().catch(() => undefined);
-      }
-      // Update isPlaying to match actual video state
-      setIsPlaying(!v.paused);
-      onSeek?.(timestamp);
-    }
-    isSeekingRef.current = false;
-  }, [canControlPlayback, onMuxStreamRequest, onSeek, videoRef]);
 
   const hasSelectedMedia = Boolean(mediaLabel);
   const audioTrackStatusText = audioTracksSupported
@@ -413,13 +330,7 @@ function VideoPlayer({
         onSeeked={(e) => {
           if (!canControlPlayback) return;
           const targetTime = e.currentTarget.currentTime;
-          if (isSeekingRef.current) return;
-          if (lastSeekTimestampRef.current !== null && Math.abs(targetTime - lastSeekTimestampRef.current) < 1) {
-            lastSeekTimestampRef.current = null;
-            return;
-          }
-          lastSeekTimestampRef.current = null;
-          void handleSeek(targetTime);
+          onSeek?.(targetTime);
         }}
         onCanPlay={() => { setIsBuffering(false); setIsStalled(false); onBufferingChangeRef.current?.(false); }}
         onPause={() => setIsPlaying(false)}
