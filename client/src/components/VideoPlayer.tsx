@@ -324,7 +324,11 @@ function VideoPlayer({
     seekAbortRef.current = abortController;
     isSeekingRef.current = true;
 
+    // Remember if video was playing before we potentially pause it
+    const wasPlaying = !v.paused;
+
     if (onMuxStreamRequest) {
+      // We need to pause to change src in some browsers
       v.pause();
       setIsBuffering(true);
       onBufferingChangeRef.current?.(true);
@@ -338,7 +342,7 @@ function VideoPlayer({
           v.src = url;
           v.load();
           await v.play();
-          setIsPlaying(true);
+          setIsPlaying(true); // Video is now playing after seek
           setCurrentTime(timestamp);
           setIsBuffering(false);
           onBufferingChangeRef.current?.(false);
@@ -353,15 +357,28 @@ function VideoPlayer({
       }
       setIsBuffering(false);
       onBufferingChangeRef.current?.(false);
+      // If we get here, mux stream request failed or returned no URL
+      // Restore the previous play state since we didn't actually seek
+      if (wasPlaying) {
+        await v.play().catch(() => undefined);
+        setIsPlaying(true);
+      } else {
+        setIsPlaying(false);
+      }
+      return; // Important: return early to avoid falling through to fallback logic
     }
 
+    // Fallback: direct seeking without changing src
     if (!abortController.signal.aborted) {
       v.currentTime = timestamp;
       setCurrentTime(timestamp);
       lastSeekTimestampRef.current = timestamp;
-      if (!v.paused) {
+      // Only play if we were playing before (to maintain state)
+      if (wasPlaying && v.paused) {
         await v.play().catch(() => undefined);
       }
+      // Update isPlaying to match actual video state
+      setIsPlaying(!v.paused);
       onSeek?.(timestamp);
     }
     isSeekingRef.current = false;

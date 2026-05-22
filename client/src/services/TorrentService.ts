@@ -966,6 +966,7 @@ export class TorrentService {
   private revokeActiveObjectUrl(): void {
     if (!this.activeObjectUrl) return;
     URL.revokeObjectURL(this.activeObjectUrl);
+    this.activeBlobUrls.delete(this.activeObjectUrl);
     this.activeObjectUrl = null;
   }
 
