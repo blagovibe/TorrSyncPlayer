@@ -734,13 +734,13 @@ export class P2PService {
     }
   }
 
-   private handlePong(pongTs: number): void {
-     const rtt = Date.now() - pongTs;
-     if (rtt >= 0) {
-       this.lastRttMs = rtt;
-       this.emit("connection_quality", this.getConnectionQuality());
-     }
-   }
+    private handlePong(pongTs: number): void {
+      const rtt = Date.now() - pongTs;
+      if (rtt >= 0 && rtt < 30000) {
+        this.lastRttMs = rtt;
+        this.emit("connection_quality", this.getConnectionQuality());
+      }
+    }
 
    public sendTorrentSource(source: SharedTorrentSource, selectedMediaIndex: number | null, selectedAudioTrackIndex: number | null, selectedSubtitleIndex: number | null, targetPeerId?: string): void {
      this.sendPayload({

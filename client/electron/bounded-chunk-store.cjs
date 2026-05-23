@@ -50,7 +50,11 @@ class BoundedChunkStore {
     this.lruList.add(index);
     this.currentBytes += buf.length;
 
-    this.baseStore.put(index, buf, cb);
+    if (cb) {
+      this.baseStore.put(index, buf, cb);
+    } else {
+      this.baseStore.put(index, buf);
+    }
   }
 
   get(index, opts, cb) {

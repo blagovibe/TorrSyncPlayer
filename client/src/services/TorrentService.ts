@@ -32,14 +32,23 @@ export interface TorrentMediaFile {
   file: TorrentFile;
 }
 
+type TorrentEventCallback = {
+  peer: (peerId: string) => void;
+  wire: (wire: { on: (event: string, handler: () => void) => void; off: (event: string, handler: () => void) => void }) => void;
+  noPeers: () => void;
+  download: () => void;
+  metadata: () => void;
+  ready: () => void;
+  error: (error?: Error) => void;
+};
+
 interface TorrentInstance {
   files: TorrentFile[];
   progress: number;
   downloadSpeed: number;
   numPeers: number;
   discoveredPeerCount?: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on?: (event: string, callback: (...args: any[]) => void) => void;
+  on?: (event: string, callback: (...args: unknown[]) => void) => void;
   destroy?: (callback?: (error?: Error) => void) => void;
   select?: (start: number, end: number, priority: number) => void;
   deselect?: (start: number, end: number, priority: number) => void;
@@ -387,26 +396,26 @@ export class TorrentService {
       };
 
       // Track unique discovered peers
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "peer", (peerId: unknown) => {
+      const onPeer: TorrentEventCallback["peer"] = (peerId) => {
         const normalized = this.normalizePeerId(peerId);
         if (normalized && !discoveredPeerIds.has(normalized)) {
           discoveredPeerIds.add(normalized);
           emitDiscoveredPeerCount();
         }
-      });
+      };
+      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "peer", onPeer as (...args: unknown[]) => void);
 
       // Track wire connections separately — wire count is informational
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const onWire = (wire: any) => {
+      const onWire: TorrentEventCallback["wire"] = (wire) => {
         if (wire?.on) {
           const closeHandler = () => {};
           wire.on("close", closeHandler);
-          this.cleanup.add(() => wire.off?.("close", closeHandler));
+          this.cleanup.add(() => wire.off("close", closeHandler));
         }
       };
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "wire", onWire as (...args: unknown[]) => void);
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitDiscoveredPeerCount);
+      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitDiscoveredPeerCount as (...args: unknown[]) => void);
 
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "download", () => {
         const prog = Math.round(torrent.progress * 100) / 100;
@@ -437,14 +446,14 @@ export class TorrentService {
         }
       };
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "metadata", onMetadataOrReady("metadata"));
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "ready", onMetadataOrReady("ready"));
+      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "metadata", onMetadataOrReady("metadata") as (...args: unknown[]) => void);
+      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "ready", onMetadataOrReady("ready") as (...args: unknown[]) => void);
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "error", ((error?: Error) => {
-        const normalized = this.normalizeError(error);
-        this.emit("error", normalized);
-        settleReject(normalized);
-      }) as (...args: unknown[]) => void);
+this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "error", ((error?: Error) => {
+          const normalized = this.normalizeError(error);
+          this.emit("error", normalized);
+          settleReject(normalized);
+        }) as (...args: unknown[]) => void);
     });
   }
 

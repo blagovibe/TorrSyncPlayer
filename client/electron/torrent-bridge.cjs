@@ -764,12 +764,30 @@ class TorrentBridge {
 
       if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
         activeFfmpegCount++;
-        ffmpeg = spawnFfmpeg();
+        try {
+          ffmpeg = spawnFfmpeg();
+        } catch (spawnError) {
+          activeFfmpegCount--;
+          if (ffmpegQueue.length > 0) {
+            const next = ffmpegQueue.shift();
+            next();
+          }
+          throw spawnError;
+        }
       } else {
         await new Promise((resolve) => {
           ffmpegQueue.push(() => {
             activeFfmpegCount++;
-            ffmpeg = spawnFfmpeg();
+            try {
+              ffmpeg = spawnFfmpeg();
+            } catch (spawnError) {
+              activeFfmpegCount--;
+              if (ffmpegQueue.length > 0) {
+                const next = ffmpegQueue.shift();
+                next();
+              }
+              throw spawnError;
+            }
             resolve();
           });
         });

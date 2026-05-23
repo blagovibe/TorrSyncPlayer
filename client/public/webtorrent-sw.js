@@ -1,7 +1,7 @@
-const listener = (event) => {
+const listener = async (event) => {
   // Only handle requests from our own origin
   if (event.clientId) {
-    const client = clients.get(event.clientId).catch(() => null);
+    const client = await clients.get(event.clientId).catch(() => null);
     if (!client) return null;
   }
 
