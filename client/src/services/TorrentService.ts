@@ -359,9 +359,9 @@ export class TorrentService {
         reject(error);
       };
 
-      let torrent: TorrentInstance;
+       let torrent: TorrentInstance;
       try {
-        const raw = client.add(torrentSource, { sequential: true });
+        const raw = client.add(torrentSource);
         if (!raw || typeof raw !== "object") {
           settleReject(new Error("Torrent client failed to create a torrent instance"));
           return;

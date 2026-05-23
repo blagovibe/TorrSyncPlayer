@@ -377,7 +377,7 @@ class TorrentBridge {
         const storeOpts = {
           maxBytes: this.maxBufferBytes,
         };
-        addedTorrent = client.add(torrentSource, { store: BoundedChunkStore, storeOpts, sequential: true }, (readyTorrent) => {
+        addedTorrent = client.add(torrentSource, { store: BoundedChunkStore, storeOpts }, (readyTorrent) => {
           settleResolve(readyTorrent);
         });
       } catch (error) {
