@@ -52,6 +52,13 @@ export interface TorrentSourceMessage {
   selectedSubtitleIndex: number | null;
 }
 
+export interface ChatMessage {
+  id?: string;
+  sender: string;
+  text: string;
+  timestamp: number;
+}
+
 export type ConnectionQuality = "good" | "fair" | "poor" | "unknown";
 
 export type PeerRole = "master" | "slave";

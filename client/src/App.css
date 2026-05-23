@@ -469,6 +469,19 @@ button:hover {
   to { transform: rotate(360deg); }
 }
 
+.chat-message.self .msg-sender,
+.chat-message.self .msg-text {
+  color: #fff;
+}
+
+.chat-message.peer .msg-sender {
+  color: #a9cbff;
+}
+
+.chat-message.peer .msg-text {
+  background: #101b2f;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     padding: 16px;

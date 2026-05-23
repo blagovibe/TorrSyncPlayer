@@ -26,8 +26,8 @@ export const P2P_CONFIG = {
 } as const;
 
 export const SYNC_CONFIG = {
-  defaultToleranceSeconds: 0.5,
-  heartbeatIntervalMs: 1000,
+  defaultToleranceSeconds: 1.5,
+  heartbeatIntervalMs: 2000,
   maxLatencyCompensationSeconds: 5,
 } satisfies Record<string, number>;
 

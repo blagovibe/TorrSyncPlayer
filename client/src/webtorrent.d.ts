@@ -24,11 +24,12 @@ declare module "webtorrent" {
     tracker?: {
       announce?: string[];
     };
+    sequential?: boolean;
   }
 
   class WebTorrent {
     constructor(options?: WebTorrentOptions);
-    add: (source: string | Uint8Array, callback?: (torrent: Torrent) => void) => Torrent;
+    add: (source: string | Uint8Array, opts?: Record<string, unknown>, callback?: (torrent: Torrent) => void) => Torrent;
     createServer: (options?: { controller?: ServiceWorkerRegistration; origin?: string }) => { listen: (port: number, host: string, callback?: () => void) => void; address: () => { port: number } | string | null; close: () => void; server?: { close: () => void } };
     destroy: (callback?: (error?: Error) => void) => void;
     _server?: { close: () => void };

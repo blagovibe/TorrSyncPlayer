@@ -27,6 +27,7 @@ type P2PEvents = {
   error: (error: Error) => void;
   reconnecting: (attempt: number, delayMs: number) => void;
   connection_quality: (quality: ConnectionQuality) => void;
+  chat_received: (senderId: string, content: string) => void;
 };
 
 type EventKey = keyof P2PEvents;
@@ -42,7 +43,8 @@ type OutboundMessage =
     }
   | { type: "room_config"; syncToleranceSeconds: number; roomPassword?: string }
   | { type: "ping"; ts: number }
-  | { type: "pong"; ts: number };
+  | { type: "pong"; ts: number }
+  | { type: "chat"; content: string };
 
 export const WEBRTC_UNAVAILABLE_MESSAGE =
   "WebRTC data channels are not available in the current desktop runtime. Use the Electron build, which ships Chromium with WebRTC support.";
@@ -199,6 +201,11 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
         return { type: "pong", ts: message.ts };
       }
       return null;
+    case "chat":
+      if (typeof message.content === "string" && message.content.trim().length > 0) {
+        return { type: "chat", content: message.content.trim() };
+      }
+      return null;
     default:
       return null;
   }
@@ -263,6 +270,7 @@ export class P2PService {
     error: new Set(),
     reconnecting: new Set(),
     connection_quality: new Set(),
+    chat_received: new Set(),
   };
 
   constructor() {
@@ -622,6 +630,17 @@ export class P2PService {
         case "pong":
           this.handlePong(message.ts);
           break;
+        case "chat":
+          this.emit("chat_received", conn.peer, message.content);
+          // If host, forward to all other peers
+          if (this.role === "host") {
+            for (const [peerId, connection] of this.connections.entries()) {
+              if (peerId !== conn.peer && connection.open) {
+                connection.send({ type: "chat", content: message.content });
+              }
+            }
+          }
+          break;
       }
     };
     conn.on("data", onConnData);
@@ -692,7 +711,7 @@ export class P2PService {
     this.stopPingInterval();
     this.pingIntervalId = this.cleanup.setInterval(() => {
       this.sendPing();
-    }, 5000);
+    }, 2000);
   }
 
   private stopPingInterval(): void {
@@ -741,12 +760,17 @@ export class P2PService {
      }, targetPeerId);
    }
 
-   public sendSync(message: SyncMessage, targetPeerId?: string): void {
-     this.sendPayload({
-       type: "sync",
-       message,
-     }, targetPeerId);
-   }
+  public sendSync(message: SyncMessage, targetPeerId?: string): void {
+    this.sendPayload({
+      type: "sync",
+      message,
+    }, targetPeerId);
+  }
+
+  public sendChat(content: string, targetPeerId?: string): void {
+    if (!content?.trim()) return;
+    this.sendPayload({ type: "chat", content }, targetPeerId);
+  }
 
    public disconnect(): void {
      this.state = "disconnecting";

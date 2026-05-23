@@ -106,7 +106,7 @@ function VideoPlayer({
   maxBufferMB = 500,
   onBufferSettingsChange,
   onSeek,
-  onMuxStreamRequest,
+  onMuxStreamRequest: _onMuxStreamRequest,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;

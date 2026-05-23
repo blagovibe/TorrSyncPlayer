@@ -377,7 +377,7 @@ class TorrentBridge {
         const storeOpts = {
           maxBytes: this.maxBufferBytes,
         };
-        addedTorrent = client.add(torrentSource, { store: BoundedChunkStore, storeOpts }, (readyTorrent) => {
+        addedTorrent = client.add(torrentSource, { store: BoundedChunkStore, storeOpts, sequential: true }, (readyTorrent) => {
           settleResolve(readyTorrent);
         });
       } catch (error) {
@@ -539,12 +539,13 @@ class TorrentBridge {
     }
 
     if (!this.clientPromise) {
-      this.clientPromise = import("webtorrent").then(({ default: WebTorrent }) => {
-        this.client = new WebTorrent({
-          maxConns: MAX_TORRENT_CONNECTIONS,
-        });
-        return this.client;
+    this.clientPromise = import("webtorrent").then(({ default: WebTorrent }) => {
+      this.client = new WebTorrent({
+        maxConns: MAX_TORRENT_CONNECTIONS,
+        sequential: true,
       });
+      return this.client;
+    });
     }
 
     return this.clientPromise;

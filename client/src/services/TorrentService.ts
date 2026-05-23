@@ -57,7 +57,7 @@ type TorrentEvents = {
 type EventKey = keyof TorrentEvents;
 type TorrentSource = string | Uint8Array;
 type TorrentClient = {
-  add: (torrentSource: TorrentSource, callback?: (torrent: TorrentInstance) => void) => TorrentInstance | null;
+  add: (torrentSource: TorrentSource, opts?: Record<string, unknown>, callback?: (torrent: TorrentInstance) => void) => TorrentInstance | null;
   destroy: (callback?: () => void) => void;
   createServer?: (options: { controller: ServiceWorkerRegistration }) => unknown;
   _server?: { close?: () => void };
@@ -361,7 +361,7 @@ export class TorrentService {
 
       let torrent: TorrentInstance;
       try {
-        const raw = client.add(torrentSource);
+        const raw = client.add(torrentSource, { sequential: true });
         if (!raw || typeof raw !== "object") {
           settleReject(new Error("Torrent client failed to create a torrent instance"));
           return;
@@ -841,6 +841,7 @@ export class TorrentService {
       this.client = new WebTorrent({
         maxConns: TORRENT_CONFIG.maxConnections,
         tracker: { announce: getTrackerUrls() },
+        sequential: true,
       }) as TorrentClient;
     }
     return this.client;

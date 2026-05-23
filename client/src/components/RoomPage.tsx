@@ -57,6 +57,8 @@ interface RoomPageProps {
   rttMs?: number | null;
   onShowLeaveConfirm?: () => void;
   onShowResetConfirm?: () => void;
+  chatMessages?: { id?: string; sender: string; text: string; timestamp: number }[];
+  onSendChat?: (text: string) => void;
 }
 
 function RoomPage({
@@ -109,7 +111,9 @@ function RoomPage({
   connectionQuality,
   rttMs,
   onShowLeaveConfirm,
-  onShowResetConfirm,
+          onShowResetConfirm,
+          chatMessages,
+          onSendChat,
 }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -421,6 +425,8 @@ function RoomPage({
           onLeaveRoom={onShowLeaveConfirm ?? onLeaveRoom}
           onCopyPeerId={copyPeerId}
           copied={copied}
+          chatMessages={chatMessages}
+          onSendChat={onSendChat}
         />
       </div>
       <StatusBar

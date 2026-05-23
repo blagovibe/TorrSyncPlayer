@@ -23,7 +23,7 @@ type TorrentLoadRequest = {
   broadcast: boolean;
 };
 
-const DEFAULT_SYNC_TOLERANCE_SECONDS = 0.5;
+const DEFAULT_SYNC_TOLERANCE_SECONDS = 1.5;
 
 function hashBytes(bytes: Uint8Array): string {
   let hash = 0x811c9dc5;
@@ -89,6 +89,7 @@ function App() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ id?: string; sender: string; text: string; timestamp: number }[]>([]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -602,6 +603,11 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
       setRttMs(p2pService.getLastRttMs());
     });
 
+    p2pService.on("chat_received", (senderId, content) => {
+      const message = { id: `${senderId}-${Date.now()}`, sender: senderId, text: content, timestamp: Date.now() };
+      setChatMessages(prev => [...prev, message]);
+    });
+
     await p2pService.initialize();
     setPeerId(p2pService.getPeerId());
     return p2pService;
@@ -719,6 +725,7 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     setTrackerLost(false);
     setShowLeaveConfirm(false);
     resetTorrentState();
+    setChatMessages([]);
   };
 
   const handleResetTorrentInRoom = async () => {
@@ -1062,6 +1069,13 @@ await getTorrentService().streamToMedia(mediaFile.file, mediaElement);
     win.torrsyncElectronWindow?.closeCancelled();
   }, []);
 
+  const handleSendChat = useCallback((text: string) => {
+    if (!text.trim() || !p2pServiceRef.current) return;
+    const message = { id: `${Date.now()}-${peerId}`, sender: peerId, text: text.trim(), timestamp: Date.now() };
+    setChatMessages(prev => [...prev, message]);
+    p2pServiceRef.current.sendChat(message.text);
+  }, [peerId]);
+
   return (
     <main className="app-shell">
       {currentView === "home" ? (
@@ -1132,6 +1146,8 @@ selectedMediaAudioTracks={selectedMediaAudioTracks}
           rttMs={rttMs}
           onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
           onShowResetConfirm={() => setShowResetConfirm(true)}
+          chatMessages={chatMessages}
+          onSendChat={handleSendChat}
         />
       )}
       <ConfirmModal
