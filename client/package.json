@@ -25,7 +25,7 @@
     "webtorrent": "^2.6.0"
   },
   "overrides": {
-    "ip": ">=2.0.2"
+    "ip": "2.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
