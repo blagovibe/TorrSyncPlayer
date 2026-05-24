@@ -1,20 +1,21 @@
 {
   "name": "torrsyncplayer",
   "private": true,
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Sync video playback via torrent-backed media sharing.",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:1420 && electron .\"",
     "build": "tsc && vite build",
-    "electron:build": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --publish never",
-    "electron:build:linux": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --linux AppImage --publish never",
-    "electron:build:win": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --win nsis portable --publish never",
+    "electron:build": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app",
+    "electron:build:linux": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --linux AppImage",
+    "electron:build:win": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --win nsis portable",
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "test": "PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
+    "test": "vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -23,8 +24,14 @@
     "react-dom": "^18.3.1",
     "webtorrent": "^2.6.0"
   },
+  "overrides": {
+    "ip": ">=2.0.2"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.3.8",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -38,6 +45,7 @@
     "eslint-plugin-react-refresh": "^0.4.26",
     "events": "^3.3.0",
     "globals": "^15.15.0",
+    "jsdom": "^29.1.1",
     "path-browserify": "^1.0.1",
     "process": "^0.11.10",
     "stream-browserify": "^3.0.0",

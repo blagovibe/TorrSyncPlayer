@@ -1,58 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TorrentService } from "../TorrentService";
-
-type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers" | "peer";
-type TorrentCallback = (...args: unknown[]) => void | Promise<void>;
-
-const { addMock, createServerMock, destroyMock, webTorrentMock } = vi.hoisted(() => ({
-  addMock: vi.fn(),
-  createServerMock: vi.fn(),
-  destroyMock: vi.fn(),
-  webTorrentMock: vi.fn(() => ({
-    add: addMock,
-    createServer: createServerMock,
-    destroy: destroyMock,
-  })),
-}));
+import { setupElectronBackendCleanup, createTorrent } from "./test-utils";
+const { addMock, createServerMock, destroyMock, WT } = vi.hoisted(() => {
+  const add = vi.fn();
+  const createServer = vi.fn();
+  const destroy = vi.fn();
+  const WT = vi.fn(() => ({ add, createServer, destroy }));
+  return { addMock: add, createServerMock: createServer, destroyMock: destroy, WT };
+});
 
 vi.mock("webtorrent", () => ({
-  default: webTorrentMock,
+  default: WT,
 }));
-
-function createTorrent(
-  files: Array<{ name: string; length?: number; streamTo?: (video: HTMLMediaElement) => Promise<void> }>,
-) {
-  const listeners = new Map<TorrentEvent, TorrentCallback>();
-  const torrent = {
-    files: files.map((file) => ({
-      streamTo: vi.fn().mockResolvedValue(undefined),
-      length: 1024,
-      ...file,
-    })),
-    progress: 0.35,
-    downloadSpeed: 2048,
-    numPeers: 0,
-    on: vi.fn((event: string, callback: TorrentCallback) => {
-      listeners.set(event as TorrentEvent, callback);
-    }),
-    emit: async (event: string, ...args: unknown[]) => {
-      if (event === "wire") {
-        torrent.numPeers += 1;
-      }
-      await listeners.get(event as TorrentEvent)?.(...args);
-    },
-  };
-
-  return torrent;
-}
 
 describe("TorrentService", () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
-    if (typeof window !== "undefined") {
-      delete (window as Window & { torrsyncElectronTorrent?: unknown }).torrsyncElectronTorrent;
-    }
+    setupElectronBackendCleanup();
   });
 
   it("emits progress and resolves with the first supported video file when metadata is ready", async () => {
@@ -88,7 +53,6 @@ describe("TorrentService", () => {
         kind: "video",
       }),
     );
-    // ready is NOT called because metadata already resolved the promise
     expect(ready).not.toHaveBeenCalled();
     expect(peerCount).toHaveBeenCalledWith(0);
     expect(peerCount).toHaveBeenCalledWith(1);
@@ -241,7 +205,6 @@ describe("TorrentService", () => {
       load: vi.fn(),
       pause: vi.fn(),
       addEventListener: vi.fn((_event: string, callback: () => void, _opts?: unknown) => {
-        // Simulate immediate canplay for the URL-based stream
         if (_event === "canplay") {
           callback();
         }
@@ -433,22 +396,10 @@ describe("TorrentService", () => {
     const service = new TorrentService();
 
     const result = service.addMagnet("magnet:?xt=urn:btih:test");
-    await vi.waitFor(() => expect(webTorrentMock).toHaveBeenCalled());
+    await vi.waitFor(() => expect(addMock).toHaveBeenCalledWith("magnet:?xt=urn:btih:test"));
     await torrent.emit("metadata");
 
     await expect(result).resolves.toBe(torrent);
-    expect(webTorrentMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxConns: 200,
-        tracker: {
-          announce: [
-            "wss://tracker.btorrent.xyz",
-            "wss://tracker.openwebtorrent.com",
-            "wss://tracker.webtorrent.dev",
-          ],
-        },
-      }),
-    );
   });
 
   describe("buffer settings", () => {

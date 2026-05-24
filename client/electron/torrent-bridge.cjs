@@ -1,8 +1,8 @@
 const { spawn } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const path = require("node:path");
-const MemoryChunkStore = require(path.join(__dirname, "..", "node_modules", "memory-chunk-store"));
-const { BoundedChunkStore } = require(path.join(__dirname, "bounded-chunk-store.cjs"));
+const MemoryChunkStore = require("memory-chunk-store");
+const { BoundedChunkStore } = require("./bounded-chunk-store.cjs");
 
 const DEFAULT_MAX_BUFFER_MB = 500;
 
@@ -32,26 +32,38 @@ const ffmpegQueue = [];
 
 function runWithFfmpegLimit(fn) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settleResolve = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const settleReject = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     const task = async () => {
       activeFfmpegCount++;
       try {
         const result = await fn();
-        resolve(result);
+        settleResolve(result);
       } catch (error) {
-        reject(error);
+        settleReject(error);
       } finally {
         activeFfmpegCount--;
         if (ffmpegQueue.length > 0) {
           const next = ffmpegQueue.shift();
-          next();
+          next.task();
         }
       }
     };
+    const entry = { task, reject: settleReject };
 
     if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
       task();
     } else {
-      ffmpegQueue.push(task);
+      ffmpegQueue.push(entry);
     }
   });
 }
@@ -99,6 +111,21 @@ function getMediaKind(extension) {
   return null;
 }
 
+const MAX_TORRENT_FILE_COUNT = 10_000;
+const MAX_TORRENT_FILENAME_LENGTH = 512;
+
+function validateTorrentFiles(files) {
+  if (!Array.isArray(files)) return;
+  if (files.length > MAX_TORRENT_FILE_COUNT) {
+    throw new Error(`Torrent contains too many files (${files.length}). Maximum allowed is ${MAX_TORRENT_FILE_COUNT}.`);
+  }
+  for (const file of files) {
+    if (typeof file?.name === "string" && file.name.length > MAX_TORRENT_FILENAME_LENGTH) {
+      throw new Error(`Torrent file name exceeds maximum length (${file.name.length} > ${MAX_TORRENT_FILENAME_LENGTH}): ${file.name.slice(0, 64)}…`);
+    }
+  }
+}
+
 function formatTorrentFile(file, index, streamBaseUrl) {
   const extension = getFileExtension(file.name);
   const kind = getMediaKind(extension);
@@ -120,6 +147,7 @@ function formatTorrentFile(file, index, streamBaseUrl) {
 }
 
 function formatTorrentSnapshot(torrent, discoveredPeerCount = 0, streamBaseUrl) {
+  validateTorrentFiles(torrent.files);
   const files = torrent.files
     .map((file, index) => formatTorrentFile(file, index, streamBaseUrl))
     .filter(Boolean)
@@ -244,6 +272,7 @@ class TorrentBridge {
     this.audioServer = null;
     this.audioServerPromise = null;
     this.audioServerBaseUrl = null;
+    this._ensureAudioServerTimeout = null;
     this.audioSessions = new Map();
     this.audioSessionCounter = 0;
     this.maxBufferBytes = DEFAULT_MAX_BUFFER_MB * 1024 * 1024;
@@ -320,7 +349,10 @@ class TorrentBridge {
     }
     this.audioServerPromise = null;
     this.audioServerBaseUrl = null;
-    // Reject any pending audio server waiter
+    if (this._ensureAudioServerTimeout) {
+      clearTimeout(this._ensureAudioServerTimeout);
+      this._ensureAudioServerTimeout = null;
+    }
     if (this._resolveAudioServerWaiter) {
       this._resolveAudioServerWaiter(null);
       this._resolveAudioServerWaiter = null;
@@ -574,7 +606,7 @@ class TorrentBridge {
     }
 
     this.serverPromise = (async () => {
-      const server = client.createServer({ origin: "*" });
+      const server = client.createServer();
 
       await new Promise((resolve, reject) => {
         const underlyingServer = server?.server;
@@ -625,12 +657,23 @@ class TorrentBridge {
     if (!this._ensureAudioServerWaiter) {
       this._ensureAudioServerWaiter = new Promise((resolve) => {
         this._resolveAudioServerWaiter = resolve;
+        this._ensureAudioServerTimeout = setTimeout(() => {
+          if (this._resolveAudioServerWaiter) {
+            this._resolveAudioServerWaiter(null);
+            this._resolveAudioServerWaiter = null;
+            this._ensureAudioServerWaiter = null;
+          }
+        }, 10_000);
       });
     }
     const result = await this._ensureAudioServerWaiter;
+    if (this._ensureAudioServerTimeout) {
+      clearTimeout(this._ensureAudioServerTimeout);
+      this._ensureAudioServerTimeout = null;
+    }
     if (!result) {
       this._ensureAudioServerWaiter = null;
-      throw new Error("Audio server is unavailable — the application is shutting down");
+      throw new Error("Audio server is unavailable — timed out waiting for stream base URL");
     }
     return result;
   }
@@ -687,6 +730,7 @@ class TorrentBridge {
     }
 
     try {
+      this.validateLocalStreamUrl(session.streamUrl);
       const ffmpegArgs = isMux
         ? [
             "-hide_banner",
@@ -760,39 +804,34 @@ class TorrentBridge {
 
       // Rate limit ffmpeg processes to prevent resource exhaustion
       const spawnFfmpeg = () => spawn("ffmpeg", ffmpegArgs);
-      let ffmpeg;
 
       if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
         activeFfmpegCount++;
-        try {
-          ffmpeg = spawnFfmpeg();
-        } catch (spawnError) {
-          activeFfmpegCount--;
-          if (ffmpegQueue.length > 0) {
-            const next = ffmpegQueue.shift();
-            next();
-          }
-          throw spawnError;
-        }
+        session.process = spawnFfmpeg();
       } else {
-        await new Promise((resolve) => {
-          ffmpegQueue.push(() => {
-            activeFfmpegCount++;
-            try {
-              ffmpeg = spawnFfmpeg();
-            } catch (spawnError) {
-              activeFfmpegCount--;
-              if (ffmpegQueue.length > 0) {
-                const next = ffmpegQueue.shift();
-                next();
+        await new Promise((resolve, reject) => {
+          ffmpegQueue.push({
+            task: () => {
+              activeFfmpegCount++;
+              try {
+                session.process = spawnFfmpeg();
+              } catch (spawnError) {
+                activeFfmpegCount--;
+                session.process = null;
+                if (ffmpegQueue.length > 0) {
+                  const next = ffmpegQueue.shift();
+                  next.task();
+                }
+                reject(spawnError);
+                return;
               }
-              throw spawnError;
-            }
-            resolve();
+              resolve();
+            },
+            reject,
           });
         });
       }
-      session.process = ffmpeg;
+      const ffmpeg = session.process;
 
       response.statusCode = 200;
       response.setHeader("Content-Type", isSubtitle ? "text/vtt" : isMux ? "video/webm" : "audio/mpeg");
@@ -829,7 +868,7 @@ class TorrentBridge {
 
       ffmpeg.stderr.on("data", (chunk) => {
         const message = String(chunk).trim();
-        if (message && process.env.NODE_ENV !== "test") {
+        if (message && !process.env.VITEST && process.env.NODE_ENV !== "test") {
           console.warn("[ffmpeg] %s", message);
         }
       });
@@ -972,7 +1011,14 @@ class TorrentBridge {
       }
     }
     this.audioSessions.clear();
-    // Drain the queue since we're clearing everything
+    // Reject all pending ffmpeg queue tasks — the service is shutting down
+    for (const pending of ffmpegQueue) {
+      try {
+        pending.reject(new Error("Torrent bridge is shutting down"));
+      } catch {
+        // Ignore
+      }
+    }
     ffmpegQueue.length = 0;
   }
 

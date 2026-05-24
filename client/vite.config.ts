@@ -9,6 +9,15 @@ export default defineConfig(async () => ({
   root: ".",
   build: {
     outDir: "dist",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          webtorrent: ["webtorrent"],
+          peerjs: ["peerjs"],
+        },
+      },
+    },
   },
   resolve: {
     alias: {

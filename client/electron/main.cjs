@@ -68,6 +68,11 @@ async function resolveStaticAsset(requestPath) {
   return null;
 }
 
+function buildCspHeader(streamBaseUrl) {
+  const mediaSource = streamBaseUrl || "'self'";
+  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${mediaSource}; connect-src 'self' wss://0.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz ${mediaSource}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`;
+}
+
 function startStaticServer() {
   if (staticServerInstance) {
     return Promise.resolve(staticServerInstance);
@@ -78,22 +83,30 @@ function startStaticServer() {
   }
 
   staticServerPromise = new Promise((resolve, reject) => {
+    let streamBaseUrl = null;
     const server = http.createServer(async (request, response) => {
       try {
         if (!request.url) {
           response.statusCode = 400;
+          response.setHeader("X-Content-Type-Options", "nosniff");
+          response.setHeader("X-Frame-Options", "DENY");
+          response.setHeader("Content-Security-Policy", buildCspHeader(streamBaseUrl));
           response.end();
           return;
         }
 
         const { pathname } = new URL(request.url, "http://127.0.0.1");
 
-        // Route /mux/*, /audio/*, and /subtitle/* to torrent bridge (same-origin, no CORS/PNA issues)
         if (pathname.startsWith("/mux/") || pathname.startsWith("/audio/") || pathname.startsWith("/subtitle/")) {
           torrentBridge.handleAudioRequest(request, response).catch((error) => {
             console.error("[TorrSyncPlayer] Audio/mux request failed:", error);
             if (!response.headersSent) {
               response.statusCode = 500;
+              response.setHeader("X-Content-Type-Options", "nosniff");
+              response.setHeader("X-Frame-Options", "DENY");
+              response.setHeader("X-XSS-Protection", "1; mode=block");
+              response.setHeader("Referrer-Policy", "no-referrer");
+              response.setHeader("Content-Security-Policy", buildCspHeader(streamBaseUrl));
               response.end("Stream request failed");
             } else {
               response.destroy();
@@ -105,6 +118,9 @@ function startStaticServer() {
         if (request.method !== "GET" && request.method !== "HEAD") {
           response.statusCode = 405;
           response.setHeader("Allow", "GET, HEAD");
+          response.setHeader("X-Content-Type-Options", "nosniff");
+          response.setHeader("X-Frame-Options", "DENY");
+          response.setHeader("Content-Security-Policy", buildCspHeader(streamBaseUrl));
           response.end();
           return;
         }
@@ -113,6 +129,9 @@ function startStaticServer() {
 
         if (!assetPath) {
           response.statusCode = 404;
+          response.setHeader("X-Content-Type-Options", "nosniff");
+          response.setHeader("X-Frame-Options", "DENY");
+          response.setHeader("Content-Security-Policy", buildCspHeader(streamBaseUrl));
           response.end();
           return;
         }
@@ -125,13 +144,17 @@ function startStaticServer() {
         response.setHeader("X-Frame-Options", "DENY");
         response.setHeader("X-XSS-Protection", "1; mode=block");
         response.setHeader("Referrer-Policy", "no-referrer");
-        response.setHeader(
-          "Content-Security-Policy",
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: http://127.0.0.1; connect-src 'self' wss://*.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
-        );
+        response.setHeader("Content-Security-Policy", buildCspHeader(streamBaseUrl));
         response.end(request.method === "HEAD" ? undefined : body);
       } catch (error) {
-        response.statusCode = 500;
+        if (!response.headersSent) {
+          response.statusCode = 500;
+          response.setHeader("X-Content-Type-Options", "nosniff");
+          response.setHeader("X-Frame-Options", "DENY");
+          response.setHeader("X-XSS-Protection", "1; mode=block");
+          response.setHeader("Referrer-Policy", "no-referrer");
+          response.setHeader("Content-Security-Policy", buildCspHeader(streamBaseUrl));
+        }
         response.end("Internal Server Error");
       }
     });
@@ -143,10 +166,10 @@ function startStaticServer() {
         return;
       }
 
-      // Inform torrent bridge about the base URL for stream URLs
-      torrentBridge.setStreamBaseUrl(`http://127.0.0.1:${address.port}`);
+      streamBaseUrl = `http://127.0.0.1:${address.port}`;
+      torrentBridge.setStreamBaseUrl(streamBaseUrl);
 
-      resolve({ server, url: `http://127.0.0.1:${address.port}` });
+      resolve({ server, url: streamBaseUrl });
     });
 
     server.on("error", reject);
@@ -200,15 +223,66 @@ function createWindow(loadUrl) {
 
 app.commandLine.appendSwitch("enable-features", "WebRTC-H264WithOpenH264FFmpeg");
 
-ipcMain.handle("torrent:addMagnet", async (_event, magnetLink) => {
-  if (typeof magnetLink !== "string" || magnetLink.length > 10000) {
+function getAllowedOrigins() {
+  const origins = [];
+  if (staticServerInstance) {
+    origins.push(new URL(staticServerInstance.url));
+  }
+  try { origins.push(new URL(devServerUrl)); } catch { /* ignore invalid URL */ }
+  return origins;
+}
+
+function validateIpcSender(event) {
+  const frameUrl = event.senderFrame?.url;
+  if (!frameUrl) {
+    if (!isDev) console.warn("[TorrSyncPlayer] IPC validation failed: no frame URL");
+    return false;
+  }
+  try {
+    const parsed = new URL(frameUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:" && parsed.protocol !== "file:") {
+      if (!isDev) console.warn(`[TorrSyncPlayer] IPC validation failed: invalid protocol '${parsed.protocol}' from ${frameUrl}`);
+      return false;
+    }
+    if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
+      if (!isDev) console.warn(`[TorrSyncPlayer] IPC validation failed: invalid hostname '${parsed.hostname}' from ${frameUrl}`);
+      return false;
+    }
+    const allowedOrigins = getAllowedOrigins();
+    const matched = allowedOrigins.some(
+      (origin) => origin.protocol === parsed.protocol && origin.hostname === parsed.hostname && origin.port === parsed.port
+    );
+    if (!matched && !isDev) {
+      console.warn(`[TorrSyncPlayer] IPC validation failed: origin mismatch. Frame: ${frameUrl}, allowed: ${allowedOrigins.map(o => o.origin).join(", ")}`);
+    }
+    return matched;
+  } catch {
+    if (!isDev) console.warn(`[TorrSyncPlayer] IPC validation failed: URL parse error for '${frameUrl}'`);
+    return false;
+  }
+}
+
+ipcMain.handle("torrent:addMagnet", async (event, magnetLink) => {
+  if (!validateIpcSender(event)) {
+    throw new Error("Unauthorized IPC caller");
+  }
+  if (typeof magnetLink !== "string" || magnetLink.length > 7000) {
     throw new Error("Invalid magnet link");
   }
   return torrentBridge.addMagnet(magnetLink);
 });
-ipcMain.handle("torrent:addTorrentFile", async (_event, torrentFile) => {
+// Keep in sync with client/src/config.ts IPC_MAX_TORRENT_BYTES
+const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
+ipcMain.handle("torrent:addTorrentFile", async (event, torrentFile) => {
+  if (!validateIpcSender(event)) {
+    throw new Error("Unauthorized IPC caller");
+  }
   if (!(torrentFile instanceof Uint8Array) && !Array.isArray(torrentFile)) {
     throw new Error("Invalid torrent file");
+  }
+  const byteLength = torrentFile instanceof Uint8Array ? torrentFile.byteLength : torrentFile.length;
+  if (byteLength > MAX_TORRENT_FILE_BYTES) {
+    throw new Error(`Torrent file too large (${(byteLength / 1024 / 1024).toFixed(1)} MB). Maximum size is ${MAX_TORRENT_FILE_BYTES / 1024 / 1024} MB.`);
   }
   return torrentBridge.addTorrentFile(torrentFile);
 });
@@ -254,14 +328,16 @@ ipcMain.handle(
   },
 );
 
-ipcMain.on("window-close-confirmed", () => {
+ipcMain.on("window-close-confirmed", (event) => {
+  if (!validateIpcSender(event)) return;
   for (const win of BrowserWindow.getAllWindows()) {
     win.destroy();
   }
   app.exit(0);
 });
 
-ipcMain.on("window-close-cancelled", () => {
+ipcMain.on("window-close-cancelled", (event) => {
+  if (!validateIpcSender(event)) return;
   // User cancelled, do nothing
 });
 
@@ -303,45 +379,48 @@ app.whenReady().then(async () => {
 const ELECTRON_FORCE_EXIT_TIMEOUT_MS = 5000;
 
 app.on("before-quit", (event) => {
-   const windows = BrowserWindow.getAllWindows();
-   if (windows.length === 0) {
-     return;
-   }
-   if (torrentBridge.isDestroyed?.()) {
-     for (const win of windows) {
-       win.destroy();
-     }
-     return;
-   }
-   event.preventDefault();
-   let hasExited = false;
-   const forceExit = () => {
-     if (hasExited) return;
-     hasExited = true;
-     for (const win of BrowserWindow.getAllWindows()) {
-       win.destroy();
-     }
-     app.exit(0);
-   };
-   const safetyTimeout = setTimeout(forceExit, ELECTRON_FORCE_EXIT_TIMEOUT_MS);
-   (async () => {
-     try {
-       await torrentBridge.destroy();
-     } catch {
-       // Ignore cleanup errors during shutdown
-     }
-     if (staticServerInstance) {
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length === 0) {
+      return;
+    }
+    if (torrentBridge.isDestroyed?.()) {
+      for (const win of windows) {
+        win.destroy();
+      }
+      return;
+    }
+    event.preventDefault();
+    let hasExited = false;
+    const forceExit = () => {
+      if (hasExited) return;
+      hasExited = true;
+      const allWindows = BrowserWindow.getAllWindows();
+      for (const win of allWindows) {
+        try { win.destroy(); } catch { /* already destroyed */ }
+      }
+      app.exit(0);
+    };
+    const safetyTimeout = setTimeout(forceExit, ELECTRON_FORCE_EXIT_TIMEOUT_MS);
+     (async () => {
        try {
-         staticServerInstance.server.close();
+         await torrentBridge.destroy();
        } catch {
-         // Ignore
+         // Ignore cleanup errors during shutdown
        }
-       staticServerInstance = null;
-     }
-     clearTimeout(safetyTimeout);
-     forceExit();
-   })();
- });
+       if (staticServerInstance) {
+         try {
+           staticServerInstance.server.close();
+         } catch {
+           // Ignore
+         }
+         staticServerInstance = null;
+       }
+       clearTimeout(safetyTimeout);
+       if (!hasExited) {
+         forceExit();
+       }
+     })();
+  });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

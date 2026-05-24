@@ -45,7 +45,7 @@
 ### Color Scheme
 - Background: `#1a1a2e` (dark blue)
 - Accent: `#e94560` (red)
-- Text: `#eaeaea`
+- Text: `#f3f5fb`
 - Secondary background: `#16213e`
 
 ### UI Components
@@ -105,13 +105,11 @@
 - **Testing**: Vitest 2.1
 - **Linting**: ESLint 9
 - **Styling**: CSS
-- **State Management**: Custom Zustand-like store
-- **Event Bus**: Custom type-safe EventBus
-- **Error Handling**: Result<T,E> pattern
+- **State Management**: React useReducer + useState
 - **Logging**: Structured logging with levels
 - **Cleanup**: AbortController-based resource management
-- **Retry**: Exponential backoff with jitter
-- **Security**: CSP headers, security headers, input validation
+- **Retry**: Exponential backoff with jitter (P2PService.connect)
+- **Security**: CSP headers, input validation, IPC origin validation
 
 ## 6. Desktop Packaging
 
@@ -128,7 +126,7 @@ Output:
 
 - `npm run lint` — 0 errors, 0 warnings
 - `npm run type-check` — 0 TypeScript errors
-- `npm run test` — 39 tests passing (6 test files)
+- `npm run test` — all tests passing
 - `npm run build` — successful Vite build
 
 ## 8. Acceptance Criteria

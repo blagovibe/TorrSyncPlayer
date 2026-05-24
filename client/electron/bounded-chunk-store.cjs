@@ -9,6 +9,7 @@ class BoundedChunkStore {
     this.chunks = new Map();
     this.lruList = new Set();
     this.closed = false;
+    this.lengthKnown = !!(opts && opts.length);
     this.lastChunkLength = opts && opts.length
       ? opts.length % chunkLength || chunkLength
       : chunkLength;
@@ -27,7 +28,13 @@ class BoundedChunkStore {
       return;
     }
 
-    const isLastChunk = index === this.lastChunkIndex;
+    if (!this.lengthKnown && buf.length < this.chunkLength) {
+      this.lengthKnown = true;
+      this.lastChunkIndex = index;
+      this.lastChunkLength = buf.length;
+    }
+
+    const isLastChunk = this.lengthKnown && index === this.lastChunkIndex;
     const expectedLength = isLastChunk ? this.lastChunkLength : this.chunkLength;
     if (buf.length !== expectedLength) {
       queueMicrotask(() => cb(new Error(`Chunk length must be ${expectedLength}`)));

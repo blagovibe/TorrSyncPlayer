@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
   addMagnet: (magnetLink) => {
-    if (typeof magnetLink !== "string" || magnetLink.length > 10000) {
+    if (typeof magnetLink !== "string" || magnetLink.length > 7000) {
       return Promise.reject(new Error("Invalid magnet link"));
     }
     return ipcRenderer.invoke("torrent:addMagnet", magnetLink);

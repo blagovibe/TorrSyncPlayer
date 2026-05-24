@@ -1,5 +1,7 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { type Peer, type PeerRole } from "../services/types";
+import { uiLogger } from "../utils/logger";
+import { RoomErrorBoundary } from "./ErrorBoundary";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
@@ -59,6 +61,7 @@ interface RoomPageProps {
   onShowResetConfirm?: () => void;
   chatMessages?: { id?: string; sender: string; text: string; timestamp: number }[];
   onSendChat?: (text: string) => void;
+  onReturnHome?: () => void;
 }
 
 function RoomPage({
@@ -110,11 +113,12 @@ function RoomPage({
   onMuxStreamRequest,
   connectionQuality,
   rttMs,
-  onShowLeaveConfirm,
-          onShowResetConfirm,
-          chatMessages,
-          onSendChat,
-}: RoomPageProps) {
+          onShowLeaveConfirm,
+   onShowResetConfirm,
+   chatMessages,
+   onSendChat,
+   onReturnHome,
+ }: RoomPageProps) {
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
@@ -177,12 +181,29 @@ function RoomPage({
         clearTimeout(copiedTimerRef.current);
       }
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = peerId;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        if (copiedTimerRef.current !== null) {
+          clearTimeout(copiedTimerRef.current);
+        }
+        copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+      } catch {
+        uiLogger.error("Failed to copy peer ID");
+      }
+      document.body.removeChild(textArea);
     }
   };
 
   return (
+    <RoomErrorBoundary onReturnHome={onReturnHome ?? (() => undefined)}>
     <section
       className={`room-page ${isDragOver ? "drag-over" : ""}`}
       onDragEnter={handleDragEnter}
@@ -242,7 +263,7 @@ function RoomPage({
                 id="room-magnet"
                 rows={2}
                 value={magnetLink}
-                onChange={(event) => onMagnetLinkChange(event.target.value)}
+                onChange={(event) => onMagnetLinkChange(event.target.value.slice(0, 2000))}
                 placeholder="magnet:?xt=urn:btih:..."
               />
               <div className="torrent-actions">
@@ -269,9 +290,9 @@ function RoomPage({
               <div className="torrent-file-row">
                 <span className="torrent-file-name">
                   {sharedSourceLabel
-                    ? `Shared source: ${sharedSourceLabel}`
+                    ? `Shared source: ${sharedSourceLabel.length > 120 ? sharedSourceLabel.slice(0, 120) + '…' : sharedSourceLabel}`
                     : torrentFileName
-                      ? `Selected file: ${torrentFileName}`
+                      ? `Selected file: ${torrentFileName.length > 120 ? torrentFileName.slice(0, 120) + '…' : torrentFileName}`
                       : "No torrent file selected"}
                 </span>
                 <button
@@ -303,6 +324,7 @@ function RoomPage({
                   id="sync-tolerance"
                   type="number"
                   min="0"
+                  max="30"
                   step="0.1"
                   value={syncToleranceSeconds}
                   onChange={(event) => onSyncToleranceChange(Number(event.target.value))}
@@ -326,9 +348,9 @@ function RoomPage({
               <div className="guest-source-info">
                 <span className="torrent-file-name">
                   {sharedSourceLabel
-                    ? `Connected to: ${sharedSourceLabel}`
+                    ? `Connected to: ${sharedSourceLabel.length > 120 ? sharedSourceLabel.slice(0, 120) + '…' : sharedSourceLabel}`
                     : torrentFileName
-                      ? `Selected file: ${torrentFileName}`
+                      ? `Selected file: ${torrentFileName.length > 120 ? torrentFileName.slice(0, 120) + '…' : torrentFileName}`
                       : "Waiting for host to load the shared source"}
                 </span>
                 {isLoadingTorrent && (
@@ -422,7 +444,8 @@ function RoomPage({
           peerRole={peerRole}
           peers={peers}
           isConnected={isConnected}
-          onLeaveRoom={onShowLeaveConfirm ?? onLeaveRoom}
+          onLeaveRoom={onLeaveRoom}
+          onRequestLeave={onShowLeaveConfirm}
           onCopyPeerId={copyPeerId}
           copied={copied}
           chatMessages={chatMessages}
@@ -441,6 +464,7 @@ function RoomPage({
         rttMs={rttMs}
       />
       </section>
+    </RoomErrorBoundary>
   );
 }
 

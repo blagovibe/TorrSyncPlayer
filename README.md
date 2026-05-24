@@ -203,8 +203,6 @@ TorrSyncPlayer/
 │   │   └── utils/           # Helpers
 │   ├── electron/            # Electron main process
 │   └── package.json
-├── server/                  # Reserved for future self-hosted signaling
-├── wiki/                    # Internal knowledge base
 └── README.md
 ```
 

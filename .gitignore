@@ -1,40 +1,9 @@
 node_modules/
 dist/
-dist-ssr/
-*.local
-
-# Local agent/tooling state
-.codex/
-.gemini/
-.claude/
-.cursor/
-.aionrs/
-.opencode/
-.agents/
-
-# Editor / OS junk
-.vscode/
-.vscode-test/
-.idea/
+release/
+.electron-app/
+*.AppImage
+*.exe
+*.AppImage
 .DS_Store
-._*
-Desktop.ini
 Thumbs.db
-.Spotlight-V100/
-.Trashes/
-*.swp
-*.swo
-
-# Generated local artifacts
-/logs.zip
-vite.config.ts.bak
-/package-lock.json
-/src-tauri/target/
-/client/src-tauri/target/
-/server/node_modules/
-
-# Generated Electron staging directory (created by prepare-electron-app.cjs)
-client/.electron-app/
-
-# Build outputs
-client/release/

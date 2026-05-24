@@ -60,12 +60,6 @@ export interface CleanupHandle {
     event: string,
     callback: (...args: unknown[]) => void,
   ): void;
-  /** Add a managed subscription with any emitter type (for PeerJS etc.) */
-  onAny(
-    emitter: { on: (...args: unknown[]) => void; off?: (...args: unknown[]) => void; removeListener?: (...args: unknown[]) => void },
-    event: string,
-    callback: (...args: unknown[]) => void,
-  ): void;
   /** Register an arbitrary cleanup function */
   add(fn: () => void): void;
   /** Check if already aborted */
@@ -217,15 +211,6 @@ export function createCleanup(): CleanupHandle {
     ) {
       emitter.on(event, callback);
       subscriptions.push({ emitter, event, callback });
-    },
-
-    onAny(
-      emitter: { on: (...args: unknown[]) => void; off?: (...args: unknown[]) => void; removeListener?: (...args: unknown[]) => void },
-      event: string,
-      callback: (...args: unknown[]) => void,
-    ) {
-      emitter.on(event, callback);
-      subscriptions.push({ emitter: emitter as { off?: (event: string, cb: (...args: unknown[]) => void) => void; removeListener?: (event: string, cb: (...args: unknown[]) => void) => void }, event, callback });
     },
 
     add(fn: () => void) {

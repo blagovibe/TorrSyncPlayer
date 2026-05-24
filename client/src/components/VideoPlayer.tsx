@@ -106,7 +106,7 @@ function VideoPlayer({
   maxBufferMB = 500,
   onBufferSettingsChange,
   onSeek,
-  onMuxStreamRequest: _onMuxStreamRequest,
+  onMuxStreamRequest,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
@@ -115,6 +115,11 @@ function VideoPlayer({
   const onAudioTrackChangeRef = useRef(onAudioTrackChange);
   const onSubtitleTrackChangeRef = useRef(onSubtitleTrackChange);
   const onBufferingChangeRef = useRef(onBufferingChange);
+  const onSeekRef = useRef(onSeek);
+  const onMuxStreamRequestRef = useRef(onMuxStreamRequest);
+  const canControlPlaybackRef = useRef(canControlPlayback);
+  const canControlSeekRef = useRef(canControlSeek);
+  const togglePlayRef = useRef<() => Promise<void>>(null!);
   const hasMediaMetadataRef = useRef(false);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -170,6 +175,10 @@ function VideoPlayer({
   useEffect(() => { onPlayerReadyRef.current = onPlayerReady; }, [onPlayerReady]);
   useEffect(() => { onAudioTrackChangeRef.current = onAudioTrackChange; }, [onAudioTrackChange]);
   useEffect(() => { onBufferingChangeRef.current = onBufferingChange; }, [onBufferingChange]);
+  useEffect(() => { onSeekRef.current = onSeek; }, [onSeek]);
+  useEffect(() => { onMuxStreamRequestRef.current = onMuxStreamRequest; }, [onMuxStreamRequest]);
+  useEffect(() => { canControlPlaybackRef.current = canControlPlayback; }, [canControlPlayback]);
+  useEffect(() => { canControlSeekRef.current = canControlSeek; }, [canControlSeek]);
 
   useEffect(() => {
     if (selectedSubtitleIndex === null || selectedSubtitleIndex === undefined) {
@@ -203,6 +212,7 @@ function VideoPlayer({
     if (v.paused) { await v.play(); setIsPlaying(true); }
     else { v.pause(); setIsPlaying(false); }
   }, [canControlPlayback, videoRef]);
+  togglePlayRef.current = togglePlay;
 
   const applyVolume = useCallback((nv: number) => {
     const n = Number.isFinite(nv) ? Math.min(1, Math.max(0, nv)) : 1;
@@ -266,10 +276,10 @@ function VideoPlayer({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && settingsOpen) { setSettingsOpen(false); return; }
-      if (!canControlPlayback) return;
+      if (!canControlPlaybackRef.current) return;
       const v = videoRef.current; if (!v) return;
       if (isInteractiveTarget(e.target)) return;
-      if (e.code === "Space") { e.preventDefault(); void togglePlay(); }
+      if (e.code === "Space") { e.preventDefault(); void togglePlayRef.current(); }
       if (e.key.toLowerCase() === "f") {
         if (document.fullscreenElement) {
           void document.exitFullscreen();
@@ -277,12 +287,12 @@ function VideoPlayer({
           void v.requestFullscreen();
         }
       }
-      if (e.key === "ArrowRight" && canControlSeek) { if (Number.isFinite(v.duration)) v.currentTime = Math.min(v.duration, v.currentTime + 5); onSeek?.(v.currentTime); }
-      if (e.key === "ArrowLeft" && canControlSeek) { v.currentTime = Math.max(0, v.currentTime - 5); onSeek?.(v.currentTime); }
+      if (e.key === "ArrowRight" && canControlSeekRef.current) { if (Number.isFinite(v.duration)) v.currentTime = Math.min(v.duration, v.currentTime + 5); onSeekRef.current?.(v.currentTime); }
+      if (e.key === "ArrowLeft" && canControlSeekRef.current) { v.currentTime = Math.max(0, v.currentTime - 5); onSeekRef.current?.(v.currentTime); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canControlPlayback, canControlSeek, settingsOpen, togglePlay, videoRef, onSeek]);
+  }, [settingsOpen, videoRef, canControlSeek]);
 
   // Settings menu close on outside click
   useEffect(() => {
@@ -357,7 +367,7 @@ function VideoPlayer({
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
         <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>{isPlaying ? "Pause" : "Play"}</button>
         <input type="range" min={0} max={duration || 100} step={0.1} value={currentTime} disabled={!canControlSeek}
-          onChange={(e) => { if (!canControlSeek) return; const val = Number(e.target.value); setCurrentTime(val); if (videoRef.current) videoRef.current.currentTime = val; }}
+          onChange={(e) => { if (!canControlSeek) return; const val = Number(e.target.value); setCurrentTime(val); if (videoRef.current) videoRef.current.currentTime = val; onSeek?.(val); }}
           onMouseUp={(e) => { if (!canControlSeek) return; onSeek?.(Number((e.target as HTMLInputElement).value)); }}
           onTouchEnd={(e) => { if (!canControlSeek) return; onSeek?.(Number((e.target as HTMLInputElement).value)); }}
         />

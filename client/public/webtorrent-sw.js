@@ -1,13 +1,16 @@
 const listener = async (event) => {
-  // Only handle requests from our own origin
+  const { url } = event.request;
+
+  const requestOrigin = new URL(url).origin;
+  if (requestOrigin !== self.location.origin) return null;
+
   if (event.clientId) {
     const client = await clients.get(event.clientId).catch(() => null);
     if (!client) return null;
   }
 
-  const { url } = event.request;
   if (event.request.method !== "GET") return null;
-  if (!url.includes(self.registration.scope + "webtorrent/")) return null;
+  if (!new URL(url).pathname.startsWith(self.registration.scope + "webtorrent/")) return null;
   if (url.includes(self.registration.scope + "webtorrent/keepalive/")) return new Response();
   if (url.includes(self.registration.scope + "webtorrent/cancel/")) {
     return new Response(
@@ -30,8 +33,19 @@ self.addEventListener("fetch", (event) => {
   if (res) event.respondWith(res);
 });
 
-self.addEventListener("activate", () => {
-  self.clients.claim();
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      caches.keys().then((cacheNames) =>
+        Promise.all(
+          cacheNames
+            .filter((name) => name !== "webtorrent")
+            .map((name) => caches.delete(name))
+        )
+      ),
+    ])
+  );
 });
 
 async function serve({ request }) {

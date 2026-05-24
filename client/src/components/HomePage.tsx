@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { uiLogger } from "../utils/logger";
 
 interface HomePageProps {
   peerId: string;
@@ -6,8 +7,6 @@ interface HomePageProps {
   onJoinRoom: (code: string) => void;
   isConnecting: boolean;
   connectionError: string | null;
-  roomPassword: string;
-  onRoomPasswordChange: (value: string) => void;
 }
 
 function HomePage({
@@ -16,11 +15,14 @@ function HomePage({
   onJoinRoom,
   isConnecting,
   connectionError,
-  roomPassword,
-  onRoomPasswordChange,
 }: HomePageProps) {
   const [joinCode, setJoinCode] = useState("");
+  const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const isValidJoinCode = (code: string): boolean => {
+    return /^[A-Z0-9]{6}$/.test(code);
+  };
   const copiedTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -33,8 +35,24 @@ function HomePage({
 
   const handleJoin = (event: FormEvent) => {
     event.preventDefault();
-    if (joinCode.trim().length === 6) {
-      onJoinRoom(joinCode.trim().toUpperCase());
+    const code = joinCode.trim().toUpperCase();
+    if (code.length === 6 && isValidJoinCode(code)) {
+      setJoinCodeError(null);
+      onJoinRoom(code);
+    } else if (code.length === 6 && !isValidJoinCode(code)) {
+      setJoinCodeError("Code must contain only letters A-Z and digits 0-9");
+    }
+  };
+
+  const handleJoinCodeChange = (value: string) => {
+    setJoinCode(value.toUpperCase());
+    if (joinCodeError) {
+      const upper = value.toUpperCase();
+      if (upper.length === 6 && !isValidJoinCode(upper)) {
+        setJoinCodeError("Code must contain only letters A-Z and digits 0-9");
+      } else {
+        setJoinCodeError(null);
+      }
     }
   };
 
@@ -47,8 +65,24 @@ function HomePage({
         clearTimeout(copiedTimerRef.current);
       }
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = peerId;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        if (copiedTimerRef.current !== null) {
+          clearTimeout(copiedTimerRef.current);
+        }
+        copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+      } catch {
+        uiLogger.error("Failed to copy peer ID");
+      }
+      document.body.removeChild(textArea);
     }
   };
 
@@ -82,34 +116,24 @@ function HomePage({
         </div>
       )}
 
-      <div className="panel">
-        <label htmlFor="room-password">Room password (optional)</label>
-        <input
-          id="room-password"
-          type="password"
-          value={roomPassword}
-          onChange={(event) => onRoomPasswordChange(event.target.value)}
-          placeholder="Leave empty for no password"
-          maxLength={32}
-        />
-        <p className="hint">Guests will need this password to join your room</p>
-      </div>
-
       <form className="panel" onSubmit={handleJoin}>
         <label htmlFor="join-code">Connect to Friend</label>
         <div className="row">
           <input
             id="join-code"
             value={joinCode}
-            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+            onChange={(event) => handleJoinCodeChange(event.target.value)}
             placeholder="Enter friend's ID"
             maxLength={6}
             disabled={isConnecting}
+            pattern="[A-Za-z0-9]*"
+            title="Only letters A-Z and digits 0-9 are allowed"
           />
-          <button type="submit" disabled={isConnecting || joinCode.length !== 6}>
+          <button type="submit" disabled={isConnecting || !isValidJoinCode(joinCode)}>
             {isConnecting ? "Connecting..." : "Connect"}
           </button>
         </div>
+        {joinCodeError && <p className="error-text">{joinCodeError}</p>}
         {connectionError && <p className="error-text">{connectionError}</p>}
       </form>
     </section>

@@ -4,5 +4,7 @@ export default defineConfig({
   test: {
     include: ["client/src/**/__tests__/**/*.{test,spec}.{js,ts,tsx}", "client/src/**/*.{test,spec}.{js,ts,tsx}"],
     exclude: ["node_modules", "dist", ".electron-app", "client/electron"],
+    environment: "jsdom",
+    setupFiles: ["client/src/test-setup.ts"],
   },
 });

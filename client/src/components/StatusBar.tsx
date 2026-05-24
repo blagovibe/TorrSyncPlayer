@@ -36,7 +36,7 @@ function StatusBar({
       </span>
       <span>Public peers seen: {torrentPeerCount}</span>
       <span>Speed: {downloadSpeed}</span>
-      <span>Buffer: {Math.min(100, Math.max(0, bufferingProgress))}%</span>
+      <span>Buffer: {Math.min(100, Math.max(0, Math.round(bufferingProgress)))}%</span>
       <span>
         Latency:{" "}
         <strong className={qualityClass}>

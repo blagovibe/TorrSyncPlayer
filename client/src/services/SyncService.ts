@@ -41,7 +41,6 @@ export class SyncService {
     seeked: false,
   };
   private syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds;
-  private isDisposed = false;
 
   constructor(
     signaling: SyncTransport,
@@ -67,7 +66,6 @@ export class SyncService {
   }
 
   dispose(): void {
-    this.isDisposed = true;
     this.cleanup.abort();
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
@@ -96,7 +94,6 @@ export class SyncService {
   }
 
   play(): void {
-    if (this.isDisposed) return;
     if (this.role === "master") {
       this.suppressNextEventSync.play = true;
       this.sendMasterSync("play", this.video.currentTime, true);
@@ -109,8 +106,11 @@ export class SyncService {
   }
 
   pause(): void {
-    if (this.isDisposed) return;
-    this.video.pause();
+    try {
+      this.video.pause();
+    } catch {
+      // pause() should not throw, but guard for spec compliance
+    }
     if (this.role === "master") {
       this.suppressNextEventSync.pause = true;
       this.sendMasterSync("pause", this.video.currentTime, false);
@@ -118,7 +118,6 @@ export class SyncService {
   }
 
   seek(timestamp: number): void {
-    if (this.isDisposed) return;
     this.video.currentTime = timestamp;
     if (this.role === "master") {
       this.suppressNextEventSync.seeked = true;
@@ -131,9 +130,16 @@ export class SyncService {
   }
 
   applyRemoteSync(message: SyncMessage): void {
-    if (this.role !== "slave" || this.isDisposed) return;
+    if (this.role !== "slave") return;
 
-    if (this.video.readyState === 0 && message.action !== "seek") {
+    const snapshot = {
+      readyState: this.video.readyState,
+      currentTime: this.video.currentTime,
+      duration: this.video.duration,
+      paused: this.video.paused,
+    };
+
+    if (snapshot.readyState === 0 && message.action !== "seek") {
       return;
     }
 
@@ -141,9 +147,11 @@ export class SyncService {
     const latencySeconds = isSeek
       ? 0
       : Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), SYNC_CONFIG.maxLatencyCompensationSeconds);
-    const compensatedPosition = message.position + latencySeconds;
+    const rawCompensatedPosition = message.position + latencySeconds;
+    const maxDuration = Number.isFinite(snapshot.duration) && snapshot.duration > 0 ? snapshot.duration : Infinity;
+    const compensatedPosition = Math.max(0, Math.min(rawCompensatedPosition, maxDuration));
     const shouldAlign =
-      Math.abs(this.video.currentTime - compensatedPosition) > this.syncToleranceSeconds;
+      Math.abs(snapshot.currentTime - compensatedPosition) > this.syncToleranceSeconds;
     const desiredPlayState =
       message.is_playing ??
       (message.action === "play" || message.action === "seek" || message.action === "state");
@@ -161,10 +169,9 @@ export class SyncService {
     };
 
     const applyState = () => {
-      const isPaused = this.video.paused;
-      if (desiredPlayState && isPaused) {
+      if (desiredPlayState && snapshot.paused) {
         safePlay();
-      } else if (!desiredPlayState && !isPaused) {
+      } else if (!desiredPlayState && !snapshot.paused) {
         this.video.pause();
       }
     };
@@ -223,12 +230,7 @@ export class SyncService {
 
   private startHeartbeat(): void {
     this.cleanup.setInterval(() => {
-      if (this.role !== "master" || this.isDisposed) return;
-
-      // Reset suppression flags to prevent stale state from blocking heartbeats
-      if (this.suppressNextEventSync.seeked) this.suppressNextEventSync.seeked = false;
-      if (this.suppressNextEventSync.play) this.suppressNextEventSync.play = false;
-      if (this.suppressNextEventSync.pause) this.suppressNextEventSync.pause = false;
+      if (this.role !== "master") return;
 
       const now = Date.now();
       const position = this.video.currentTime;
@@ -253,7 +255,6 @@ export class SyncService {
     position: number,
     isPlaying: boolean,
   ): void {
-    if (this.isDisposed) return;
     const message: SyncMessage = {
       action,
       position,

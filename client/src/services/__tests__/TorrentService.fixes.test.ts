@@ -1,58 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TorrentService } from "../TorrentService";
+import { setupElectronBackendCleanup, createTorrent } from "./test-utils";
 
-type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers" | "peer";
-type TorrentCallback = (...args: unknown[]) => void | Promise<void>;
-
-const { addMock, createServerMock, destroyMock, webTorrentMock } = vi.hoisted(() => ({
+const { addMock } = vi.hoisted(() => ({
   addMock: vi.fn(),
-  createServerMock: vi.fn(),
-  destroyMock: vi.fn(),
-  webTorrentMock: vi.fn(() => ({
-    add: addMock,
-    createServer: createServerMock,
-    destroy: destroyMock,
-  })),
 }));
 
 vi.mock("webtorrent", () => ({
-  default: webTorrentMock,
+  default: vi.fn(() => ({
+    add: addMock,
+    createServer: vi.fn(),
+    destroy: vi.fn(),
+  })),
 }));
-
-function createTorrent(
-  files: Array<{ name: string; length?: number; streamTo?: (video: HTMLMediaElement) => Promise<void> }>,
-) {
-  const listeners = new Map<TorrentEvent, TorrentCallback>();
-  const torrent = {
-    files: files.map((file) => ({
-      streamTo: vi.fn().mockResolvedValue(undefined),
-      length: 1024,
-      ...file,
-    })),
-    progress: 0.35,
-    downloadSpeed: 2048,
-    numPeers: 0,
-    on: vi.fn((event: string, callback: TorrentCallback) => {
-      listeners.set(event as TorrentEvent, callback);
-    }),
-    emit: async (event: string, ...args: unknown[]) => {
-      if (event === "wire") {
-        torrent.numPeers += 1;
-      }
-      await listeners.get(event as TorrentEvent)?.(...args);
-    },
-  };
-
-  return torrent;
-}
 
 describe("TorrentService fixes", () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
-    if (typeof window !== "undefined") {
-      delete (window as Window & { torrsyncElectronTorrent?: unknown }).torrsyncElectronTorrent;
-    }
+    setupElectronBackendCleanup();
   });
 
   it("emits fewer progress events with deduplication than without", async () => {

@@ -9,7 +9,7 @@ Executed in `client/`:
 
 - `npm run lint` -> pass with 0 errors, 0 warnings
 - `npm run type-check` -> pass (0 errors)
-- `npm run test` -> pass (5 files, 33 tests)
+- `npm run test` -> pass (8 files, 66 tests)
 - `timeout 180 npm run build` -> timed out (exit `124`)
 
 ## Testability Assessment

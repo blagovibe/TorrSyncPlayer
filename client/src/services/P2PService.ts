@@ -1,20 +1,14 @@
 import { Peer, type DataConnection, type PeerJSOption } from "peerjs";
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import { p2pLogger } from "../utils/logger";
-import { P2P_CONFIG } from "../config";
+import { P2P_CONFIG, P2P_MAX_TORRENT_BYTES } from "../config";
 import {
   type ConnectionQuality,
   type RoomConfigMessage,
   type SharedTorrentSource,
   type SyncMessage,
+  type TorrentSourceMessage,
 } from "./types";
-
-type TorrentSourceMessage = {
-  source: SharedTorrentSource;
-  selectedMediaIndex: number | null;
-  selectedAudioTrackIndex: number | null;
-  selectedSubtitleIndex: number | null;
-};
 
 type P2PEvents = {
   connected: () => void;
@@ -41,7 +35,7 @@ type OutboundMessage =
       selectedAudioTrackIndex: number | null;
       selectedSubtitleIndex: number | null;
     }
-  | { type: "room_config"; syncToleranceSeconds: number; roomPassword?: string }
+  | { type: "room_config"; syncToleranceSeconds: number }
   | { type: "ping"; ts: number }
   | { type: "pong"; ts: number }
   | { type: "chat"; content: string };
@@ -51,12 +45,12 @@ export const WEBRTC_UNAVAILABLE_MESSAGE =
 export const SIGNALING_UNAVAILABLE_MESSAGE =
   "Unable to reach the PeerJS signaling server. Check your internet connection or configure a reachable PeerJS server with VITE_PEERJS_HOST.";
 
-type PeerServerEnv = {
+interface PeerServerEnv {
   VITE_PEERJS_HOST?: string;
   VITE_PEERJS_PORT?: string;
   VITE_PEERJS_PATH?: string;
   VITE_PEERJS_SECURE?: string;
-};
+}
 
 function generatePeerId(): string {
   const bytes = new Uint8Array(P2P_CONFIG.peerIdLength);
@@ -104,7 +98,13 @@ function createSignalingUnavailableError(message: string): Error {
 }
 
 function getImportMetaEnv(): PeerServerEnv {
-  return ((import.meta as ImportMeta & { env?: PeerServerEnv }).env ?? {}) as PeerServerEnv;
+  const env = import.meta.env;
+  return {
+    VITE_PEERJS_HOST: env.VITE_PEERJS_HOST,
+    VITE_PEERJS_PORT: env.VITE_PEERJS_PORT,
+    VITE_PEERJS_PATH: env.VITE_PEERJS_PATH,
+    VITE_PEERJS_SECURE: env.VITE_PEERJS_SECURE,
+  };
 }
 
 function normalizePeerPath(path: string): string {
@@ -159,9 +159,9 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
     case "torrent_source": {
       if (!message.source) return null;
       const src = message.source as { magnetLink?: unknown; fileName?: unknown; bytes?: unknown; sourceKey?: unknown };
-      if (src.magnetLink !== undefined && typeof src.magnetLink !== "string") return null;
-      if (src.fileName !== undefined && typeof src.fileName !== "string") return null;
-      if (src.sourceKey !== undefined && typeof src.sourceKey !== "string") return null;
+      if (src.magnetLink !== undefined && (typeof src.magnetLink !== "string" || src.magnetLink.length > 8000)) return null;
+      if (src.fileName !== undefined && (typeof src.fileName !== "string" || src.fileName.length > 1024)) return null;
+      if (src.sourceKey !== undefined && (typeof src.sourceKey !== "string" || src.sourceKey.length > 2048)) return null;
       const smi = message.selectedMediaIndex;
       const sati = message.selectedAudioTrackIndex;
       const ssti = message.selectedSubtitleIndex;
@@ -171,6 +171,9 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
       // Validate source.bytes if present (must be array of numbers 0-255)
       if (src.bytes !== undefined) {
         if (!Array.isArray(src.bytes) || !src.bytes.every((b: unknown) => typeof b === "number" && b >= 0 && b <= 255)) {
+          return null;
+        }
+        if (src.bytes.length > P2P_MAX_TORRENT_BYTES) {
           return null;
         }
       }
@@ -187,7 +190,6 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
         return {
           type: "room_config",
           syncToleranceSeconds: message.syncToleranceSeconds,
-          roomPassword: typeof message.roomPassword === "string" ? message.roomPassword : undefined,
         };
       }
       return null;
@@ -252,12 +254,15 @@ export class P2PService {
   private role: "host" | "guest" = "host";
   private peer: Peer | null = null;
   private connections = new Map<string, DataConnection>();
+  private connectionCleanups = new Map<string, Array<() => void>>();
   private remotePeerId: string | null = null;
   private state: P2PServiceState = "disconnected";
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private isReconnecting = false;
   private lastRttMs: number | null = null;
   private pingIntervalId: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly cleanup: CleanupHandle;
   private listeners: { [K in EventKey]: Set<P2PEvents[K]> } = {
     connected: new Set(),
@@ -345,7 +350,8 @@ export class P2PService {
         p2pLogger.warn(`Connection attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
         if (attempt < maxRetries) {
           const delay = baseDelay * Math.pow(2, attempt - 1);
-          await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
+          const jitteredDelay = delay * (0.5 + Math.random() * 0.5);
+          await new Promise<void>((resolve) => { setTimeout(resolve, jitteredDelay); });
         }
       }
     }
@@ -516,38 +522,46 @@ export class P2PService {
   }
 
   private attemptReconnect(): void {
-    if (this.state === "destroyed" || this.state === "disconnecting" || this.state === "reconnecting") return;
+    if (this.state === "destroyed" || this.state === "disconnecting") return;
     if (this.role === "host") return;
     if (!this.remotePeerId) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       p2pLogger.warn("Max reconnect attempts reached, giving up");
+      this.isReconnecting = false;
+      this.state = "disconnected";
       this.emit("error", new Error("Connection lost. Please rejoin the room."));
       return;
     }
+    if (this.isReconnecting) return;
 
+    this.isReconnecting = true;
     this.state = "reconnecting";
     this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30_000);
+    const baseReconnectDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30_000);
+    const delay = baseReconnectDelay * (0.5 + Math.random() * 0.5);
     p2pLogger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     this.emit("reconnecting", this.reconnectAttempts, delay);
 
-    this.cleanup.setTimeout(async () => {
+    this.reconnectTimeoutId = this.cleanup.setTimeout(async () => {
+      this.reconnectTimeoutId = null;
       if (this.state === "destroyed" || this.state === "disconnecting") {
+        this.isReconnecting = false;
         this.state = "disconnected";
         return;
       }
       try {
-        if (this.peer && !this.peer.destroyed) {
+        if (this.peer?.destroyed) {
           this.peer.reconnect();
         }
         if (this.remotePeerId) {
           await this.connect(this.remotePeerId);
         }
         this.reconnectAttempts = 0;
-        this.state = "disconnected"; // Will be updated to "connected" if successful
+        this.isReconnecting = false;
+        this.state = "connected";
       } catch (error) {
-        this.state = "disconnected";
         p2pLogger.warn("Reconnect failed:", error);
+        this.isReconnecting = false;
         this.attemptReconnect();
       }
     }, delay);
@@ -576,10 +590,18 @@ export class P2PService {
   ): void {
     const existingConnection = this.connections.get(peerId);
     if (existingConnection && existingConnection !== conn) {
+      const oldCleanups = this.connectionCleanups.get(peerId);
+      if (oldCleanups) {
+        for (const cleanup of oldCleanups) cleanup();
+        this.connectionCleanups.delete(peerId);
+      }
       existingConnection.close();
     }
 
+    if (this.state === "disconnecting") return;
+
     this.connections.set(peerId, conn);
+    const cleanups: Array<() => void> = [];
 
     const wasAlreadyOpen = conn.open;
 
@@ -588,23 +610,30 @@ export class P2PService {
       if (this.state === "disconnecting") return;
       if (options.emitPeerConnected) this.emit("peer_connected", peerId);
       options.onOpen?.();
-      this.startPingInterval();
+      this.ensurePingInterval();
     };
 
     if (wasAlreadyOpen) {
-      if (this.state === "disconnecting") return;
       if (options.emitPeerConnected) this.emit("peer_connected", peerId);
       options.onOpen?.();
-      this.startPingInterval();
+      this.ensurePingInterval();
     } else {
       conn.on("open", onConnOpen);
-      this.cleanup.add(() => { conn.off?.("open", onConnOpen); });
+      cleanups.push(() => { conn.off?.("open", onConnOpen); });
     }
 
     const onConnData = (data: unknown) => {
       if (this.connections.get(peerId) !== conn) return;
       const message = parseInboundMessage(data);
       if (!message) return;
+      if (message.type === "sync" && this.isSyncRateLimited(peerId)) {
+        p2pLogger.warn(`Sync rate limit exceeded for peer ${peerId}, dropping message`);
+        return;
+      }
+      if (message.type === "chat" && this.isChatRateLimited(peerId)) {
+        p2pLogger.warn(`Chat rate limit exceeded for peer ${peerId}, dropping message`);
+        return;
+      }
       switch (message.type) {
         case "sync":
           this.emit("sync", message.message);
@@ -617,12 +646,11 @@ export class P2PService {
             selectedSubtitleIndex: message.selectedSubtitleIndex,
           });
           break;
-        case "room_config":
-          this.emit("room_config", {
-            syncToleranceSeconds: message.syncToleranceSeconds,
-            roomPassword: message.roomPassword,
-          });
-          break;
+         case "room_config":
+           this.emit("room_config", {
+             syncToleranceSeconds: message.syncToleranceSeconds,
+           });
+           break;
         case "ping":
           // Respond with pong, echoing the timestamp
           this.sendPayload({ type: "pong", ts: message.ts });
@@ -644,7 +672,7 @@ export class P2PService {
       }
     };
     conn.on("data", onConnData);
-    this.cleanup.add(() => { conn.off?.("data", onConnData); });
+    cleanups.push(() => { conn.off?.("data", onConnData); });
 
     const onConnClose = () => {
       const trackedConnection = this.connections.get(peerId);
@@ -658,18 +686,21 @@ export class P2PService {
       this.emit("peer_disconnected", peerId);
       options.onClose?.();
       if (this.getOpenConnectionCount() === 0) {
+        this.stopPingInterval();
         this.emit("disconnected");
       }
     };
     conn.on("close", onConnClose);
-    this.cleanup.add(() => { conn.off?.("close", onConnClose); });
+    cleanups.push(() => { conn.off?.("close", onConnClose); });
 
     const onConnError = (err: Error) => {
       if (this.connections.get(peerId) !== conn) return;
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
     };
     conn.on("error", onConnError);
-    this.cleanup.add(() => { conn.off?.("error", onConnError); });
+    cleanups.push(() => { conn.off?.("error", onConnError); });
+
+    this.connectionCleanups.set(peerId, cleanups);
   }
 
   private sendPayload(payload: OutboundMessage, targetPeerId?: string): void {
@@ -707,8 +738,8 @@ export class P2PService {
     }
   }
 
-  private startPingInterval(): void {
-    this.stopPingInterval();
+  private ensurePingInterval(): void {
+    if (this.pingIntervalId !== null) return;
     this.pingIntervalId = this.cleanup.setInterval(() => {
       this.sendPing();
     }, 2000);
@@ -719,6 +750,36 @@ export class P2PService {
       clearInterval(this.pingIntervalId);
       this.pingIntervalId = null;
     }
+  }
+
+  clearRateLimitForPeer(peerId: string): void {
+    this.syncMessageTimestamps.delete(peerId);
+    this.chatMessageTimestamps.delete(peerId);
+  }
+
+  private syncMessageTimestamps = new Map<string, number[]>();
+  private readonly syncRateLimit = 10;
+  private readonly syncRateLimitWindowMs = 1000;
+  private chatMessageTimestamps = new Map<string, number[]>();
+  private readonly chatRateLimit = 10;
+  private readonly chatRateLimitWindowMs = 10_000;
+
+  private isSyncRateLimited(peerId: string): boolean {
+    const now = Date.now();
+    const timestamps = this.syncMessageTimestamps.get(peerId) ?? [];
+    const recent = timestamps.filter((ts) => now - ts < this.syncRateLimitWindowMs);
+    recent.push(now);
+    this.syncMessageTimestamps.set(peerId, recent);
+    return recent.length > this.syncRateLimit;
+  }
+
+  private isChatRateLimited(peerId: string): boolean {
+    const now = Date.now();
+    const timestamps = this.chatMessageTimestamps.get(peerId) ?? [];
+    const recent = timestamps.filter((ts) => now - ts < this.chatRateLimitWindowMs);
+    recent.push(now);
+    this.chatMessageTimestamps.set(peerId, recent);
+    return recent.length > this.chatRateLimit;
   }
 
   private sendPing(): void {
@@ -736,31 +797,42 @@ export class P2PService {
 
     private handlePong(pongTs: number): void {
       const rtt = Date.now() - pongTs;
-      if (rtt >= 0 && rtt < 30000) {
+      if (rtt >= 0 && rtt < 5000) {
         this.lastRttMs = rtt;
         this.emit("connection_quality", this.getConnectionQuality());
       }
     }
 
-   public sendTorrentSource(source: SharedTorrentSource, selectedMediaIndex: number | null, selectedAudioTrackIndex: number | null, selectedSubtitleIndex: number | null, targetPeerId?: string): void {
-     this.sendPayload({
-       type: "torrent_source",
-       source,
-       selectedMediaIndex,
-       selectedAudioTrackIndex,
-       selectedSubtitleIndex,
-     }, targetPeerId);
-   }
+    public sendTorrentSource(source: SharedTorrentSource, selectedMediaIndex: number | null, selectedAudioTrackIndex: number | null, selectedSubtitleIndex: number | null, targetPeerId?: string): void {
+      if (selectedMediaIndex !== null && (!Number.isFinite(selectedMediaIndex) || selectedMediaIndex < 0)) return;
+      if (selectedAudioTrackIndex !== null && (!Number.isFinite(selectedAudioTrackIndex) || selectedAudioTrackIndex < 0)) return;
+      if (selectedSubtitleIndex !== null && (!Number.isFinite(selectedSubtitleIndex) || selectedSubtitleIndex < 0)) return;
+      if (source.kind === "file" && source.bytes.length > P2P_MAX_TORRENT_BYTES) {
+        const errMsg = `Torrent file too large (${(source.bytes.length / 1024 / 1024).toFixed(1)} MB). Maximum size is ${P2P_MAX_TORRENT_BYTES / 1024 / 1024} MB.`;
+        p2pLogger.warn(errMsg);
+        this.emit("error", new Error(errMsg));
+        return;
+      }
+      this.sendPayload({
+        type: "torrent_source",
+        source,
+        selectedMediaIndex,
+        selectedAudioTrackIndex,
+        selectedSubtitleIndex,
+      }, targetPeerId);
+    }
 
-   public sendRoomConfig(syncToleranceSeconds: number, roomPassword?: string, targetPeerId?: string): void {
-     this.sendPayload({
-       type: "room_config",
-       syncToleranceSeconds,
-       roomPassword,
-     }, targetPeerId);
-   }
+     public sendRoomConfig(syncToleranceSeconds: number, targetPeerId?: string): void {
+       if (!Number.isFinite(syncToleranceSeconds) || syncToleranceSeconds < 0) return;
+       const clampedTolerance = Math.min(syncToleranceSeconds, 30);
+       this.sendPayload({
+         type: "room_config",
+         syncToleranceSeconds: clampedTolerance,
+       }, targetPeerId);
+     }
 
   public sendSync(message: SyncMessage, targetPeerId?: string): void {
+    if (!message || !Number.isFinite(message.position) || !Number.isFinite(message.server_ts)) return;
     this.sendPayload({
       type: "sync",
       message,
@@ -772,17 +844,30 @@ export class P2PService {
     this.sendPayload({ type: "chat", content }, targetPeerId);
   }
 
-   public disconnect(): void {
-     this.state = "disconnecting";
-     this.stopPingInterval();
-     this.connections.forEach((conn) => conn.close());
-     this.connections.clear();
-     if (this.peer && !this.peer.destroyed) {
-       this.peer.disconnect();
-     }
-     this.remotePeerId = null;
-     this.emit("disconnected");
-   }
+     public disconnect(): void {
+       this.cleanup.abort();
+       this.state = "disconnecting";
+       this.isReconnecting = false;
+      if (this.reconnectTimeoutId !== null) {
+        clearTimeout(this.reconnectTimeoutId);
+        this.reconnectTimeoutId = null;
+      }
+      this.stopPingInterval();
+      for (const cleanups of this.connectionCleanups.values()) {
+        for (const cleanup of cleanups) cleanup();
+      }
+      this.connectionCleanups.clear();
+      this.connections.forEach((conn) => conn.close());
+      this.connections.clear();
+      this.syncMessageTimestamps.clear();
+      this.chatMessageTimestamps.clear();
+      if (this.peer && !this.peer.destroyed) {
+        this.peer.disconnect();
+      }
+      this.remotePeerId = null;
+      this.state = "disconnected";
+      this.emit("disconnected");
+    }
  }
  
 export default P2PService;

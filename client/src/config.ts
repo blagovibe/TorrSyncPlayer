@@ -25,6 +25,9 @@ export const P2P_CONFIG = {
   connectRetryBaseDelayMs: 1000,
 } as const;
 
+export const P2P_MAX_TORRENT_BYTES = 10 * 1024 * 1024;
+export const IPC_MAX_TORRENT_BYTES = 10 * 1024 * 1024;
+
 export const SYNC_CONFIG = {
   defaultToleranceSeconds: 1.5,
   heartbeatIntervalMs: 2000,
@@ -75,8 +78,8 @@ export const VIDEO_EXTENSION_PREFERENCES: Readonly<Record<string, number>> = {
   ".mov": 2,
   ".ogv": 2,
   ".ts": 1,
-  ".mkv": 0,
-  ".avi": 0,
+  ".mkv": -1,
+  ".avi": -1,
 };
 
 export const VIDEO_EXTENSIONS: Readonly<Record<string, true>> = {

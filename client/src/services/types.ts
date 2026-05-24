@@ -42,7 +42,6 @@ export type SharedTorrentSource =
 
 export interface RoomConfigMessage {
   syncToleranceSeconds: number;
-  roomPassword?: string;
 }
 
 export interface TorrentSourceMessage {
