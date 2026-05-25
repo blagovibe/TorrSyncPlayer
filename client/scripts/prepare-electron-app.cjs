@@ -45,12 +45,7 @@ const stagedPackage = {
       category: "Video",
     },
     win: {
-      target: ["nsis", "portable"],
-    },
-    nsis: {
-      oneClick: false,
-      allowToChangeInstallationDirectory: true,
-      perMachine: false,
+      target: ["portable"],
     },
   },
 };

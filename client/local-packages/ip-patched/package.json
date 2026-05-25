@@ -12,14 +12,6 @@
     "README.md"
   ],
   "main": "lib/ip",
-  "devDependencies": {
-    "eslint": "^8.15.0",
-    "mocha": "^10.0.0"
-  },
-  "scripts": {
-    "lint": "eslint lib/*.js test/*.js",
-    "test": "npm run lint && mocha --reporter spec test/*-test.js",
-    "fix": "npm run lint -- --fix"
-  },
+  "scripts": {},
   "license": "MIT"
 }
