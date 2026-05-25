@@ -29,7 +29,7 @@ const stagedPackage = {
     productName: "TorrSyncPlayer",
     electronVersion,
     directories: {
-      output: "../release",
+      output: path.join(projectDir, "release"),
     },
     files: ["**/*"],
     asar: true,

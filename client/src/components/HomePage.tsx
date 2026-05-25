@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { uiLogger } from "../utils/logger";
 
 interface HomePageProps {
@@ -36,11 +36,15 @@ function HomePage({
   const handleJoin = (event: FormEvent) => {
     event.preventDefault();
     const code = joinCode.trim().toUpperCase();
-    if (code.length === 6 && isValidJoinCode(code)) {
+    if (code.length === 0) {
+      setJoinCodeError("Please enter a 6-character code");
+    } else if (code.length !== 6) {
+      setJoinCodeError("Code must be exactly 6 characters");
+    } else if (!isValidJoinCode(code)) {
+      setJoinCodeError("Code must contain only letters A-Z and digits 0-9");
+    } else {
       setJoinCodeError(null);
       onJoinRoom(code);
-    } else if (code.length === 6 && !isValidJoinCode(code)) {
-      setJoinCodeError("Code must contain only letters A-Z and digits 0-9");
     }
   };
 

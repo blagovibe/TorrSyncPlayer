@@ -18,6 +18,7 @@ export default tseslint.config(
       "react-refresh": reactRefresh,
     },
     rules: {
+      "no-console": "error",
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
       "react-refresh/only-export-components": [
@@ -25,6 +26,7 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
@@ -40,7 +42,8 @@ export default tseslint.config(
   {
     files: ["src/**/__tests__/**", "src/**/*.test.{ts,tsx}"],
     rules: {
-      "@typescript-eslint/no-explicit-any": "warn",
+      "no-console": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
     },
   },
 );

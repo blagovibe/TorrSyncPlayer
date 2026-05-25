@@ -1,19 +1,23 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { type Peer, type PeerRole } from "../services/types";
 import { uiLogger } from "../utils/logger";
-import { RoomErrorBoundary } from "./ErrorBoundary";
+import { RoomErrorBoundary } from "./RoomErrorBoundary";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
 import type { TorrentMediaFile } from "../services/TorrentService";
 import type { AudioTrackInfo, ConnectionQuality, SubtitleTrackInfo } from "../services/types";
 
-interface RoomPageProps {
+interface ConnectionState {
   peerId: string;
   peerRole: PeerRole | null;
   peers: Peer[];
   isConnected: boolean;
-  canControlTorrent: boolean;
+  connectionQuality?: ConnectionQuality;
+  rttMs?: number | null;
+}
+
+interface TorrentState {
   magnetLink: string;
   torrentFileName: string | null;
   sharedSourceLabel: string | null;
@@ -22,103 +26,102 @@ interface RoomPageProps {
   selectedMediaLabel: string | null;
   selectedMediaKind: TorrentMediaFile["kind"] | null;
   selectedMediaAudioTracks: AudioTrackInfo[];
+  selectedAudioTrackIndex: number | null;
+  selectedSubtitles: SubtitleTrackInfo[];
+  selectedSubtitleIndex: number | null;
+  isLoadingTorrent: boolean;
+  downloadSpeed: string;
+  bufferingProgress: number;
   torrentPeerCount: number;
-  syncToleranceSeconds: number;
-  onSyncToleranceChange: (value: number) => void;
-  onMagnetLinkChange: (value: string) => void;
-  onTorrentFileChange: (file: File | null) => void;
+  torrentError: string | null;
+  torrentPeerHint: string;
+  bufferHint: string;
+  trackerLost?: boolean;
+  bufferWindowMB?: number;
+  maxBufferMB?: number;
+}
+
+interface PlayerState {
   videoRef: RefObject<HTMLVideoElement | null>;
   playbackNotice: string | null;
-  selectedAudioTrackIndex: number | null;
+  syncToleranceSeconds: number;
+  canControl: boolean;
+}
+
+interface ChatState {
+  chatMessages?: { id?: string; sender: string; text: string; timestamp: number }[];
+  onSendChat?: (text: string) => void;
+}
+
+interface RoomPageProps {
+  connection: ConnectionState;
+  torrent: TorrentState;
+  player: PlayerState;
+  chat: ChatState;
+  onMagnetLinkChange: (value: string) => void;
+  onTorrentFileChange: (file: File | null) => void;
   onPlaybackStarted: () => void;
   onPlayerReady: (ready: boolean) => void;
   onAudioTrackChange: (trackIndex: number | null) => void;
-  selectedSubtitles: SubtitleTrackInfo[];
-  selectedSubtitleIndex: number | null;
   onSubtitleTrackChange: (trackIndex: number | null) => void;
   onLoadMagnet: () => void;
   onLoadTorrentFile: () => void;
   onSelectMediaFile: (file: TorrentMediaFile) => void;
   onLeaveRoom: () => void;
-  isLoadingTorrent: boolean;
-  downloadSpeed: string;
-  bufferingProgress: number;
-  torrentError: string | null;
-  torrentPeerHint: string;
-  bufferHint: string;
   onBufferingChange?: (isBuffering: boolean) => void;
-  trackerLost?: boolean;
   onResetTorrentInRoom?: () => void;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
-  bufferWindowMB?: number;
-  maxBufferMB?: number;
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
+  onSyncToleranceChange: (value: number) => void;
   onSeek?: (timestamp: number) => void;
   onMuxStreamRequest?: (startSeconds: number) => Promise<string | null>;
-  connectionQuality?: ConnectionQuality;
-  rttMs?: number | null;
   onShowLeaveConfirm?: () => void;
   onShowResetConfirm?: () => void;
-  chatMessages?: { id?: string; sender: string; text: string; timestamp: number }[];
-  onSendChat?: (text: string) => void;
   onReturnHome?: () => void;
 }
 
 function RoomPage({
-  peerId,
-  peerRole,
-  peers,
-  isConnected,
-  canControlTorrent,
-  magnetLink,
-  torrentFileName,
-  sharedSourceLabel,
-  mediaFiles,
-  selectedMediaIndex,
-  selectedMediaLabel,
-  selectedMediaKind,
-  selectedMediaAudioTracks,
-  torrentPeerCount,
-  syncToleranceSeconds,
-  onSyncToleranceChange,
+  connection,
+  torrent,
+  player,
+  chat,
   onMagnetLinkChange,
   onTorrentFileChange,
-  videoRef,
-  playbackNotice,
-  selectedAudioTrackIndex,
   onPlaybackStarted,
   onPlayerReady,
   onAudioTrackChange,
-  selectedSubtitles,
-  selectedSubtitleIndex,
   onSubtitleTrackChange,
   onLoadMagnet,
   onLoadTorrentFile,
   onSelectMediaFile,
   onLeaveRoom,
-  isLoadingTorrent,
-  downloadSpeed,
-  bufferingProgress,
-  torrentError,
-  torrentPeerHint,
-  bufferHint,
   onBufferingChange,
-  trackerLost,
   onResetTorrentInRoom,
   onTimeUpdate,
-  bufferWindowMB,
-  maxBufferMB,
   onBufferSettingsChange,
+  onSyncToleranceChange,
   onSeek,
   onMuxStreamRequest,
-  connectionQuality,
-  rttMs,
-          onShowLeaveConfirm,
-   onShowResetConfirm,
-   chatMessages,
-   onSendChat,
-   onReturnHome,
- }: RoomPageProps) {
+  onShowLeaveConfirm,
+  onShowResetConfirm,
+  onReturnHome,
+}: RoomPageProps) {
+  const {
+    peerId, peerRole, peers, isConnected, connectionQuality, rttMs,
+  } = connection;
+  const {
+    magnetLink, torrentFileName, sharedSourceLabel, mediaFiles,
+    selectedMediaIndex, selectedMediaLabel, selectedMediaKind,
+    selectedMediaAudioTracks, selectedAudioTrackIndex,
+    selectedSubtitles, selectedSubtitleIndex,
+    isLoadingTorrent, downloadSpeed, bufferingProgress,
+    torrentPeerCount, torrentError, torrentPeerHint, bufferHint, trackerLost,
+    bufferWindowMB, maxBufferMB,
+  } = torrent;
+  const {
+    videoRef, playbackNotice, syncToleranceSeconds, canControl: canControlTorrent,
+  } = player;
+  const { chatMessages, onSendChat } = chat;
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
@@ -327,7 +330,7 @@ function RoomPage({
                   max="30"
                   step="0.1"
                   value={syncToleranceSeconds}
-                  onChange={(event) => onSyncToleranceChange(Number(event.target.value))}
+                   onChange={(event) => { const val = Number(event.target.value); onSyncToleranceChange(Number.isFinite(val) ? val : 0); }}
                 />
                 <p className="hint">
                   Guests stay within this drift window before the player is corrected back to the host timecode.

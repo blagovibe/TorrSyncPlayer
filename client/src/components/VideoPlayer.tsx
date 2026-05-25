@@ -367,6 +367,7 @@ function VideoPlayer({
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
         <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>{isPlaying ? "Pause" : "Play"}</button>
         <input type="range" min={0} max={duration || 100} step={0.1} value={currentTime} disabled={!canControlSeek}
+          aria-label="Seek" aria-valuenow={Math.round(currentTime)} aria-valuemin={0} aria-valuemax={Math.round(duration || 100)}
           onChange={(e) => { if (!canControlSeek) return; const val = Number(e.target.value); setCurrentTime(val); if (videoRef.current) videoRef.current.currentTime = val; onSeek?.(val); }}
           onMouseUp={(e) => { if (!canControlSeek) return; onSeek?.(Number((e.target as HTMLInputElement).value)); }}
           onTouchEnd={(e) => { if (!canControlSeek) return; onSeek?.(Number((e.target as HTMLInputElement).value)); }}
@@ -442,13 +443,13 @@ function VideoPlayer({
                   <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
                   <div className="buffer-settings-row">
                     <label htmlFor="buffer-window-mb">Window (MB)</label>
-                    <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => setEditBufferWindowMB(Math.max(1, Math.min(1000, Number(e.target.value) || 50)))} />
+                    <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => { const v = Number(e.target.value); setEditBufferWindowMB(Number.isFinite(v) ? Math.max(1, Math.min(1000, v)) : 50); }} />
                   </div>
                   <div className="buffer-settings-row">
                     <label htmlFor="max-buffer-mb">Max buffer (MB)</label>
-                    <input id="max-buffer-mb" type="number" min={10} max={2000} step={10} value={editMaxBufferMB} onChange={(e) => setEditMaxBufferMB(Math.max(10, Math.min(2000, Number(e.target.value) || 500)))} />
+                    <input id="max-buffer-mb" type="number" min={10} max={2000} step={10} value={editMaxBufferMB} onChange={(e) => { const v = Number(e.target.value); setEditMaxBufferMB(Number.isFinite(v) ? Math.max(10, Math.min(2000, v)) : 500); }} />
                   </div>
-                  <button type="button" className="secondary-btn" onClick={() => onBufferSettingsChange?.(editBufferWindowMB, editMaxBufferMB)}>Apply buffer settings</button>
+                  <button type="button" className="secondary-btn" onClick={() => { const win = Number.isFinite(editBufferWindowMB) ? Math.max(1, Math.min(1000, editBufferWindowMB)) : 50; const max = Number.isFinite(editMaxBufferMB) ? Math.max(10, Math.min(2000, editMaxBufferMB)) : 500; onBufferSettingsChange?.(win, max); }}>Apply buffer settings</button>
                   <p className="settings-hint">Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.</p>
                 </div>
                 <div className="settings-section">

@@ -103,3 +103,9 @@ export function isAudioExtension(ext: string): boolean {
 export function getVideoPreference(ext: string): number {
   return VIDEO_EXTENSION_PREFERENCES[ext] ?? 0;
 }
+
+const NATIVE_BROWSER_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov", ".m4v", ".ts"]);
+
+export function needsVideoConversion(ext: string): boolean {
+  return isVideoExtension(ext) && !NATIVE_BROWSER_VIDEO_FORMATS.has(ext);
+}

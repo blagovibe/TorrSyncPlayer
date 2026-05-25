@@ -1,8 +1,14 @@
 const listener = async (event) => {
   const { url } = event.request;
 
-  const requestOrigin = new URL(url).origin;
+  let requestOrigin;
+  try {
+    requestOrigin = new URL(url).origin;
+  } catch {
+    return null;
+  }
   if (requestOrigin !== self.location.origin) return null;
+  if (self.location.origin !== new URL(self.registration.scope).origin) return null;
 
   if (event.clientId) {
     const client = await clients.get(event.clientId).catch(() => null);
@@ -81,6 +87,9 @@ async function serve({ request }) {
       port1.onmessage = ({ data: response }) => {
         clearTimeout(postMessageTimeout);
         settle([response, port1]);
+      };
+      port1.onmessageerror = () => {
+        // Message deserialization failed; ignore this client
       };
       try {
         client.postMessage(

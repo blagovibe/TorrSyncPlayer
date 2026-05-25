@@ -22,6 +22,6 @@ All notable changes to TorrSyncPlayer will be documented in this file.
 - Consolidated shared test utilities (`createTorrent`, `setupElectronBackendCleanup`) into `test-utils.ts`
 
 ### Build & CI
-- Added `license: "UNLICENSED"` field to both `package.json` files
+- Added `license: "MIT"` field to both `package.json` files
 - Added `npm audit` step to CI for vulnerability scanning
 - Added `type-check` step to Windows CI builds

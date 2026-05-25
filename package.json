@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Root command shim for the TorrSyncPlayer client app.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "dev": "npm --prefix client run dev",
     "electron:dev": "npm --prefix client run electron:dev",

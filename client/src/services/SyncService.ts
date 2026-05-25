@@ -21,6 +21,7 @@ type SuppressFlags = {
   play: boolean;
   pause: boolean;
   seeked: boolean;
+  state: boolean;
 };
 
 export class SyncService {
@@ -39,7 +40,9 @@ export class SyncService {
     play: false,
     pause: false,
     seeked: false,
+    state: false,
   };
+  private lastExplicitSyncTs = 0;
   private syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds;
 
   constructor(
@@ -60,11 +63,16 @@ export class SyncService {
     }
   }
 
+  /**
+   * Register an event listener.
+   * @returns An unsubscribe function.
+   */
   on<K extends EventKey>(event: K, callback: SyncEvents[K]): () => void {
     this.listeners[event].add(callback);
     return () => this.listeners[event].delete(callback);
   }
 
+  /** Dispose of the sync service and clean up all event listeners. */
   dispose(): void {
     this.cleanup.abort();
     for (const key of Object.keys(this.listeners) as EventKey[]) {
@@ -72,6 +80,7 @@ export class SyncService {
     }
   }
 
+  /** Set the sync tolerance in seconds. Values are normalized to non-negative. */
   setSyncToleranceSeconds(value: number): void {
     this.syncToleranceSeconds = this.normalizeTolerance(value);
   }
@@ -80,6 +89,7 @@ export class SyncService {
     return this.syncToleranceSeconds;
   }
 
+  /** Create a sync message snapshot of the current playback state. */
   createSnapshot(sourceKey?: string): SyncMessage {
     const message: SyncMessage = {
       action: "state",
@@ -93,18 +103,23 @@ export class SyncService {
     return message;
   }
 
+  /** Start playback on the master and broadcast a sync message. */
   play(): void {
     if (this.role === "master") {
       this.suppressNextEventSync.play = true;
+      this.suppressNextEventSync.state = true;
+      this.lastExplicitSyncTs = Date.now();
       this.sendMasterSync("play", this.video.currentTime, true);
     }
     this.video.play().catch(() => {
       if (this.role === "master") {
         this.suppressNextEventSync.play = false;
+        this.suppressNextEventSync.state = false;
       }
     });
   }
 
+  /** Pause playback on the master and broadcast a sync message. */
   pause(): void {
     try {
       this.video.pause();
@@ -113,14 +128,19 @@ export class SyncService {
     }
     if (this.role === "master") {
       this.suppressNextEventSync.pause = true;
+      this.suppressNextEventSync.state = true;
+      this.lastExplicitSyncTs = Date.now();
       this.sendMasterSync("pause", this.video.currentTime, false);
     }
   }
 
+  /** Seek to a timestamp on the master and broadcast a sync message. */
   seek(timestamp: number): void {
     this.video.currentTime = timestamp;
     if (this.role === "master") {
       this.suppressNextEventSync.seeked = true;
+      this.suppressNextEventSync.state = true;
+      this.lastExplicitSyncTs = Date.now();
       this.sendMasterSync("seek", timestamp, !this.video.paused);
     }
   }
@@ -129,7 +149,11 @@ export class SyncService {
     return this.video.currentTime;
   }
 
-  applyRemoteSync(message: SyncMessage): void {
+  /**
+   * Apply a remote sync message to the local video element (slave only).
+   * Compensates for network latency and enforces sync tolerance.
+   */
+  applyRemoteSync(message: SyncMessage, transportRttMs?: number | null): void {
     if (this.role !== "slave") return;
 
     const snapshot = {
@@ -144,9 +168,14 @@ export class SyncService {
     }
 
     const isSeek = message.action === "seek";
-    const latencySeconds = isSeek
-      ? 0
-      : Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), SYNC_CONFIG.maxLatencyCompensationSeconds);
+    let latencySeconds: number;
+    if (isSeek) {
+      latencySeconds = 0;
+    } else if (transportRttMs !== null && transportRttMs !== undefined && transportRttMs > 0) {
+      latencySeconds = Math.min(transportRttMs / 1000, SYNC_CONFIG.maxLatencyCompensationSeconds);
+    } else {
+      latencySeconds = Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), SYNC_CONFIG.maxLatencyCompensationSeconds);
+    }
     const rawCompensatedPosition = message.position + latencySeconds;
     const maxDuration = Number.isFinite(snapshot.duration) && snapshot.duration > 0 ? snapshot.duration : Infinity;
     const compensatedPosition = Math.max(0, Math.min(rawCompensatedPosition, maxDuration));
@@ -236,12 +265,21 @@ export class SyncService {
       const position = this.video.currentTime;
       const isPlaying = !this.video.paused;
 
-      // Dedup: skip if state hasn't changed materially and last send was < heartbeatInterval
+      if (this.suppressNextEventSync.state) {
+        this.suppressNextEventSync.state = false;
+        return;
+      }
+
+      const timeSinceExplicitSync = now - this.lastExplicitSyncTs;
+      if (timeSinceExplicitSync < SYNC_CONFIG.heartbeatIntervalMs) return;
+
       const posChanged = Math.abs(position - this.lastHeartbeatPosition) > 0.5;
       const stateChanged = isPlaying !== this.lastHeartbeatPlaying;
       const timeSinceLastSend = now - this.lastHeartbeatSent;
+      const minSyncInterval = SYNC_CONFIG.heartbeatIntervalMs;
 
-      if (!posChanged && !stateChanged && timeSinceLastSend < SYNC_CONFIG.heartbeatIntervalMs) return;
+      if (timeSinceLastSend < minSyncInterval) return;
+      if (!posChanged && !stateChanged && timeSinceLastSend < minSyncInterval * 2) return;
 
       this.lastHeartbeatPosition = position;
       this.lastHeartbeatPlaying = isPlaying;

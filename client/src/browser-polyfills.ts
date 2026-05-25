@@ -10,10 +10,8 @@ type BrowserProcess = {
 type BrowserGlobal = Omit<typeof globalThis, "global" | "process"> & {
   Buffer?: typeof Buffer;
   global?: BrowserGlobal;
-  mozRTCPeerConnection?: typeof RTCPeerConnection;
   process?: BrowserProcess;
   webkitRTCIceCandidate?: typeof RTCIceCandidate;
-  webkitRTCPeerConnection?: typeof RTCPeerConnection;
   webkitRTCSessionDescription?: typeof RTCSessionDescription;
 };
 
@@ -33,39 +31,6 @@ if (browserGlobal.process) {
   browserGlobal.process.browser = true;
   browserGlobal.process.nextTick ??= (callback, ...args) => queueMicrotask(() => callback(...args));
   browserGlobal.process.version ??= "";
-}
-
-const nativeRTCPeerConnection =
-  browserGlobal.RTCPeerConnection ??
-  browserGlobal.webkitRTCPeerConnection ??
-  browserGlobal.mozRTCPeerConnection;
-
-if (nativeRTCPeerConnection) {
-  browserGlobal.RTCPeerConnection = function RTCPeerConnection(
-    configuration?: RTCConfiguration,
-    ...args: unknown[]
-  ) {
-    try {
-      return Reflect.construct(nativeRTCPeerConnection, [configuration, ...args], new.target);
-    } catch (error) {
-      if (!configuration || !("sdpSemantics" in configuration)) {
-        throw error;
-      }
-
-      const { sdpSemantics: _sdpSemantics, ...compatibleConfiguration } =
-        configuration as RTCConfiguration & { sdpSemantics?: unknown };
-      try {
-        return Reflect.construct(nativeRTCPeerConnection, [compatibleConfiguration, ...args], new.target);
-      } catch {
-        // Fallback: direct invocation without new.target (may lose subclassing but prevents crash).
-        // RTCConfiguration constructor only takes one argument, so we don't spread args.
-        return new nativeRTCPeerConnection(compatibleConfiguration);
-      }
-    }
-  } as unknown as typeof RTCPeerConnection;
-
-  browserGlobal.RTCPeerConnection.prototype = nativeRTCPeerConnection.prototype;
-  Object.setPrototypeOf(browserGlobal.RTCPeerConnection, nativeRTCPeerConnection);
 }
 
 if (!browserGlobal.RTCSessionDescription && browserGlobal.webkitRTCSessionDescription) {

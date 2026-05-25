@@ -135,6 +135,17 @@ function formatTorrentFile(file, index, streamBaseUrl) {
 
   const streamPath = typeof file.streamURL === "string" ? file.streamURL : undefined;
 
+  let streamUrl;
+  if (streamBaseUrl && streamPath) {
+    try {
+      streamUrl = new URL(streamPath, streamBaseUrl).href;
+    } catch {
+      streamUrl = streamPath;
+    }
+  } else {
+    streamUrl = streamPath;
+  }
+
   return {
     index,
     name: file.name,
@@ -142,7 +153,7 @@ function formatTorrentFile(file, index, streamBaseUrl) {
     kind,
     extension,
     progress: typeof file.progress === "number" ? file.progress : 0,
-    streamUrl: streamBaseUrl && streamPath ? new URL(streamPath, streamBaseUrl).href : streamPath,
+    streamUrl: streamUrl,
   };
 }
 
@@ -292,6 +303,10 @@ class TorrentBridge {
   }
 
   async addMagnet(magnetLink) {
+    const MAGNET_LINK_PATTERN = /^magnet:\?xt=urn:(?:btih:[a-fA-F0-9]{40}|btmh:[a-fA-F0-9]{40}|sha1:[a-fA-F0-9]{40}|ed2k:[a-fA-F0-9]{32})(?:&.+)?$/;
+    if (!MAGNET_LINK_PATTERN.test(magnetLink)) {
+      throw new Error("Invalid magnet link format");
+    }
     return this.addSource(magnetLink);
   }
 
@@ -344,7 +359,11 @@ class TorrentBridge {
     this.serverPromise = null;
     this.clearAudioSessions();
     if (this.audioServer) {
-      this.audioServer.close();
+      try {
+        this.audioServer.close();
+      } catch {
+        // Server may have already been closed
+      }
       this.audioServer = null;
     }
     this.audioServerPromise = null;
@@ -361,7 +380,6 @@ class TorrentBridge {
     this.client = null;
     this.clientPromise = null;
 
-    // Close the torrent stream server if it was created
     if (client && !client.destroyed && typeof client._server === "object" && client._server !== null) {
       const server = client._server;
       if (typeof server.close === "function") {

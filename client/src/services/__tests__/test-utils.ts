@@ -3,16 +3,20 @@ import { vi } from "vitest";
 type TorrentEvent = "download" | "metadata" | "ready" | "error" | "wire" | "noPeers" | "peer";
 type TorrentCallback = (...args: unknown[]) => void | Promise<void>;
 
+const createMockFile = vi.hoisted(() => {
+  return (file: { name: string; length?: number; streamTo?: (video: HTMLMediaElement) => Promise<void> }) => ({
+    streamTo: vi.fn().mockResolvedValue(undefined),
+    length: 1024,
+    ...file,
+  });
+});
+
 export function createTorrent(
   files: Array<{ name: string; length?: number; streamTo?: (video: HTMLMediaElement) => Promise<void> }>,
 ) {
   const listeners = new Map<TorrentEvent, TorrentCallback>();
   const torrent = {
-    files: files.map((file) => ({
-      streamTo: vi.fn().mockResolvedValue(undefined),
-      length: 1024,
-      ...file,
-    })),
+    files: files.map((file) => createMockFile(file)),
     progress: 0.35,
     downloadSpeed: 2048,
     numPeers: 0,

@@ -111,7 +111,34 @@
 - **Retry**: Exponential backoff with jitter (P2PService.connect)
 - **Security**: CSP headers, input validation, IPC origin validation
 
-## 6. Desktop Packaging
+## 6. Project Structure
+
+```
+TorrSyncPlayer/
+├── client/                  # Main application (React + Electron)
+│   ├── src/
+│   │   ├── components/      # React UI components
+│   │   │   ├── __tests__/   # Component tests
+│   │   ├── services/        # Business logic (P2P, Sync, Torrent)
+│   │   │   ├── __tests__/   # Service tests
+│   │   ├── hooks/           # Custom React hooks
+│   │   ├── contexts/        # React context providers
+│   │   ├── utils/           # Helpers and utilities
+│   │   │   ├── __tests__/   # Utility tests
+│   │   ├── shims/           # Browser polyfills/shims
+│   │   ├── types/           # TypeScript type declarations
+│   │   ├── config.ts        # Application configuration
+│   │   ├── App.tsx          # Root component
+│   │   └── main.tsx         # Entry point
+│   ├── electron/            # Electron main process
+│   │   ├── main.cjs         # Main process entry
+│   │   ├── preload.cjs      # Preload script
+│   │   └── torrent-bridge.cjs # Torrent bridge for Electron
+│   └── package.json
+└── README.md
+```
+
+## 7. Desktop Packaging
 
 | Platform | Format | Command |
 |----------|--------|---------|
@@ -122,14 +149,14 @@ Output:
 - Linux: `client/.electron-app/dist/*.AppImage`
 - Windows: `client/.electron-app/dist/*.exe`
 
-## 7. Quality Gates
+## 8. Quality Gates
 
 - `npm run lint` — 0 errors, 0 warnings
 - `npm run type-check` — 0 TypeScript errors
 - `npm run test` — all tests passing
 - `npm run build` — successful Vite build
 
-## 8. Acceptance Criteria
+## 9. Acceptance Criteria
 
 - [x] Application launches without errors
 - [x] Video plays from magnet link
@@ -143,11 +170,11 @@ Output:
 - [x] Audio track switching works
 - [x] Sync tolerance is adjustable
 
-## 9. Roadmap
+## 10. Roadmap
 
 1. **Phase 1**: Basic project structure, Electron + React ✅
 2. **Phase 2**: WebTorrent integration, video player ✅
 3. **Phase 3**: P2P signaling via PeerJS ✅
 4. **Phase 4**: Playback synchronization ✅
 5. **Phase 5**: UI/UX polish ✅
-6. **Phase 6**: Self-hosted signaling option (future)
+  6. **Phase 6**: Self-hosted signaling option (future, tracked as GitHub issue)

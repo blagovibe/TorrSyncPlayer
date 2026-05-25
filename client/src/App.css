@@ -615,3 +615,65 @@ button:hover {
   padding: 0.35rem 0.75rem;
   border-radius: 0.25rem;
 }
+
+.error-boundary-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.error-boundary-shell--room {
+  min-height: 60vh;
+}
+
+.error-boundary-title {
+  font-size: 1.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.error-boundary-subtitle {
+  font-size: 1.1rem;
+  color: #94a3b8;
+  font-weight: 400;
+  margin-bottom: 0.5rem;
+}
+
+.error-boundary-subtitle--room {
+  font-weight: 400;
+}
+
+.error-boundary-message {
+  color: #ff8a9d;
+  max-width: 30rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.error-boundary-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.error-boundary-hint {
+  color: #64748b;
+  font-size: 0.8rem;
+  margin-top: 1rem;
+}
+
+.format-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+  font-size: 0.75rem;
+  font-weight: 500;
+}

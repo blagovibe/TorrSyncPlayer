@@ -1,9 +1,9 @@
 {
   "name": "torrsyncplayer",
   "private": true,
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Sync video playback via torrent-backed media sharing.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

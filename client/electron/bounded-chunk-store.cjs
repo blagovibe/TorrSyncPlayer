@@ -47,10 +47,17 @@ class BoundedChunkStore {
       this.lruList.delete(index);
     }
 
+    let evictIterations = 0;
+    const maxEvictIterations = this.lruList.size + 1;
     while (this.currentBytes + buf.length > this.maxBytes && this.lruList.size > 0) {
-      const evictIndex = this._findEvictableIndex(index);
-      if (evictIndex === null) break;
-      this._evictChunk(evictIndex);
+      if (evictIterations >= maxEvictIterations) {
+        this._evictChunk(this.lruList.values().next().value);
+      } else {
+        const evictIndex = this._findEvictableIndex(index);
+        if (evictIndex === null) break;
+        this._evictChunk(evictIndex);
+      }
+      evictIterations++;
     }
 
     this.chunks.set(index, buf);
@@ -98,12 +105,17 @@ class BoundedChunkStore {
   }
 
   _findEvictableIndex(currentIndex) {
+    let bestIndex = null;
+    let bestDistance = -1;
     for (const idx of this.lruList) {
-      if (idx !== currentIndex) {
-        return idx;
+      if (idx === currentIndex) continue;
+      const distance = Math.abs(idx - currentIndex);
+      if (distance > bestDistance) {
+        bestDistance = distance;
+        bestIndex = idx;
       }
     }
-    return null;
+    return bestIndex;
   }
 
   _evictChunk(index) {

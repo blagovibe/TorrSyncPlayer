@@ -104,6 +104,8 @@ function App() {
   const isPlayerReadyRef = useRef(false);
   const torrentLoadAbortRef = useRef<AbortController | null>(null);
   const torrentLoadVersionRef = useRef(0);
+  const guestRetryCountRef = useRef(0);
+  const maxGuestRetries = 3;
 
   const disposeSyncService = () => {
     syncServiceRef.current?.dispose();
@@ -154,7 +156,7 @@ function App() {
 
   const clearBroadcastTimeout = () => {
     if (broadcastTimeoutRef.current !== null) {
-      window.clearTimeout(broadcastTimeoutRef.current);
+      clearTimeout(broadcastTimeoutRef.current);
       broadcastTimeoutRef.current = null;
     }
   };
@@ -375,14 +377,30 @@ function App() {
     } catch (error) {
       if (abortController.signal.aborted) return;
       const message = error instanceof Error ? error.message : "Unable to load torrent";
-      setTorrentError(message);
-      uiLogger.error("Torrent load failed:", error);
-    } finally {
-      if (torrentLoadAbortRef.current === abortController) {
-        isLoadingTorrentRef.current = false;
-        isProcessingTorrentLoadRef.current = false;
-        torrentLoadAbortRef.current = null;
+      if (peerRole === "slave" && guestRetryCountRef.current < maxGuestRetries) {
+        guestRetryCountRef.current++;
+        const retryDelay = 1000 * Math.pow(2, guestRetryCountRef.current - 1);
+        uiLogger.warn(`Guest torrent load failed, retry ${guestRetryCountRef.current}/${maxGuestRetries} in ${retryDelay}ms`);
+        setTorrentError(`${message} — retrying (${guestRetryCountRef.current}/${maxGuestRetries})...`);
+        await new Promise<void>((resolve) => setTimeout(resolve, retryDelay));
+        if (!abortController.signal.aborted && torrentLoadAbortRef.current === abortController) {
+          try {
+            await loadTorrentRequest(nextRequest);
+            guestRetryCountRef.current = 0;
+          } catch (retryError) {
+            const retryMsg = retryError instanceof Error ? retryError.message : message;
+            setTorrentError(`${retryMsg}. Try requesting the host to resend.`);
+            uiLogger.error("Guest torrent load retry failed:", retryError);
+          }
+        }
+      } else {
+        setTorrentError(peerRole === "slave" ? `${message}. Try requesting the host to resend.` : message);
+        uiLogger.error("Torrent load failed:", error);
       }
+    } finally {
+      isLoadingTorrentRef.current = false;
+      isProcessingTorrentLoadRef.current = false;
+      torrentLoadAbortRef.current = null;
       setIsLoadingTorrent(false);
       if (pendingTorrentLoadRef.current && !abortController.signal.aborted && torrentLoadVersionRef.current === loadVersion) {
         const pending = pendingTorrentLoadRef.current;
@@ -466,6 +484,7 @@ function App() {
       ) {
         setPendingSync(null);
       }
+      guestRetryCountRef.current = 0;
       requestTorrentLoad({
         source: message.source,
         selectedMediaIndex: message.selectedMediaIndex,
@@ -499,7 +518,7 @@ function App() {
     });
 
     p2pService.on("chat_received", (senderId, content) => {
-      const message = { id: `${senderId}-${Date.now()}`, sender: senderId, text: content, timestamp: Date.now() };
+      const message = { id: crypto.randomUUID(), sender: senderId, text: content, timestamp: Date.now() };
       setChatMessages(prev => [...prev, message]);
     });
 
@@ -543,7 +562,11 @@ function App() {
     setConnectionError(null);
     try {
       const p2pService = await initializeP2PService("guest");
-      await p2pService.connect(`torrsync-${normalizedId}`);
+      const connectPromise = p2pService.connect(`torrsync-${normalizedId}`);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Connection timed out. The host may be offline or unreachable.")), 60_000)
+      );
+      await Promise.race([connectPromise, timeoutPromise]);
       setPeerRole("slave");
       setCtxPeerRole("slave");
       setIsConnected(true);
@@ -774,10 +797,10 @@ function App() {
       : currentTorrentSource.fileName
     : torrentFile?.name ?? null;
 
-  const trackerLostRef = useRef(trackerLost);
-  useEffect(() => {
-    trackerLostRef.current = trackerLost;
-  }, [trackerLost]);
+  const selectedMediaFileRef = useRef(selectedMediaFile);
+  selectedMediaFileRef.current = selectedMediaFile;
+  const currentTorrentSourceRef = useRef(currentTorrentSource);
+  currentTorrentSourceRef.current = currentTorrentSource;
 
   useEffect(() => {
     const torrentService = getTorrentService();
@@ -797,7 +820,7 @@ function App() {
       setTorrentPeerCount(peerCount);
       if (peerCount > 0) {
         setTrackerLost(false);
-      } else if (selectedMediaFile && !isLoadingTorrentRef.current && currentTorrentSource) {
+      } else if (selectedMediaFileRef.current && !isLoadingTorrentRef.current && currentTorrentSourceRef.current) {
         setTrackerLost(true);
       }
     });
@@ -807,7 +830,7 @@ function App() {
       offTorrentSpeed();
       offTorrentPeerCount();
     };
-  }, [getTorrentService, torrentServiceVersion, selectedMediaFile, currentTorrentSource]);
+  }, [getTorrentService, torrentServiceVersion]);
 
   useEffect(() => {
     syncServiceRef.current?.setSyncToleranceSeconds(syncToleranceSeconds);
@@ -849,6 +872,7 @@ function App() {
     const doCleanup = () => {
       if (isCleanedUpRef.current) return;
       isCleanedUpRef.current = true;
+      clearBroadcastTimeout();
       p2pServiceRef.current?.disconnect();
       p2pServiceRef.current = null;
       disposeSyncService();
@@ -910,28 +934,14 @@ function App() {
     win.torrsyncElectronWindow?.closeCancelled();
   }, []);
 
-  const MAX_CHAT_MESSAGE_LENGTH = 500;
-  const chatRateTimestamps = useRef<number[]>([]);
-  const chatRateLimitPer10s = 10;
-
-  const isChatRateLimited = useCallback(() => {
-    const now = Date.now();
-    const recent = chatRateTimestamps.current.filter(ts => now - ts < 10_000);
-    chatRateTimestamps.current = recent;
-    if (recent.length >= chatRateLimitPer10s) return true;
-    recent.push(now);
-    return false;
-  }, []);
-
   const handleSendChat = useCallback((text: string) => {
     if (!text.trim() || !p2pServiceRef.current) return;
     const trimmed = text.trim();
-    if (trimmed.length > MAX_CHAT_MESSAGE_LENGTH) return;
-    if (isChatRateLimited()) return;
-    const message = { id: `${Date.now()}-${peerId}`, sender: peerId, text: trimmed, timestamp: Date.now() };
+    if (trimmed.length > 500) return;
+    const message = { id: crypto.randomUUID(), sender: peerId, text: trimmed, timestamp: Date.now() };
     setChatMessages(prev => [...prev, message]);
     p2pServiceRef.current.sendChat(message.text);
-  }, [peerId, isChatRateLimited]);
+  }, [peerId]);
 
   return (
     <main className="app-shell">
@@ -944,65 +954,51 @@ function App() {
            connectionError={connectionError}
          />
       ) : (
-           <RoomPage
-           peerId={peerId}
-           peerRole={peerRole}
-           peers={peers}
-           isConnected={isConnected}
-           canControlTorrent={peerRole === "master"}
-           magnetLink={magnetLink}
-           torrentFileName={torrentFile?.name ?? null}
-           sharedSourceLabel={sharedTorrentLabel}
-           mediaFiles={mediaFiles}
-           selectedMediaIndex={selectedMediaIndex}
-           selectedMediaLabel={selectedMediaLabel}
-           selectedMediaKind={selectedMediaKind}
-           selectedMediaAudioTracks={selectedMediaAudioTracks}
-           selectedAudioTrackIndex={selectedAudioTrackIndex}
-           selectedSubtitles={selectedSubtitles}
-           selectedSubtitleIndex={selectedSubtitleIndex}
-          onSubtitleTrackChange={handleSubtitleTrackChange}
-          torrentPeerCount={torrentPeerCount}
-          syncToleranceSeconds={syncToleranceSeconds}
-          onSyncToleranceChange={handleSyncToleranceChange}
-          onMagnetLinkChange={setMagnetLink}
-          onTorrentFileChange={handleTorrentFileChange}
-          videoRef={videoRef}
-          playbackNotice={playbackNotice}
-          onPlaybackStarted={() => setPlaybackNotice(null)}
-          onAudioTrackChange={handleAudioTrackChange}
-          onPlayerReady={(ready) => {
-            isPlayerReadyRef.current = ready;
-            setIsPlayerReady(ready);
-            if (ready) tryApplyPendingRemoteSync();
-          }}
-          onLoadMagnet={() => void handleLoadMagnet()}
-          onLoadTorrentFile={() => void handleLoadTorrentFile()}
-          onSelectMediaFile={handleSelectMediaFile}
-          onLeaveRoom={handleLeaveRoom}
-          onResetTorrentInRoom={handleResetTorrentInRoom}
-          isLoadingTorrent={isLoadingTorrent}
-          downloadSpeed={downloadSpeed}
-          bufferingProgress={selectedMediaBufferProgress}
-          torrentError={torrentError}
-          torrentPeerHint={torrentPeerHint}
-          bufferHint={bufferHint}
-          trackerLost={trackerLost}
-          onTimeUpdate={handleTimeUpdate}
-          onBufferingChange={handleBufferingChange}
-          bufferWindowMB={bufferWindowMB}
-          maxBufferMB={maxBufferMB}
-          onBufferSettingsChange={handleBufferSettingsChange}
-          onSeek={handleSeek}
-          onMuxStreamRequest={handleMuxStreamRequest}
-          connectionQuality={connectionQuality}
-          rttMs={rttMs}
-          onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
-          onShowResetConfirm={() => setShowResetConfirm(true)}
-          onReturnHome={() => setCurrentView("home")}
-          chatMessages={chatMessages}
-          onSendChat={handleSendChat}
-        />
+            <RoomPage
+           connection={{
+             peerId, peerRole, peers, isConnected, connectionQuality, rttMs,
+           }}
+           torrent={{
+             magnetLink, torrentFileName: torrentFile?.name ?? null,
+             sharedSourceLabel: sharedTorrentLabel, mediaFiles,
+             selectedMediaIndex, selectedMediaLabel, selectedMediaKind,
+             selectedMediaAudioTracks, selectedAudioTrackIndex,
+             selectedSubtitles, selectedSubtitleIndex,
+             isLoadingTorrent, downloadSpeed,
+             bufferingProgress: selectedMediaBufferProgress,
+             torrentPeerCount, torrentError, torrentPeerHint, bufferHint,
+             trackerLost, bufferWindowMB, maxBufferMB,
+           }}
+           player={{
+             videoRef, playbackNotice, syncToleranceSeconds,
+             canControl: peerRole === "master",
+           }}
+           chat={{ chatMessages, onSendChat: handleSendChat }}
+           onSubtitleTrackChange={handleSubtitleTrackChange}
+           onSyncToleranceChange={handleSyncToleranceChange}
+           onMagnetLinkChange={setMagnetLink}
+           onTorrentFileChange={handleTorrentFileChange}
+           onPlaybackStarted={() => setPlaybackNotice(null)}
+           onAudioTrackChange={handleAudioTrackChange}
+           onPlayerReady={(ready) => {
+             isPlayerReadyRef.current = ready;
+             setIsPlayerReady(ready);
+             if (ready) tryApplyPendingRemoteSync();
+           }}
+           onLoadMagnet={() => void handleLoadMagnet()}
+           onLoadTorrentFile={() => void handleLoadTorrentFile()}
+           onSelectMediaFile={handleSelectMediaFile}
+           onLeaveRoom={handleLeaveRoom}
+           onResetTorrentInRoom={handleResetTorrentInRoom}
+           onTimeUpdate={handleTimeUpdate}
+           onBufferingChange={handleBufferingChange}
+           onBufferSettingsChange={handleBufferSettingsChange}
+           onSeek={handleSeek}
+           onMuxStreamRequest={handleMuxStreamRequest}
+           onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
+           onShowResetConfirm={() => setShowResetConfirm(true)}
+           onReturnHome={() => setCurrentView("home")}
+         />
       )}
       <ConfirmModal
         isOpen={showLeaveConfirm}

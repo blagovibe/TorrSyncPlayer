@@ -59,7 +59,7 @@ function RoomInfo({
       </p>
 
       <h3>Chat</h3>
-      <div className="chat-messages-scroll" ref={chatScrollRef}>
+      <div className="chat-messages-scroll" ref={chatScrollRef} aria-live="polite" aria-label="Chat messages">
         {displayMessages.map((msg) => (
           <div
             key={msg.id || `${msg.sender}-${msg.timestamp}`}

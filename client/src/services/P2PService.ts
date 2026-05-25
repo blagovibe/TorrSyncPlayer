@@ -22,6 +22,7 @@ type P2PEvents = {
   reconnecting: (attempt: number, delayMs: number) => void;
   connection_quality: (quality: ConnectionQuality) => void;
   chat_received: (senderId: string, content: string) => void;
+  reconnect_failed: () => void;
 };
 
 type EventKey = keyof P2PEvents;
@@ -241,13 +242,27 @@ function normalizePeerError(error: unknown): Error {
   return error instanceof Error ? error : new Error(message);
 }
 
-type P2PServiceState = 
+type P2PServiceState =
   | "disconnected"
   | "connecting"
   | "connected"
   | "disconnecting"
   | "destroyed"
   | "reconnecting";
+
+const VALID_TRANSITIONS: Record<P2PServiceState, ReadonlySet<P2PServiceState>> = {
+  disconnected: new Set(["connecting", "destroyed"]),
+  connecting: new Set(["connected", "disconnected", "destroyed"]),
+  connected: new Set(["disconnecting", "disconnected", "reconnecting", "destroyed"]),
+  disconnecting: new Set(["disconnected", "destroyed"]),
+  reconnecting: new Set(["connected", "disconnected", "destroyed"]),
+  destroyed: new Set(),
+};
+
+function canTransition(from: P2PServiceState, to: P2PServiceState): boolean {
+  if (from === to) return true;
+  return VALID_TRANSITIONS[from]?.has(to) ?? false;
+}
 
 export class P2PService {
   private peerId: string;
@@ -256,10 +271,22 @@ export class P2PService {
   private connections = new Map<string, DataConnection>();
   private connectionCleanups = new Map<string, Array<() => void>>();
   private remotePeerId: string | null = null;
-  private state: P2PServiceState = "disconnected";
+  private _state: P2PServiceState = "disconnected";
+  private setState(next: P2PServiceState): void {
+    if (next === this._state) return;
+    if (!canTransition(this._state, next)) {
+      p2pLogger.warn(`Invalid state transition: ${this._state} -> ${next}`);
+      return;
+    }
+    p2pLogger.debug(`State: ${this._state} -> ${next}`);
+    this._state = next;
+  }
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private reconnectStartTime = 0;
+  private maxReconnectWindowMs = 120_000;
   private isReconnecting = false;
+  private isDisconnecting = false;
   private lastRttMs: number | null = null;
   private pingIntervalId: ReturnType<typeof setInterval> | null = null;
   private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -276,6 +303,7 @@ export class P2PService {
     reconnecting: new Set(),
     connection_quality: new Set(),
     chat_received: new Set(),
+    reconnect_failed: new Set(),
   };
 
   constructor() {
@@ -283,14 +311,17 @@ export class P2PService {
     this.cleanup = createCleanup();
   }
 
+  /** Returns the current peer ID. */
   getPeerId(): string {
     return this.peerId;
   }
 
+  /** Returns the last measured round-trip time in milliseconds, or null if not yet measured. */
   getLastRttMs(): number | null {
     return this.lastRttMs;
   }
 
+  /** Returns the current connection quality based on RTT measurements. */
   getConnectionQuality(): ConnectionQuality {
     if (this.lastRttMs === null) return "unknown";
     if (this.lastRttMs < 100) return "good";
@@ -298,41 +329,56 @@ export class P2PService {
     return "poor";
   }
 
+  /** Set this peer as the room host. */
   setHost(): void {
     this.role = "host";
   }
 
+  /** Set this peer as a guest. */
   setGuest(): void {
     this.role = "guest";
   }
 
+  /** Returns true if this peer is the host. */
   isHost(): boolean {
     return this.role === "host";
   }
 
+  /** Returns the current connection state machine state. */
   getState(): P2PServiceState {
-    return this.state;
+    return this._state;
   }
 
+  /** Returns true if at least one data connection is open. */
   isConnected(): boolean {
     return this.getOpenConnectionCount() > 0;
   }
 
+  /** Returns true if the peer is currently in a room (initialized and not disconnected/destroyed). */
   isInRoom(): boolean {
-    return this.peer !== null && this.state !== "disconnected" && this.state !== "destroyed";
+    return this.peer !== null && this._state !== "disconnected" && this._state !== "destroyed";
   }
 
+  /**
+   * Register an event listener.
+   * @returns An unsubscribe function.
+   */
    on<K extends EventKey>(event: K, callback: P2PEvents[K]): () => void {
      this.listeners[event].add(callback);
      return () => this.listeners[event].delete(callback);
    }
 
+  /**
+   * Connect to a remote peer by their full PeerJS ID.
+   * Retries up to P2P_CONFIG.connectRetryAttempts times with exponential backoff.
+   * @throws If the service is destroyed, already connecting, or all retries fail.
+   */
   async connect(remotePeerId: string): Promise<void> {
-    if (this.state === "connecting") {
+    if (this._state === "connecting") {
       throw new Error("Connection already in progress");
     }
-    if (this.state === "destroyed") {
-      throw new Error("P2PService has been destroyed");
+    if (this._state === "destroyed") {
+      throw new Error("Cannot connect: P2PService has been destroyed and cannot be reused");
     }
     const existing = this.getConnection(remotePeerId);
     if (existing?.open) return;
@@ -341,13 +387,16 @@ export class P2PService {
     const baseDelay = P2P_CONFIG.connectRetryBaseDelayMs;
     let lastError: Error | null = null;
 
+    let failed = false;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         await this.tryConnect(remotePeerId);
+        failed = false;
         return;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         p2pLogger.warn(`Connection attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
+        failed = true;
         if (attempt < maxRetries) {
           const delay = baseDelay * Math.pow(2, attempt - 1);
           const jitteredDelay = delay * (0.5 + Math.random() * 0.5);
@@ -356,12 +405,16 @@ export class P2PService {
       }
     }
 
+    if (failed && this._state !== "connected") {
+      this.setState("disconnected");
+    }
+
     throw lastError ?? new Error("Connection failed after retries");
   }
 
   private async tryConnect(remotePeerId: string): Promise<void> {
     this.remotePeerId = remotePeerId;
-    this.state = "connecting";
+    this.setState("connecting");
 
     try {
       return await new Promise((resolve, reject) => {
@@ -381,7 +434,7 @@ export class P2PService {
         const settleResolve = () => {
           if (isSettled) return;
           isSettled = true;
-          this.state = "connected";
+          this.setState("connected");
           if (timeoutId !== null) {
             clearTimeout(timeoutId);
             timeoutId = null;
@@ -398,7 +451,7 @@ export class P2PService {
         const settleReject = (error: Error) => {
           if (isSettled) return;
           isSettled = true;
-          this.state = "disconnected";
+          this.setState("disconnected");
           if (timeoutId !== null) {
             clearTimeout(timeoutId);
             timeoutId = null;
@@ -425,18 +478,23 @@ export class P2PService {
         });
       });
     } catch (error) {
-      this.state = "disconnected";
+      this.setState("disconnected");
       throw error;
     }
   }
 
+  /**
+   * Initialize the PeerJS connection and register event handlers.
+   * Must be called before connect() or sending messages.
+   * @throws If WebRTC is unavailable or initialization times out.
+   */
   initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.peer) {
         resolve();
         return;
       }
-      if (this.state === "destroyed") {
+      if (this._state === "destroyed") {
         reject(new Error("P2PService has been destroyed"));
         return;
       }
@@ -506,7 +564,8 @@ export class P2PService {
       this.cleanup.add(() => { this.peer?.off?.("error", onError); });
 
       const onDisconnected = () => {
-        if (this.state === "disconnecting") return;
+        if (this._state === "disconnecting") return;
+        this.setState("disconnected");
         this.emit("disconnected");
         this.attemptReconnect();
       };
@@ -522,20 +581,36 @@ export class P2PService {
   }
 
   private attemptReconnect(): void {
-    if (this.state === "destroyed" || this.state === "disconnecting") return;
+    if (this.isDisconnecting || this._state === "destroyed" || this._state === "disconnecting") return;
     if (this.role === "host") return;
     if (!this.remotePeerId) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       p2pLogger.warn("Max reconnect attempts reached, giving up");
       this.isReconnecting = false;
-      this.state = "disconnected";
+      this.isDisconnecting = false;
+      this.reconnectAttempts = 0;
+      this.setState("disconnected");
       this.emit("error", new Error("Connection lost. Please rejoin the room."));
+      this.emit("reconnect_failed");
+      return;
+    }
+    if (this.reconnectAttempts === 0) {
+      this.reconnectStartTime = Date.now();
+    }
+    if (Date.now() - this.reconnectStartTime > this.maxReconnectWindowMs) {
+      p2pLogger.warn("Max reconnect time window exceeded, giving up");
+      this.isReconnecting = false;
+      this.isDisconnecting = false;
+      this.reconnectAttempts = 0;
+      this.setState("disconnected");
+      this.emit("error", new Error("Connection lost. Please rejoin the room."));
+      this.emit("reconnect_failed");
       return;
     }
     if (this.isReconnecting) return;
 
     this.isReconnecting = true;
-    this.state = "reconnecting";
+    this.setState("reconnecting");
     this.reconnectAttempts++;
     const baseReconnectDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30_000);
     const delay = baseReconnectDelay * (0.5 + Math.random() * 0.5);
@@ -544,9 +619,10 @@ export class P2PService {
 
     this.reconnectTimeoutId = this.cleanup.setTimeout(async () => {
       this.reconnectTimeoutId = null;
-      if (this.state === "destroyed" || this.state === "disconnecting") {
+      if (this.isDisconnecting || this._state === "destroyed" || this._state === "disconnecting") {
         this.isReconnecting = false;
-        this.state = "disconnected";
+        this.isDisconnecting = false;
+        this.setState("disconnected");
         return;
       }
       try {
@@ -558,7 +634,8 @@ export class P2PService {
         }
         this.reconnectAttempts = 0;
         this.isReconnecting = false;
-        this.state = "connected";
+        this.isDisconnecting = false;
+        this.setState("connected");
       } catch (error) {
         p2pLogger.warn("Reconnect failed:", error);
         this.isReconnecting = false;
@@ -598,7 +675,7 @@ export class P2PService {
       existingConnection.close();
     }
 
-    if (this.state === "disconnecting") return;
+    if (this._state === "disconnecting") return;
 
     this.connections.set(peerId, conn);
     const cleanups: Array<() => void> = [];
@@ -607,7 +684,7 @@ export class P2PService {
 
     const onConnOpen = () => {
       if (this.connections.get(peerId) !== conn) return;
-      if (this.state === "disconnecting") return;
+      if (this._state === "disconnecting") return;
       if (options.emitPeerConnected) this.emit("peer_connected", peerId);
       options.onOpen?.();
       this.ensurePingInterval();
@@ -682,7 +759,7 @@ export class P2PService {
       if (this.remotePeerId === peerId) {
         this.remotePeerId = null;
       }
-      if (this.state === "disconnecting") return;
+      if (this._state === "disconnecting") return;
       this.emit("peer_disconnected", peerId);
       options.onClose?.();
       if (this.getOpenConnectionCount() === 0) {
@@ -743,6 +820,7 @@ export class P2PService {
     this.pingIntervalId = this.cleanup.setInterval(() => {
       this.sendPing();
     }, 2000);
+    this.startRateLimitCleanup();
   }
 
   private stopPingInterval(): void {
@@ -752,6 +830,30 @@ export class P2PService {
     }
   }
 
+  private startRateLimitCleanup(): void {
+    if (this.rateLimitCleanupTimer !== null) return;
+    this.rateLimitCleanupTimer = this.cleanup.setInterval(() => {
+      const now = Date.now();
+      for (const [peerId, timestamps] of this.syncMessageTimestamps) {
+        const recent = timestamps.filter((ts) => now - ts < this.syncRateLimitWindowMs);
+        if (recent.length === 0) {
+          this.syncMessageTimestamps.delete(peerId);
+        } else {
+          this.syncMessageTimestamps.set(peerId, recent);
+        }
+      }
+      for (const [peerId, timestamps] of this.chatMessageTimestamps) {
+        const recent = timestamps.filter((ts) => now - ts < this.chatRateLimitWindowMs);
+        if (recent.length === 0) {
+          this.chatMessageTimestamps.delete(peerId);
+        } else {
+          this.chatMessageTimestamps.set(peerId, recent);
+        }
+      }
+    }, this.rateLimitCleanupIntervalMs);
+  }
+
+  /** Clear rate limit tracking data for a specific peer. */
   clearRateLimitForPeer(peerId: string): void {
     this.syncMessageTimestamps.delete(peerId);
     this.chatMessageTimestamps.delete(peerId);
@@ -760,15 +862,22 @@ export class P2PService {
   private syncMessageTimestamps = new Map<string, number[]>();
   private readonly syncRateLimit = 10;
   private readonly syncRateLimitWindowMs = 1000;
+  private readonly maxSyncTimestampsPerPeer = 50;
   private chatMessageTimestamps = new Map<string, number[]>();
   private readonly chatRateLimit = 10;
   private readonly chatRateLimitWindowMs = 10_000;
+  private readonly maxChatTimestampsPerPeer = 50;
+  private rateLimitCleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly rateLimitCleanupIntervalMs = 60_000;
 
   private isSyncRateLimited(peerId: string): boolean {
     const now = Date.now();
     const timestamps = this.syncMessageTimestamps.get(peerId) ?? [];
     const recent = timestamps.filter((ts) => now - ts < this.syncRateLimitWindowMs);
     recent.push(now);
+    if (recent.length > this.maxSyncTimestampsPerPeer) {
+      recent.splice(0, recent.length - this.maxSyncTimestampsPerPeer);
+    }
     this.syncMessageTimestamps.set(peerId, recent);
     return recent.length > this.syncRateLimit;
   }
@@ -778,6 +887,9 @@ export class P2PService {
     const timestamps = this.chatMessageTimestamps.get(peerId) ?? [];
     const recent = timestamps.filter((ts) => now - ts < this.chatRateLimitWindowMs);
     recent.push(now);
+    if (recent.length > this.maxChatTimestampsPerPeer) {
+      recent.splice(0, recent.length - this.maxChatTimestampsPerPeer);
+    }
     this.chatMessageTimestamps.set(peerId, recent);
     return recent.length > this.chatRateLimit;
   }
@@ -796,13 +908,23 @@ export class P2PService {
   }
 
     private handlePong(pongTs: number): void {
-      const rtt = Date.now() - pongTs;
-      if (rtt >= 0 && rtt < 5000) {
+      const now = Date.now();
+      if (pongTs > now || pongTs < now - 30000) return;
+      const rtt = now - pongTs;
+      if (rtt < 5000) {
         this.lastRttMs = rtt;
         this.emit("connection_quality", this.getConnectionQuality());
       }
     }
 
+    /**
+     * Send a torrent source to connected peer(s).
+     * @param source - The shared torrent source (magnet or file).
+     * @param selectedMediaIndex - Optional index of the selected media file.
+     * @param selectedAudioTrackIndex - Optional index of the selected audio track.
+     * @param selectedSubtitleIndex - Optional index of the selected subtitle track.
+     * @param targetPeerId - Optional specific peer to send to; broadcasts if omitted.
+     */
     public sendTorrentSource(source: SharedTorrentSource, selectedMediaIndex: number | null, selectedAudioTrackIndex: number | null, selectedSubtitleIndex: number | null, targetPeerId?: string): void {
       if (selectedMediaIndex !== null && (!Number.isFinite(selectedMediaIndex) || selectedMediaIndex < 0)) return;
       if (selectedAudioTrackIndex !== null && (!Number.isFinite(selectedAudioTrackIndex) || selectedAudioTrackIndex < 0)) return;
@@ -822,6 +944,11 @@ export class P2PService {
       }, targetPeerId);
     }
 
+     /**
+      * Send room configuration (sync tolerance) to connected peer(s).
+      * @param syncToleranceSeconds - The sync tolerance in seconds (clamped to 0-30).
+      * @param targetPeerId - Optional specific peer to send to; broadcasts if omitted.
+      */
      public sendRoomConfig(syncToleranceSeconds: number, targetPeerId?: string): void {
        if (!Number.isFinite(syncToleranceSeconds) || syncToleranceSeconds < 0) return;
        const clampedTolerance = Math.min(syncToleranceSeconds, 30);
@@ -831,6 +958,11 @@ export class P2PService {
        }, targetPeerId);
      }
 
+  /**
+   * Send a sync message to connected peer(s).
+   * @param message - The sync message to send.
+   * @param targetPeerId - Optional specific peer to send to; broadcasts if omitted.
+   */
   public sendSync(message: SyncMessage, targetPeerId?: string): void {
     if (!message || !Number.isFinite(message.position) || !Number.isFinite(message.server_ts)) return;
     this.sendPayload({
@@ -839,15 +971,22 @@ export class P2PService {
     }, targetPeerId);
   }
 
+  /**
+   * Send a chat message to connected peer(s).
+   * @param content - The message content to send.
+   * @param targetPeerId - Optional specific peer to send to; broadcasts if omitted.
+   */
   public sendChat(content: string, targetPeerId?: string): void {
     if (!content?.trim()) return;
     this.sendPayload({ type: "chat", content }, targetPeerId);
   }
 
-     public disconnect(): void {
-       this.cleanup.abort();
-       this.state = "disconnecting";
-       this.isReconnecting = false;
+  /** Disconnect from all peers and clean up resources. Idempotent. */
+  public disconnect(): void {
+    this.isDisconnecting = true;
+    this.cleanup.abort();
+    this.setState("disconnecting");
+    this.isReconnecting = false;
       if (this.reconnectTimeoutId !== null) {
         clearTimeout(this.reconnectTimeoutId);
         this.reconnectTimeoutId = null;
@@ -861,11 +1000,13 @@ export class P2PService {
       this.connections.clear();
       this.syncMessageTimestamps.clear();
       this.chatMessageTimestamps.clear();
+      this.rateLimitCleanupTimer = null;
       if (this.peer && !this.peer.destroyed) {
         this.peer.disconnect();
       }
+      this.peer = null;
       this.remotePeerId = null;
-      this.state = "disconnected";
+      this.setState("disconnected");
       this.emit("disconnected");
     }
  }

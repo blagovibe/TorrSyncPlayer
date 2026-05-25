@@ -29,6 +29,8 @@ function isBlockedTrackerUrl(trackerUrl: string): boolean {
   }
 }
 
+const ALLOWED_TRACKER_PROTOCOLS = new Set(["wss:", "https:"]);
+
 export function isValidMagnetLink(magnetLink: string): boolean {
   const trimmed = magnetLink.trim();
   if (trimmed.length > MAX_MAGNET_LINK_LENGTH) return false;
@@ -37,7 +39,17 @@ export function isValidMagnetLink(magnetLink: string): boolean {
     const queryStart = trimmed.indexOf("?");
     if (queryStart === -1) return true;
     const params = new URLSearchParams(trimmed.slice(queryStart + 1));
-    for (const [, value] of params) {
+    for (const [key, value] of params) {
+      if (key === "tr" || key.startsWith("tr.")) {
+        if (value.length > MAX_TRACKER_URL_LENGTH) return false;
+        try {
+          const trackerUrl = new URL(value);
+          if (!ALLOWED_TRACKER_PROTOCOLS.has(trackerUrl.protocol)) return false;
+          if (isBlockedTrackerUrl(value)) return false;
+        } catch {
+          return false;
+        }
+      }
       if (value.startsWith("http://") || value.startsWith("https://")) {
         if (value.length > MAX_TRACKER_URL_LENGTH || isBlockedTrackerUrl(value)) return false;
       }
@@ -71,10 +83,11 @@ export function createMagnetSource(magnetLink: string): SharedTorrentSource {
 
 export function createTorrentFileSource(fileName: string, bytes: Uint8Array): SharedTorrentSource {
   const normalizedFileName = fileName.trim() || "shared.torrent";
+  const serialized = new Uint8Array(bytes);
   return {
     kind: "file",
     fileName: normalizedFileName,
-    bytes: Array.from(bytes),
+    bytes: Array.from(serialized),
     sourceKey: `file:${normalizedFileName}:${bytes.length}:${hashBytes(bytes)}`,
   };
 }
