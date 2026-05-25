@@ -18,12 +18,15 @@ fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
 fs.cpSync(path.join(projectDir, "dist"), path.join(stageDir, "dist"), { recursive: true });
 fs.cpSync(path.join(projectDir, "electron"), path.join(stageDir, "electron"), { recursive: true });
-fs.cpSync(path.join(projectDir, "package-lock.json"), path.join(stageDir, "package-lock.json"));
+if (fs.existsSync(path.join(projectDir, "local-packages"))) {
+  fs.cpSync(path.join(projectDir, "local-packages"), path.join(stageDir, "local-packages"), { recursive: true });
+}
 
 const stagedPackage = {
   ...sourcePackage,
   private: true,
   main: "electron/main.cjs",
+  overrides: sourcePackage.overrides,
   build: {
     appId: "com.torrsyncplayer.app",
     productName: "TorrSyncPlayer",
@@ -35,6 +38,7 @@ const stagedPackage = {
     asar: true,
     npmRebuild: false,
     nodeGypRebuild: false,
+    forceCodeSigning: false,
     artifactName: "${productName}-${version}-${os}-${arch}.${ext}",
     linux: {
       target: ["AppImage"],
@@ -58,7 +62,7 @@ if (!npmCli) {
   throw new Error("npm_execpath is not set. Run this script through npm run electron:build.");
 }
 
-execFileSync(process.execPath, [npmCli, "ci", "--omit=dev", "--no-audit", "--fund=false"], {
+execFileSync(process.execPath, [npmCli, "install", "--omit=dev", "--no-audit", "--fund=false"], {
   cwd: stageDir,
   stdio: "inherit",
 });
