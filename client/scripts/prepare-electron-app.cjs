@@ -66,3 +66,53 @@ execFileSync(process.execPath, [npmCli, "install", "--omit=dev", "--no-audit", "
   cwd: stageDir,
   stdio: "inherit",
 });
+
+const patchedIpDir = path.join(stageDir, "local-packages", "ip-patched");
+const patchedPackageJson = JSON.parse(fs.readFileSync(path.join(patchedIpDir, "package.json"), "utf8"));
+patchedPackageJson.name = "ip";
+fs.writeFileSync(path.join(patchedIpDir, "package.json"), `${JSON.stringify(patchedPackageJson, null, 2)}\n`);
+
+function ensureIpModule(nodeModulesDir) {
+  const ipPath = path.join(nodeModulesDir, "ip");
+  let needsFix = false;
+  if (fs.existsSync(ipPath)) {
+    try {
+      const contents = fs.readdirSync(ipPath);
+      if (contents.length === 0) needsFix = true;
+    } catch {
+      needsFix = true;
+    }
+    if (needsFix) fs.rmSync(ipPath, { recursive: true, force: true });
+  } else {
+    needsFix = true;
+  }
+  if (needsFix) {
+    const parentPkgPath = path.join(nodeModulesDir, "..", "package.json");
+    try {
+      const parentPkg = JSON.parse(fs.readFileSync(parentPkgPath, "utf8"));
+      const deps = parentPkg.dependencies || {};
+      if ("ip" in deps) {
+        fs.cpSync(patchedIpDir, ipPath, { recursive: true });
+      }
+    } catch {}
+  }
+}
+
+function walkForNodeModules(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.name === "node_modules") {
+      ensureIpModule(fullPath);
+    }
+    walkForNodeModules(fullPath);
+  }
+}
+
+walkForNodeModules(stageDir);
