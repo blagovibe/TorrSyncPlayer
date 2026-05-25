@@ -4,6 +4,11 @@ release/
 .electron-app/
 *.AppImage
 *.exe
-*.AppImage
 .DS_Store
 Thumbs.db
+test_output.txt
+
+# IDE / AI tool directories
+.kilo/
+.codex/
+.gemini/
