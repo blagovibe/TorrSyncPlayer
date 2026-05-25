@@ -86,7 +86,8 @@ function ensureIpModule(nodeModulesDir) {
     try {
       const parentPkg = JSON.parse(fs.readFileSync(parentPkgPath, "utf8"));
       const deps = parentPkg.dependencies || {};
-      if ("ip" in deps) {
+      const overrides = parentPkg.overrides || {};
+      if ("ip" in deps || "ip" in overrides) {
         fs.cpSync(patchedIpDir, ipPath, { recursive: true });
       }
     } catch {}
