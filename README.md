@@ -70,6 +70,7 @@ TorrSyncPlayer is a free desktop app that lets you stream video from torrents an
 3. **Guests connect** to the host via PeerJS signaling
 4. **Playback sync** (play, pause, seek) is sent over a direct WebRTC connection
 5. **Video data** is streamed via WebTorrent — peers can share pieces between themselves
+6. **Buffer is RAM-based**: all downloaded chunks are held in memory via `BoundedChunkStore` / `memory-chunk-store`. Nothing is written to disk; old chunks are evicted by LRU policy as playback progresses, capping RAM usage at ~500 MB.
 
 ---
 
@@ -108,7 +109,7 @@ TorrSyncPlayer is a free desktop app that lets you stream video from torrents an
 |---|---------|
 | **OS** | Linux (Ubuntu 20.04+), Windows 10+ |
 | **RAM** | 4 GB |
-| **Disk** | 200 MB for the app + buffer space for torrent streaming |
+| **Disk** | 200 MB for the app (no disk space needed for streaming — buffer is RAM-based) |
 | **Network** | Stable internet connection (both host and guests) |
 
 ---
@@ -126,6 +127,14 @@ The session ends for all guests. The host needs to create a new room and re-shar
 
 ### Is there a limit on the number of guests?
 The app supports multiple simultaneous guests, but performance depends on the host's upload bandwidth and the torrent's availability.
+
+### Why is RAM important for streaming?
+
+TorrSyncPlayer stores the entire torrent buffer in RAM (up to ~500 MB by default) rather than on disk, using `memory-chunk-store` under the hood. This means:
+
+- **No temporary files** are written to your drive — nothing is left behind after you close the app.
+- **Video data is ephemeral**: as you play, old chunks are evicted from memory and new ones fill the window, keeping memory usage bounded.
+- **Minimum 4 GB RAM** is recommended to comfortably accommodate the Electron runtime (~150–250 MB) plus the streaming buffer (~500 MB peak).
 
 ### Does it work without internet?
 **No.** Both PeerJS signaling and WebTorrent require an internet connection. However, once connected, video data is shared P2P between participants.
