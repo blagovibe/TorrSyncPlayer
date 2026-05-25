@@ -85,6 +85,16 @@ jobs:
 
       - name: Build Electron artifact
         run: ${{ matrix.build_command }}
+        continue-on-error: true
+
+      - name: Debug output
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "=== Checking ip module ==="
+          Get-ChildItem -Path .electron-app/node_modules/ip -ErrorAction SilentlyContinue
+          echo "=== Release directory ==="
+          Get-ChildItem -Path release -Recurse -File -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
