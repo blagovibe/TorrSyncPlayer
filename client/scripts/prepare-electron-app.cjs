@@ -26,6 +26,10 @@ const stagedPackage = {
   ...sourcePackage,
   private: true,
   main: "electron/main.cjs",
+  dependencies: {
+    ...sourcePackage.dependencies,
+    ip: "file:./local-packages/ip-patched",
+  },
   overrides: sourcePackage.overrides,
   build: {
     appId: "com.torrsyncplayer.app",
