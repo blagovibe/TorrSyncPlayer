@@ -177,6 +177,7 @@ export class SyncService {
       latencySeconds = Math.min(Math.max((Date.now() - message.server_ts) / 1000, 0), SYNC_CONFIG.maxLatencyCompensationSeconds);
     }
     const rawCompensatedPosition = message.position + latencySeconds;
+    if (!Number.isFinite(rawCompensatedPosition)) return;
     const maxDuration = Number.isFinite(snapshot.duration) && snapshot.duration > 0 ? snapshot.duration : Infinity;
     const compensatedPosition = Math.max(0, Math.min(rawCompensatedPosition, maxDuration));
     const shouldAlign =

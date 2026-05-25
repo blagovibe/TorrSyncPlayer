@@ -48,4 +48,23 @@ export default defineConfig(async () => ({
     strictPort: true,
     host: false,
   },
+  test: {
+    projects: [
+      {
+        test: {
+          name: "client",
+          include: ["src/**/*.{test,spec}.ts?(x)"],
+          environment: "jsdom",
+        },
+      },
+      {
+        test: {
+          name: "electron",
+          include: ["electron/**/*.test.cjs"],
+          environment: "node",
+          globals: true,
+        },
+      },
+    ],
+  },
 }));

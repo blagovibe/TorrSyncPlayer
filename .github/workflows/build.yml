@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify lockfile integrity
+        run: npm ci --dry-run 2>&1 | grep -q "up to date" && echo "Lockfile is in sync" || (echo "Lockfile is out of sync with package.json" && exit 1)
+
       - name: Lint
         run: npm run lint
 

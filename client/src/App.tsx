@@ -9,7 +9,7 @@ import { clampSyncTolerance, isPlaybackBlockedError } from "./utils/syncUtils";
 import { createMagnetSource, createTorrentFileSource } from "./utils/torrent";
 import { formatSpeed } from "./utils/format";
 import { p2pLogger, uiLogger } from "./utils/logger";
-import { SYNC_CONFIG } from "./config";
+import { SYNC_CONFIG, MAX_TORRENT_FILE_BYTES, UI_CONFIG } from "./config";
 import ConfirmModal from "./components/ConfirmModal";
 import { useRoomStateContext } from "./hooks/useRoomStateContext";
 
@@ -56,6 +56,8 @@ function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ id?: string; sender: string; text: string; timestamp: number }[]>([]);
+  const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
+  const MAX_CHAT_MESSAGES_APP = UI_CONFIG.maxChatMessages;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const p2pServiceRef = useRef<P2PService | null>(null);
@@ -136,13 +138,8 @@ function App() {
     isLoadingTorrentRef.current = false;
   };
 
-  const setSelectedAudioTrackSelection = useCallback((trackIndex: number | null) => {
-    setAudioTrackIndex(trackIndex);
-  }, [setAudioTrackIndex]);
-
-  const setSelectedSubtitleSelection = useCallback((trackIndex: number | null) => {
-    setSubtitleIndex(trackIndex);
-  }, [setSubtitleIndex]);
+  const setSelectedAudioTrackSelection = setAudioTrackIndex;
+  const setSelectedSubtitleSelection = setSubtitleIndex;
 
   const enrichSyncMessage = useCallback((message: SyncMessage): SyncMessage => {
     const sourceKey = getCurrentSourceKey();
@@ -165,21 +162,22 @@ function App() {
     if (!p2pServiceRef.current?.isHost()) return;
     const p2pService = p2pServiceRef.current;
     if (!p2pService) return;
-    if (currentTorrentSource) {
+    const torrentSource = currentTorrentSourceRef.current;
+    if (torrentSource) {
       p2pService.sendTorrentSource(
-        currentTorrentSource,
-        selectedMediaIndex,
-        selectedAudioTrackIndex,
-        selectedSubtitleIndex,
+        torrentSource,
+        selectedMediaIndexRef.current,
+        selectedAudioTrackIndexRef.current,
+        selectedSubtitleIndexRef.current,
         targetPeerId,
       );
     }
-    p2pService.sendRoomConfig(syncToleranceSeconds, targetPeerId);
+    p2pService.sendRoomConfig(syncToleranceSecondsRef.current, targetPeerId);
     const playbackSnapshot = syncServiceRef.current?.createSnapshot();
     if (playbackSnapshot) {
       p2pService.sendSync(enrichSyncMessage(playbackSnapshot), targetPeerId);
     }
-  }, [currentTorrentSource, selectedMediaIndex, selectedAudioTrackIndex, selectedSubtitleIndex, syncToleranceSeconds, enrichSyncMessage]);
+  }, [enrichSyncMessage]);
 
   const scheduleBroadcast = useCallback((targetPeerId?: string) => {
     clearBroadcastTimeout();
@@ -254,9 +252,8 @@ function App() {
 
   const loadTorrentFile = async (file: File) => {
     if (peerRole !== "master") return;
-    const MAX_TORRENT_FILE_SIZE = 10 * 1024 * 1024;
-    if (file.size > MAX_TORRENT_FILE_SIZE) {
-      setTorrentError(`Torrent file too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is ${MAX_TORRENT_FILE_SIZE / 1024 / 1024} MB.`);
+    if (file.size > MAX_TORRENT_FILE_BYTES) {
+      setTorrentError(`Torrent file too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is ${MAX_TORRENT_FILE_BYTES / 1024 / 1024} MB.`);
       return;
     }
     try {
@@ -408,6 +405,8 @@ function App() {
           if (pendingTorrentLoadRef.current === pending && !torrentLoadAbortRef.current?.signal.aborted) {
             void processTorrentLoadQueueRef.current();
           }
+        }).catch((err) => {
+          uiLogger.error("Torrent load queue processing failed:", err);
         });
       }
     }
@@ -472,7 +471,7 @@ function App() {
       setPendingSync(message);
       if (isPlayerReadyRef.current && syncServiceRef.current && selectedMediaFile) {
         setPendingSync(null);
-        syncServiceRef.current.applyRemoteSync(message);
+        syncServiceRef.current.applyRemoteSync(message, p2pService.getLastRttMs());
       }
     });
 
@@ -518,8 +517,17 @@ function App() {
     });
 
     p2pService.on("chat_received", (senderId, content) => {
-      const message = { id: crypto.randomUUID(), sender: senderId, text: content, timestamp: Date.now() };
-      setChatMessages(prev => [...prev, message]);
+      if (typeof content !== "string") return;
+      const trimmed = content.trim();
+      if (trimmed.length === 0 || trimmed.length > 500) return;
+      const sanitized = trimmed
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#x27;");
+      const message = { id: crypto.randomUUID(), sender: senderId, text: sanitized, timestamp: Date.now() };
+      setChatMessages(prev => [...prev, message].slice(-MAX_CHAT_MESSAGES_APP));
     });
 
     await p2pService.initialize();
@@ -603,7 +611,11 @@ function App() {
     }
     disposeSyncService();
     const torrentService = torrentServiceRef.current ?? getTorrentService();
-    await torrentService.destroy().catch(() => undefined);
+    try {
+      await torrentService.destroy();
+    } catch {
+      // Ignore cleanup errors
+    }
     torrentServiceRef.current = null;
     const video = videoRef.current;
     video?.pause();
@@ -768,11 +780,11 @@ function App() {
   );
 
   const currentMediaFile = selectedMediaFile;
-  const selectedMediaBufferProgress = Math.round(
+  const selectedMediaBufferProgress = Math.min(100, Math.round(
     ((currentMediaFile?.file.progress != null && currentMediaFile.file.progress > 0)
       ? currentMediaFile.file.progress
       : torrentProgress / 100) * 100,
-  );
+  ));
 
   const torrentPeerHint =
     getTorrentService().isElectronBackendEnabled()
@@ -801,6 +813,14 @@ function App() {
   selectedMediaFileRef.current = selectedMediaFile;
   const currentTorrentSourceRef = useRef(currentTorrentSource);
   currentTorrentSourceRef.current = currentTorrentSource;
+  const selectedMediaIndexRef = useRef(selectedMediaIndex);
+  selectedMediaIndexRef.current = selectedMediaIndex;
+  const selectedAudioTrackIndexRef = useRef(selectedAudioTrackIndex);
+  selectedAudioTrackIndexRef.current = selectedAudioTrackIndex;
+  const selectedSubtitleIndexRef = useRef(selectedSubtitleIndex);
+  selectedSubtitleIndexRef.current = selectedSubtitleIndex;
+  const syncToleranceSecondsRef = useRef(syncToleranceSeconds);
+  syncToleranceSecondsRef.current = syncToleranceSeconds;
 
   useEffect(() => {
     const torrentService = getTorrentService();
@@ -922,6 +942,17 @@ function App() {
     return () => {};
   }, []);
 
+  useEffect(() => {
+    const win = window as Window & { torrsyncElectronTorrent?: { isFfmpegAvailable?: () => Promise<boolean> } };
+    if (win.torrsyncElectronTorrent?.isFfmpegAvailable) {
+      void win.torrsyncElectronTorrent.isFfmpegAvailable().then((available) => {
+        setFfmpegAvailable(available);
+      }).catch(() => {
+        setFfmpegAvailable(false);
+      });
+    }
+  }, []);
+
   const handleCloseConfirmed = useCallback(() => {
     setShowCloseConfirm(false);
     const win = window as Window & { torrsyncElectronWindow?: { closeConfirmed: () => void } };
@@ -939,7 +970,7 @@ function App() {
     const trimmed = text.trim();
     if (trimmed.length > 500) return;
     const message = { id: crypto.randomUUID(), sender: peerId, text: trimmed, timestamp: Date.now() };
-    setChatMessages(prev => [...prev, message]);
+    setChatMessages(prev => [...prev, message].slice(-MAX_CHAT_MESSAGES_APP));
     p2pServiceRef.current.sendChat(message.text);
   }, [peerId]);
 
@@ -973,8 +1004,9 @@ function App() {
              videoRef, playbackNotice, syncToleranceSeconds,
              canControl: peerRole === "master",
            }}
-           chat={{ chatMessages, onSendChat: handleSendChat }}
-           onSubtitleTrackChange={handleSubtitleTrackChange}
+            chat={{ chatMessages, onSendChat: handleSendChat }}
+            ffmpegAvailable={ffmpegAvailable}
+            onSubtitleTrackChange={handleSubtitleTrackChange}
            onSyncToleranceChange={handleSyncToleranceChange}
            onMagnetLinkChange={setMagnetLink}
            onTorrentFileChange={handleTorrentFileChange}
@@ -995,10 +1027,15 @@ function App() {
            onBufferSettingsChange={handleBufferSettingsChange}
            onSeek={handleSeek}
            onMuxStreamRequest={handleMuxStreamRequest}
-           onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
-           onShowResetConfirm={() => setShowResetConfirm(true)}
-           onReturnHome={() => setCurrentView("home")}
-         />
+            onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
+            onShowResetConfirm={() => setShowResetConfirm(true)}
+            onReturnHome={() => setCurrentView("home")}
+            onRequestResend={() => {
+              if (p2pServiceRef.current?.isConnected()) {
+                p2pServiceRef.current.sendChat("/resend");
+              }
+            }}
+          />
       )}
       <ConfirmModal
         isOpen={showLeaveConfirm}

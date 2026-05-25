@@ -5,6 +5,9 @@ import { RoomErrorBoundary } from "./RoomErrorBoundary";
 import RoomInfo from "./RoomInfo";
 import StatusBar from "./StatusBar";
 import VideoPlayer from "./VideoPlayer";
+import TorrentControlsPanel from "./TorrentControlsPanel";
+import GuestViewPanel from "./GuestViewPanel";
+import MediaLibraryPanel from "./MediaLibraryPanel";
 import type { TorrentMediaFile } from "../services/TorrentService";
 import type { AudioTrackInfo, ConnectionQuality, SubtitleTrackInfo } from "../services/types";
 
@@ -58,6 +61,7 @@ interface RoomPageProps {
   torrent: TorrentState;
   player: PlayerState;
   chat: ChatState;
+  ffmpegAvailable?: boolean | null;
   onMagnetLinkChange: (value: string) => void;
   onTorrentFileChange: (file: File | null) => void;
   onPlaybackStarted: () => void;
@@ -78,6 +82,7 @@ interface RoomPageProps {
   onShowLeaveConfirm?: () => void;
   onShowResetConfirm?: () => void;
   onReturnHome?: () => void;
+  onRequestResend?: () => void;
 }
 
 function RoomPage({
@@ -85,6 +90,7 @@ function RoomPage({
   torrent,
   player,
   chat,
+  ffmpegAvailable,
   onMagnetLinkChange,
   onTorrentFileChange,
   onPlaybackStarted,
@@ -105,6 +111,7 @@ function RoomPage({
   onShowLeaveConfirm,
   onShowResetConfirm,
   onReturnHome,
+  onRequestResend,
 }: RoomPageProps) {
   const {
     peerId, peerRole, peers, isConnected, connectionQuality, rttMs,
@@ -126,6 +133,8 @@ function RoomPage({
   const [isDragOver, setIsDragOver] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
   const dragCounterRef = useRef(0);
+  const canControlTorrentRef = useRef(canControlTorrent);
+  canControlTorrentRef.current = canControlTorrent;
 
   useEffect(() => {
     return () => {
@@ -147,7 +156,7 @@ function RoomPage({
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounterRef.current--;
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
     if (dragCounterRef.current === 0) {
       setIsDragOver(false);
     }
@@ -163,7 +172,7 @@ function RoomPage({
     e.stopPropagation();
     setIsDragOver(false);
     dragCounterRef.current = 0;
-    if (!canControlTorrent) return;
+    if (!canControlTorrentRef.current) return;
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       const torrentFile = Array.from(files).find(
@@ -173,7 +182,7 @@ function RoomPage({
         onTorrentFileChange(torrentFile);
       }
     }
-  }, [canControlTorrent, onTorrentFileChange]);
+  }, [onTorrentFileChange]);
 
   const copyPeerId = async () => {
     if (!peerId) return;
@@ -222,6 +231,12 @@ function RoomPage({
           </div>
         </div>
       )}
+      {ffmpegAvailable === false && (
+        <div className="ffmpeg-warning-banner" role="alert">
+          <span className="ffmpeg-warning-icon">⚠️</span>
+          <span>ffmpeg not detected — audio track selection, subtitle extraction, and format conversion features are unavailable.</span>
+        </div>
+      )}
       <div className="room-layout">
         <div className="player-column">
 <VideoPlayer
@@ -250,197 +265,40 @@ function RoomPage({
             onMuxStreamRequest={onMuxStreamRequest}
           />
           {canControlTorrent ? (
-            <div className="panel">
-              <div className="room-controls-header">
-                <div>
-                  <h3>Room source</h3>
-                  <p className="hint">
-                    Host loads the torrent once, then the room follows the same media source.
-                  </p>
-                </div>
-                <span className="room-role-badge host">Host controls</span>
-              </div>
-
-              <label htmlFor="room-magnet">Magnet link</label>
-              <textarea
-                id="room-magnet"
-                rows={2}
-                value={magnetLink}
-                onChange={(event) => onMagnetLinkChange(event.target.value.slice(0, 2000))}
-                placeholder="magnet:?xt=urn:btih:..."
-              />
-              <div className="torrent-actions">
-                <button
-                  type="button"
-                  onClick={onLoadMagnet}
-                  disabled={isLoadingTorrent || !magnetLink.trim()}
-                >
-                  {isLoadingTorrent ? "Loading metadata..." : "Load Magnet"}
-                </button>
-                <label className={`file-picker ${!isLoadingTorrent ? "" : "disabled"}`}>
-                  <input
-                    type="file"
-                    accept=".torrent,application/x-bittorrent"
-                    onChange={(event) => {
-                      onTorrentFileChange(event.target.files?.[0] ?? null);
-                      event.currentTarget.value = "";
-                    }}
-                    disabled={isLoadingTorrent}
-                  />
-                  <span>Choose .torrent</span>
-                </label>
-              </div>
-              <div className="torrent-file-row">
-                <span className="torrent-file-name">
-                  {sharedSourceLabel
-                    ? `Shared source: ${sharedSourceLabel.length > 120 ? sharedSourceLabel.slice(0, 120) + '…' : sharedSourceLabel}`
-                    : torrentFileName
-                      ? `Selected file: ${torrentFileName.length > 120 ? torrentFileName.slice(0, 120) + '…' : torrentFileName}`
-                      : "No torrent file selected"}
-                </span>
-                <button
-                  type="button"
-                  onClick={onLoadTorrentFile}
-                  disabled={isLoadingTorrent || !torrentFileName}
-                >
-                  {isLoadingTorrent ? "Loading metadata..." : "Load File"}
-                </button>
-              </div>
-              {sharedSourceLabel && onResetTorrentInRoom && onShowResetConfirm && (
-                <button
-                  type="button"
-                  onClick={() => onShowResetConfirm()}
-                  disabled={isLoadingTorrent}
-                >
-                  {isLoadingTorrent ? <><span className="spinner" /> Changing...</> : "Change Source"}
-                </button>
-              )}
-              {isLoadingTorrent && (
-                <p className="hint">
-                  Fetching torrent metadata and public peer count...
-                </p>
-              )}
-              {torrentError && <p className="error-text">{torrentError}</p>}
-              <div className="sync-tolerance-row">
-                <label htmlFor="sync-tolerance">Sync tolerance, seconds</label>
-                <input
-                  id="sync-tolerance"
-                  type="number"
-                  min="0"
-                  max="30"
-                  step="0.1"
-                  value={syncToleranceSeconds}
-                   onChange={(event) => { const val = Number(event.target.value); onSyncToleranceChange(Number.isFinite(val) ? val : 0); }}
-                />
-                <p className="hint">
-                  Guests stay within this drift window before the player is corrected back to the host timecode.
-                </p>
-              </div>
-            </div>
+            <TorrentControlsPanel
+              magnetLink={magnetLink}
+              torrentFileName={torrentFileName}
+              sharedSourceLabel={sharedSourceLabel}
+              isLoadingTorrent={isLoadingTorrent}
+              torrentError={torrentError}
+              syncToleranceSeconds={syncToleranceSeconds}
+              onMagnetLinkChange={onMagnetLinkChange}
+              onTorrentFileChange={onTorrentFileChange}
+              onLoadMagnet={onLoadMagnet}
+              onLoadTorrentFile={onLoadTorrentFile}
+              onSyncToleranceChange={onSyncToleranceChange}
+              onResetTorrentInRoom={onResetTorrentInRoom}
+              onShowResetConfirm={onShowResetConfirm}
+            />
           ) : (
-            <div className="panel">
-              <div className="room-controls-header">
-                <div>
-                  <h3>Torrent source</h3>
-                  <p className="hint">
-                    The host controls the torrent source. You will automatically mirror their playback.
-                  </p>
-                </div>
-                <span className="room-role-badge guest">Guest view</span>
-              </div>
-              <div className="guest-source-info">
-                <span className="torrent-file-name">
-                  {sharedSourceLabel
-                    ? `Connected to: ${sharedSourceLabel.length > 120 ? sharedSourceLabel.slice(0, 120) + '…' : sharedSourceLabel}`
-                    : torrentFileName
-                      ? `Selected file: ${torrentFileName.length > 120 ? torrentFileName.slice(0, 120) + '…' : torrentFileName}`
-                      : "Waiting for host to load the shared source"}
-                </span>
-                {isLoadingTorrent && (
-                  <p className="hint">Loading torrent metadata...</p>
-                )}
-                {torrentError && <p className="error-text">{torrentError}</p>}
-              </div>
-            </div>
+            <GuestViewPanel
+              sharedSourceLabel={sharedSourceLabel}
+              torrentFileName={torrentFileName}
+              isLoadingTorrent={isLoadingTorrent}
+              torrentError={torrentError}
+              onRequestResend={onRequestResend}
+            />
           )}
 
-          {canControlTorrent ? (
-            <div className="panel media-library">
-              <div className="media-library-header">
-                <div>
-                  <h3>Playable files</h3>
-                  <p className="hint">
-                    Torrent media is auto-picked for convenience. Switch here if you want a different file.
-                  </p>
-                </div>
-                <span className="media-count">{mediaFiles.length} found</span>
-              </div>
-
-              {mediaFiles.length > 0 ? (
-                <div className="media-list" role="list">
-                  {mediaFiles.map((file, index) => {
-                    const isActive = selectedMediaIndex === file.index || (selectedMediaIndex === null && index === 0);
-                    return (
-                      <button
-                        key={`${file.index}-${file.name}`}
-                        type="button"
-                        className={`media-item ${isActive ? "active" : ""}`}
-                        onClick={() => onSelectMediaFile(file)}
-                        disabled={isLoadingTorrent}
-                      >
-                        <div className="media-item-main">
-                          <span className="media-item-title">{file.name}</span>
-                          <span className="media-item-subtitle">
-                            {file.kind === "video" ? "Video" : "Audio"} file
-                          </span>
-                        </div>
-                        <div className="media-item-meta">
-                          <span className="media-pill">{file.kind}</span>
-                          <span className="media-size">
-                            {file.length > 0 ? `${(file.length / 1024 / 1024).toFixed(file.length >= 1024 * 1024 * 100 ? 0 : file.length >= 1024 * 1024 * 10 ? 1 : 2)} MB` : "Unknown size"}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="media-empty">
-                  <p>No playable video or audio files found yet.</p>
-                  <p className="hint">Load a torrent and this list will populate automatically.</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="panel media-library">
-              <div className="media-library-header">
-                <div>
-                  <h3>Now playing</h3>
-                  <p className="hint">The host controls which file is playing.</p>
-                </div>
-              </div>
-              {selectedMediaLabel ? (
-                <div className="media-list" role="list">
-                  <div className="media-item active">
-                    <div className="media-item-main">
-                      <span className="media-item-title">{selectedMediaLabel}</span>
-                      <span className="media-item-subtitle">
-                        {selectedMediaKind === "video" ? "Video" : "Audio"} file
-                      </span>
-                    </div>
-                    <div className="media-item-meta">
-                      <span className="media-pill">{selectedMediaKind ?? "video"}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="media-empty">
-                  <p>No file selected yet.</p>
-                  <p className="hint">The host will choose a file from the torrent.</p>
-                </div>
-              )}
-            </div>
-          )}
+          <MediaLibraryPanel
+            mediaFiles={mediaFiles}
+            selectedMediaIndex={selectedMediaIndex}
+            selectedMediaLabel={selectedMediaLabel}
+            selectedMediaKind={selectedMediaKind}
+            isLoadingTorrent={isLoadingTorrent}
+            isHost={canControlTorrent}
+            onSelectMediaFile={onSelectMediaFile}
+          />
         </div>
         <RoomInfo
           peerId={peerId}

@@ -1,7 +1,7 @@
 {
   "name": "torrsyncplayer",
   "private": true,
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Sync video playback via torrent-backed media sharing.",
   "license": "MIT",
   "type": "module",
@@ -16,8 +16,9 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
-    "preview": "vite preview",
-    "postinstall": "patch-package"
+    "test:electron": "vitest run --project=electron --no-file-parallelism --passWithNoTests",
+    "postinstall": "patch-package",
+    "preview": "vite preview"
   },
   "dependencies": {
     "peerjs": "^1.5.5",

@@ -12,3 +12,6 @@ test_output.txt
 .kilo/
 .codex/
 .gemini/
+.cursor/
+.idea/
+.vscode/

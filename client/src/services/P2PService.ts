@@ -625,6 +625,9 @@ export class P2PService {
         this.setState("disconnected");
         return;
       }
+      if (this.isReconnecting && this._state === "connected") {
+        return;
+      }
       try {
         if (this.peer?.destroyed) {
           this.peer.reconnect();
@@ -639,7 +642,17 @@ export class P2PService {
       } catch (error) {
         p2pLogger.warn("Reconnect failed:", error);
         this.isReconnecting = false;
-        this.attemptReconnect();
+        if (this.reconnectTimeoutId === null) {
+          try {
+            this.attemptReconnect();
+          } catch (reconnectError) {
+            p2pLogger.error("Reconnect attempt failed unexpectedly:", reconnectError);
+            this.isReconnecting = false;
+            this.setState("disconnected");
+            this.emit("error", new Error("Connection lost. Please rejoin the room."));
+            this.emit("reconnect_failed");
+          }
+        }
       }
     }, delay);
   }
@@ -929,6 +942,10 @@ export class P2PService {
       if (selectedMediaIndex !== null && (!Number.isFinite(selectedMediaIndex) || selectedMediaIndex < 0)) return;
       if (selectedAudioTrackIndex !== null && (!Number.isFinite(selectedAudioTrackIndex) || selectedAudioTrackIndex < 0)) return;
       if (selectedSubtitleIndex !== null && (!Number.isFinite(selectedSubtitleIndex) || selectedSubtitleIndex < 0)) return;
+      if (source.kind === "magnet" && source.magnetLink.length > 8000) {
+        p2pLogger.warn("Magnet link too long, dropping");
+        return;
+      }
       if (source.kind === "file" && source.bytes.length > P2P_MAX_TORRENT_BYTES) {
         const errMsg = `Torrent file too large (${(source.bytes.length / 1024 / 1024).toFixed(1)} MB). Maximum size is ${P2P_MAX_TORRENT_BYTES / 1024 / 1024} MB.`;
         p2pLogger.warn(errMsg);

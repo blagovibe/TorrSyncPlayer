@@ -1,7 +1,8 @@
 import { type Peer, type PeerRole } from "../services/types";
 import { useState, useMemo, useEffect, useRef } from "react";
-
-const MAX_CHAT_MESSAGES = 200;
+import { UI_CONFIG } from "../config";
+import { ChatErrorBoundary } from "./ChatErrorBoundary";
+const MAX_CHAT_MESSAGES = UI_CONFIG.maxChatMessages;
 
 interface RoomInfoProps {
   peerId: string;
@@ -34,7 +35,7 @@ function RoomInfo({
   const displayMessages = useMemo(() => {
     if (chatMessages.length <= MAX_CHAT_MESSAGES) return chatMessages;
     return chatMessages.slice(-MAX_CHAT_MESSAGES);
-  }, [chatMessages]);
+  }, [chatMessages.length, chatMessages]);
 
   useEffect(() => {
     const el = chatScrollRef.current;
@@ -59,43 +60,50 @@ function RoomInfo({
       </p>
 
       <h3>Chat</h3>
-      <div className="chat-messages-scroll" ref={chatScrollRef} aria-live="polite" aria-label="Chat messages">
-        {displayMessages.map((msg) => (
-          <div
-            key={msg.id || `${msg.sender}-${msg.timestamp}`}
-            className={msg.sender === peerId ? "chat-message self" : "chat-message peer"}
-          >
-            <span className="msg-sender">
-              {msg.sender === peerId ? "You" : msg.sender}
-            </span>
-            <p className="msg-text">
-              {msg.text}
-            </p>
-          </div>
-        ))}
-      </div>
-      <form
-        className="chat-input-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (newMsg.trim() && onSendChat) {
-            onSendChat(newMsg.trim());
-            setNewMsg("");
-          }
-        }}
-      >
-        <input
-          type="text"
-          className="chat-input"
-          placeholder="Type a message"
-          value={newMsg}
-          onChange={(e) => setNewMsg(e.target.value)}
-          disabled={!isConnected}
-        />
-        <button type="submit" className="chat-send" disabled={!newMsg.trim() || !isConnected}>
-          Send
-        </button>
-      </form>
+      <ChatErrorBoundary>
+        <div className="chat-live-region" aria-live="assertive" aria-atomic="true" aria-relevant="additions">
+          {displayMessages.length > 0 && displayMessages[displayMessages.length - 1].sender !== peerId && (
+            <span className="sr-only">New message from {displayMessages[displayMessages.length - 1].sender}</span>
+          )}
+        </div>
+        <div className="chat-messages-scroll" ref={chatScrollRef} aria-label="Chat messages">
+          {displayMessages.map((msg) => (
+            <div
+              key={msg.id || `${msg.sender}-${msg.timestamp}`}
+              className={msg.sender === peerId ? "chat-message self" : "chat-message peer"}
+            >
+              <span className="msg-sender">
+                {msg.sender === peerId ? "You" : msg.sender}
+              </span>
+              <p className="msg-text">
+                {msg.text}
+              </p>
+            </div>
+          ))}
+        </div>
+        <form
+          className="chat-input-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (newMsg.trim() && onSendChat) {
+              onSendChat(newMsg.trim());
+              setNewMsg("");
+            }
+          }}
+        >
+          <input
+            type="text"
+            className="chat-input"
+            placeholder="Type a message"
+            value={newMsg}
+            onChange={(e) => setNewMsg(e.target.value)}
+            disabled={!isConnected}
+          />
+          <button type="submit" className="chat-send" disabled={!newMsg.trim() || !isConnected}>
+            Send
+          </button>
+        </form>
+      </ChatErrorBoundary>
 
       <h3>Peers ({peers.length})</h3>
       <ul className="peer-list">

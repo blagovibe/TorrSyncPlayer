@@ -16,8 +16,12 @@ type VideoScaleMode = (typeof VIDEO_SCALE_OPTIONS)[number]["value"];
 
 function formatTime(timeInSeconds: number): string {
   const safe = Number.isFinite(timeInSeconds) ? Math.max(0, timeInSeconds) : 0;
-  const minutes = Math.floor(safe / 60);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
   const seconds = Math.floor(safe % 60);
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
@@ -365,7 +369,7 @@ function VideoPlayer({
       {statusMessage && <div className="playback-message" role="status" aria-live="polite">{statusMessage}</div>}
       {(isBuffering || isStalled) && <div className="buffering-indicator" role="status" aria-live="polite">{isStalled ? "Network stalled — waiting for data..." : "Buffering..."}</div>}
       <div className={`video-controls ${showControls ? "visible" : "hidden"}`}>
-        <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback}>{isPlaying ? "Pause" : "Play"}</button>
+        <button type="button" onClick={() => void togglePlay()} disabled={!canControlPlayback} aria-label={isPlaying ? "Pause" : "Play"} aria-pressed={isPlaying}>{isPlaying ? "Pause" : "Play"}</button>
         <input type="range" min={0} max={duration || 100} step={0.1} value={currentTime} disabled={!canControlSeek}
           aria-label="Seek" aria-valuenow={Math.round(currentTime)} aria-valuemin={0} aria-valuemax={Math.round(duration || 100)}
           onChange={(e) => { if (!canControlSeek) return; const val = Number(e.target.value); setCurrentTime(val); if (videoRef.current) videoRef.current.currentTime = val; onSeek?.(val); }}
@@ -379,7 +383,7 @@ function VideoPlayer({
           <span className="volume-label">{Math.round(volume * 100)}%</span>
         </div>
         <div className="settings-menu-anchor">
-          <button ref={settingsButtonRef} type="button" className={`settings-toggle ${settingsOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>Settings</button>
+          <button ref={settingsButtonRef} type="button" className={`settings-toggle ${settingsOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={settingsOpen} aria-label="Player settings" onClick={() => setSettingsOpen((o) => !o)}>Settings</button>
           {settingsOpen && (
             <div ref={settingsMenuRef} className="player-settings-menu" role="dialog" aria-label="Player settings">
               <div className="settings-menu-header">
@@ -465,7 +469,7 @@ function VideoPlayer({
               </div>
             )}
           </div>
-        <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; if (document.fullscreenElement) { void document.exitFullscreen(); } else { void v.requestFullscreen(); } }}>Fullscreen</button>
+        <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; if (document.fullscreenElement) { void document.exitFullscreen(); } else { void v.requestFullscreen(); } }} aria-label={document.fullscreenElement ? "Exit fullscreen" : "Enter fullscreen"} aria-pressed={!!document.fullscreenElement}>Fullscreen</button>
       </div>
       <div className="video-progress" style={{ width: `${progress}%` }} />
     </section>

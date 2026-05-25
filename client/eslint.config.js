@@ -5,7 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "src-tauri"] },
+  { ignores: ["dist"] },
   {
     files: ["src/**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
@@ -44,6 +44,12 @@ export default tseslint.config(
     rules: {
       "no-console": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
+    },
+  },
+  {
+    files: ["electron/**"],
+    rules: {
+      "no-console": "off",
     },
   },
 );

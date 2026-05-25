@@ -34,6 +34,7 @@ const stagedPackage = {
   build: {
     appId: "com.torrsyncplayer.app",
     productName: "TorrSyncPlayer",
+    icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.ico"),
     electronVersion,
     directories: {
       output: path.join(projectDir, "release"),
@@ -50,6 +51,10 @@ const stagedPackage = {
     },
     win: {
       target: ["portable"],
+      icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.ico"),
+    },
+    mac: {
+      icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.icns"),
     },
   },
 };

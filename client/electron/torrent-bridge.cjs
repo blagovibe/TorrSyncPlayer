@@ -263,14 +263,7 @@ function parseSubtitleResult(stdout) {
 
 class TorrentBridge {
   static async checkFfmpegAvailable() {
-    if (ffmpegChecked) return ffmpegAvailable;
-    ffmpegChecked = true;
-    return new Promise((resolve) => {
-      const proc = spawn("ffmpeg", ["-version"], { timeout: 5000 });
-      proc.on("error", () => { ffmpegAvailable = false; resolve(false); });
-      proc.on("close", (code) => { ffmpegAvailable = code === 0; resolve(ffmpegAvailable); });
-      proc.on("timeout", () => { proc.kill(); ffmpegAvailable = false; resolve(false); });
-    });
+    return checkFfmpegAvailable();
   }
 
   constructor() {
@@ -285,7 +278,7 @@ class TorrentBridge {
     this.audioServerBaseUrl = null;
     this._ensureAudioServerTimeout = null;
     this.audioSessions = new Map();
-    this.audioSessionCounter = 0;
+
     this.maxBufferBytes = DEFAULT_MAX_BUFFER_MB * 1024 * 1024;
   }
 
@@ -306,6 +299,9 @@ class TorrentBridge {
     const MAGNET_LINK_PATTERN = /^magnet:\?xt=urn:(?:btih:[a-fA-F0-9]{40}|btmh:[a-fA-F0-9]{40}|sha1:[a-fA-F0-9]{40}|ed2k:[a-fA-F0-9]{32})(?:&.+)?$/;
     if (!MAGNET_LINK_PATTERN.test(magnetLink)) {
       throw new Error("Invalid magnet link format");
+    }
+    if (magnetLink.length > 8000) {
+      throw new Error("Magnet link too long");
     }
     return this.addSource(magnetLink);
   }

@@ -64,6 +64,12 @@ class BoundedChunkStore {
     this.lruList.add(index);
     this.currentBytes += buf.length;
 
+    if (this.closed) {
+      queueMicrotask(() => {
+        if (cb) cb(new Error("Storage is closed"));
+      });
+      return;
+    }
     if (cb) {
       this.baseStore.put(index, buf, cb);
     } else {

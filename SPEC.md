@@ -100,9 +100,9 @@
 
 - **Frontend**: React 18 + TypeScript + Vite
 - **Desktop**: Electron 42 + electron-builder 26
-- **Signaling**: PeerJS 1.5 (cloud-hosted broker)
-- **P2P Streaming**: WebTorrent 2.6 + WebRTC
-- **Testing**: Vitest 2.1
+- **Signaling**: PeerJS 1.5.5 (cloud-hosted broker)
+- **P2P Streaming**: WebTorrent 3.0 + WebRTC
+- **Testing**: Vitest 3.0
 - **Linting**: ESLint 9
 - **Styling**: CSS
 - **State Management**: React useReducer + useState

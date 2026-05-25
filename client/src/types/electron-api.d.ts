@@ -51,6 +51,7 @@ export interface ElectronTorrentBackend {
     audioTrackIndex: number;
     startSeconds: number;
   }) => Promise<string>;
+  isFfmpegAvailable?: () => Promise<boolean>;
 }
 
 export interface ElectronWindow {

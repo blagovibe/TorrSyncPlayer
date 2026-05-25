@@ -27,6 +27,7 @@ export const P2P_CONFIG = {
 
 export const P2P_MAX_TORRENT_BYTES = 10 * 1024 * 1024;
 export const IPC_MAX_TORRENT_BYTES = 10 * 1024 * 1024;
+export const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
 
 export const SYNC_CONFIG = {
   defaultToleranceSeconds: 1.5,
@@ -52,6 +53,7 @@ export const UI_CONFIG = {
   hideControlsDelayMs: 3000,
   broadcastDebounceMs: 500,
   maxRoomPasswordLength: 32,
+  maxChatMessages: 500,
 } as const;
 
 export const LOG_CONFIG = {

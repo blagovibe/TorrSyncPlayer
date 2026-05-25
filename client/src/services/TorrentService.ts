@@ -373,6 +373,11 @@ export class TorrentService {
   private async addWebTorrentSource(torrentSource: TorrentSource, abortSignal?: AbortSignal, expectedGeneration?: number): Promise<TorrentInstance> {
     const client = await this.getClient();
 
+    if (abortSignal?.aborted) throw new Error("Torrent load was cancelled");
+    if (expectedGeneration !== undefined && this.loadGeneration !== expectedGeneration) {
+      throw new Error("Torrent load superseded by a newer request");
+    }
+
     return new Promise<TorrentInstance>((resolve, reject) => {
       let isSettled = false;
       const isStale = () => expectedGeneration !== undefined && this.loadGeneration !== expectedGeneration;
@@ -391,7 +396,7 @@ export class TorrentService {
         reject(error);
       };
 
-        let torrent: TorrentInstance;
+      let torrent: TorrentInstance;
       try {
         const raw = client.add(torrentSource);
         if (!raw || typeof raw !== "object") {
@@ -446,7 +451,7 @@ export class TorrentService {
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitDiscoveredPeerCount);
 
       this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "download", () => {
-        const prog = Math.round(torrent.progress * 100) / 100;
+        const prog = Math.round(torrent.progress * 100);
         const spd = Math.round(torrent.downloadSpeed);
         if (prog !== this.lastProgress) {
           this.lastProgress = prog;
@@ -487,7 +492,10 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
 
   private async addElectronTorrentSource(torrentSource: TorrentSource, abortSignal?: AbortSignal, expectedGeneration?: number): Promise<TorrentInstance> {
     const backend = this.getElectronBackend();
-    if (!backend) throw new Error("Electron torrent backend is unavailable");
+    if (!backend) {
+      this.backendType = null;
+      throw new Error("Electron torrent backend is unavailable");
+    }
 
     try {
       const torrent =
@@ -781,6 +789,7 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
     }
+    this.backendType = null;
   }
 
   /**
@@ -927,7 +936,11 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
 
   private getElectronBackend(): ElectronTorrentBackend | null {
     if (typeof window === "undefined") return null;
-    return (window as ElectronWindow).torrsyncElectronTorrent ?? null;
+    const backend = (window as ElectronWindow).torrsyncElectronTorrent ?? null;
+    if (!backend && this.backendType === "electron") {
+      this.backendType = null;
+    }
+    return backend;
   }
 
   private startBackendStatsPolling(): void {
@@ -992,7 +1005,7 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
   }
 
   private emitTorrentStats(torrent: TorrentInstance): void {
-    const prog = Math.round(torrent.progress * 100) / 100;
+    const prog = Math.round(torrent.progress * 100);
     const spd = Math.round(torrent.downloadSpeed);
     const peers = torrent.discoveredPeerCount ?? this.discoveredPeerIds.size;
     if (prog !== this.lastProgress) {
