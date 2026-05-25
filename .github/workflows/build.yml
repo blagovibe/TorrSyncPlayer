@@ -64,7 +64,7 @@ jobs:
           - os: windows-2022
             artifact_name: TorrSyncPlayer-Windows
             build_command: npm run electron:build:win
-            artifact_path: client/release/*.exe
+            artifact_path: client/release/**/*.exe
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -85,16 +85,6 @@ jobs:
 
       - name: Build Electron artifact
         run: ${{ matrix.build_command }}
-        continue-on-error: true
-
-      - name: Debug output
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          echo "=== Checking ip module ==="
-          Get-ChildItem -Path .electron-app/node_modules/ip -ErrorAction SilentlyContinue
-          echo "=== Release directory ==="
-          Get-ChildItem -Path release -Recurse -File -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
