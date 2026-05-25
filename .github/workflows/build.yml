@@ -61,7 +61,7 @@ jobs:
             artifact_name: TorrSyncPlayer-Linux-AppImage
             build_command: npm run electron:build:linux
             artifact_path: client/release/*.AppImage
-          - os: windows-2022
+          - os: windows-latest
             artifact_name: TorrSyncPlayer-Windows
             build_command: npm run electron:build:win
             artifact_path: client/release/**/*.exe
