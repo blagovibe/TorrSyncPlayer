@@ -83,23 +83,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build web app
-        run: npm run build
-
-      - name: Prepare electron app
-        run: node scripts/prepare-electron-app.cjs
-
       - name: Build Electron artifact
         env:
           ELECTRON_BUILDER_WINDOWS_CODE_SIGNING_DISABLED: "true"
-        run: electron-builder --projectDir .electron-app --win portable
-        if: runner.os == 'Windows'
-
-      - name: Build Electron artifact (non-Windows)
-        env:
-          ELECTRON_BUILDER_WINDOWS_CODE_SIGNING_DISABLED: "true"
-        run: electron-builder --projectDir .electron-app --linux AppImage
-        if: runner.os != 'Windows'
+        run: |
+          echo "=== Checking prerequisites ==="
+          ls -la dist/index.html electron/main.cjs
+          echo "=== npm_execpath: $npm_execpath ==="
+          echo "=== Running build ==="
+          ${{ matrix.build_command }}
+        shell: bash
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
