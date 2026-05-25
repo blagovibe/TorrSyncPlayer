@@ -23,13 +23,14 @@ export default defineConfig(async () => ({
     alias: {
       events: "events/",
       path: "path-browserify",
-      crypto: "crypto-browserify",
+      crypto: fileURLToPath(new URL("./src/shims/crypto-shim.ts", import.meta.url)),
       randomfill: fileURLToPath(new URL("./src/shims/randomfill.ts", import.meta.url)),
       stream: "stream-browserify",
       buffer: "buffer/",
       process: "process/browser",
       util: "util/",
       "bittorrent-dht": fileURLToPath(new URL("./src/shims/bittorrent-dht.ts", import.meta.url)),
+      ip: fileURLToPath(new URL("./src/shims/ip-patch/lib/ip.js", import.meta.url)),
     },
   },
   define: {
