@@ -12,7 +12,7 @@
     "build": "tsc && vite build",
     "electron:build": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app",
     "electron:build:linux": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --linux AppImage",
-    "electron:build:win": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --win portable",
+    "electron:build:win": "npm run build && node scripts/prepare-electron-app.cjs && electron-builder --projectDir .electron-app --win portable -c.win.signAndEditExecutable=false",
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
