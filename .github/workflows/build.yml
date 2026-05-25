@@ -84,6 +84,8 @@ jobs:
         run: npm ci
 
       - name: Build Electron artifact
+        env:
+          ELECTRON_BUILDER_WINDOWS_CODE_SIGNING_DISABLED: "true"
         run: ${{ matrix.build_command }}
 
       - name: Upload build artifact
