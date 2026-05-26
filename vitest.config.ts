@@ -7,4 +7,13 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["client/src/test-setup.ts"],
   },
+  projects: [
+    {
+      test: {
+        name: "electron",
+        include: ["client/electron/__tests__/**/*.{test,spec}.cjs"],
+        environment: "node",
+      },
+    },
+  ],
 });

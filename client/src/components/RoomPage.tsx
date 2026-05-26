@@ -62,6 +62,7 @@ interface RoomPageProps {
   player: PlayerState;
   chat: ChatState;
   ffmpegAvailable?: boolean | null;
+  browserModeWarning?: boolean;
   onMagnetLinkChange: (value: string) => void;
   onTorrentFileChange: (file: File | null) => void;
   onPlaybackStarted: () => void;
@@ -91,6 +92,7 @@ function RoomPage({
   player,
   chat,
   ffmpegAvailable,
+  browserModeWarning,
   onMagnetLinkChange,
   onTorrentFileChange,
   onPlaybackStarted,
@@ -194,23 +196,22 @@ function RoomPage({
       }
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      const textArea = document.createElement("textarea");
-      textArea.value = peerId;
-      textArea.style.position = "fixed";
-      textArea.style.left = "-9999px";
-      document.body.appendChild(textArea);
-      textArea.select();
       try {
-        document.execCommand("copy");
+        const textArea = document.createElement("textarea");
+        textArea.value = peerId;
+        document.body.appendChild(textArea);
+        textArea.select();
+        textArea.setSelectionRange(0, 99999);
+        await navigator.clipboard.writeText(peerId);
         setCopied(true);
         if (copiedTimerRef.current !== null) {
           clearTimeout(copiedTimerRef.current);
         }
         copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+        document.body.removeChild(textArea);
       } catch {
-        uiLogger.error("Failed to copy peer ID");
+        uiLogger.error("Failed to copy peer ID — please copy manually");
       }
-      document.body.removeChild(textArea);
     }
   };
 
@@ -226,15 +227,21 @@ function RoomPage({
       {isDragOver && canControlTorrent && (
         <div className="drag-overlay">
           <div className="drag-overlay-content">
-            <span className="drag-icon">📥</span>
+             <span className="drag-icon" aria-label="Drop torrent file">📥</span>
             <p>Drop .torrent file here</p>
           </div>
         </div>
       )}
       {ffmpegAvailable === false && (
-        <div className="ffmpeg-warning-banner" role="alert">
-          <span className="ffmpeg-warning-icon">⚠️</span>
+          <div className="ffmpeg-warning-banner" role="alert">
+            <span className="ffmpeg-warning-icon" aria-hidden="true">⚠️</span>
           <span>ffmpeg not detected — audio track selection, subtitle extraction, and format conversion features are unavailable.</span>
+        </div>
+      )}
+      {browserModeWarning && (
+          <div className="browser-mode-warning-banner" role="alert">
+            <span className="browser-mode-warning-icon" aria-hidden="true">ℹ️</span>
+          <span>Running in browser mode without Electron. Streaming may require downloading the entire file before playback. For the best experience, use the Electron desktop app.</span>
         </div>
       )}
       <div className="room-layout">

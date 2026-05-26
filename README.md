@@ -20,7 +20,7 @@ TorrSyncPlayer is a free desktop app that lets you stream video from torrents an
 | Platform | Format | Status |
 |----------|--------|--------|
 | **Linux** | AppImage | ✅ Available |
-| **Windows** | Portable EXE / Installer (NSIS) | ✅ Available |
+| **Windows** | Portable EXE | ✅ Available |
 | **macOS** | — | 🚧 Planned (tracked in backlog) |
 
 > Releases are built automatically. Check the latest CI artifacts for downloadable builds.
@@ -188,7 +188,7 @@ npm run electron:dev # Start Electron with hot reload
 ```bash
 npm run build                    # Web build
 npm run electron:build:linux     # Linux AppImage
-npm run electron:build:win       # Windows EXE (portable + NSIS)
+npm run electron:build:win       # Windows EXE (portable)
 ```
 
 > **Note:** `electron:build` (without platform suffix) builds for the current platform only.

@@ -4,23 +4,24 @@ const path = require("node:path");
 const MemoryChunkStore = require("memory-chunk-store");
 const { BoundedChunkStore } = require("./bounded-chunk-store.cjs");
 
+const {
+  MAX_TORRENT_CONNECTIONS,
+  AUDIO_SESSION_TTL_MS,
+  SUBTITLE_SESSION_TTL_MS,
+  VIDEO_EXTENSIONS,
+  AUDIO_EXTENSIONS,
+  MAX_TORRENT_FILE_COUNT,
+  MAX_TORRENT_FILENAME_LENGTH,
+} = require("./torrent-constants.cjs");
+
 const DEFAULT_MAX_BUFFER_MB = 500;
 
 function generateSessionToken() {
   return randomBytes(16).toString("hex");
 }
 
-const VIDEO_EXTENSIONS = new Set([
-  ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".ogv",
-]);
-
-const AUDIO_EXTENSIONS = new Set([
-  ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav", ".oga", ".wma",
-]);
-const MAX_TORRENT_CONNECTIONS = 200;
 const TORRENT_SERVER_HOST = "127.0.0.1";
 const TORRENT_SERVER_PORT = 0;
-const AUDIO_SESSION_TTL_MS = 5 * 60 * 1000;
 
 // Allowed hostnames for stream URL validation — only loopback addresses
 const ALLOWED_STREAM_HOSTS = new Set(["127.0.0.1", "::1"]);
@@ -110,9 +111,6 @@ function getMediaKind(extension) {
   }
   return null;
 }
-
-const MAX_TORRENT_FILE_COUNT = 10_000;
-const MAX_TORRENT_FILENAME_LENGTH = 512;
 
 function validateTorrentFiles(files) {
   if (!Array.isArray(files)) return;
@@ -296,13 +294,15 @@ class TorrentBridge {
   }
 
   async addMagnet(magnetLink) {
-    const MAGNET_LINK_PATTERN = /^magnet:\?xt=urn:(?:btih:[a-fA-F0-9]{40}|btmh:[a-fA-F0-9]{40}|sha1:[a-fA-F0-9]{40}|ed2k:[a-fA-F0-9]{32})(?:&.+)?$/;
+    const { MAGNET_LINK_PATTERN, MAX_MAGNET_LINK_LENGTH: MAX_MAGNET_LEN } = require("./torrent-constants.cjs");
+    if (typeof magnetLink !== "string" || magnetLink.length > MAX_MAGNET_LEN) {
+      throw new Error("Invalid magnet link: too long or not a string");
+    }
     if (!MAGNET_LINK_PATTERN.test(magnetLink)) {
       throw new Error("Invalid magnet link format");
     }
-    if (magnetLink.length > 8000) {
-      throw new Error("Magnet link too long");
-    }
+    const { validateMagnetTrackerUrls } = require("./torrent-constants.cjs");
+    validateMagnetTrackerUrls(magnetLink);
     return this.addSource(magnetLink);
   }
 
@@ -512,7 +512,7 @@ class TorrentBridge {
       process: null,
       cleanupTimer: setTimeout(() => {
         this.audioSessions.delete(token);
-      }, AUDIO_SESSION_TTL_MS),
+      }, SUBTITLE_SESSION_TTL_MS),
     };
     session.cleanupTimer.unref?.();
     this.audioSessions.set(token, session);

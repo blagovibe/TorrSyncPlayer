@@ -1,6 +1,7 @@
 import type { AudioTrackInfo, SubtitleTrackInfo } from "./types";
-import type { ElectronTorrentBackend, ElectronWindow } from "../types/electron-api";
 import { formatBytes } from "../utils/format";
+import { type ElectronTorrentBackendAdapter, getElectronBackendAdapter, type TorrentInstance, type TorrentFile } from "./torrent-backend";
+export type { TorrentInstance, TorrentFile };
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import { torrentLogger } from "../utils/logger";
 import {
@@ -14,16 +15,6 @@ import {
 
 type MediaKind = "video" | "audio";
 
-interface TorrentFile {
-  index?: number;
-  name: string;
-  length?: number;
-  progress?: number;
-  streamUrl?: string;
-  streamTo: (mediaElement: HTMLMediaElement) => Promise<void>;
-  blob?: () => Promise<Blob>;
-}
-
 export interface TorrentMediaFile {
   index: number;
   name: string;
@@ -31,18 +22,6 @@ export interface TorrentMediaFile {
   kind: MediaKind;
   extension: string;
   file: TorrentFile;
-}
-
-interface TorrentInstance {
-  files: TorrentFile[];
-  progress: number;
-  downloadSpeed: number;
-  numPeers: number;
-  discoveredPeerCount?: number;
-  on?: (event: string, callback: (...args: unknown[]) => void) => void;
-  destroy?: (callback?: (error?: Error) => void) => void;
-  select?: (start: number, end: number, priority: number) => void;
-  deselect?: (start: number, end: number, priority: number) => void;
 }
 
 type TorrentEvents = {
@@ -98,6 +77,12 @@ function getFileExtension(name: string): string {
 // Formats natively supported by most browsers for <video> element
 const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov", ".m4v", ".ts"]);
 const BROWSER_SUPPORTED_AUDIO_FORMATS = new Set([".mp3", ".ogg", ".opus", ".wav", ".oga", ".aac", ".m4a", ".flac", ".wma"]);
+
+type TorrentEmitter = {
+  on: (event: string, callback: (...args: unknown[]) => void) => void;
+  off?: (event: string, callback: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, callback: (...args: unknown[]) => void) => void;
+};
 
 type BackendType = "browser" | "electron";
 
@@ -169,9 +154,9 @@ export class TorrentService {
     saveBufferSetting(TORRENT_CONFIG.bufferWindowStorageKey, bufferWindowMB);
     saveBufferSetting(TORRENT_CONFIG.maxBufferStorageKey, maxBufferMB);
 
-    const backend = this.getElectronBackend();
-    if (backend?.setMaxBufferMB) {
-      void backend.setMaxBufferMB(maxBufferMB);
+    const adapter = this.getElectronBackend();
+    if (adapter) {
+      adapter.setMaxBufferMB(maxBufferMB);
     }
   }
 
@@ -436,7 +421,7 @@ export class TorrentService {
           emitDiscoveredPeerCount();
         }
       };
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "peer", onPeer as (...args: unknown[]) => void);
+      this.cleanup.on(torrent as unknown as TorrentEmitter, "peer", onPeer as (...args: unknown[]) => void);
 
       // Track wire connections separately — wire count is informational
       const onWire = (wire: { on?: (event: string, handler: () => void) => void; off?: (event: string, handler: () => void) => void }) => {
@@ -446,11 +431,11 @@ export class TorrentService {
           this.cleanup.add(() => wire.off!("close", closeHandler));
         }
       };
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "wire", onWire as (...args: unknown[]) => void);
+      this.cleanup.on(torrent as unknown as TorrentEmitter, "wire", onWire as (...args: unknown[]) => void);
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "noPeers", emitDiscoveredPeerCount);
+      this.cleanup.on(torrent as unknown as TorrentEmitter, "noPeers", emitDiscoveredPeerCount);
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "download", () => {
+      this.cleanup.on(torrent as unknown as TorrentEmitter, "download", () => {
         const prog = Math.round(torrent.progress * 100);
         const spd = Math.round(torrent.downloadSpeed);
         if (prog !== this.lastProgress) {
@@ -479,10 +464,10 @@ export class TorrentService {
         }
       };
 
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "metadata", onMetadataOrReady("metadata") as (...args: unknown[]) => void);
-      this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "ready", onMetadataOrReady("ready") as (...args: unknown[]) => void);
+      this.cleanup.on(torrent as unknown as TorrentEmitter, "metadata", onMetadataOrReady("metadata") as (...args: unknown[]) => void);
+      this.cleanup.on(torrent as unknown as TorrentEmitter, "ready", onMetadataOrReady("ready") as (...args: unknown[]) => void);
 
-this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "error", ((error?: Error) => {
+this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) => {
           const normalized = this.normalizeError(error);
           this.emit("error", normalized);
           settleReject(normalized);
@@ -491,8 +476,8 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
   }
 
   private async addElectronTorrentSource(torrentSource: TorrentSource, abortSignal?: AbortSignal, expectedGeneration?: number): Promise<TorrentInstance> {
-    const backend = this.getElectronBackend();
-    if (!backend) {
+    const adapter = this.getElectronBackend();
+    if (!adapter) {
       this.backendType = null;
       throw new Error("Electron torrent backend is unavailable");
     }
@@ -500,17 +485,17 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
     try {
       const torrent =
         typeof torrentSource === "string"
-          ? await backend.addMagnet(torrentSource)
-          : await backend.addTorrentFile(torrentSource);
+          ? await adapter.addMagnet(torrentSource)
+          : await adapter.addTorrentFile(torrentSource);
 
       if (abortSignal?.aborted) throw new Error("Torrent load was cancelled");
       if (expectedGeneration !== undefined && this.loadGeneration !== expectedGeneration) {
         throw new Error("Torrent load superseded by a newer request");
       }
-      this.activeTorrent = torrent as unknown as TorrentInstance;
-      this.emitTorrentStats(this.activeTorrent);
+      this.activeTorrent = torrent;
+      this.emitTorrentStats(this.activeTorrent!);
       this.startBackendStatsPolling();
-      return this.activeTorrent;
+      return this.activeTorrent!;
     } catch (error) {
       const normalized = this.normalizeError(error);
       this.emit("error", normalized);
@@ -577,11 +562,11 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
     try {
       await this.ensureStreamServer();
     } catch (error) {
-      torrentLogger.warn("Stream server setup failed, falling back to blob", error);
+      torrentLogger.warn("Stream server setup failed, falling back to blob", error instanceof Error ? error.message : String(error));
     }
 
     try {
-      await file.streamTo(mediaElement);
+      await file.streamTo!(mediaElement);
       mediaElement.load();
       return;
     } catch (error) {
@@ -594,6 +579,7 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
     // Fallback: download as blob and create object URL
     try {
       const blob = await file.blob();
+      this.revokeActiveObjectUrl();
       const objectUrl = URL.createObjectURL(blob);
       this.activeObjectUrl = objectUrl;
       this.activeBlobUrls.add(objectUrl);
@@ -718,12 +704,12 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
     this.revokeAllBlobUrls();
     this.discoveredPeerIds.clear();
 
-    const backend = this.getElectronBackend();
-    if (backend) {
+    const adapter = this.getElectronBackend();
+    if (adapter) {
       try {
-        await backend.clear();
-      } catch {
-        // Ignore cleanup errors
+        await adapter.clear();
+      } catch (cleanupError) {
+        torrentLogger.warn("Electron backend clear failed:", cleanupError);
       }
       return;
     }
@@ -934,13 +920,13 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
     return this.client;
   }
 
-  private getElectronBackend(): ElectronTorrentBackend | null {
-    if (typeof window === "undefined") return null;
-    const backend = (window as ElectronWindow).torrsyncElectronTorrent ?? null;
-    if (!backend && this.backendType === "electron") {
-      this.backendType = null;
+  private getElectronBackend(): ElectronTorrentBackendAdapter | null {
+    const adapter = getElectronBackendAdapter();
+    if (!adapter) {
+      if (this.backendType === "electron") this.backendType = null;
+      return null;
     }
-    return backend;
+    return adapter;
   }
 
   private startBackendStatsPolling(): void {
@@ -964,11 +950,11 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
   }
 
   private async refreshBackendStats(): Promise<void> {
-    const backend = this.getElectronBackend();
-    if (this.backendStatsInFlight || !backend || !this.activeTorrent || this.isDestroyed) return;
+    const adapter = this.getElectronBackend();
+    if (this.backendStatsInFlight || !adapter || !this.activeTorrent || this.isDestroyed) return;
     this.backendStatsInFlight = true;
     try {
-      const snapshot = await backend.getStats();
+      const snapshot = await adapter.getStats();
       if (!snapshot || !this.activeTorrent || this.isDestroyed) return;
       this.mergeTorrentSnapshot(this.activeTorrent, snapshot as unknown as TorrentInstance);
       this.emitTorrentStats(this.activeTorrent);
@@ -1051,7 +1037,8 @@ this.cleanup.on(torrent as unknown as Parameters<typeof this.cleanup.on>[0], "er
         this.streamServerReady = true;
         this.streamServerRetryCount = 0;
       } catch (error) {
-        torrentLogger.warn("Stream server setup failed", error);
+        const normalizedError = error instanceof Error ? error : new Error(String(error));
+        torrentLogger.warn("Stream server setup failed", normalizedError.message);
         this.streamServerPromise = null;
       }
     })();

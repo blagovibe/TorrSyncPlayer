@@ -2,7 +2,6 @@ import { type Peer, type PeerRole } from "../services/types";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { UI_CONFIG } from "../config";
 import { ChatErrorBoundary } from "./ChatErrorBoundary";
-const MAX_CHAT_MESSAGES = UI_CONFIG.maxChatMessages;
 
 interface RoomInfoProps {
   peerId: string;
@@ -33,9 +32,9 @@ function RoomInfo({
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const displayMessages = useMemo(() => {
-    if (chatMessages.length <= MAX_CHAT_MESSAGES) return chatMessages;
-    return chatMessages.slice(-MAX_CHAT_MESSAGES);
-  }, [chatMessages.length, chatMessages]);
+    if (chatMessages.length <= UI_CONFIG.maxChatMessages) return chatMessages;
+    return chatMessages.slice(-UI_CONFIG.maxChatMessages);
+  }, [chatMessages]);
 
   useEffect(() => {
     const el = chatScrollRef.current;

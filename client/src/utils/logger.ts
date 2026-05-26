@@ -15,7 +15,14 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 };
 
 let currentLogLevel: LogLevel = "debug";
-  const logHandlers: Array<(level: LogLevel, namespace: string, message: string, data?: unknown) => void> = [];
+const logHandlers: Array<(level: LogLevel, namespace: string, message: string, data?: unknown) => void> = [];
+type ConsoleFn = (message?: unknown, ...optionalParams: unknown[]) => void;
+const baseConsole = globalThis["console"];
+let consoleRef: { log: ConsoleFn; warn: ConsoleFn; error: ConsoleFn } = baseConsole;
+
+export function setLoggerConsole(consoleObj: { log: ConsoleFn; warn: ConsoleFn; error: ConsoleFn }): void {
+  consoleRef = consoleObj;
+}
 
 export function setLogLevel(level: LogLevel): void {
   currentLogLevel = level;
@@ -46,13 +53,12 @@ export function createLogger(namespace: string): Logger {
     const timestamp = new Date().toISOString();
     const formatted = `[${timestamp}] [${level.toUpperCase()}] [${namespace}] ${message}`;
 
-    // Always log to console in development
     if (level === "error") {
-      console.error(formatted, data ?? "");
+      consoleRef.error(formatted, data ?? "");
     } else if (level === "warn") {
-      console.warn(formatted, data ?? "");
+      consoleRef.warn(formatted, data ?? "");
     } else {
-      console.log(formatted, data ?? "");
+      consoleRef.log(formatted, data ?? "");
     }
 
     // Notify custom handlers

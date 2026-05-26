@@ -1,19 +1,36 @@
+/**
+ * @fileoverview Electron main process entry point.
+ * Manages window lifecycle, IPC handlers, and torrent bridge.
+ */
+
 const { app, BrowserWindow, shell } = require("electron");
 const path = require("node:path");
 const { TorrentBridge } = require("./torrent-bridge.cjs");
 const { StaticServer } = require("./static-server.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 
+/** @type {boolean} */
 const isDev = !app.isPackaged;
+/** @type {string} */
 const devServerUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:1420";
+/** @type {string} */
 const appRoot = path.resolve(__dirname, "..");
+/** @type {string} */
 const distDir = path.join(appRoot, "dist");
+/** @type {TorrentBridge} */
 const torrentBridge = new TorrentBridge();
 
+/** @type {StaticServer} */
 const staticServer = new StaticServer({ distDir, devServerUrl, torrentBridge });
 
+/** @type {number|null} */
 let mainWindowWebContentsId = null;
 
+/**
+ * Creates the main application window.
+ * @param {string} loadUrl - The URL to load in the window.
+ * @returns {void}
+ */
 function createWindow(loadUrl) {
   const mainWindow = new BrowserWindow({
     width: 1000,
@@ -33,7 +50,16 @@ function createWindow(loadUrl) {
   mainWindowWebContentsId = mainWindow.webContents.id;
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        void shell.openExternal(url);
+      } else {
+        console.warn(`[TorrSyncPlayer] Blocked shell.openExternal with unsafe protocol: ${parsed.protocol}`);
+      }
+    } catch {
+      console.warn(`[TorrSyncPlayer] Blocked shell.openExternal with invalid URL: ${url}`);
+    }
     return { action: "deny" };
   });
 

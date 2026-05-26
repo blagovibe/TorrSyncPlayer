@@ -1,7 +1,7 @@
 {
   "name": "torrsyncplayer",
   "private": true,
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Sync video playback via torrent-backed media sharing.",
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
   },
   "overrides": {
     "ip": "file:./local-packages/ip-patched",
-    "esbuild": "0.25.0"
+    "esbuild": "^0.25.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

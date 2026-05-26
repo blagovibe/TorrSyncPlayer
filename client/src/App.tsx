@@ -9,7 +9,7 @@ import { clampSyncTolerance, isPlaybackBlockedError } from "./utils/syncUtils";
 import { createMagnetSource, createTorrentFileSource } from "./utils/torrent";
 import { formatSpeed } from "./utils/format";
 import { p2pLogger, uiLogger } from "./utils/logger";
-import { SYNC_CONFIG, MAX_TORRENT_FILE_BYTES, UI_CONFIG } from "./config";
+import { MAX_TORRENT_FILE_BYTES, UI_CONFIG } from "./config";
 import ConfirmModal from "./components/ConfirmModal";
 import { useRoomStateContext } from "./hooks/useRoomStateContext";
 
@@ -45,7 +45,7 @@ function App() {
   const [torrentPeerCount, setTorrentPeerCount] = useState(0);
   const [trackerLost, setTrackerLost] = useState(false);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
-  const [syncToleranceSeconds, setSyncToleranceSeconds] = useState(SYNC_CONFIG.defaultToleranceSeconds);
+
   const [isPlayerReady, setIsPlayerReady] = useState(false);
 
   const [bufferWindowMB, setBufferWindowMB] = useState(50);
@@ -85,6 +85,7 @@ function App() {
       selectedSubtitleIndex,
       pendingRemoteSync,
       peerRole: ctxPeerRole,
+      syncToleranceSeconds,
     },
     setTorrentSource,
     setMediaIndex,
@@ -97,6 +98,7 @@ function App() {
     setSubtitleIndex,
     setPendingSync,
     setPeerRole: setCtxPeerRole,
+    setSyncToleranceSeconds: setCtxSyncTolerance,
     getCurrentSourceKey,
   } = roomState;
 
@@ -410,7 +412,7 @@ function App() {
         });
       }
     }
-  }, [loadTorrentRequest]);
+  }, [loadTorrentRequest, peerRole]);
 
   processTorrentLoadQueueRef.current = processTorrentLoadQueue;
 
@@ -496,7 +498,7 @@ function App() {
 
     p2pService.on("room_config", (message) => {
       const nextTolerance = clampSyncTolerance(message.syncToleranceSeconds);
-      setSyncToleranceSeconds(nextTolerance);
+      setCtxSyncTolerance(nextTolerance);
       syncServiceRef.current?.setSyncToleranceSeconds(nextTolerance);
     });
 
@@ -516,17 +518,28 @@ function App() {
       setRttMs(p2pService.getLastRttMs());
     });
 
+    p2pService.on("resend_requested", (requestingPeerId) => {
+      p2pLogger.info(`Peer ${requestingPeerId} requested resend — rebroadcasting room state`);
+      scheduleBroadcast(requestingPeerId);
+    });
+
     p2pService.on("chat_received", (senderId, content) => {
-      if (typeof content !== "string") return;
+      if (typeof content !== "string" || typeof senderId !== "string") return;
       const trimmed = content.trim();
       if (trimmed.length === 0 || trimmed.length > 500) return;
-      const sanitized = trimmed
+      const sanitizedContent = trimmed
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#x27;");
-      const message = { id: crypto.randomUUID(), sender: senderId, text: sanitized, timestamp: Date.now() };
+      const sanitizedSender = senderId
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#x27;");
+      const message = { id: crypto.randomUUID(), sender: sanitizedSender, text: sanitizedContent, timestamp: Date.now() };
       setChatMessages(prev => [...prev, message].slice(-MAX_CHAT_MESSAGES_APP));
     });
 
@@ -535,10 +548,15 @@ function App() {
     return p2pService;
   };
 
+  const [browserModeWarning, setBrowserModeWarning] = useState(false);
+
   const handleCreateRoom = async () => {
     if (isConnecting) return;
     setIsConnecting(true);
     setConnectionError(null);
+    if (!getTorrentService().isElectronBackendEnabled()) {
+      setBrowserModeWarning(true);
+    }
     try {
       await initializeP2PService("host");
       setPeerRole("master");
@@ -547,7 +565,10 @@ function App() {
       setCurrentView("room");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to initialize room";
-      try { p2pServiceRef.current?.disconnect(); } catch { /* non-fatal */ }
+      uiLogger.error("Failed to create room:", error);
+      try { p2pServiceRef.current?.disconnect(); } catch (cleanupError) {
+        uiLogger.warn("Cleanup after room creation failed:", cleanupError);
+      }
       p2pServiceRef.current = null;
       setConnectionError(message);
       setPeerRole(null);
@@ -585,7 +606,10 @@ function App() {
       setCurrentView("room");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Connection failed";
-      try { p2pServiceRef.current?.disconnect(); } catch { /* non-fatal */ }
+      uiLogger.error("Failed to connect to peer:", error);
+      try { p2pServiceRef.current?.disconnect(); } catch (cleanupError) {
+        uiLogger.warn("Cleanup after connection failed:", cleanupError);
+      }
       p2pServiceRef.current = null;
       setConnectionError(message);
       setPeerRole(null);
@@ -613,8 +637,8 @@ function App() {
     const torrentService = torrentServiceRef.current ?? getTorrentService();
     try {
       await torrentService.destroy();
-    } catch {
-      // Ignore cleanup errors
+    } catch (cleanupError) {
+      uiLogger.warn("Torrent service cleanup failed:", cleanupError);
     }
     torrentServiceRef.current = null;
     const video = videoRef.current;
@@ -654,7 +678,9 @@ function App() {
     setMagnetLink("");
     setTorrentFile(null);
     if (oldService) {
-      await oldService.destroy().catch(() => undefined);
+      await oldService.destroy().catch((cleanupError) => {
+        uiLogger.warn("Old torrent service cleanup failed:", cleanupError);
+      });
     }
     setTorrentServiceVersion((v) => v + 1);
     setShowResetConfirm(false);
@@ -671,14 +697,20 @@ function App() {
   const handleLoadMagnet = async () => {
     if (peerRole !== "master" || !magnetLink.trim()) return;
     setTorrentFile(null);
-    requestTorrentLoad({
-      source: createMagnetSource(magnetLink),
-      selectedMediaIndex: null,
-      selectedAudioTrackIndex: null,
-      selectedSubtitleIndex: null,
-      autoplay: true,
-      broadcast: true,
-    });
+    try {
+      requestTorrentLoad({
+        source: createMagnetSource(magnetLink),
+        selectedMediaIndex: null,
+        selectedAudioTrackIndex: null,
+        selectedSubtitleIndex: null,
+        autoplay: true,
+        broadcast: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load magnet link";
+      setTorrentError(message);
+      uiLogger.error("Magnet load failed:", error);
+    }
   };
 
   const handleTorrentFileChange = (file: File | null) => {
@@ -753,7 +785,7 @@ function App() {
 
   const handleSyncToleranceChange = (value: number) => {
     const nextTolerance = clampSyncTolerance(value);
-    setSyncToleranceSeconds(nextTolerance);
+    setCtxSyncTolerance(nextTolerance);
     syncServiceRef.current?.setSyncToleranceSeconds(nextTolerance);
     if (p2pServiceRef.current?.isHost() && p2pServiceRef.current.isConnected()) {
       p2pServiceRef.current.sendRoomConfig(nextTolerance);
@@ -947,7 +979,8 @@ function App() {
     if (win.torrsyncElectronTorrent?.isFfmpegAvailable) {
       void win.torrsyncElectronTorrent.isFfmpegAvailable().then((available) => {
         setFfmpegAvailable(available);
-      }).catch(() => {
+      }).catch((error) => {
+        uiLogger.warn("ffmpeg availability check failed:", error);
         setFfmpegAvailable(false);
       });
     }
@@ -972,7 +1005,7 @@ function App() {
     const message = { id: crypto.randomUUID(), sender: peerId, text: trimmed, timestamp: Date.now() };
     setChatMessages(prev => [...prev, message].slice(-MAX_CHAT_MESSAGES_APP));
     p2pServiceRef.current.sendChat(message.text);
-  }, [peerId]);
+  }, [peerId, MAX_CHAT_MESSAGES_APP]);
 
   return (
     <main className="app-shell">
@@ -1004,8 +1037,9 @@ function App() {
              videoRef, playbackNotice, syncToleranceSeconds,
              canControl: peerRole === "master",
            }}
-            chat={{ chatMessages, onSendChat: handleSendChat }}
-            ffmpegAvailable={ffmpegAvailable}
+             chat={{ chatMessages, onSendChat: handleSendChat }}
+             ffmpegAvailable={ffmpegAvailable}
+             browserModeWarning={browserModeWarning}
             onSubtitleTrackChange={handleSubtitleTrackChange}
            onSyncToleranceChange={handleSyncToleranceChange}
            onMagnetLinkChange={setMagnetLink}

@@ -1,4 +1,5 @@
 import { type ReactNode, Component, type ErrorInfo } from "react";
+import { uiLogger } from "../utils/logger";
 
 interface ChatErrorBoundaryProps {
   children: ReactNode;
@@ -19,8 +20,7 @@ export class ChatErrorBoundary extends Component<ChatErrorBoundaryProps, ChatErr
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // eslint-disable-next-line no-console
-    console.error("Chat component error:", error, errorInfo);
+    uiLogger.error("Chat component error:", { error: error.message, stack: error.stack, componentStack: errorInfo.componentStack });
   }
 
   render(): ReactNode {

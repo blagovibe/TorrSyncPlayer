@@ -1,4 +1,4 @@
-import { createContext, useReducer, useCallback, type ReactNode } from "react";
+import { createContext, useReducer, useCallback, useEffect, useRef, type ReactNode } from "react";
 import type { AudioTrackInfo, SharedTorrentSource, SubtitleTrackInfo, SyncMessage } from "../services/types";
 import type { TorrentMediaFile } from "../services/TorrentService";
 
@@ -14,6 +14,7 @@ interface RoomState {
   selectedSubtitleIndex: number | null;
   pendingRemoteSync: SyncMessage | null;
   peerRole: "master" | "slave" | null;
+  syncToleranceSeconds: number;
 }
 
 type RoomAction =
@@ -28,6 +29,7 @@ type RoomAction =
   | { type: "SET_SUBTITLE_INDEX"; index: number | null }
   | { type: "SET_PENDING_SYNC"; sync: SyncMessage | null }
   | { type: "SET_PEER_ROLE"; role: "master" | "slave" | null }
+  | { type: "SET_SYNC_TOLERANCE"; seconds: number }
   | { type: "RESET" };
 
 const initialState: RoomState = {
@@ -42,6 +44,7 @@ const initialState: RoomState = {
   selectedSubtitleIndex: null,
   pendingRemoteSync: null,
   peerRole: null,
+  syncToleranceSeconds: 1.5,
 };
 
 function roomReducer(state: RoomState, action: RoomAction): RoomState {
@@ -68,6 +71,8 @@ function roomReducer(state: RoomState, action: RoomAction): RoomState {
       return { ...state, pendingRemoteSync: action.sync };
     case "SET_PEER_ROLE":
       return { ...state, peerRole: action.role };
+    case "SET_SYNC_TOLERANCE":
+      return { ...state, syncToleranceSeconds: action.seconds };
     case "RESET":
       return initialState;
     default:
@@ -88,6 +93,7 @@ interface RoomStateContextValue {
   setSubtitleIndex: (index: number | null) => void;
   setPendingSync: (sync: SyncMessage | null) => void;
   setPeerRole: (role: "master" | "slave" | null) => void;
+  setSyncToleranceSeconds: (seconds: number) => void;
   reset: () => void;
   getCurrentSourceKey: () => string | null;
 }
@@ -96,6 +102,17 @@ const RoomStateContext = createContext<RoomStateContextValue | null>(null);
 
 export function RoomStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(roomReducer, initialState);
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    return () => {
+      dispatch({ type: "RESET" });
+    };
+  }, []);
 
   const setTorrentSource = useCallback(
     (source: SharedTorrentSource | null) => dispatch({ type: "SET_TORRENT_SOURCE", source }),
@@ -141,6 +158,10 @@ export function RoomStateProvider({ children }: { children: ReactNode }) {
     (role: "master" | "slave" | null) => dispatch({ type: "SET_PEER_ROLE", role }),
     [],
   );
+  const setSyncToleranceSeconds = useCallback(
+    (seconds: number) => dispatch({ type: "SET_SYNC_TOLERANCE", seconds }),
+    [],
+  );
   const reset = useCallback(() => dispatch({ type: "RESET" }), []);
   const getCurrentSourceKey = useCallback(
     () => state.currentTorrentSource?.sourceKey ?? null,
@@ -162,6 +183,7 @@ export function RoomStateProvider({ children }: { children: ReactNode }) {
         setSubtitleIndex,
         setPendingSync,
         setPeerRole,
+        setSyncToleranceSeconds,
         reset,
         getCurrentSourceKey,
       }}

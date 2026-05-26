@@ -22,6 +22,7 @@ type P2PEvents = {
   reconnecting: (attempt: number, delayMs: number) => void;
   connection_quality: (quality: ConnectionQuality) => void;
   chat_received: (senderId: string, content: string) => void;
+  resend_requested: (peerId: string) => void;
   reconnect_failed: () => void;
 };
 
@@ -303,6 +304,7 @@ export class P2PService {
     reconnecting: new Set(),
     connection_quality: new Set(),
     chat_received: new Set(),
+    resend_requested: new Set(),
     reconnect_failed: new Set(),
   };
 
@@ -413,17 +415,15 @@ export class P2PService {
   }
 
   private async tryConnect(remotePeerId: string): Promise<void> {
+    if (!this.peer) {
+      throw new Error("Peer not initialized — call initialize() first");
+    }
     this.remotePeerId = remotePeerId;
     this.setState("connecting");
 
     try {
       return await new Promise((resolve, reject) => {
-        if (!this.peer) {
-          reject(new Error("Peer not initialized"));
-          return;
-        }
-
-        const conn = this.peer.connect(remotePeerId, {
+        const conn = this.peer!.connect(remotePeerId, {
           reliable: true,
           serialization: "json",
         });
@@ -581,7 +581,11 @@ export class P2PService {
   }
 
   private attemptReconnect(): void {
-    if (this.isDisconnecting || this._state === "destroyed" || this._state === "disconnecting") return;
+    if (this.isDisconnecting) {
+      this.isReconnecting = false;
+      return;
+    }
+    if (this._state === "destroyed" || this._state === "disconnecting") return;
     if (this.role === "host") return;
     if (!this.remotePeerId) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
@@ -750,12 +754,14 @@ export class P2PService {
           break;
         case "chat":
           this.emit("chat_received", conn.peer, message.content);
-          // If host, forward to all other peers
           if (this.role === "host") {
             for (const [peerId, connection] of this.connections.entries()) {
               if (peerId !== conn.peer && connection.open) {
                 connection.send({ type: "chat", content: message.content });
               }
+            }
+            if (message.content.trim().toLowerCase() === "/resend") {
+              this.emit("resend_requested", conn.peer);
             }
           }
           break;
@@ -924,7 +930,7 @@ export class P2PService {
       const now = Date.now();
       if (pongTs > now || pongTs < now - 30000) return;
       const rtt = now - pongTs;
-      if (rtt < 5000) {
+      if (rtt > 0) {
         this.lastRttMs = rtt;
         this.emit("connection_quality", this.getConnectionQuality());
       }
@@ -1001,13 +1007,13 @@ export class P2PService {
   /** Disconnect from all peers and clean up resources. Idempotent. */
   public disconnect(): void {
     this.isDisconnecting = true;
+    this.isReconnecting = false;
+    if (this.reconnectTimeoutId !== null) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
     this.cleanup.abort();
     this.setState("disconnecting");
-    this.isReconnecting = false;
-      if (this.reconnectTimeoutId !== null) {
-        clearTimeout(this.reconnectTimeoutId);
-        this.reconnectTimeoutId = null;
-      }
       this.stopPingInterval();
       for (const cleanups of this.connectionCleanups.values()) {
         for (const cleanup of cleanups) cleanup();

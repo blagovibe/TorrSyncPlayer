@@ -56,10 +56,14 @@ contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
   isFfmpegAvailable: () => ipcRenderer.invoke("ffmpeg:isAvailable"),
 });
 
+let closeRequestHandler = null;
 contextBridge.exposeInMainWorld("torrsyncElectronWindow", {
   onCloseRequest: (callback) => {
-    ipcRenderer.removeAllListeners("window-close-request");
-    ipcRenderer.on("window-close-request", callback);
+    if (closeRequestHandler) {
+      ipcRenderer.removeListener("window-close-request", closeRequestHandler);
+    }
+    closeRequestHandler = callback;
+    ipcRenderer.on("window-close-request", closeRequestHandler);
   },
   closeConfirmed: () => {
     ipcRenderer.send("window-close-confirmed");

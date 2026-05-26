@@ -34,12 +34,6 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/utils/logger.ts"],
-    rules: {
-      "no-console": "off",
-    },
-  },
-  {
     files: ["src/**/__tests__/**", "src/**/*.test.{ts,tsx}"],
     rules: {
       "no-console": "off",

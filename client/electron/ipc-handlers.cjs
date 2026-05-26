@@ -1,7 +1,5 @@
 const { TorrentBridge } = require("./torrent-bridge.cjs");
-const MAGNET_LINK_PATTERN = /^magnet:\?xt=urn:(?:btih:[a-fA-F0-9]{40}|btmh:[a-fA-F0-9]{40}|sha1:[a-fA-F0-9]{40}|ed2k:[a-fA-F0-9]{32})(?:&.+)?$/;
-const MAX_MAGNET_LINK_LENGTH = 8000;
-const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
+const { MAGNET_LINK_PATTERN, MAX_MAGNET_LINK_LENGTH, MAX_TORRENT_FILE_BYTES } = require("./torrent-constants.cjs");
 
 function getAllowedOrigins(staticServerInstance, devServerUrl) {
   const origins = [];
@@ -33,8 +31,9 @@ function validateIpcSender(event, staticServerInstance, devServerUrl) {
       return false;
     }
     const allowedOrigins = getAllowedOrigins(staticServerInstance, devServerUrl);
+    const normalizeHost = (h) => (h === "localhost" ? "127.0.0.1" : h);
     const matched = allowedOrigins.some(
-      (origin) => origin.protocol === parsed.protocol && origin.hostname === parsed.hostname && origin.port === parsed.port
+      (origin) => origin.protocol === parsed.protocol && normalizeHost(origin.hostname) === normalizeHost(parsed.hostname) && origin.port === parsed.port
     );
     if (!matched) {
       console.warn(`[TorrSyncPlayer] IPC validation failed: origin mismatch. Frame: ${frameUrl}, allowed: ${allowedOrigins.map(o => o.origin).join(", ")}`);
@@ -67,9 +66,50 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
     if (!(torrentFile instanceof Uint8Array) && !Array.isArray(torrentFile)) {
       throw new Error("Invalid torrent file");
     }
-    const byteLength = torrentFile instanceof Uint8Array ? torrentFile.byteLength : torrentFile.length;
+    const bytes = torrentFile instanceof Uint8Array ? torrentFile : Uint8Array.from(torrentFile);
+    const byteLength = bytes.byteLength;
     if (byteLength > MAX_TORRENT_FILE_BYTES) {
       throw new Error(`Torrent file too large (${(byteLength / 1024 / 1024).toFixed(1)} MB). Maximum size is ${MAX_TORRENT_FILE_BYTES / 1024 / 1024} MB.`);
+    }
+    // Validate torrent file magic bytes: bencoded dict starting with 'd'
+    if (byteLength < 10 || bytes[0] !== 0x64) {
+      throw new Error("Invalid torrent file: not a valid bencoded torrent");
+    }
+    const headerStr = new TextDecoder().decode(bytes.subarray(0, Math.min(32, byteLength)));
+    if (!headerStr.includes("announce") && !headerStr.includes("created by") && !headerStr.includes("info")) {
+      throw new Error("Invalid torrent file: missing required torrent fields");
+    }
+    // Decode bencoded announce-list to validate tracker URLs
+    try {
+      const blockedHosts = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+      const decoder = new TextDecoder();
+      const fullStr = decoder.decode(bytes);
+      // Find all tracker URLs in the bencoded data by looking for announce keys
+      const announceRegex = /announce([\d-]+)?(http[^\x00-\x1f]+)/g;
+      let match;
+      while ((match = announceRegex.exec(fullStr)) !== null) {
+        const url = match[2];
+        try {
+          const parsed = new URL(url);
+          const hostname = parsed.hostname.toLowerCase();
+          if (blockedHosts.has(hostname) || hostname.startsWith("10.") || hostname.startsWith("192.168.")) {
+            throw new Error(`Invalid torrent file: tracker URL points to internal/private address: ${hostname}`);
+          }
+          if (hostname.startsWith("172.")) {
+            const second = parseInt(hostname.split(".")[1], 10);
+            if (second >= 16 && second <= 31) {
+              throw new Error(`Invalid torrent file: tracker URL points to internal/private address: ${hostname}`);
+            }
+          }
+        } catch (urlError) {
+          if (urlError.message.startsWith("Invalid torrent file:")) throw urlError;
+          // Invalid URL format — Skip this tracker entry
+        }
+      }
+    } catch (decodeError) {
+      if (decodeError.message.startsWith("Invalid torrent file:")) throw decodeError;
+      // Bencoded parsing failure — file structure is invalid
+      throw new Error("Invalid torrent file: unable to parse bencoded tracker data");
     }
     return torrentBridge.addTorrentFile(torrentFile);
   });

@@ -1,8 +1,9 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./VideoPlayer.css";
 import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
+import { UI_CONFIG } from "../config";
 
-const HIDE_DELAY_MS = 3000;
+const HIDE_DELAY_MS = UI_CONFIG.hideControlsDelayMs;
 const VIDEO_SCALE_STORAGE_KEY = "torrsyncplayer.videoScale";
 
 const VIDEO_SCALE_OPTIONS = [

@@ -163,8 +163,13 @@ export class SyncService {
       paused: this.video.paused,
     };
 
-    if (snapshot.readyState === 0 && message.action !== "seek") {
-      return;
+    if (snapshot.readyState === 0) {
+      if (message.action !== "seek") {
+        return;
+      }
+      if (!Number.isFinite(snapshot.duration) || snapshot.duration <= 0) {
+        return;
+      }
     }
 
     const isSeek = message.action === "seek";

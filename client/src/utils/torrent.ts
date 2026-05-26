@@ -1,8 +1,8 @@
 import type { SharedTorrentSource } from "../services/types";
-
-const MAGNET_LINK_PATTERN = /^magnet:\?xt=urn:(?:btih:[a-fA-F0-9]{40}|btmh:[a-fA-F0-9]{40}|sha1:[a-fA-F0-9]{40}|ed2k:[a-fA-F0-9]{32})(?:&.+)?$/;
-const MAX_MAGNET_LINK_LENGTH = 8000;
+import { MAGNET_LINK_PATTERN, MAX_MAGNET_LINK_LENGTH } from "./torrentConstants";
 const MAX_TRACKER_URL_LENGTH = 2000;
+const MAX_MAGNET_PARAM_COUNT = 20;
+const MAX_MAGNET_PARAM_VALUE_LENGTH = 2000;
 
 const BLOCKED_TRACKER_HOSTS = new Set([
   "localhost", "127.0.0.1", "0.0.0.0", "::1", "0000:0000:0000:0000:0000:0000:0000:0001",
@@ -39,7 +39,11 @@ export function isValidMagnetLink(magnetLink: string): boolean {
     const queryStart = trimmed.indexOf("?");
     if (queryStart === -1) return true;
     const params = new URLSearchParams(trimmed.slice(queryStart + 1));
+    let paramCount = 0;
     for (const [key, value] of params) {
+      paramCount++;
+      if (paramCount > MAX_MAGNET_PARAM_COUNT) return false;
+      if (value.length > MAX_MAGNET_PARAM_VALUE_LENGTH) return false;
       if (key === "tr" || key.startsWith("tr.")) {
         if (value.length > MAX_TRACKER_URL_LENGTH) return false;
         try {

@@ -71,7 +71,7 @@
 - Master/slave model: one host controls playback, guests follow
 - Host broadcasts: play/pause, seek position, media source changes, audio track changes
 - Latency compensation: guests apply timestamp corrections with configurable tolerance
-- Default sync tolerance: 0.5 seconds
+- Default sync tolerance: 1.5 seconds
 - Guests buffer sync messages until media is ready, then apply
 
 ### 4.3 Signaling & P2P

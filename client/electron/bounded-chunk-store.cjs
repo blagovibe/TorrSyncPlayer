@@ -1,5 +1,22 @@
 const MemoryChunkStore = require("memory-chunk-store");
 
+/**
+ * BoundedChunkStore — LRU-based memory-constrained chunk store.
+ *
+ * Eviction Strategy:
+ * - When `put()` would exceed `maxBytes`, chunks are evicted using a distance-based LRU policy.
+ * - The eviction candidate is the chunk farthest from the current write position (`currentIndex`).
+ *   This keeps nearby data available for sequential playback while evicting distant chunks first.
+ * - LRU re-ordering happens in `get()`: accessing a chunk moves it to the end of the LRU set.
+ * - The `lruList` Set maintains insertion order (ES2015+ spec), which doubles as LRU ordering
+ *   because `get()` deletes and re-adds entries.
+ * - If all chunks are near the current position (no evictable index), the store may temporarily
+ *   exceed `maxBytes` until the next sequential write triggers eviction.
+ *
+ * Note: Uses `Set` iteration for LRU, which is insertion-order dependent. This is intentional —
+ * `get()` re-inserts accessed chunks, making the Set act as a simple LRU without a full
+ * doubly-linked list implementation.
+ */
 class BoundedChunkStore {
   constructor(chunkLength, opts) {
     this.baseStore = new MemoryChunkStore(chunkLength, opts);
