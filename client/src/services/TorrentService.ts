@@ -595,10 +595,17 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
       let settled = false;
       const abortController = new AbortController();
       const { signal } = abortController;
+      const cleanupListeners = () => {
+        mediaElement.removeEventListener("error", onError);
+        mediaElement.removeEventListener("canplay", onCanPlay);
+        mediaElement.removeEventListener("loadeddata", onLoadedData);
+        mediaElement.removeEventListener("loadedmetadata", onLoadedMetadata);
+      };
       const onAbort = () => {
         if (!settled) {
           settled = true;
           abortController.abort();
+          cleanupListeners();
           reject(new Error("Stream aborted"));
         }
       };
@@ -609,6 +616,7 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
         settled = true;
         abortSignal?.removeEventListener("abort", onAbort);
         abortController.abort();
+        cleanupListeners();
         fn();
       };
 
@@ -629,12 +637,12 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
       };
 
       const resettableTimeout = () => {
-        let id = this.cleanup.setTimeout(() => {
+        let id = setTimeout(() => {
           settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
         }, STREAM_CONFIG.streamLoadTimeoutMs);
         return {
           clear: () => clearTimeout(id),
-          reset: () => { clearTimeout(id); id = this.cleanup.setTimeout(() => {
+          reset: () => { clearTimeout(id); id = setTimeout(() => {
             settle(() => reject(new Error(`Stream load timed out: ${streamUrl}`)));
           }, STREAM_CONFIG.streamLoadTimeoutMs); },
         };
@@ -648,10 +656,7 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
       signal.addEventListener("abort", () => {
         timeout.clear();
         abortSignal?.removeEventListener("abort", onAbort);
-        mediaElement.removeEventListener("error", onError);
-        mediaElement.removeEventListener("canplay", onCanPlay);
-        mediaElement.removeEventListener("loadeddata", onLoadedData);
-        mediaElement.removeEventListener("loadedmetadata", onLoadedMetadata);
+        cleanupListeners();
       }, { once: true });
 
       mediaElement.addEventListener("error", onError, { signal });

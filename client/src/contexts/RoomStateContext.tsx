@@ -1,4 +1,4 @@
-import { createContext, useReducer, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useReducer, useCallback, type ReactNode } from "react";
 import type { AudioTrackInfo, SharedTorrentSource, SubtitleTrackInfo, SyncMessage } from "../services/types";
 import type { TorrentMediaFile } from "../services/TorrentService";
 
@@ -102,17 +102,6 @@ const RoomStateContext = createContext<RoomStateContextValue | null>(null);
 
 export function RoomStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(roomReducer, initialState);
-  const isFirstRender = useRef(true);
-
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-    return () => {
-      dispatch({ type: "RESET" });
-    };
-  }, []);
 
   const setTorrentSource = useCallback(
     (source: SharedTorrentSource | null) => dispatch({ type: "SET_TORRENT_SOURCE", source }),

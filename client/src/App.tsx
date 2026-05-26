@@ -110,6 +110,10 @@ function App() {
   const torrentLoadVersionRef = useRef(0);
   const guestRetryCountRef = useRef(0);
   const maxGuestRetries = 3;
+  const lastTorrentLoadTimeRef = useRef(0);
+  const lastGuestTorrentSourceTimeRef = useRef(0);
+  const TORRENT_LOAD_COOLDOWN_MS = 5000;
+  const GUEST_TORRENT_SOURCE_COOLDOWN_MS = 3000;
 
   const disposeSyncService = () => {
     syncServiceRef.current?.dispose();
@@ -274,24 +278,39 @@ function App() {
     }
   };
 
+  const currentTorrentSourceRef2 = useRef(currentTorrentSource);
+  currentTorrentSourceRef2.current = currentTorrentSource;
+  const selectedMediaIndexRef2 = useRef(selectedMediaIndex);
+  selectedMediaIndexRef2.current = selectedMediaIndex;
+  const selectedAudioTrackIndexRef2 = useRef(selectedAudioTrackIndex);
+  selectedAudioTrackIndexRef2.current = selectedAudioTrackIndex;
+  const selectedSubtitleIndexRef2 = useRef(selectedSubtitleIndex);
+  selectedSubtitleIndexRef2.current = selectedSubtitleIndex;
+  const selectedMediaFileRef2 = useRef(selectedMediaFile);
+  selectedMediaFileRef2.current = selectedMediaFile;
+  const mediaFilesRef = useRef(mediaFiles);
+  mediaFilesRef.current = mediaFiles;
+  const peerRoleRef2 = useRef(peerRole);
+  peerRoleRef2.current = peerRole;
+
   const loadTorrentRequest = useCallback(async (request: TorrentLoadRequest) => {
     if (!videoRef.current) throw new Error("Media player is not ready");
     if (torrentLoadAbortRef.current?.signal.aborted) throw new Error("Torrent load cancelled");
     const requestVersion = torrentLoadVersionRef.current;
 
-    const currentSource = currentTorrentSource;
-    const currentSelectedIndex = selectedMediaIndex;
-    const currentSelectedAudioTrackIndex = selectedAudioTrackIndex;
-    const currentSelectedSubtitleIndex = selectedSubtitleIndex;
+    const currentSource = currentTorrentSourceRef2.current;
+    const currentSelectedIndex = selectedMediaIndexRef2.current;
+    const currentSelectedAudioTrackIndex = selectedAudioTrackIndexRef2.current;
+    const currentSelectedSubtitleIndex = selectedSubtitleIndexRef2.current;
 
     if (currentSource?.sourceKey === request.source.sourceKey) {
       const desiredIndex = request.selectedMediaIndex !== null ? request.selectedMediaIndex : currentSelectedIndex;
       const desiredAudioTrackIndex = request.selectedAudioTrackIndex ?? currentSelectedAudioTrackIndex;
       const desiredSubtitleIndex = request.selectedSubtitleIndex ?? currentSelectedSubtitleIndex;
       const currentMediaFile =
-        selectedMediaFile ??
+        selectedMediaFileRef2.current ??
         (currentSelectedIndex !== null
-          ? mediaFiles.find((file) => file.index === currentSelectedIndex) ?? null
+          ? mediaFilesRef.current.find((file) => file.index === currentSelectedIndex) ?? null
           : null);
 
       if (desiredAudioTrackIndex !== currentSelectedAudioTrackIndex) {
@@ -301,13 +320,13 @@ function App() {
         setSelectedSubtitleSelection(desiredSubtitleIndex);
       }
       if (desiredIndex !== null && desiredIndex !== currentSelectedIndex) {
-        const nextMediaFile = mediaFiles.find((file) => file.index === desiredIndex);
+        const nextMediaFile = mediaFilesRef.current.find((file) => file.index === desiredIndex);
         if (!nextMediaFile) throw new Error("Requested media file is not available in the current torrent");
         await playMediaFile(nextMediaFile, request.autoplay);
       } else if (request.autoplay && currentMediaFile && videoRef.current?.paused) {
         await playMediaFile(currentMediaFile, true);
       }
-      if (request.broadcast && peerRole === "master") scheduleBroadcast();
+      if (request.broadcast && peerRoleRef2.current === "master") scheduleBroadcast();
       tryApplyPendingRemoteSync();
       return;
     }
@@ -319,6 +338,7 @@ function App() {
     setMediaFile(null);
     setMediaAudioTracks([]);
     setSelectedAudioTrackSelection(request.selectedAudioTrackIndex);
+    setSelectedSubtitleSelection(request.selectedSubtitleIndex);
 
     const torrent =
       request.source.kind === "magnet"
@@ -342,10 +362,9 @@ function App() {
     await playMediaFile(preferredMediaFile, request.autoplay);
     setTorrentSource(request.source);
 
-    if (request.broadcast && peerRole === "master") scheduleBroadcast();
+    if (request.broadcast && peerRoleRef2.current === "master") scheduleBroadcast();
     tryApplyPendingRemoteSync();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTorrentSource, selectedMediaIndex, selectedAudioTrackIndex, selectedSubtitleIndex, selectedMediaFile, mediaFiles, peerRole, getTorrentService, playMediaFile, scheduleBroadcast, tryApplyPendingRemoteSync, setSelectedAudioTrackSelection, setSelectedSubtitleSelection, setMediaIndex, setMediaFile, setTorrentSource]);
+  }, [getTorrentService, playMediaFile, scheduleBroadcast, tryApplyPendingRemoteSync, setSelectedAudioTrackSelection, setSelectedSubtitleSelection, setMediaIndex, setMediaFile, setTorrentSource, setMediaAudioTracks, setMediaKind, setMediaLabel]);
 
   const processTorrentLoadQueueRef = useRef<() => Promise<void>>(async () => {});
 
@@ -354,6 +373,14 @@ function App() {
     const nextRequest = pendingTorrentLoadRef.current;
     if (!nextRequest) return;
     if (!isPlayerReadyRef.current || !videoRef.current) return;
+    if (peerRole === "master") {
+      const now = Date.now();
+      if (now - lastTorrentLoadTimeRef.current < TORRENT_LOAD_COOLDOWN_MS) {
+        pendingTorrentLoadRef.current = nextRequest;
+        return;
+      }
+      lastTorrentLoadTimeRef.current = now;
+    }
 
     pendingTorrentLoadRef.current = null;
     isProcessingTorrentLoadRef.current = true;
@@ -395,14 +422,18 @@ function App() {
       } else {
         setTorrentError(peerRole === "slave" ? `${message}. Try requesting the host to resend.` : message);
         uiLogger.error("Torrent load failed:", error);
+        if (peerRole === "slave" && p2pServiceRef.current?.isConnected()) {
+          p2pLogger.info("Auto-requesting torrent resend from host");
+          p2pServiceRef.current.sendChat("/resend");
+        }
       }
     } finally {
       isLoadingTorrentRef.current = false;
-      isProcessingTorrentLoadRef.current = false;
       torrentLoadAbortRef.current = null;
       setIsLoadingTorrent(false);
       if (pendingTorrentLoadRef.current && !abortController.signal.aborted && torrentLoadVersionRef.current === loadVersion) {
         const pending = pendingTorrentLoadRef.current;
+        isProcessingTorrentLoadRef.current = false;
         void new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
           if (pendingTorrentLoadRef.current === pending && !torrentLoadAbortRef.current?.signal.aborted) {
             void processTorrentLoadQueueRef.current();
@@ -410,6 +441,8 @@ function App() {
         }).catch((err) => {
           uiLogger.error("Torrent load queue processing failed:", err);
         });
+      } else {
+        isProcessingTorrentLoadRef.current = false;
       }
     }
   }, [loadTorrentRequest, peerRole]);
@@ -479,6 +512,12 @@ function App() {
 
     p2pService.on("torrent_source", (message) => {
       if (ctxPeerRole !== "slave") return;
+      const now = Date.now();
+      if (now - lastGuestTorrentSourceTimeRef.current < GUEST_TORRENT_SOURCE_COOLDOWN_MS) {
+        p2pLogger.warn("Guest torrent source rate limited, dropping message");
+        return;
+      }
+      lastGuestTorrentSourceTimeRef.current = now;
       if (
         pendingRemoteSync &&
         (!pendingRemoteSync.sourceKey || pendingRemoteSync.sourceKey !== message.source.sourceKey)
@@ -525,6 +564,11 @@ function App() {
 
     p2pService.on("chat_received", (senderId, content) => {
       if (typeof content !== "string" || typeof senderId !== "string") return;
+      const isKnownPeer = peers.some((peer) => peer.id === senderId) || senderId === p2pService.getPeerId();
+      if (!isKnownPeer) {
+        p2pLogger.warn(`Chat message from unknown peer ${senderId}, dropping`);
+        return;
+      }
       const trimmed = content.trim();
       if (trimmed.length === 0 || trimmed.length > 500) return;
       const sanitizedContent = trimmed

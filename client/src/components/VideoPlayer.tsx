@@ -337,7 +337,6 @@ function VideoPlayer({
         className="video-element"
         preload="auto"
         playsInline
-        crossOrigin="anonymous"
         onClick={() => { if (canControlPlayback) void togglePlay(); }}
         onTimeUpdate={(e) => { setCurrentTime(e.currentTarget.currentTime); onTimeUpdate?.(e.currentTarget.currentTime, e.currentTarget.duration); }}
         onLoadedMetadata={(e) => { hasMediaMetadataRef.current = true; setDuration(e.currentTarget.duration); syncAudioTracks(); }}

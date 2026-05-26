@@ -9,6 +9,16 @@ const BLOCKED_TRACKER_HOSTS = new Set([
   "[::1]", "0:0:0:0:0:0:0:1",
 ]);
 
+const BLOCKED_MAGNET_PARAM_SCHEMES = new Set(["javascript:", "data:", "vbscript:", "file:"]);
+
+function hasBlockedParamScheme(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  for (const scheme of BLOCKED_MAGNET_PARAM_SCHEMES) {
+    if (lower.startsWith(scheme)) return true;
+  }
+  return false;
+}
+
 function isBlockedTrackerUrl(trackerUrl: string): boolean {
   try {
     const parsed = new URL(trackerUrl);
@@ -44,6 +54,8 @@ export function isValidMagnetLink(magnetLink: string): boolean {
       paramCount++;
       if (paramCount > MAX_MAGNET_PARAM_COUNT) return false;
       if (value.length > MAX_MAGNET_PARAM_VALUE_LENGTH) return false;
+      if (hasBlockedParamScheme(value)) return false;
+      if (key === "dn" && value.length > 512) return false;
       if (key === "tr" || key.startsWith("tr.")) {
         if (value.length > MAX_TRACKER_URL_LENGTH) return false;
         try {

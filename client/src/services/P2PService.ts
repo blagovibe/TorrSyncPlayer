@@ -1005,33 +1005,35 @@ export class P2PService {
   }
 
   /** Disconnect from all peers and clean up resources. Idempotent. */
-  public disconnect(): void {
+  public async disconnect(): Promise<void> {
     this.isDisconnecting = true;
     this.isReconnecting = false;
     if (this.reconnectTimeoutId !== null) {
       clearTimeout(this.reconnectTimeoutId);
       this.reconnectTimeoutId = null;
     }
-    this.cleanup.abort();
-    this.setState("disconnecting");
-      this.stopPingInterval();
-      for (const cleanups of this.connectionCleanups.values()) {
-        for (const cleanup of cleanups) cleanup();
-      }
-      this.connectionCleanups.clear();
-      this.connections.forEach((conn) => conn.close());
-      this.connections.clear();
-      this.syncMessageTimestamps.clear();
-      this.chatMessageTimestamps.clear();
-      this.rateLimitCleanupTimer = null;
-      if (this.peer && !this.peer.destroyed) {
-        this.peer.disconnect();
-      }
-      this.peer = null;
-      this.remotePeerId = null;
-      this.setState("disconnected");
-      this.emit("disconnected");
+    this.stopPingInterval();
+    for (const cleanups of this.connectionCleanups.values()) {
+      for (const cleanup of cleanups) cleanup();
     }
+    this.connectionCleanups.clear();
+    this.connections.forEach((conn) => conn.close());
+    this.connections.clear();
+    this.syncMessageTimestamps.clear();
+    this.chatMessageTimestamps.clear();
+    this.rateLimitCleanupTimer = null;
+    if (this.peer && !this.peer.destroyed) {
+      this.peer.disconnect();
+      if (typeof this.peer.destroy === "function") {
+        this.peer.destroy();
+      }
+    }
+    this.peer = null;
+    this.remotePeerId = null;
+    this.cleanup.abort();
+    this.setState("disconnected");
+    this.emit("disconnected");
+  }
  }
  
 export default P2PService;

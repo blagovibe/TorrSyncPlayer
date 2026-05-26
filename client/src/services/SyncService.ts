@@ -264,7 +264,8 @@ export class SyncService {
   private lastHeartbeatSent = 0;
 
   private startHeartbeat(): void {
-    this.cleanup.setInterval(() => {
+    let nextFireTime = 0;
+    const tick = (): void => {
       if (this.role !== "master") return;
 
       const now = Date.now();
@@ -273,25 +274,43 @@ export class SyncService {
 
       if (this.suppressNextEventSync.state) {
         this.suppressNextEventSync.state = false;
+        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
+        this.cleanup.setTimeout(tick, nextFireTime - now);
         return;
       }
 
       const timeSinceExplicitSync = now - this.lastExplicitSyncTs;
-      if (timeSinceExplicitSync < SYNC_CONFIG.heartbeatIntervalMs) return;
+      if (timeSinceExplicitSync < SYNC_CONFIG.heartbeatIntervalMs) {
+        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
+        this.cleanup.setTimeout(tick, nextFireTime - now);
+        return;
+      }
 
       const posChanged = Math.abs(position - this.lastHeartbeatPosition) > 0.5;
       const stateChanged = isPlaying !== this.lastHeartbeatPlaying;
       const timeSinceLastSend = now - this.lastHeartbeatSent;
       const minSyncInterval = SYNC_CONFIG.heartbeatIntervalMs;
 
-      if (timeSinceLastSend < minSyncInterval) return;
-      if (!posChanged && !stateChanged && timeSinceLastSend < minSyncInterval * 2) return;
+      if (timeSinceLastSend < minSyncInterval) {
+        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
+        this.cleanup.setTimeout(tick, nextFireTime - now);
+        return;
+      }
+      if (!posChanged && !stateChanged && timeSinceLastSend < minSyncInterval * 2) {
+        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
+        this.cleanup.setTimeout(tick, nextFireTime - now);
+        return;
+      }
 
       this.lastHeartbeatPosition = position;
       this.lastHeartbeatPlaying = isPlaying;
       this.lastHeartbeatSent = now;
       this.sendMasterSync("state", position, isPlaying);
-    }, SYNC_CONFIG.heartbeatIntervalMs);
+      nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
+      this.cleanup.setTimeout(tick, nextFireTime - now);
+    };
+    nextFireTime = Date.now() + SYNC_CONFIG.heartbeatIntervalMs;
+    this.cleanup.setTimeout(tick, SYNC_CONFIG.heartbeatIntervalMs);
   }
 
   private sendMasterSync(
