@@ -66,31 +66,13 @@ function HomePage({
     try {
       await navigator.clipboard.writeText(peerId);
       setCopied(true);
-      if (copiedTimerRef.current !== null) {
-        clearTimeout(copiedTimerRef.current);
-      }
+      if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      const textArea = document.createElement("textarea");
-      textArea.value = peerId;
-      textArea.style.position = "fixed";
-      textArea.style.left = "-9999px";
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand("copy");
-        setCopied(true);
-        if (copiedTimerRef.current !== null) {
-          clearTimeout(copiedTimerRef.current);
-        }
-        copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-      } catch {
-          setCopyFailed(true);
-          setCopied(false);
-          uiLogger.error("Failed to copy peer ID — please copy manually");
-          window.setTimeout(() => setCopyFailed(false), 4000);
-        }
-      document.body.removeChild(textArea);
+      setCopyFailed(true);
+      setCopied(false);
+      uiLogger.error("Failed to copy peer ID — please copy manually");
+      window.setTimeout(() => setCopyFailed(false), 4000);
     }
   };
 

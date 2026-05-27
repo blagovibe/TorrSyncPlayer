@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import TorrentService, { type TorrentMediaFile } from "../services/TorrentService";
+export type { TorrentService };
 import { type SharedTorrentSource } from "../services/types";
 import { createTorrentFileSource } from "../utils/torrent";
 import { uiLogger } from "../utils/logger";

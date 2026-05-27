@@ -20,19 +20,20 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
     "test:electron": "vitest run --project=electron --no-file-parallelism --passWithNoTests",
-
     "preview": "vite preview"
   },
   "dependencies": {
     "peerjs": "1.5.5",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "safe-ip": "file:local-packages/safe-ip",
     "webtorrent": "3.0.0"
   },
   "overrides": {
-    "ip": "2.0.1",
+    "ip": "file:local-packages/safe-ip",
     "tmp": "^0.2.6",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "bittorrent-protocol": "5.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

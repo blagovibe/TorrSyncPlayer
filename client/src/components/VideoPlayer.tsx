@@ -3,18 +3,10 @@ import "./VideoPlayer.css";
 import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
 import { UI_CONFIG } from "../config";
 import { uiLogger } from "../utils/logger";
+import { PlayerSettingsMenu } from "./PlayerSettingsMenu";
 
 const HIDE_DELAY_MS = UI_CONFIG.hideControlsDelayMs;
 const VIDEO_SCALE_STORAGE_KEY = "torrsyncplayer.videoScale";
-
-const VIDEO_SCALE_OPTIONS = [
-  { value: "fit", label: "Fit", description: "Show the whole frame without cropping." },
-  { value: "fill", label: "Fill", description: "Fill the player and crop edges if needed." },
-  { value: "stretch", label: "Stretch", description: "Stretch video to the player bounds." },
-  { value: "original", label: "Original", description: "Keep source pixels centered in the player." },
-] as const;
-
-type VideoScaleMode = (typeof VIDEO_SCALE_OPTIONS)[number]["value"];
 
 function formatTime(timeInSeconds: number): string {
   const safe = Number.isFinite(timeInSeconds) ? Math.max(0, timeInSeconds) : 0;
@@ -32,37 +24,13 @@ function isInteractiveTarget(element: EventTarget | null): boolean {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) || element.isContentEditable;
 }
 
-function readInitialVideoScale(): VideoScaleMode {
+function readInitialVideoScale(): string {
   if (typeof window === "undefined") return "fit";
   try {
     const stored = window.localStorage.getItem(VIDEO_SCALE_STORAGE_KEY);
-    return VIDEO_SCALE_OPTIONS.some((o) => o.value === stored) ? (stored as VideoScaleMode) : "fit";
-  } catch { return "fit"; }
-}
-
-interface VideoPlayerProps {
-  videoRef?: RefObject<HTMLVideoElement | null>;
-  mediaLabel?: string | null;
-  mediaKind?: "video" | "audio" | null;
-  statusMessage?: string | null;
-  canControlPlayback?: boolean;
-  canControlSeek?: boolean;
-  canControlAudioTracks?: boolean;
-  canControlSubtitleTracks?: boolean;
-  fallbackAudioTracks?: AudioTrackInfo[];
-  selectedAudioTrackIndex?: number | null;
-  fallbackSubtitles?: SubtitleTrackInfo[];
-  selectedSubtitleIndex?: number | null;
-  onPlaybackStart?: () => void;
-  onAudioTrackChange?: (trackIndex: number | null) => void;
-  onSubtitleTrackChange?: (trackIndex: number | null) => void;
-  onPlayerReady?: (ready: boolean) => void;
-  onBufferingChange?: (isBuffering: boolean) => void;
-  onTimeUpdate?: (currentTime: number, duration: number) => void;
-  bufferWindowMB?: number;
-  maxBufferMB?: number;
-  onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
-  onSeek?: (timestamp: number) => void;
+    if (["fit", "fill", "stretch", "original"].includes(stored ?? "")) return stored!;
+  } catch { /* ok */ }
+  return "fit";
 }
 
 interface AudioTrackSnapshot {
@@ -86,6 +54,31 @@ type VideoWithAudioTracks = HTMLVideoElement & { audioTracks?: AudioTrackListLik
 function detectAudioTracksSupport(): boolean {
   if (typeof document === "undefined") return false;
   return "audioTracks" in document.createElement("video");
+}
+
+interface VideoPlayerProps {
+  videoRef?: RefObject<HTMLVideoElement | null>;
+  mediaLabel?: string | null;
+  mediaKind?: "video" | "audio" | null;
+  statusMessage?: string | null;
+  canControlPlayback?: boolean;
+  canControlSeek?: boolean;
+  canControlAudioTracks?: boolean;
+  canControlSubtitleTracks?: boolean;
+  fallbackAudioTracks?: AudioTrackInfo[];
+  selectedAudioTrackIndex?: number | null;
+  fallbackSubtitles?: SubtitleTrackInfo[];
+  selectedSubtitleIndex?: number | null;
+  onPlaybackStart?: () => void;
+  onAudioTrackChange?: (trackIndex: number | null) => void;
+  onSubtitleTrackChange?: (trackIndex: number | null) => void;
+  onPlayerReady?: (ready: boolean) => void;
+  onBufferingChange?: (isBuffering: boolean) => void;
+  onTimeUpdate?: (currentTime: number, duration: number | undefined) => void;
+  bufferWindowMB?: number;
+  maxBufferMB?: number;
+  onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
+  onSeek?: (timestamp: number) => void;
 }
 
 function VideoPlayer({
@@ -132,7 +125,7 @@ function VideoPlayer({
   const [volume, setVolume] = useState(1);
   const [showControls, setShowControls] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [videoScale, setVideoScale] = useState<VideoScaleMode>(() => readInitialVideoScale());
+  const [videoScale, setVideoScale] = useState<string>(() => readInitialVideoScale());
   const [audioTracksSupported, setAudioTracksSupported] = useState(() => detectAudioTracksSupport());
   const [audioTracks, setAudioTracks] = useState<AudioTrackSnapshot[]>([]);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -161,12 +154,11 @@ function VideoPlayer({
   );
 
   useEffect(() => { onSubtitleTrackChangeRef.current = onSubtitleTrackChange; }, [onSubtitleTrackChange]);
-
   useEffect(() => { setEditBufferWindowMB(bufferWindowMB); }, [bufferWindowMB]);
   useEffect(() => { setEditMaxBufferMB(maxBufferMB); }, [maxBufferMB]);
 
   const progress = useMemo(() => duration ? (currentTime / duration) * 100 : 0, [currentTime, duration]);
-  const activeVideoScaleLabel = VIDEO_SCALE_OPTIONS.find((o) => o.value === videoScale)?.label ?? VIDEO_SCALE_OPTIONS[0].label;
+  const activeVideoScaleLabel = ["fit", "fill", "stretch", "original"].includes(videoScale) ? videoScale : "fit";
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
@@ -179,7 +171,6 @@ function VideoPlayer({
   useEffect(() => { onAudioTrackChangeRef.current = onAudioTrackChange; }, [onAudioTrackChange]);
   useEffect(() => { onBufferingChangeRef.current = onBufferingChange; }, [onBufferingChange]);
   useEffect(() => { onSeekRef.current = onSeek; }, [onSeek]);
-
   useEffect(() => { canControlPlaybackRef.current = canControlPlayback; }, [canControlPlayback]);
   useEffect(() => { canControlSeekRef.current = canControlSeek; }, [canControlSeek]);
 
@@ -189,24 +180,29 @@ function VideoPlayer({
       return;
     }
     const track = fallbackSubtitles.find((t) => t.index === selectedSubtitleIndex);
-    if (track?.streamUrl) {
-      setSubtitleUrl(track.streamUrl);
-    }
+    if (track?.streamUrl) setSubtitleUrl(track.streamUrl);
   }, [selectedSubtitleIndex, fallbackSubtitles]);
+
   useEffect(() => { try { window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale); } catch { /* ok */ } }, [videoScale]);
   useEffect(() => { onPlayerReadyRef.current?.(true); return () => onPlayerReadyRef.current?.(false); }, []);
 
-  const visibleAudioTracks = useMemo(
-    () => (audioTracksSupported ? audioTracks : fallbackAudioTrackSnapshots),
-    [audioTracks, audioTracksSupported, fallbackAudioTrackSnapshots],
-  );
+  const syncAudioTracks = useCallback(() => {
+    const v = videoRef.current;
+    const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
+    if (!mediaLabel) { setAudioTracks([]); return; }
+    if (!hasMediaMetadataRef.current) { setAudioTracks([]); return; }
+    if (!tl) { setAudioTracksSupported(false); setAudioTracks([]); return; }
+    setAudioTracksSupported(true);
+    const snap = Array.from(tl).map((t, i) => ({ sourceIndex: i, label: t.label || `Audio ${i + 1}`, language: t.language || "", enabled: t.enabled }));
+    const req = selectedAudioTrackIndex !== null ? snap.find((t) => t.sourceIndex === selectedAudioTrackIndex) ?? null : null;
+    const en = snap.find((t) => t.enabled) ?? snap[0] ?? null;
+    const res = req ?? en;
+    if (res) { for (const [i, t] of Array.from(tl).entries()) { t.enabled = i === res.sourceIndex; } }
+    setAudioTracks(snap.map((t) => ({ ...t, enabled: res ? t.sourceIndex === res.sourceIndex : t.enabled })));
+  }, [mediaLabel, selectedAudioTrackIndex, videoRef]);
 
-  const activeAudioTrackIndex = useMemo(() => {
-    const sel = visibleAudioTracks.find((t) => t.sourceIndex === selectedAudioTrackIndex);
-    if (sel) return sel.sourceIndex;
-    const en = visibleAudioTracks.find((t) => t.enabled) ?? visibleAudioTracks[0] ?? null;
-    return en?.sourceIndex ?? null;
-  }, [selectedAudioTrackIndex, visibleAudioTracks]);
+  useEffect(() => { hasMediaMetadataRef.current = false; setAudioTracks([]); setAudioTracksSupported(detectAudioTracksSupport()); setSettingsOpen(false); setIsBuffering(false); setIsStalled(false); }, [mediaLabel]);
+  useEffect(() => { if (audioTracksSupported) syncAudioTracks(); }, [audioTracksSupported, syncAudioTracks]);
 
   const togglePlay = useCallback(async () => {
     if (!canControlPlayback) return;
@@ -228,21 +224,6 @@ function VideoPlayer({
     if (videoRef.current) videoRef.current.volume = n;
   }, [videoRef]);
 
-  const syncAudioTracks = useCallback(() => {
-    const v = videoRef.current;
-    const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
-    if (!mediaLabel) { setAudioTracks([]); return; }
-    if (!hasMediaMetadataRef.current) { setAudioTracks([]); return; }
-    if (!tl) { setAudioTracksSupported(false); setAudioTracks([]); return; }
-    setAudioTracksSupported(true);
-    const snap = Array.from(tl).map((t, i) => ({ sourceIndex: i, label: t.label || `Audio ${i + 1}`, language: t.language || "", enabled: t.enabled }));
-    const req = selectedAudioTrackIndex !== null ? snap.find((t) => t.sourceIndex === selectedAudioTrackIndex) ?? null : null;
-    const en = snap.find((t) => t.enabled) ?? snap[0] ?? null;
-    const res = req ?? en;
-    if (res) { for (const [i, t] of Array.from(tl).entries()) { t.enabled = i === res.sourceIndex; } }
-    setAudioTracks(snap.map((t) => ({ ...t, enabled: res ? t.sourceIndex === res.sourceIndex : t.enabled })));
-  }, [mediaLabel, selectedAudioTrackIndex, videoRef]);
-
   const activateAudioTrack = useCallback((idx: number) => {
     const v = videoRef.current;
     const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
@@ -262,7 +243,6 @@ function VideoPlayer({
     onSubtitleTrackChangeRef.current?.(idx);
   }, []);
 
-  // Buffering / stalled listeners
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -280,7 +260,6 @@ function VideoPlayer({
     return () => { v.removeEventListener("waiting", onWait); v.removeEventListener("canplay", onCan); v.removeEventListener("playing", onPlay); v.removeEventListener("stalled", onStall); v.removeEventListener("timeupdate", onTU); if (timer !== null) window.clearTimeout(timer); };
   }, [videoRef]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && settingsOpen) { setSettingsOpen(false); return; }
@@ -289,11 +268,7 @@ function VideoPlayer({
       if (isInteractiveTarget(e.target)) return;
       if (e.code === "Space") { e.preventDefault(); void togglePlayRef.current(); }
       if (e.key.toLowerCase() === "f") {
-        if (document.fullscreenElement) {
-          void document.exitFullscreen();
-        } else {
-          void v.requestFullscreen();
-        }
+        if (document.fullscreenElement) { void document.exitFullscreen(); } else { void v.requestFullscreen(); }
       }
       if (e.key === "ArrowRight" && canControlSeekRef.current) { if (Number.isFinite(v.duration)) v.currentTime = Math.min(v.duration, v.currentTime + 5); onSeekRef.current?.(v.currentTime); }
       if (e.key === "ArrowLeft" && canControlSeekRef.current) { v.currentTime = Math.max(0, v.currentTime - 5); onSeekRef.current?.(v.currentTime); }
@@ -302,7 +277,6 @@ function VideoPlayer({
     return () => window.removeEventListener("keydown", handler);
   }, [settingsOpen, videoRef, canControlSeek, canControlPlayback]);
 
-  // Settings menu close on outside click
   useEffect(() => {
     if (!settingsOpen) return;
     const handler = (e: PointerEvent) => {
@@ -314,17 +288,7 @@ function VideoPlayer({
     return () => document.removeEventListener("pointerdown", handler);
   }, [settingsOpen]);
 
-  useEffect(() => { hasMediaMetadataRef.current = false; setAudioTracks([]); setAudioTracksSupported(detectAudioTracksSupport()); setSettingsOpen(false); setIsBuffering(false); setIsStalled(false); }, [mediaLabel]);
-  useEffect(() => { if (audioTracksSupported) syncAudioTracks(); }, [audioTracksSupported, syncAudioTracks]);
-
-
-
   const hasSelectedMedia = Boolean(mediaLabel);
-  const audioTrackStatusText = audioTracksSupported
-    ? audioTracks.length > 0 ? `${audioTracks.length} available` : "Waiting for media metadata"
-    : fallbackAudioTrackSnapshots.length > 0 ? `${fallbackAudioTrackSnapshots.length} available via ffmpeg` : "Unavailable in this runtime";
-  const subtitleStatusText = fallbackSubtitleSnapshots.length > 0 ? `${fallbackSubtitleSnapshots.length} available` : "No subtitles";
-  const audioTracksUnavailableMessage = <>This runtime does not expose <code>audioTracks</code>, and no ffmpeg fallback track is available for this file.</>;
 
   return (
     <section className={`video-player ${mediaKind === "audio" ? "audio-mode" : "video-mode"} scale-${videoScale}`} onMouseMove={resetHideTimer}>
@@ -387,91 +351,31 @@ function VideoPlayer({
         </div>
         <div className="settings-menu-anchor">
           <button ref={settingsButtonRef} type="button" className={`settings-toggle ${settingsOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={settingsOpen} aria-label="Player settings" onClick={() => setSettingsOpen((o) => !o)}>Settings</button>
-          {settingsOpen && (
-            <div ref={settingsMenuRef} className="player-settings-menu" role="dialog" aria-label="Player settings">
-              <div className="settings-menu-header">
-                <div><span className="settings-kicker">Player settings</span><strong>{activeVideoScaleLabel} video scale</strong></div>
-                <button type="button" className="settings-close" onClick={() => setSettingsOpen(false)} aria-label="Close settings">Close</button>
-              </div>
-              <div className="settings-section">
-                <div className="settings-section-header"><span>Video scale</span><span>{activeVideoScaleLabel}</span></div>
-                <div className="scale-option-list" role="radiogroup" aria-label="Video scale">
-                  {VIDEO_SCALE_OPTIONS.map((opt) => (
-                    <button key={opt.value} type="button" className={`scale-option ${videoScale === opt.value ? "active" : ""}`} role="radio" aria-checked={videoScale === opt.value} onClick={() => setVideoScale(opt.value)}>
-                      <span className="scale-option-name">{opt.label}</span>
-                      <span className="scale-option-copy">{opt.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="settings-section">
-                <div className="settings-section-header"><span>Audio tracks</span><span>{audioTrackStatusText}</span></div>
-                {hasSelectedMedia && visibleAudioTracks.length > 0 ? (
-                  <div className="audio-track-list">
-                    {visibleAudioTracks.map((t) => (
-                      <button key={t.sourceIndex} type="button" className={`audio-track-button ${activeAudioTrackIndex === t.sourceIndex ? "active" : ""}`} onClick={() => activateAudioTrack(t.sourceIndex)} disabled={!canControlAudioTracks}>
-                        <span className="audio-track-name">{t.label}</span>
-                        <span className="audio-track-meta">{t.language ? t.language.toUpperCase() : "Unknown language"}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : hasSelectedMedia && audioTracksSupported ? (
-                  <p className="settings-empty">No internal audio tracks are visible yet. Load a muxed MKV/MP4 and wait for media metadata.</p>
-) : hasSelectedMedia && fallbackAudioTrackSnapshots.length > 0 ? (
-                   <p className="settings-empty">FFmpeg could not expose audio tracks for this file yet. Try another source or wait for the probe to finish.</p>
-                 ) : hasSelectedMedia ? (
-                   <p className="settings-empty">{audioTracksUnavailableMessage}</p>
-                 ) : (
-                   <p className="settings-empty">Load media to inspect audio tracks.</p>
-                 )}
-               </div>
-               <div className="settings-section">
-                 <div className="settings-section-header"><span>Subtitles</span><span>{subtitleStatusText}</span></div>
-                 {hasSelectedMedia && fallbackSubtitleSnapshots.length > 0 ? (
-                   <div className="audio-track-list">
-                     {fallbackSubtitleSnapshots.map((t) => (
-                       <button key={t.sourceIndex} type="button" className={`audio-track-button ${selectedSubtitleIndex === t.sourceIndex ? "active" : ""}`} onClick={() => activateSubtitleTrack(t.sourceIndex)} disabled={!canControlSubtitleTracks}>
-                         <span className="audio-track-name">{t.label}</span>
-                         <span className="audio-track-meta">{t.language ? t.language.toUpperCase() : "Unknown language"}</span>
-                       </button>
-                     ))}
-                      <button type="button" className={`audio-track-button ${selectedSubtitleIndex === null ? "active" : ""}`} onClick={() => activateSubtitleTrack(null)} disabled={!canControlSubtitleTracks}>
-                        <span className="audio-track-name">None</span>
-                        <span className="audio-track-meta">Disable subtitles</span>
-                      </button>
-                    </div>
-                  ) : hasSelectedMedia ? (
-                    <p className="settings-empty">No subtitle tracks available for this file.</p>
-                  ) : (
-                    <p className="settings-empty">Load media to inspect subtitle tracks.</p>
-                  )}
-                </div>
-                <div className="settings-section">
-                  <div className="settings-section-header"><span>Buffer</span><span>{editBufferWindowMB} MB window</span></div>
-                  <div className="buffer-settings-row">
-                    <label htmlFor="buffer-window-mb">Window (MB)</label>
-                    <input id="buffer-window-mb" type="number" min={1} max={1000} step={10} value={editBufferWindowMB} onChange={(e) => { const v = Number(e.target.value); setEditBufferWindowMB(Number.isFinite(v) ? Math.max(1, Math.min(1000, v)) : 50); }} />
-                  </div>
-                  <div className="buffer-settings-row">
-                    <label htmlFor="max-buffer-mb">Max buffer (MB)</label>
-                    <input id="max-buffer-mb" type="number" min={10} max={2000} step={10} value={editMaxBufferMB} onChange={(e) => { const v = Number(e.target.value); setEditMaxBufferMB(Number.isFinite(v) ? Math.max(10, Math.min(2000, v)) : 500); }} />
-                  </div>
-                  <button type="button" className="secondary-btn" onClick={() => { const win = Number.isFinite(editBufferWindowMB) ? Math.max(1, Math.min(1000, editBufferWindowMB)) : 50; const max = Number.isFinite(editMaxBufferMB) ? Math.max(10, Math.min(2000, editMaxBufferMB)) : 500; onBufferSettingsChange?.(win, max); }}>Apply buffer settings</button>
-                  <p className="settings-hint">Larger window = smoother seeking, more bandwidth. Smaller window = less wasted data.</p>
-                </div>
-                <div className="settings-section">
-                  <div className="settings-section-header"><span>Keyboard shortcuts</span></div>
-                  <div className="shortcuts-list">
-                    <div className="shortcut-row"><kbd>Space</kbd><span>Play / Pause</span></div>
-                    <div className="shortcut-row"><kbd>F</kbd><span>Toggle fullscreen</span></div>
-                    <div className="shortcut-row"><kbd>←</kbd><span>Seek back 5s</span></div>
-                    <div className="shortcut-row"><kbd>→</kbd><span>Seek forward 5s</span></div>
-                    <div className="shortcut-row"><kbd>Esc</kbd><span>Close settings</span></div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <PlayerSettingsMenu
+            isOpen={settingsOpen}
+            hasSelectedMedia={hasSelectedMedia}
+            videoScale={videoScale}
+            activeVideoScaleLabel={activeVideoScaleLabel}
+            audioTracks={audioTracks}
+            audioTracksSupported={audioTracksSupported}
+            fallbackAudioTrackSnapshots={fallbackAudioTrackSnapshots}
+            selectedAudioTrackIndex={selectedAudioTrackIndex ?? null}
+            selectedSubtitleIndex={selectedSubtitleIndex ?? null}
+            fallbackSubtitleSnapshots={fallbackSubtitleSnapshots}
+            canControlAudioTracks={canControlAudioTracks}
+            canControlSubtitleTracks={canControlSubtitleTracks}
+            editBufferWindowMB={editBufferWindowMB}
+            editMaxBufferMB={editMaxBufferMB}
+            onVideoScaleChange={setVideoScale}
+            onAudioTrackActivate={activateAudioTrack}
+            onSubtitleTrackActivate={activateSubtitleTrack}
+            onBufferWindowChange={setEditBufferWindowMB}
+            onBufferMaxChange={setEditMaxBufferMB}
+            onBufferApply={(win: number, max: number) => { const w = Math.max(1, Math.min(1000, win)); const m = Math.max(10, Math.min(2000, max)); onBufferSettingsChange?.(w, m); }}
+            onClose={() => setSettingsOpen(false)}
+            menuRef={settingsMenuRef}
+          />
+        </div>
         <button type="button" disabled={!canControlPlayback} onClick={() => { if (!canControlPlayback) return; const v = videoRef.current; if (!v) return; if (document.fullscreenElement) { void document.exitFullscreen(); } else { void v.requestFullscreen(); } }} aria-label={document.fullscreenElement ? "Exit fullscreen" : "Enter fullscreen"} aria-pressed={!!document.fullscreenElement}>Fullscreen</button>
       </div>
       <div className="video-progress" style={{ width: `${progress}%` }} />

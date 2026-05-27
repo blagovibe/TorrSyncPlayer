@@ -42,8 +42,6 @@ export class SyncService {
     seeked: false,
     state: false,
   };
-  private seekSequence = 0;
-  private lastHandledSeekSeq: Record<number, number> = {};
   private lastExplicitSyncTs = 0;
   private syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds;
   private disposed = false;
@@ -80,7 +78,7 @@ export class SyncService {
     this.disposed = true;
     this.stopHeartbeat();
     this.cleanup.abort();
-    this.lastHandledSeekSeq = {};
+    this.lastExplicitSyncTs = 0;
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
     }
@@ -144,15 +142,11 @@ export class SyncService {
   seek(timestamp: number): void {
     const wasPlaying = !this.video.paused;
     if (this.role === "master") {
-      this.seekSequence++;
-      const seq = this.seekSequence;
       this.suppressNextEventSync.seeked = true;
       this.suppressNextEventSync.state = true;
       this.lastExplicitSyncTs = Date.now();
-      this.lastHandledSeekSeq[seq] = 0;
       this.video.currentTime = timestamp;
       this.sendMasterSync("seek", timestamp, wasPlaying);
-      setTimeout(() => { delete this.lastHandledSeekSeq[seq]; }, 1000);
     } else {
       this.video.currentTime = timestamp;
     }
@@ -261,13 +255,8 @@ export class SyncService {
       this.sendMasterSync("pause", this.video.currentTime, false);
     };
     const onSeeked = () => {
-      const currentSeq = this.seekSequence;
-      if (this.lastHandledSeekSeq[currentSeq]) {
-        return;
-      }
       if (this.suppressNextEventSync.seeked) {
         this.suppressNextEventSync.seeked = false;
-        this.lastHandledSeekSeq[currentSeq] = Date.now();
         return;
       }
       this.sendMasterSync("seek", this.video.currentTime, !this.video.paused);

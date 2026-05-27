@@ -598,13 +598,22 @@ class TorrentBridge {
     }
 
     if (!this.clientPromise) {
-    this.clientPromise = import("webtorrent").then(({ default: WebTorrent }) => {
-      this.client = new WebTorrent({
-        maxConns: MAX_TORRENT_CONNECTIONS,
-        sequential: true,
-      });
-      return this.client;
-    });
+    this.clientPromise = Promise.race([
+      import("webtorrent").then(({ default: WebTorrent }) => {
+        this.client = new WebTorrent({
+          maxConns: MAX_TORRENT_CONNECTIONS,
+          sequential: true,
+        });
+        return this.client;
+      }),
+      new Promise((_, reject) => {
+        const id = setTimeout(() => {
+          this.clientPromise = null;
+          reject(new Error("WebTorrent client import timed out after 10 seconds"));
+        }, 10_000);
+        id.unref?.();
+      }),
+    ]);
     }
 
     return this.clientPromise;

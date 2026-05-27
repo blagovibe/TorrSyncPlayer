@@ -54,7 +54,21 @@ function createWindow(loadUrl) {
     try {
       const parsed = new URL(url);
       if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-        void shell.openExternal(url);
+        const allowedHosts = new Set([
+          "peerjs.com",
+          "www.peerjs.com",
+          "tracker.btorrent.xyz",
+          "tracker.openwebtorrent.com",
+          "tracker.webtorrent.dev",
+          "github.com",
+          "www.github.com",
+          "kilo.ai",
+        ]);
+        if (allowedHosts.has(parsed.hostname.toLowerCase())) {
+          void shell.openExternal(url);
+        } else {
+          electronLogger.warn(`Blocked shell.openExternal with untrusted host: ${parsed.hostname}`);
+        }
       } else {
         electronLogger.warn(`Blocked shell.openExternal with unsafe protocol: ${parsed.protocol}`);
       }
