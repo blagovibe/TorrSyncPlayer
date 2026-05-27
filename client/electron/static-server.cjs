@@ -1,6 +1,7 @@
 const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { electronLogger } = require("./electron-logger.cjs");
 
 const MIME_TYPES = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -23,7 +24,10 @@ function getContentType(filePath) {
 }
 
 function isPathInsideDirectory(targetPath, directoryPath) {
-  const relativePath = path.relative(directoryPath, targetPath);
+  if (targetPath.includes("\0")) return false;
+  const resolved = path.resolve(targetPath);
+  const resolvedDir = path.resolve(directoryPath);
+  const relativePath = path.relative(resolvedDir, resolved);
   return relativePath !== "" && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
 }
 
@@ -74,9 +78,17 @@ function setResponseSecurityHeaders(response, cspHeaderValue) {
   response.setHeader("Referrer-Policy", "no-referrer");
 }
 
-function buildCspHeader(streamBaseUrl) {
+function getDefaultPeerConnectSources() {
+  return ['wss://0.peerjs.com', 'wss://*.openwebtorrent.com', 'wss://*.webtorrent.dev', 'wss://*.btorrent.xyz'];
+}
+
+function buildCspHeader(streamBaseUrl, extraPeerSources) {
   const mediaSource = streamBaseUrl || "'self'";
-  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${mediaSource}; connect-src 'self' wss://0.peerjs.com wss://*.openwebtorrent.com wss://*.webtorrent.dev wss://*.btorrent.xyz ${mediaSource}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`;
+  const peerSources = (extraPeerSources && extraPeerSources.length > 0)
+    ? extraPeerSources
+    : getDefaultPeerConnectSources();
+  const connectSources = ["'self'", ...peerSources, mediaSource].join(' ');
+  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${mediaSource}; connect-src ${connectSources}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'`;
 }
 
 class StaticServer {
@@ -150,7 +162,7 @@ class StaticServer {
 
           if (pathname.startsWith("/mux/") || pathname.startsWith("/audio/") || pathname.startsWith("/subtitle/")) {
             this.torrentBridge.handleAudioRequest(request, response).catch((error) => {
-              console.error("[TorrSyncPlayer] Audio/mux request failed:", error);
+              electronLogger.error("Audio/mux request failed:", error);
               if (!response.headersSent) {
                 response.statusCode = 500;
                 setResponseSecurityHeaders(response, buildCspHeader(streamBaseUrl));
@@ -213,6 +225,9 @@ class StaticServer {
     }).then((result) => {
       this.instance = result;
       this.serverPromise = null;
+      result.server.on("error", (err) => {
+        electronLogger.error("Static server error:", err);
+      });
       return result;
     }).catch((error) => {
       this.serverPromise = null;

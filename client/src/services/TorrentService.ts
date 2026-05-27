@@ -11,6 +11,7 @@ import {
   isVideoExtension,
   isAudioExtension,
   getVideoPreference,
+  needsVideoConversion,
 } from "../config";
 
 type MediaKind = "video" | "audio";
@@ -93,14 +94,12 @@ export class TorrentService {
   private activeTorrent: TorrentInstance | null = null;
   private activeObjectUrl: string | null = null;
   private activeBlobUrls = new Set<string>();
-  private registeredServiceWorker: ServiceWorkerRegistration | null = null;
   private activeMediaFile: TorrentMediaFile | null = null;
-  private streamServerReady = false;
-  private streamServerPromise: Promise<void> | null = null;
   private readonly cleanup: CleanupHandle = createCleanup();
   private backendStatsInFlight = false;
   private discoveredPeerIds = new Set<string>();
   private streamAbortController: AbortController | null = null;
+  private torrentCleanup: CleanupHandle = createCleanup();
   private bufferWindowBytes: number;
   private maxBufferBytes: number;
   private currentPlaybackBytes = 0;
@@ -111,9 +110,18 @@ export class TorrentService {
   private lastPeerCount = -1;
   private statsIntervalId: ReturnType<typeof setInterval> | null = null;
   private addQueue: Promise<void> = Promise.resolve();
-  private isDestroyed = false;
+  private _isDestroyed = false;
+  private _isDestroying = false;
   private addAbortController: AbortController | null = null;
   private loadGeneration = 0;
+
+  isDestroyed(): boolean {
+    return this._isDestroyed;
+  }
+
+  isDestroying(): boolean {
+    return this._isDestroying;
+  }
 
   /** Check if a file format is natively supported by browsers for <video>/<audio> */
   private isBrowserSupportedFormat(fileName: string): boolean {
@@ -207,6 +215,7 @@ export class TorrentService {
         const extension = getFileExtension(file.name);
         const kind = this.getMediaKind(extension);
         if (!kind) return null;
+        if (kind === "video" && needsVideoConversion(extension) && !this.isElectronBackendEnabled()) return null;
         return { index, name: file.name, length: file.length ?? 0, kind, extension, file };
       })
       .filter((file): file is TorrentMediaFile => file !== null)
@@ -316,11 +325,17 @@ export class TorrentService {
 
   private async addTorrentSource(torrentSource: TorrentSource): Promise<TorrentInstance> {
     const prevQueue = this.addQueue;
-    let releaseQueue: () => void;
+    let releaseQueue = () => {};
     this.addQueue = new Promise<void>((resolve) => { releaseQueue = resolve; });
-    await prevQueue.catch(() => {});
+    const queueTimeout = new Promise<void>((_, reject) => {
+      const id = setTimeout(() => {
+        reject(new Error(`Torrent load queue timed out after waiting ${STREAM_CONFIG.torrentQueueTimeoutMs / 1000}s for previous load to complete`));
+      }, STREAM_CONFIG.torrentQueueTimeoutMs);
+      id.unref?.();
+    });
+    await Promise.race([prevQueue.catch(() => {}), queueTimeout]);
 
-    if (this.isDestroyed) {
+    if (this._isDestroyed || this._isDestroying) {
       releaseQueue!();
       throw new Error("TorrentService has been destroyed");
     }
@@ -334,7 +349,7 @@ export class TorrentService {
 
     try {
       await this.clearActiveTorrentForAdd();
-      if (this.isDestroyed || abortController.signal.aborted) throw new Error("TorrentService has been destroyed");
+      if (this._isDestroyed || this._isDestroying || abortController.signal.aborted) throw new Error("TorrentService has been destroyed");
 
       if (this.getElectronBackend()) {
         if (this.backendType === "browser") {
@@ -421,7 +436,7 @@ export class TorrentService {
           emitDiscoveredPeerCount();
         }
       };
-      this.cleanup.on(torrent as unknown as TorrentEmitter, "peer", onPeer as (...args: unknown[]) => void);
+      this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "peer", onPeer as (...args: unknown[]) => void);
 
       // Track wire connections separately — wire count is informational
       const onWire = (wire: { on?: (event: string, handler: () => void) => void; off?: (event: string, handler: () => void) => void }) => {
@@ -431,11 +446,11 @@ export class TorrentService {
           this.cleanup.add(() => wire.off!("close", closeHandler));
         }
       };
-      this.cleanup.on(torrent as unknown as TorrentEmitter, "wire", onWire as (...args: unknown[]) => void);
+      this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "wire", onWire as (...args: unknown[]) => void);
 
-      this.cleanup.on(torrent as unknown as TorrentEmitter, "noPeers", emitDiscoveredPeerCount);
+      this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "noPeers", emitDiscoveredPeerCount);
 
-      this.cleanup.on(torrent as unknown as TorrentEmitter, "download", () => {
+      this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "download", () => {
         const prog = Math.round(torrent.progress * 100);
         const spd = Math.round(torrent.downloadSpeed);
         if (prog !== this.lastProgress) {
@@ -464,10 +479,10 @@ export class TorrentService {
         }
       };
 
-      this.cleanup.on(torrent as unknown as TorrentEmitter, "metadata", onMetadataOrReady("metadata") as (...args: unknown[]) => void);
-      this.cleanup.on(torrent as unknown as TorrentEmitter, "ready", onMetadataOrReady("ready") as (...args: unknown[]) => void);
+      this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "metadata", onMetadataOrReady("metadata") as (...args: unknown[]) => void);
+      this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "ready", onMetadataOrReady("ready") as (...args: unknown[]) => void);
 
-this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) => {
+this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) => {
           const normalized = this.normalizeError(error);
           this.emit("error", normalized);
           settleReject(normalized);
@@ -488,6 +503,7 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
           ? await adapter.addMagnet(torrentSource)
           : await adapter.addTorrentFile(torrentSource);
 
+      if (this._isDestroyed || this._isDestroying) throw new Error("Torrent service was destroyed");
       if (abortSignal?.aborted) throw new Error("Torrent load was cancelled");
       if (expectedGeneration !== undefined && this.loadGeneration !== expectedGeneration) {
         throw new Error("Torrent load superseded by a newer request");
@@ -579,7 +595,7 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
     // Fallback: download as blob and create object URL
     try {
       const blob = await file.blob();
-      this.revokeActiveObjectUrl();
+      this.revokeAllBlobUrls();
       const objectUrl = URL.createObjectURL(blob);
       this.activeObjectUrl = objectUrl;
       this.activeBlobUrls.add(objectUrl);
@@ -695,7 +711,21 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
     return this.clearActiveTorrentForAdd();
   }
 
+  private _clearActiveTorrentForAddPromise: Promise<void> | null = null;
+
   async clearActiveTorrentForAdd(): Promise<void> {
+    if (this._clearActiveTorrentForAddPromise) {
+      return this._clearActiveTorrentForAddPromise;
+    }
+    this._clearActiveTorrentForAddPromise = this._clearActiveTorrentForAddImpl();
+    try {
+      return await this._clearActiveTorrentForAddPromise;
+    } finally {
+      this._clearActiveTorrentForAddPromise = null;
+    }
+  }
+
+  private async _clearActiveTorrentForAddImpl(): Promise<void> {
     const torrent = this.activeTorrent;
     this.activeTorrent = null;
     this.activeMediaFile = null;
@@ -708,6 +738,8 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
     this.revokeActiveObjectUrl();
     this.revokeAllBlobUrls();
     this.discoveredPeerIds.clear();
+    this.torrentCleanup.abort();
+    this.torrentCleanup = createCleanup();
 
     const adapter = this.getElectronBackend();
     if (adapter) {
@@ -751,8 +783,19 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
    * Full destruction of the service. After calling this, the service cannot be reused.
    * Clears all torrents, blob URLs, service workers, and listeners.
    */
+  private _destroyPromise: Promise<void> | null = null;
+
   async destroy(): Promise<void> {
-    this.isDestroyed = true;
+    if (this._isDestroyed || this._isDestroying) {
+      return this._destroyPromise ?? Promise.resolve();
+    }
+    this._isDestroying = true;
+    this._isDestroyed = true;
+    this._destroyPromise = this._performDestroy();
+    return this._destroyPromise;
+  }
+
+  private async _performDestroy(): Promise<void> {
     this.cleanup.abort();
     await this.clearActiveTorrentForAdd();
 
@@ -766,21 +809,14 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
       });
     }
     this.client = null;
-    this.streamServerReady = false;
-    this.streamServerPromise = null;
     this.revokeAllBlobUrls();
     this.revokeActiveObjectUrl();
 
-    if (this.registeredServiceWorker) {
-      void this.registeredServiceWorker.unregister().catch(() => undefined);
-      this.registeredServiceWorker = null;
-    }
-
-    // Clear all listeners to prevent stale callbacks
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
     }
     this.backendType = null;
+    this.addQueue = Promise.resolve();
   }
 
   /**
@@ -893,12 +929,11 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
       paused?: boolean;
       pause?: () => void;
       resume?: () => void;
-      downloaded?: number;
     } | null;
 
     if (!torrent?.pause || !torrent?.resume) return;
 
-    const downloaded = torrent.downloaded ?? 0;
+    const downloaded = this.estimateDownloadedBytes();
 
     if (downloaded > this.maxBufferBytes && !torrent.paused) {
       torrent.pause();
@@ -907,9 +942,31 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
     }
   }
 
+  private estimateDownloadedBytes(): number {
+    const torrent = this.activeTorrent as unknown as {
+      downloaded?: number;
+    } | null;
+    if (!torrent) return 0;
+    if (typeof torrent.downloaded === "number" && torrent.downloaded > 0) {
+      return torrent.downloaded;
+    }
+    const baseTorrent = this.activeTorrent;
+    if (typeof baseTorrent?.progress === "number" && baseTorrent.progress > 0) {
+      const mediaFile = this.activeMediaFile;
+      if (mediaFile?.length) {
+        return Math.floor(mediaFile.length * baseTorrent.progress);
+      }
+      const largestFile = baseTorrent.files.reduce((max, f) => ((f.length ?? 0) > (max.length ?? 0) ? f : max), baseTorrent.files[0]);
+      if (largestFile?.length) {
+        return Math.floor(largestFile.length * baseTorrent.progress);
+      }
+    }
+    return 0;
+  }
+
   private async getClient(): Promise<TorrentClient> {
     if (!this.client) {
-      if (this.isDestroyed) {
+      if (this._isDestroyed || this._isDestroying) {
         throw new Error("TorrentService has been destroyed");
       }
       const { default: WebTorrent } = await import("webtorrent");
@@ -919,7 +976,7 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
         sequential: true,
       }) as TorrentClient;
     }
-    if (this.isDestroyed) {
+    if (this._isDestroyed || this._isDestroying) {
       throw new Error("TorrentService has been destroyed");
     }
     return this.client;
@@ -937,7 +994,7 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
   private startBackendStatsPolling(): void {
     this.stopBackendStatsPolling();
     this.statsIntervalId = this.cleanup.setInterval(() => {
-      if (this.isDestroyed) {
+      if (this._isDestroyed) {
         this.stopBackendStatsPolling();
         return;
       }
@@ -956,11 +1013,11 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
 
   private async refreshBackendStats(): Promise<void> {
     const adapter = this.getElectronBackend();
-    if (this.backendStatsInFlight || !adapter || !this.activeTorrent || this.isDestroyed) return;
+    if (this.backendStatsInFlight || !adapter || !this.activeTorrent || this._isDestroyed) return;
     this.backendStatsInFlight = true;
     try {
       const snapshot = await adapter.getStats();
-      if (!snapshot || !this.activeTorrent || this.isDestroyed) return;
+      if (!snapshot || !this.activeTorrent || this._isDestroyed) return;
       this.mergeTorrentSnapshot(this.activeTorrent, snapshot as unknown as TorrentInstance);
       this.emitTorrentStats(this.activeTorrent);
     } catch (error) {
@@ -1013,42 +1070,8 @@ this.cleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: Error) 
     }
   }
 
-  private streamServerRetryCount = 0;
-  private readonly maxStreamServerRetries = 3;
-
   private async ensureStreamServer(): Promise<void> {
-    if (this.streamServerReady) return;
-    if (this.getElectronBackend()) return;
-    if (this.streamServerPromise) return this.streamServerPromise;
-    if (typeof navigator === "undefined" || !navigator?.serviceWorker?.register) return;
-    if (this.streamServerRetryCount >= this.maxStreamServerRetries) return;
-
-    this.streamServerRetryCount++;
-    this.streamServerPromise = (async () => {
-      try {
-        await navigator.serviceWorker.register("webtorrent-sw.js");
-        this.registeredServiceWorker = await navigator.serviceWorker.ready;
-        const client = this.client;
-        if (!client || this.streamServerReady) return;
-
-        const serverCreator = (client as TorrentClient & {
-          createServer?: (options: { controller: ServiceWorkerRegistration }) => unknown;
-        }).createServer;
-
-        if (typeof serverCreator !== "function") return;
-        if (!this.registeredServiceWorker?.active || this.registeredServiceWorker.active.state !== "activated") return;
-
-        serverCreator.call(client, { controller: this.registeredServiceWorker });
-        this.streamServerReady = true;
-        this.streamServerRetryCount = 0;
-      } catch (error) {
-        const normalizedError = error instanceof Error ? error : new Error(String(error));
-        torrentLogger.warn("Stream server setup failed", normalizedError.message);
-        this.streamServerPromise = null;
-      }
-    })();
-
-    return this.streamServerPromise;
+    torrentLogger.debug("ensureStreamServer: running in Electron; skipping service worker");
   }
 
   private revokeActiveObjectUrl(): void {

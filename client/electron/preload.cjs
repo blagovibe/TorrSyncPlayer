@@ -1,11 +1,13 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const shared = require("../torrent-shared.json");
 
-const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_TORRENT_FILE_BYTES = shared.maxTorrentFileBytes;
 const MAX_TORRENT_FILE_BYTES_MB = MAX_TORRENT_FILE_BYTES / 1024 / 1024;
+const MAX_MAGNET_LINK_LENGTH = shared.maxMagnetLinkLength;
 
 contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
   addMagnet: (magnetLink) => {
-    if (typeof magnetLink !== "string" || magnetLink.length > 7000) {
+    if (typeof magnetLink !== "string" || magnetLink.length > MAX_MAGNET_LINK_LENGTH) {
       return Promise.reject(new Error("Invalid magnet link"));
     }
     return ipcRenderer.invoke("torrent:addMagnet", magnetLink);
@@ -23,7 +25,7 @@ contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
   getStats: () => ipcRenderer.invoke("torrent:getStats"),
   clear: () => ipcRenderer.invoke("torrent:clear"),
   setMaxBufferMB: (mb) => {
-    if (typeof mb !== "number" || mb <= 0) {
+    if (typeof mb !== "number" || !Number.isFinite(mb) || mb <= 0) {
       return Promise.reject(new Error("Invalid buffer size"));
     }
     return ipcRenderer.invoke("torrent:setMaxBufferMB", mb);
@@ -63,7 +65,7 @@ contextBridge.exposeInMainWorld("torrsyncElectronWindow", {
       ipcRenderer.removeListener("window-close-request", closeRequestHandler);
     }
     closeRequestHandler = callback;
-    ipcRenderer.on("window-close-request", closeRequestHandler);
+    ipcRenderer.once("window-close-request", closeRequestHandler);
   },
   closeConfirmed: () => {
     ipcRenderer.send("window-close-confirmed");

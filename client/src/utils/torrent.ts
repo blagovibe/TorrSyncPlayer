@@ -1,13 +1,12 @@
 import type { SharedTorrentSource } from "../services/types";
-import { MAGNET_LINK_PATTERN, MAX_MAGNET_LINK_LENGTH } from "./torrentConstants";
-const MAX_TRACKER_URL_LENGTH = 2000;
-const MAX_MAGNET_PARAM_COUNT = 20;
-const MAX_MAGNET_PARAM_VALUE_LENGTH = 2000;
+import { isValidMagnetLink as isValidMagnetLinkFromConstants, MAX_MAGNET_LINK_LENGTH } from "./torrentConstants";
+import { SHARED_TORRENT_LIMITS } from "../config-shared";
 
-const BLOCKED_TRACKER_HOSTS = new Set([
-  "localhost", "127.0.0.1", "0.0.0.0", "::1", "0000:0000:0000:0000:0000:0000:0000:0001",
-  "[::1]", "0:0:0:0:0:0:0:1",
-]);
+const MAX_TRACKER_URL_LENGTH = SHARED_TORRENT_LIMITS.maxTrackerUrlLength;
+const MAX_MAGNET_PARAM_COUNT = SHARED_TORRENT_LIMITS.maxMagnetParamCount;
+const MAX_MAGNET_PARAM_VALUE_LENGTH = SHARED_TORRENT_LIMITS.maxMagnetParamValueLength;
+
+const BLOCKED_TRACKER_HOSTS: Set<string> = new Set(SHARED_TORRENT_LIMITS.blockedTrackerHosts);
 
 const BLOCKED_MAGNET_PARAM_SCHEMES = new Set(["javascript:", "data:", "vbscript:", "file:"]);
 
@@ -39,12 +38,12 @@ function isBlockedTrackerUrl(trackerUrl: string): boolean {
   }
 }
 
-const ALLOWED_TRACKER_PROTOCOLS = new Set(["wss:", "https:"]);
+const ALLOWED_TRACKER_PROTOCOLS: Set<string> = new Set(SHARED_TORRENT_LIMITS.allowedTrackerProtocols);
 
 export function isValidMagnetLink(magnetLink: string): boolean {
   const trimmed = magnetLink.trim();
   if (trimmed.length > MAX_MAGNET_LINK_LENGTH) return false;
-  if (!MAGNET_LINK_PATTERN.test(trimmed)) return false;
+  if (!isValidMagnetLinkFromConstants(trimmed)) return false;
   try {
     const queryStart = trimmed.indexOf("?");
     if (queryStart === -1) return true;
@@ -103,7 +102,7 @@ export function createTorrentFileSource(fileName: string, bytes: Uint8Array): Sh
   return {
     kind: "file",
     fileName: normalizedFileName,
-    bytes: Array.from(serialized),
+    bytes: serialized,
     sourceKey: `file:${normalizedFileName}:${bytes.length}:${hashBytes(bytes)}`,
   };
 }

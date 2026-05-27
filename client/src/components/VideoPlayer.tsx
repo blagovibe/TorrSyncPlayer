@@ -2,6 +2,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import "./VideoPlayer.css";
 import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
 import { UI_CONFIG } from "../config";
+import { uiLogger } from "../utils/logger";
 
 const HIDE_DELAY_MS = UI_CONFIG.hideControlsDelayMs;
 const VIDEO_SCALE_STORAGE_KEY = "torrsyncplayer.videoScale";
@@ -62,7 +63,6 @@ interface VideoPlayerProps {
   maxBufferMB?: number;
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
   onSeek?: (timestamp: number) => void;
-  onMuxStreamRequest?: (startSeconds: number) => Promise<string | null>;
 }
 
 interface AudioTrackSnapshot {
@@ -111,7 +111,6 @@ function VideoPlayer({
   maxBufferMB = 500,
   onBufferSettingsChange,
   onSeek,
-  onMuxStreamRequest,
 }: VideoPlayerProps) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
@@ -121,7 +120,6 @@ function VideoPlayer({
   const onSubtitleTrackChangeRef = useRef(onSubtitleTrackChange);
   const onBufferingChangeRef = useRef(onBufferingChange);
   const onSeekRef = useRef(onSeek);
-  const onMuxStreamRequestRef = useRef(onMuxStreamRequest);
   const canControlPlaybackRef = useRef(canControlPlayback);
   const canControlSeekRef = useRef(canControlSeek);
   const togglePlayRef = useRef<() => Promise<void>>(null!);
@@ -181,7 +179,7 @@ function VideoPlayer({
   useEffect(() => { onAudioTrackChangeRef.current = onAudioTrackChange; }, [onAudioTrackChange]);
   useEffect(() => { onBufferingChangeRef.current = onBufferingChange; }, [onBufferingChange]);
   useEffect(() => { onSeekRef.current = onSeek; }, [onSeek]);
-  useEffect(() => { onMuxStreamRequestRef.current = onMuxStreamRequest; }, [onMuxStreamRequest]);
+
   useEffect(() => { canControlPlaybackRef.current = canControlPlayback; }, [canControlPlayback]);
   useEffect(() => { canControlSeekRef.current = canControlSeek; }, [canControlSeek]);
 
@@ -214,8 +212,13 @@ function VideoPlayer({
     if (!canControlPlayback) return;
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { await v.play(); setIsPlaying(true); }
-    else { v.pause(); setIsPlaying(false); }
+    if (v.paused) {
+      try { await v.play(); setIsPlaying(true); }
+      catch (err) { uiLogger.warn("Play failed:", err); }
+    } else {
+      try { v.pause(); setIsPlaying(false); }
+      catch (err) { uiLogger.warn("Pause failed:", err); }
+    }
   }, [canControlPlayback, videoRef]);
   togglePlayRef.current = togglePlay;
 
@@ -297,7 +300,7 @@ function VideoPlayer({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [settingsOpen, videoRef, canControlSeek]);
+  }, [settingsOpen, videoRef, canControlSeek, canControlPlayback]);
 
   // Settings menu close on outside click
   useEffect(() => {

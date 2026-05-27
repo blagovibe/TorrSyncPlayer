@@ -1,4 +1,5 @@
 import { Buffer } from "buffer";
+import { randomFillSync } from "./randomfill";
 
 type CryptoHash = "sha1" | "sha256" | "sha384" | "sha512" | "md5";
 
@@ -51,7 +52,7 @@ function createHashAsync(hashName: CryptoHash) {
       }
 
       if (hashName === "md5") {
-        throw new Error("MD5 is not supported by Web Crypto API");
+        throw new Error("MD5 is not supported by Web Crypto API (browser mode). Use the Electron build for full crypto support.");
       }
 
       return digestSHA(algorithm!, data);
@@ -110,17 +111,9 @@ async function createHmacAsync(algorithm: CryptoHash, key: string | Buffer | Uin
 }
 
 function randomBytes(size: number): Buffer {
-  const bytes = new Uint8Array(size);
-  getWebCrypto().getRandomValues(bytes);
-  return Buffer.from(bytes);
-}
-
-function randomFillSync(buffer: Uint8Array | Buffer, offset?: number, size?: number): Uint8Array | Buffer {
-  const start = offset ?? 0;
-  const length = size ?? buffer.length - start;
-  const view = new Uint8Array(buffer.buffer, buffer.byteOffset + start, length);
-  getWebCrypto().getRandomValues(view);
-  return buffer;
+  const buf = Buffer.alloc(size);
+  randomFillSync(buf);
+  return buf;
 }
 
 function pbkdf2Sync(): Buffer {
@@ -222,71 +215,7 @@ const crypto = {
   getHashes,
   getCiphers,
   timingSafeEqual,
-  constants: {
-    OPENSSL_VERSION_NUMBER: 0,
-    SSL_OP_ALL: 0,
-    SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION: 0,
-    SSL_OP_CIPHER_SERVER_PREFERENCE: 0,
-    SSL_OP_CISCO_ANYCONNECT: 0,
-    SSL_OP_COOKIE_EXCHANGE: 0,
-    SSL_OP_CRYPTOPRO_TLSEXT_BUG: 0,
-    SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS: 0,
-    SSL_OP_EPHEMERAL_RSA: 0,
-    SSL_OP_LEGACY_SERVER_CONNECT: 0,
-    SSL_OP_MICROSOFT_BIG_SSLV3_BUFFER: 0,
-    SSL_OP_MICROSOFT_SESS_ID_BUG: 0,
-    SSL_OP_MSIE_SSLV2_RSA_PADDING: 0,
-    SSL_OP_NETSCAPE_CA_DN_BUG: 0,
-    SSL_OP_NETSCAPE_CHALLENGE_BUG: 0,
-    SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG: 0,
-    SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG: 0,
-    SSL_OP_NO_COMPRESSION: 0,
-    SSL_OP_NO_QUERY_MTU: 0,
-    SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION: 0,
-    SSL_OP_NO_SSLv2: 0,
-    SSL_OP_NO_SSLv3: 0,
-    SSL_OP_NO_TICKET: 0,
-    SSL_OP_NO_TLSv1: 0,
-    SSL_OP_NO_TLSv1_1: 0,
-    SSL_OP_NO_TLSv1_2: 0,
-    SSL_OP_PKCS1_CHECK_1: 0,
-    SSL_OP_PKCS1_CHECK_2: 0,
-    SSL_OP_SINGLE_DH_USE: 0,
-    SSL_OP_SINGLE_ECDH_USE: 0,
-    SSL_OP_SSLEAY_080_CLIENT_DH_BUG: 0,
-    SSL_OP_SSLREF2_REUSE_CERT_TYPE_BUG: 0,
-    SSL_OP_TLSEXT_PADDING: 0,
-    SSL_OP_TLS_BLOCK_PADDING_BUG: 0,
-    SSL_OP_TLS_D5_BUG: 0,
-    SSL_OP_TLS_ROLLBACK_BUG: 0,
-    ENGINE_METHOD_ALL: 0,
-    ENGINE_METHOD_NONE: 0,
-    DH_CHECK_P_NOT_SAFE_PRIME: 0,
-    DH_CHECK_P_NOT_PRIME: 0,
-    DH_UNABLE_TO_CHECK_GENERATOR: 0,
-    DH_NOT_SUITABLE_GENERATOR: 0,
-    ALPN_ENABLED: 0,
-    RSA_PKCS1_PADDING: 1,
-    RSA_SSLV23_PADDING: 2,
-    RSA_NO_PADDING: 3,
-    RSA_PKCS1_OAEP_PADDING: 4,
-    RSA_X931_PADDING: 5,
-    RSA_PKCS1_PSS_PADDING: 6,
-    POINT_CONVERSION_COMPRESSED: 2,
-    POINT_CONVERSION_UNCOMPRESSED: 4,
-    POINT_CONVERSION_HYBRID: 6,
-  },
+  constants: {},
 };
 
 export default crypto;
-export {
-  createHashAsync as createHash,
-  createHmacAsync as createHmac,
-  randomBytes,
-  randomFillSync,
-  pbkdf2,
-  pbkdf2Sync,
-  timingSafeEqual,
-  getHashes,
-  getCiphers,
-};

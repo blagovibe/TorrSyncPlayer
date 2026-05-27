@@ -1,4 +1,4 @@
-import { type Peer, type PeerRole } from "../services/types";
+import { type ChatMessage, type Peer, type PeerRole } from "../services/types";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { UI_CONFIG } from "../config";
 import { ChatErrorBoundary } from "./ChatErrorBoundary";
@@ -12,7 +12,7 @@ interface RoomInfoProps {
   onRequestLeave?: () => void;
   onCopyPeerId: () => void;
   copied: boolean;
-  chatMessages?: { id?: string; sender: string; text: string; timestamp: number }[];
+  chatMessages?: ChatMessage[];
   onSendChat?: (text: string) => void;
 }
 
@@ -60,7 +60,7 @@ function RoomInfo({
 
       <h3>Chat</h3>
       <ChatErrorBoundary>
-        <div className="chat-live-region" aria-live="assertive" aria-atomic="true" aria-relevant="additions">
+        <div className="chat-live-region" aria-live="polite" aria-atomic="true" aria-relevant="additions">
           {displayMessages.length > 0 && displayMessages[displayMessages.length - 1].sender !== peerId && (
             <span className="sr-only">New message from {displayMessages[displayMessages.length - 1].sender}</span>
           )}
@@ -72,7 +72,7 @@ function RoomInfo({
               className={msg.sender === peerId ? "chat-message self" : "chat-message peer"}
             >
               <span className="msg-sender">
-                {msg.sender === peerId ? "You" : msg.sender}
+                {msg.sender === peerId ? "You" : msg.sender.length > 8 ? msg.sender.slice(0, 8) + "…" : msg.sender}
               </span>
               <p className="msg-text">
                 {msg.text}

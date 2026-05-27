@@ -19,10 +19,21 @@ for (const archive of archives) {
   fs.mkdirSync(destDir, { recursive: true });
   
   console.log(`Extracting ${archive}...`);
-  
+
   // Extract using 7za with -snld- (don't follow symlinks, skip them)
   // But we need the actual -snl flag behavior. Let's try with -- to override
-  const sevenZipPath = path.join(__dirname, "node_modules", "7zip-bin", "win", "x64", "7za.exe");
+  let sevenZipPath;
+  try {
+    const sevenZipPkg = require.resolve("7zip-bin");
+    const sevenZipDir = path.dirname(sevenZipPkg);
+    sevenZipPath = path.join(sevenZipDir, "..", "..", "win", "x64", "7za.exe");
+    if (!fs.existsSync(sevenZipPath)) {
+      sevenZipPath = require.resolve("7zip-bin/win/x64/7za.exe");
+    }
+  } catch {
+    const electronBuilderDir = path.join(__dirname, "..", "client", "node_modules", "electron-builder");
+    sevenZipPath = path.join(electronBuilderDir, "node_modules", "7zip-bin", "win", "x64", "7za.exe");
+  }
   
   try {
     // First attempt: extract with -snl- to skip symlink creation

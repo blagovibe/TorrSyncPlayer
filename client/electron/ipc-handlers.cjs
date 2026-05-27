@@ -1,5 +1,6 @@
 const { TorrentBridge } = require("./torrent-bridge.cjs");
-const { MAGNET_LINK_PATTERN, MAX_MAGNET_LINK_LENGTH, MAX_TORRENT_FILE_BYTES } = require("./torrent-constants.cjs");
+const { isValidMagnetLink, MAX_MAGNET_LINK_LENGTH, MAX_TORRENT_FILE_BYTES } = require("./torrent-constants.cjs");
+const { electronLogger } = require("./electron-logger.cjs");
 
 function getAllowedOrigins(staticServerInstance, devServerUrl) {
   const origins = [];
@@ -10,24 +11,33 @@ function getAllowedOrigins(staticServerInstance, devServerUrl) {
   return origins;
 }
 
-function validateIpcSender(event, staticServerInstance, devServerUrl) {
+function validateIpcSender(event, staticServerInstance, devServerUrl, getMainWindowWebContentsId) {
+  const mainWindowId = getMainWindowWebContentsId();
+  if (mainWindowId !== null && event.sender.id !== mainWindowId) {
+    electronLogger.warn(`IPC validation failed: sender webContents ID ${event.sender.id} does not match main window ID ${mainWindowId}`);
+    return false;
+  }
   const frameUrl = event.senderFrame?.url;
   if (!frameUrl) {
-    console.warn("[TorrSyncPlayer] IPC validation failed: no frame URL");
+    electronLogger.warn("IPC validation failed: no frame URL");
     return false;
   }
   if (frameUrl.startsWith("file:")) {
-    console.warn(`[TorrSyncPlayer] IPC validation failed: file:// protocol is not allowed`);
+    electronLogger.warn(`IPC validation failed: file:// protocol is not allowed`);
     return false;
   }
   try {
     const parsed = new URL(frameUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      console.warn(`[TorrSyncPlayer] IPC validation failed: invalid protocol '${parsed.protocol}' from ${frameUrl}`);
+      electronLogger.warn(`IPC validation failed: invalid protocol '${parsed.protocol}' from ${frameUrl}`);
       return false;
     }
     if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
-      console.warn(`[TorrSyncPlayer] IPC validation failed: invalid hostname '${parsed.hostname}' from ${frameUrl}`);
+      electronLogger.warn(`IPC validation failed: invalid hostname '${parsed.hostname}' from ${frameUrl}`);
+      return false;
+    }
+    if (parsed.username || parsed.password) {
+      electronLogger.warn(`IPC validation failed: credentials in URL from ${frameUrl}`);
       return false;
     }
     const allowedOrigins = getAllowedOrigins(staticServerInstance, devServerUrl);
@@ -36,12 +46,12 @@ function validateIpcSender(event, staticServerInstance, devServerUrl) {
       (origin) => origin.protocol === parsed.protocol && normalizeHost(origin.hostname) === normalizeHost(parsed.hostname) && origin.port === parsed.port
     );
     if (!matched) {
-      console.warn(`[TorrSyncPlayer] IPC validation failed: origin mismatch. Frame: ${frameUrl}, allowed: ${allowedOrigins.map(o => o.origin).join(", ")}`);
+      electronLogger.warn(`IPC validation failed: origin mismatch. Frame: ${frameUrl}, allowed: ${allowedOrigins.map(o => o.origin).join(", ")}`);
       return false;
     }
     return true;
   } catch {
-    console.warn(`[TorrSyncPlayer] IPC validation failed: URL parse error for '${frameUrl}'`);
+      electronLogger.warn(`IPC validation failed: URL parse error for '${frameUrl}'`);
     return false;
   }
 }
@@ -49,18 +59,20 @@ function validateIpcSender(event, staticServerInstance, devServerUrl) {
 function registerIpcHandlers(ipcMain, torrentBridge, deps) {
   const { getStaticServerInstance, getMainWindowWebContentsId, devServerUrl } = deps;
 
+  const validate = (event) => validateIpcSender(event, getStaticServerInstance(), devServerUrl, getMainWindowWebContentsId);
+
   ipcMain.handle("torrent:addMagnet", async (event, magnetLink) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
-    if (typeof magnetLink !== "string" || magnetLink.length > MAX_MAGNET_LINK_LENGTH || !MAGNET_LINK_PATTERN.test(magnetLink)) {
+    if (typeof magnetLink !== "string" || magnetLink.length > MAX_MAGNET_LINK_LENGTH || !isValidMagnetLink(magnetLink)) {
       throw new Error("Invalid magnet link");
     }
     return torrentBridge.addMagnet(magnetLink);
   });
 
   ipcMain.handle("torrent:addTorrentFile", async (event, torrentFile) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     if (!(torrentFile instanceof Uint8Array) && !Array.isArray(torrentFile)) {
@@ -75,36 +87,60 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
     if (byteLength < 10 || bytes[0] !== 0x64) {
       throw new Error("Invalid torrent file: not a valid bencoded torrent");
     }
-    const headerStr = new TextDecoder().decode(bytes.subarray(0, Math.min(32, byteLength)));
-    if (!headerStr.includes("announce") && !headerStr.includes("created by") && !headerStr.includes("info")) {
-      throw new Error("Invalid torrent file: missing required torrent fields");
+    const headerStr = new TextDecoder().decode(bytes.subarray(0, Math.min(256, byteLength)));
+    const headerLower = headerStr.toLowerCase();
+    if (!headerLower.includes("announce") && !headerLower.includes("info")) {
+      throw new Error("Invalid torrent file: missing required torrent fields (announce or info)");
+    }
+    if (!headerLower.includes("info")) {
+      throw new Error("Invalid torrent file: missing required 'info' dictionary");
     }
     // Decode bencoded announce-list to validate tracker URLs
     try {
       const blockedHosts = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
       const decoder = new TextDecoder();
       const fullStr = decoder.decode(bytes);
-      // Find all tracker URLs in the bencoded data by looking for announce keys
-      const announceRegex = /announce([\d-]+)?(http[^\x00-\x1f]+)/g;
-      let match;
-      while ((match = announceRegex.exec(fullStr)) !== null) {
-        const url = match[2];
-        try {
-          const parsed = new URL(url);
-          const hostname = parsed.hostname.toLowerCase();
-          if (blockedHosts.has(hostname) || hostname.startsWith("10.") || hostname.startsWith("192.168.")) {
-            throw new Error(`Invalid torrent file: tracker URL points to internal/private address: ${hostname}`);
+      // Find all tracker URLs safely by scanning for 'announce' followed by 'http'
+      const announceLen = 8; // "announce".length
+      let searchFrom = 0;
+      while (searchFrom < fullStr.length) {
+        const idx = fullStr.indexOf("announce", searchFrom);
+        if (idx === -1) break;
+        const afterKey = idx + announceLen;
+        let pos = afterKey;
+        // Skip optional bencode digits/hyphen for key variants like "announce-list"
+        while (pos < fullStr.length && (fullStr[pos] >= "0" && fullStr[pos] <= "9" || fullStr[pos] === "-")) {
+          pos++;
+        }
+        // Look for "http" at this position, bounded by bencode string length prefix
+        if (pos + 4 <= fullStr.length && fullStr.substring(pos, pos + 4) === "http") {
+          const urlHttpStart = pos;
+          // Extract URL up to 2048 chars or first control character
+          let urlEnd = urlHttpStart + 4;
+          const maxUrlLen = Math.min(fullStr.length, urlHttpStart + 2048);
+          while (urlEnd < maxUrlLen) {
+            const ch = fullStr.charCodeAt(urlEnd);
+            if (ch < 0x20 || ch === 0x7f) break;
+            urlEnd++;
           }
-          if (hostname.startsWith("172.")) {
-            const second = parseInt(hostname.split(".")[1], 10);
-            if (second >= 16 && second <= 31) {
+          const url = fullStr.substring(urlHttpStart, urlEnd);
+          try {
+            const parsed = new URL(url);
+            const hostname = parsed.hostname.toLowerCase();
+            if (blockedHosts.has(hostname) || hostname.startsWith("10.") || hostname.startsWith("192.168.")) {
               throw new Error(`Invalid torrent file: tracker URL points to internal/private address: ${hostname}`);
             }
+            if (hostname.startsWith("172.")) {
+              const second = parseInt(hostname.split(".")[1], 10);
+              if (second >= 16 && second <= 31) {
+                throw new Error(`Invalid torrent file: tracker URL points to internal/private address: ${hostname}`);
+              }
+            }
+          } catch (urlError) {
+            if (urlError.message.startsWith("Invalid torrent file:")) throw urlError;
           }
-        } catch (urlError) {
-          if (urlError.message.startsWith("Invalid torrent file:")) throw urlError;
-          // Invalid URL format — Skip this tracker entry
         }
+        searchFrom = afterKey;
       }
     } catch (decodeError) {
       if (decodeError.message.startsWith("Invalid torrent file:")) throw decodeError;
@@ -115,31 +151,31 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
   });
 
   ipcMain.handle("torrent:getStats", async (event) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     return torrentBridge.getStats();
   });
 
   ipcMain.handle("torrent:clear", async (event) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     return torrentBridge.clear();
   });
 
   ipcMain.handle("torrent:setMaxBufferMB", async (event, mb) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
-    if (typeof mb !== "number" || mb <= 0) {
+    if (typeof mb !== "number" || !Number.isFinite(mb) || mb <= 0) {
       throw new Error("Invalid buffer size");
     }
     torrentBridge.setMaxBufferMB(mb);
   });
 
   ipcMain.handle("torrent:probeAudioTracks", async (event, streamUrl) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     if (typeof streamUrl !== "string" || streamUrl.length > 5000) {
@@ -149,7 +185,7 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
   });
 
   ipcMain.handle("torrent:createAudioTrackStreamUrl", async (event, params) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     if (!params || typeof params !== "object") {
@@ -159,7 +195,7 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
   });
 
   ipcMain.handle("torrent:createMultiplexedStreamUrl", async (event, params) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     if (!params || typeof params !== "object") {
@@ -169,7 +205,7 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
   });
 
   ipcMain.handle("torrent:createSubtitleStreamUrl", async (event, params) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     if (!params || typeof params !== "object") {
@@ -179,33 +215,20 @@ function registerIpcHandlers(ipcMain, torrentBridge, deps) {
   });
 
   ipcMain.handle("ffmpeg:isAvailable", async (event) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) {
+    if (!validate(event)) {
       throw new Error("Unauthorized IPC caller");
     }
     return TorrentBridge.checkFfmpegAvailable();
   });
 
   ipcMain.on("window-close-confirmed", (event) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) return;
-    const mainWindowId = getMainWindowWebContentsId();
-    if (mainWindowId !== null && event.sender.id !== mainWindowId) {
-      console.warn("[TorrSyncPlayer] window-close-confirmed rejected: sender is not the main window");
-      return;
-    }
-    const { BrowserWindow, app } = require("electron");
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.destroy();
-    }
+    if (!validate(event)) return;
+    const { app } = require("electron");
     app.exit(0);
   });
 
   ipcMain.on("window-close-cancelled", (event) => {
-    if (!validateIpcSender(event, getStaticServerInstance(), devServerUrl)) return;
-    const mainWindowId = getMainWindowWebContentsId();
-    if (mainWindowId !== null && event.sender.id !== mainWindowId) {
-      console.warn("[TorrSyncPlayer] window-close-cancelled rejected: sender is not the main window");
-      return;
-    }
+    if (!validate(event)) return;
   });
 }
 

@@ -37,9 +37,9 @@ const stagedPackage = {
     icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.ico"),
     electronVersion,
     directories: {
-      output: path.join(projectDir, "release"),
+      output: "release",
     },
-    files: ["**/*"],
+    files: ["**/*", "!**/*.map", "!**/__tests__/**", "!**/test/**", "!**/tests/**", "!**/*.test.*", "!**/*.spec.*", "!**/docs/**", "!**/patches/**"],
     asar: true,
     npmRebuild: false,
     nodeGypRebuild: false,
@@ -76,6 +76,11 @@ const patchedPackageJson = JSON.parse(fs.readFileSync(path.join(patchedIpDir, "p
 patchedPackageJson.name = "ip";
 fs.writeFileSync(path.join(patchedIpDir, "package.json"), `${JSON.stringify(patchedPackageJson, null, 2)}\n`);
 
+// The npm `overrides` field in package.json handles top-level ip package resolution,
+// but nested node_modules (e.g., inside webtorrent or its deps) may still pull in the
+// original vulnerable `ip` package. This manual patching walk ensures ALL instances
+// of `ip` across every node_modules directory are replaced with our patched local copy.
+// This is defense-in-depth: overrides alone are insufficient for transitive nested deps.
 function ensureIpModule(nodeModulesDir) {
   const ipPath = path.join(nodeModulesDir, "ip");
   let needsFix = false;
@@ -99,7 +104,9 @@ function ensureIpModule(nodeModulesDir) {
       if ("ip" in deps || "ip" in overrides) {
         fs.cpSync(patchedIpDir, ipPath, { recursive: true });
       }
-    } catch {}
+    } catch (error) {
+      console.warn(`[prepare-electron-app] Warning: failed to patch ip module in ${nodeModulesDir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

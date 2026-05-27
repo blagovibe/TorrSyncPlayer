@@ -19,6 +19,7 @@ function HomePage({
   const [joinCode, setJoinCode] = useState("");
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const isValidJoinCode = (code: string): boolean => {
     return /^[A-Z0-9]{6}$/.test(code);
@@ -84,8 +85,11 @@ function HomePage({
         }
         copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
       } catch {
-        uiLogger.error("Failed to copy peer ID");
-      }
+          setCopyFailed(true);
+          setCopied(false);
+          uiLogger.error("Failed to copy peer ID — please copy manually");
+          window.setTimeout(() => setCopyFailed(false), 4000);
+        }
       document.body.removeChild(textArea);
     }
   };
@@ -117,6 +121,7 @@ function HomePage({
             </button>
           </div>
           <p className="hint">Share this ID with your friend to connect</p>
+          {copyFailed && <p className="error-text" role="alert">Failed to copy. Please select and copy the ID manually.</p>}
         </div>
       )}
 

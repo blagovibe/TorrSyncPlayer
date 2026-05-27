@@ -79,11 +79,11 @@ interface RoomPageProps {
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
   onSyncToleranceChange: (value: number) => void;
   onSeek?: (timestamp: number) => void;
-  onMuxStreamRequest?: (startSeconds: number) => Promise<string | null>;
   onShowLeaveConfirm?: () => void;
   onShowResetConfirm?: () => void;
   onReturnHome?: () => void;
   onRequestResend?: () => void;
+  reconnectFailed?: boolean;
 }
 
 function RoomPage({
@@ -109,11 +109,11 @@ function RoomPage({
   onBufferSettingsChange,
   onSyncToleranceChange,
   onSeek,
-  onMuxStreamRequest,
   onShowLeaveConfirm,
   onShowResetConfirm,
   onReturnHome,
   onRequestResend,
+  reconnectFailed,
 }: RoomPageProps) {
   const {
     peerId, peerRole, peers, isConnected, connectionQuality, rttMs,
@@ -132,6 +132,7 @@ function RoomPage({
   } = player;
   const { chatMessages, onSendChat } = chat;
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
   const dragCounterRef = useRef(0);
@@ -210,13 +211,17 @@ function RoomPage({
         copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
         document.body.removeChild(textArea);
       } catch {
+        setCopyFailed(true);
+        setCopied(false);
         uiLogger.error("Failed to copy peer ID — please copy manually");
+        window.setTimeout(() => setCopyFailed(false), 4000);
       }
     }
   };
 
   return (
     <RoomErrorBoundary onReturnHome={onReturnHome ?? (() => undefined)}>
+    {copyFailed && <div className="copy-failed-banner" role="alert">Failed to copy peer ID — please copy manually.</div>}
     <section
       className={`room-page ${isDragOver ? "drag-over" : ""}`}
       onDragEnter={handleDragEnter}
@@ -230,6 +235,17 @@ function RoomPage({
              <span className="drag-icon" aria-label="Drop torrent file">📥</span>
             <p>Drop .torrent file here</p>
           </div>
+        </div>
+      )}
+      {reconnectFailed && (
+        <div className="reconnect-failed-banner" role="alert">
+          <span className="reconnect-failed-icon" aria-hidden="true">⚠️</span>
+          <span>Connection to host lost. Unable to reconnect.</span>
+          {onReturnHome && (
+            <button type="button" className="reconnect-failed-home-btn" onClick={onReturnHome}>
+              Return to Home
+            </button>
+          )}
         </div>
       )}
       {ffmpegAvailable === false && (
@@ -269,7 +285,6 @@ function RoomPage({
             maxBufferMB={maxBufferMB}
             onBufferSettingsChange={onBufferSettingsChange}
             onSeek={onSeek}
-            onMuxStreamRequest={onMuxStreamRequest}
           />
           {canControlTorrent ? (
             <TorrentControlsPanel

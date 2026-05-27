@@ -42,8 +42,11 @@ export class SyncService {
     seeked: false,
     state: false,
   };
+  private seekSequence = 0;
+  private lastHandledSeekSeq: Record<number, number> = {};
   private lastExplicitSyncTs = 0;
   private syncToleranceSeconds = SYNC_CONFIG.defaultToleranceSeconds;
+  private disposed = false;
 
   constructor(
     signaling: SyncTransport,
@@ -74,7 +77,10 @@ export class SyncService {
 
   /** Dispose of the sync service and clean up all event listeners. */
   dispose(): void {
+    this.disposed = true;
+    this.stopHeartbeat();
     this.cleanup.abort();
+    this.lastHandledSeekSeq = {};
     for (const key of Object.keys(this.listeners) as EventKey[]) {
       this.listeners[key].clear();
     }
@@ -136,12 +142,19 @@ export class SyncService {
 
   /** Seek to a timestamp on the master and broadcast a sync message. */
   seek(timestamp: number): void {
-    this.video.currentTime = timestamp;
+    const wasPlaying = !this.video.paused;
     if (this.role === "master") {
+      this.seekSequence++;
+      const seq = this.seekSequence;
       this.suppressNextEventSync.seeked = true;
       this.suppressNextEventSync.state = true;
       this.lastExplicitSyncTs = Date.now();
-      this.sendMasterSync("seek", timestamp, !this.video.paused);
+      this.lastHandledSeekSeq[seq] = 0;
+      this.video.currentTime = timestamp;
+      this.sendMasterSync("seek", timestamp, wasPlaying);
+      setTimeout(() => { delete this.lastHandledSeekSeq[seq]; }, 1000);
+    } else {
+      this.video.currentTime = timestamp;
     }
   }
 
@@ -185,6 +198,7 @@ export class SyncService {
     if (!Number.isFinite(rawCompensatedPosition)) return;
     const maxDuration = Number.isFinite(snapshot.duration) && snapshot.duration > 0 ? snapshot.duration : Infinity;
     const compensatedPosition = Math.max(0, Math.min(rawCompensatedPosition, maxDuration));
+    if (!Number.isFinite(compensatedPosition)) return;
     const shouldAlign =
       Math.abs(snapshot.currentTime - compensatedPosition) > this.syncToleranceSeconds;
     const desiredPlayState =
@@ -247,8 +261,13 @@ export class SyncService {
       this.sendMasterSync("pause", this.video.currentTime, false);
     };
     const onSeeked = () => {
+      const currentSeq = this.seekSequence;
+      if (this.lastHandledSeekSeq[currentSeq]) {
+        return;
+      }
       if (this.suppressNextEventSync.seeked) {
         this.suppressNextEventSync.seeked = false;
+        this.lastHandledSeekSeq[currentSeq] = Date.now();
         return;
       }
       this.sendMasterSync("seek", this.video.currentTime, !this.video.paused);
@@ -263,10 +282,17 @@ export class SyncService {
   private lastHeartbeatPlaying = false;
   private lastHeartbeatSent = 0;
 
+  private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null;
+  private heartbeatIdleSince: number | null = null;
+
   private startHeartbeat(): void {
-    let nextFireTime = 0;
-    const tick = (): void => {
-      if (this.role !== "master") return;
+    this.stopHeartbeat();
+    this.heartbeatIdleSince = null;
+    this.heartbeatIntervalId = this.cleanup.setInterval(() => {
+      if (this.disposed || this.role !== "master" || this.cleanup.aborted) {
+        this.stopHeartbeat();
+        return;
+      }
 
       const now = Date.now();
       const position = this.video.currentTime;
@@ -274,15 +300,13 @@ export class SyncService {
 
       if (this.suppressNextEventSync.state) {
         this.suppressNextEventSync.state = false;
-        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
-        this.cleanup.setTimeout(tick, nextFireTime - now);
+        this.heartbeatIdleSince = null;
         return;
       }
 
       const timeSinceExplicitSync = now - this.lastExplicitSyncTs;
       if (timeSinceExplicitSync < SYNC_CONFIG.heartbeatIntervalMs) {
-        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
-        this.cleanup.setTimeout(tick, nextFireTime - now);
+        this.heartbeatIdleSince = null;
         return;
       }
 
@@ -291,26 +315,32 @@ export class SyncService {
       const timeSinceLastSend = now - this.lastHeartbeatSent;
       const minSyncInterval = SYNC_CONFIG.heartbeatIntervalMs;
 
-      if (timeSinceLastSend < minSyncInterval) {
-        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
-        this.cleanup.setTimeout(tick, nextFireTime - now);
-        return;
-      }
-      if (!posChanged && !stateChanged && timeSinceLastSend < minSyncInterval * 2) {
-        nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
-        this.cleanup.setTimeout(tick, nextFireTime - now);
+      if (timeSinceLastSend < minSyncInterval) return;
+
+      if (!posChanged && !stateChanged) {
+        if (this.heartbeatIdleSince === null) {
+          this.heartbeatIdleSince = now;
+        }
+        if (now - this.heartbeatIdleSince < 30_000) {
+          this.sendMasterSync("state", position, isPlaying);
+          this.lastHeartbeatSent = now;
+        }
         return;
       }
 
+      this.heartbeatIdleSince = null;
       this.lastHeartbeatPosition = position;
       this.lastHeartbeatPlaying = isPlaying;
       this.lastHeartbeatSent = now;
       this.sendMasterSync("state", position, isPlaying);
-      nextFireTime = now + SYNC_CONFIG.heartbeatIntervalMs;
-      this.cleanup.setTimeout(tick, nextFireTime - now);
-    };
-    nextFireTime = Date.now() + SYNC_CONFIG.heartbeatIntervalMs;
-    this.cleanup.setTimeout(tick, SYNC_CONFIG.heartbeatIntervalMs);
+    }, SYNC_CONFIG.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatIntervalId !== null) {
+      clearInterval(this.heartbeatIntervalId);
+      this.heartbeatIntervalId = null;
+    }
   }
 
   private sendMasterSync(

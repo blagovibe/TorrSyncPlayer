@@ -1,31 +1,11 @@
 import type { AudioTrackInfo, SubtitleTrackInfo } from "./types";
-import type { ElectronTorrentBackend, ElectronWindow } from "../types/electron-api";
+import type { ElectronTorrentBackend, ElectronTorrentFile, ElectronTorrentInstance, ElectronWindow } from "../types/electron-api";
 
-export interface TorrentFile {
-  name: string;
-  length?: number;
-  progress?: number;
-  streamUrl?: string;
-  streamTo?: (mediaElement: HTMLMediaElement) => Promise<void>;
-  blob?: () => Promise<Blob>;
-  index?: number;
-}
+export type TorrentFile = ElectronTorrentFile;
 
-export interface TorrentInstance {
+export interface TorrentInstance extends ElectronTorrentInstance {
   files: TorrentFile[];
-  progress: number;
-  downloadSpeed: number;
-  numPeers: number;
-  discoveredPeerCount?: number;
-  on?: (event: string, callback: (...args: unknown[]) => void) => void;
-  destroy?: (callback?: (error?: Error) => void) => void;
-  select?: (start: number, end: number, priority: number) => void;
-  deselect?: (start: number, end: number, priority: number) => void;
   streamUrl?: string;
-  paused?: boolean;
-  pause?: () => void;
-  resume?: () => void;
-  downloaded?: number;
 }
 
 export interface TorrentBackend {

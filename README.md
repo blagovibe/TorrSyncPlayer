@@ -195,11 +195,11 @@ npm run electron:build:win       # Windows EXE (portable)
 
 ### Release Process
 
-Releases are created as **drafts** on GitHub and must be manually published. To create a release, push a tag with the `v` prefix (e.g., `v0.1.14`). The CI pipeline will build for Linux and Windows automatically.
+Releases are created as **drafts** on GitHub and must be manually published. To create a release, push a tag with the `v` prefix (e.g., `v0.1.18`). The CI pipeline will build for Linux and Windows automatically.
 
 ### Dependencies
 
-- The `ip` package is overridden to `2.0.1` in `package.json` to address a known security vulnerability in earlier versions.
+- The `ip` package is overridden to `2.0.2` in `package.json` to address a known security vulnerability in earlier versions.
 
 ### Quality Checks
 

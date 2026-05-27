@@ -66,7 +66,7 @@ describe("MediaLibraryPanel", () => {
   it("shows file sizes using formatBytes", () => {
     const files = [createMockFile(0, "movie.mp4")];
     render(<MediaLibraryPanel {...defaultProps} mediaFiles={files} />);
-    expect(screen.getByText("100 MiB")).toBeTruthy();
+    expect(screen.getByText("100 MB")).toBeTruthy();
   });
 
   it("highlights selected media file", () => {

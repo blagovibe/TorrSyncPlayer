@@ -4,6 +4,9 @@
   "version": "0.1.18",
   "description": "Sync video playback via torrent-backed media sharing.",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -17,17 +20,17 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork --no-file-parallelism --passWithNoTests",
     "test:electron": "vitest run --project=electron --no-file-parallelism --passWithNoTests",
-    "postinstall": "patch-package",
+
     "preview": "vite preview"
   },
   "dependencies": {
-    "peerjs": "^1.5.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "webtorrent": "^3.0.0"
+    "peerjs": "1.5.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "webtorrent": "3.0.0"
   },
   "overrides": {
-    "ip": "file:./local-packages/ip-patched",
+    "ip": "2.0.2",
     "esbuild": "^0.25.0"
   },
   "devDependencies": {
@@ -40,15 +43,14 @@
     "@vitejs/plugin-react": "^4.3.1",
     "buffer": "^6.0.3",
     "concurrently": "^9.2.1",
-    "electron": "^42.0.1",
-    "electron-builder": "^26.8.1",
+    "electron": "42.0.1",
+    "electron-builder": "26.8.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.26",
     "events": "^3.3.0",
     "globals": "^15.15.0",
     "jsdom": "^29.1.1",
-    "patch-package": "^8.0.1",
     "path-browserify": "^1.0.1",
     "process": "^0.11.10",
     "stream-browserify": "^3.0.0",

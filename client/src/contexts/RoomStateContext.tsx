@@ -15,6 +15,7 @@ interface RoomState {
   pendingRemoteSync: SyncMessage | null;
   peerRole: "master" | "slave" | null;
   syncToleranceSeconds: number;
+  mediaFiles: TorrentMediaFile[];
 }
 
 type RoomAction =
@@ -30,6 +31,7 @@ type RoomAction =
   | { type: "SET_PENDING_SYNC"; sync: SyncMessage | null }
   | { type: "SET_PEER_ROLE"; role: "master" | "slave" | null }
   | { type: "SET_SYNC_TOLERANCE"; seconds: number }
+  | { type: "SET_MEDIA_FILES"; files: TorrentMediaFile[] }
   | { type: "RESET" };
 
 const initialState: RoomState = {
@@ -45,6 +47,7 @@ const initialState: RoomState = {
   pendingRemoteSync: null,
   peerRole: null,
   syncToleranceSeconds: 1.5,
+  mediaFiles: [],
 };
 
 function roomReducer(state: RoomState, action: RoomAction): RoomState {
@@ -73,8 +76,10 @@ function roomReducer(state: RoomState, action: RoomAction): RoomState {
       return { ...state, peerRole: action.role };
     case "SET_SYNC_TOLERANCE":
       return { ...state, syncToleranceSeconds: action.seconds };
+    case "SET_MEDIA_FILES":
+      return { ...state, mediaFiles: action.files };
     case "RESET":
-      return initialState;
+      return { ...initialState, selectedMediaAudioTracks: [], selectedSubtitles: [], syncToleranceSeconds: state.syncToleranceSeconds };
     default:
       return state;
   }
@@ -94,6 +99,7 @@ interface RoomStateContextValue {
   setPendingSync: (sync: SyncMessage | null) => void;
   setPeerRole: (role: "master" | "slave" | null) => void;
   setSyncToleranceSeconds: (seconds: number) => void;
+  setMediaFiles: (files: TorrentMediaFile[]) => void;
   reset: () => void;
   getCurrentSourceKey: () => string | null;
 }
@@ -151,6 +157,10 @@ export function RoomStateProvider({ children }: { children: ReactNode }) {
     (seconds: number) => dispatch({ type: "SET_SYNC_TOLERANCE", seconds }),
     [],
   );
+  const setMediaFiles = useCallback(
+    (files: TorrentMediaFile[]) => dispatch({ type: "SET_MEDIA_FILES", files }),
+    [],
+  );
   const reset = useCallback(() => dispatch({ type: "RESET" }), []);
   const getCurrentSourceKey = useCallback(
     () => state.currentTorrentSource?.sourceKey ?? null,
@@ -173,6 +183,7 @@ export function RoomStateProvider({ children }: { children: ReactNode }) {
         setPendingSync,
         setPeerRole,
         setSyncToleranceSeconds,
+        setMediaFiles,
         reset,
         getCurrentSourceKey,
       }}

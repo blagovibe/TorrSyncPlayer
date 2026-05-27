@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TorrentService } from "../TorrentService";
 import { setupElectronBackendCleanup, createTorrent } from "./test-utils";
-const { addMock, createServerMock, destroyMock, WT } = vi.hoisted(() => {
+const { addMock, destroyMock, WT } = vi.hoisted(() => {
   const add = vi.fn();
   const createServer = vi.fn();
   const destroy = vi.fn();
   const WT = vi.fn(() => ({ add, createServer, destroy }));
-  return { addMock: add, createServerMock: createServer, destroyMock: destroy, WT };
+  return { addMock: add, destroyMock: destroy, WT };
 });
 
 vi.mock("webtorrent", () => ({
@@ -325,55 +325,30 @@ describe("TorrentService", () => {
     expect(backend.clear).toHaveBeenCalled();
   });
 
-  it("waits for an activated service worker before creating the stream server", async () => {
-    let serverCreated = false;
-    const readyRegistration = {
-      active: { state: "activated" },
-    } as ServiceWorkerRegistration;
-    const pendingRegistration = {
-      active: { state: "installing" },
-    } as ServiceWorkerRegistration;
-    const serviceWorker = {
-      register: vi.fn().mockResolvedValue(pendingRegistration),
-      ready: Promise.resolve(readyRegistration),
-    };
-    vi.stubGlobal("navigator", { serviceWorker });
-
-    createServerMock.mockImplementation((options: { controller: ServiceWorkerRegistration }) => {
-      if (options.controller !== readyRegistration) {
-        throw new Error("Worker isn't activated");
-      }
-      serverCreated = true;
-      return {};
-    });
+  it("falls through to streamTo when no stream URL and no service worker", async () => {
+    const streamToMock = vi.fn(async () => {});
+    const blobMock = vi.fn();
 
     const service = new TorrentService();
     (service as unknown as { client: unknown }).client = {
-      createServer: createServerMock,
+      createServer: vi.fn(),
     };
     const file = {
       name: "movie.mkv",
       length: 1024,
-      streamTo: vi.fn(async () => {
-        if (!serverCreated) {
-          throw new Error("No server created");
-        }
-      }),
-      blob: vi.fn(),
+      streamTo: streamToMock,
+      blob: blobMock,
     } as unknown as Parameters<TorrentService["streamToMedia"]>[0];
     const video = {
       removeAttribute: vi.fn(),
       load: vi.fn(),
       pause: vi.fn(),
-    } as unknown as HTMLVideoElement;
+    } as unknown as HTMLMediaElement;
 
     await service.streamToMedia(file, video);
 
-    expect(serviceWorker.register).toHaveBeenCalledWith("webtorrent-sw.js");
-    expect(createServerMock).toHaveBeenCalledWith({ controller: readyRegistration });
-    expect(file.streamTo).toHaveBeenCalledWith(video);
-    expect(file.blob).not.toHaveBeenCalled();
-    expect(video.load).toHaveBeenCalledTimes(2);
+    expect(streamToMock).toHaveBeenCalledWith(video);
+    expect(blobMock).not.toHaveBeenCalled();
   });
 
   it("accepts a torrent file payload", async () => {

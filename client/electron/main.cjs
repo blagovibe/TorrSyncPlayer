@@ -8,6 +8,7 @@ const path = require("node:path");
 const { TorrentBridge } = require("./torrent-bridge.cjs");
 const { StaticServer } = require("./static-server.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
+const { electronLogger } = require("./electron-logger.cjs");
 
 /** @type {boolean} */
 const isDev = !app.isPackaged;
@@ -55,10 +56,10 @@ function createWindow(loadUrl) {
       if (parsed.protocol === "https:" || parsed.protocol === "http:") {
         void shell.openExternal(url);
       } else {
-        console.warn(`[TorrSyncPlayer] Blocked shell.openExternal with unsafe protocol: ${parsed.protocol}`);
+        electronLogger.warn(`Blocked shell.openExternal with unsafe protocol: ${parsed.protocol}`);
       }
     } catch {
-      console.warn(`[TorrSyncPlayer] Blocked shell.openExternal with invalid URL: ${url}`);
+      electronLogger.warn(`Blocked shell.openExternal with invalid URL: ${url}`);
     }
     return { action: "deny" };
   });
@@ -100,12 +101,12 @@ app.whenReady().then(async () => {
   try {
     const ffmpegOk = await TorrentBridge.checkFfmpegAvailable();
     if (!ffmpegOk) {
-      console.warn("[TorrSyncPlayer] ffmpeg not found — audio track features will be unavailable");
+      electronLogger.warn("ffmpeg not found — audio track features will be unavailable");
     } else {
-      console.log("[TorrSyncPlayer] ffmpeg detected");
+      electronLogger.info("ffmpeg detected");
     }
   } catch (error) {
-    console.warn("[TorrSyncPlayer] ffmpeg check failed:", error);
+    electronLogger.warn("ffmpeg check failed:", error);
   }
 
   let loadUrl = devServerUrl;
@@ -115,7 +116,7 @@ app.whenReady().then(async () => {
        const staticApp = await staticServer.start();
        loadUrl = `${staticApp.url}/index.html`;
      } catch (error) {
-       console.error("Failed to start local static server:", error);
+        electronLogger.error("Failed to start local static server:", error);
        app.quit();
        return;
      }
@@ -134,50 +135,46 @@ const ELECTRON_FORCE_EXIT_TIMEOUT_MS = 5000;
 
 let isQuitting = false;
 
+async function gracefulCleanup() {
+  try {
+    await torrentBridge.destroy();
+  } catch (err) {
+    electronLogger.error("Torrent bridge cleanup failed:", err);
+  }
+  if (staticServer.instance) {
+    try {
+      staticServer.instance.server.close();
+    } catch {
+      // Ignore
+    }
+    staticServer.instance = null;
+  }
+}
+
 app.on("before-quit", (event) => {
     if (isQuitting) return;
+    isQuitting = true;
     const windows = BrowserWindow.getAllWindows();
     if (windows.length === 0) {
       return;
     }
-    if (torrentBridge.isDestroyed?.()) {
-      for (const win of windows) {
-        win.destroy();
-      }
-      return;
-    }
-    isQuitting = true;
     event.preventDefault();
-    let hasExited = false;
+    let forceExited = false;
     const forceExit = () => {
-      if (hasExited) return;
-      hasExited = true;
-      const allWindows = BrowserWindow.getAllWindows();
-      for (const win of allWindows) {
+      if (forceExited) return;
+      forceExited = true;
+      for (const win of BrowserWindow.getAllWindows()) {
         try { win.destroy(); } catch { /* already destroyed */ }
       }
       app.exit(0);
     };
     const safetyTimeout = setTimeout(forceExit, ELECTRON_FORCE_EXIT_TIMEOUT_MS);
-      (async () => {
-        try {
-          await torrentBridge.destroy();
-        } catch (err) {
-          console.error("[TorrSyncPlayer] Cleanup failed:", err);
-        }
-       if (staticServer.instance) {
-         try {
-           staticServer.instance.server.close();
-         } catch {
-           // Ignore
-         }
-         staticServer.instance = null;
-       }
-       clearTimeout(safetyTimeout);
-       if (!hasExited) {
-         forceExit();
-       }
-      })();
+    gracefulCleanup().then(() => {
+      clearTimeout(safetyTimeout);
+      if (!forceExited) {
+        forceExit();
+      }
+    });
   });
 
 app.on("window-all-closed", () => {

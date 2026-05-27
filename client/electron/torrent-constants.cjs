@@ -1,29 +1,24 @@
-const MAGNET_LINK_PATTERN = /^magnet:\?xt=urn:(?:btih:[a-fA-F0-9]{40}|btmh:[a-fA-F0-9]{40}|sha1:[a-fA-F0-9]{40}|ed2k:[a-fA-F0-9]{32})(?:&.+)?$/;
-const MAX_MAGNET_LINK_LENGTH = 8000;
-const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
-const MAX_TORRENT_CONNECTIONS = 200;
-const MAX_TORRENT_FILE_COUNT = 10_000;
-const MAX_TORRENT_FILENAME_LENGTH = 512;
+const shared = require("../torrent-shared.json");
+
+const INFO_HASH_PATTERN = /^(?:urn:)?(?:btih|btmh|sha1):[a-fA-F0-9]{40}$|^(?:urn:)?ed2k:[a-fA-F0-9]{32}$/;
+const MAX_MAGNET_LINK_LENGTH = shared.maxMagnetLinkLength;
+const MAX_TORRENT_FILE_BYTES = shared.maxTorrentFileBytes;
+const MAX_TORRENT_CONNECTIONS = shared.maxTorrentConnections;
+const MAX_TORRENT_FILE_COUNT = shared.maxTorrentFileCount;
+const MAX_TORRENT_FILENAME_LENGTH = shared.maxTorrentFilenameLength;
 const AUDIO_SESSION_TTL_MS = 5 * 60 * 1000;
 const SUBTITLE_SESSION_TTL_MS = 5 * 60 * 1000;
 
-const VIDEO_EXTENSIONS = new Set([
-  ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".ogv",
-]);
+const VIDEO_EXTENSIONS = new Set(shared.videoExtensions);
 
-const AUDIO_EXTENSIONS = new Set([
-  ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav", ".oga", ".wma",
-]);
+const AUDIO_EXTENSIONS = new Set(shared.audioExtensions);
 
-const BLOCKED_TRACKER_HOSTS = new Set([
-  "localhost", "127.0.0.1", "0.0.0.0", "::1", "0000:0000:0000:0000:0000:0000:0000:0001",
-  "[::1]", "0:0:0:0:0:0:0:1",
-]);
+const BLOCKED_TRACKER_HOSTS = new Set(shared.blockedTrackerHosts);
 
-const ALLOWED_TRACKER_PROTOCOLS = new Set(["wss:", "https:"]);
-const MAX_TRACKER_URL_LENGTH = 2000;
-const MAX_MAGNET_PARAM_COUNT = 20;
-const MAX_MAGNET_PARAM_VALUE_LENGTH = 2000;
+const ALLOWED_TRACKER_PROTOCOLS = new Set(shared.allowedTrackerProtocols);
+const MAX_TRACKER_URL_LENGTH = shared.maxTrackerUrlLength;
+const MAX_MAGNET_PARAM_COUNT = shared.maxMagnetParamCount;
+const MAX_MAGNET_PARAM_VALUE_LENGTH = shared.maxMagnetParamValueLength;
 
 function isBlockedTrackerUrl(trackerUrl) {
   try {
@@ -72,8 +67,18 @@ function validateMagnetTrackerUrls(magnetLink) {
   }
 }
 
+function isValidMagnetLink(magnetLink) {
+  if (!magnetLink.startsWith("magnet:?")) return false;
+  const queryStart = magnetLink.indexOf("?");
+  if (queryStart === -1) return false;
+  const params = new URLSearchParams(magnetLink.slice(queryStart + 1));
+  const xt = params.get("xt");
+  if (!xt) return false;
+  return INFO_HASH_PATTERN.test(xt);
+}
+
 module.exports = {
-  MAGNET_LINK_PATTERN,
+  isValidMagnetLink,
   MAX_MAGNET_LINK_LENGTH,
   MAX_TORRENT_FILE_BYTES,
   MAX_TORRENT_CONNECTIONS,

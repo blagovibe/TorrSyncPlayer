@@ -1,21 +1,22 @@
 const MemoryChunkStore = require("memory-chunk-store");
 
 /**
- * BoundedChunkStore — LRU-based memory-constrained chunk store.
+ * BoundedChunkStore — distance-based eviction memory-constrained chunk store.
  *
  * Eviction Strategy:
- * - When `put()` would exceed `maxBytes`, chunks are evicted using a distance-based LRU policy.
+ * - When `put()` would exceed `maxBytes`, chunks are evicted using a distance-based policy.
  * - The eviction candidate is the chunk farthest from the current write position (`currentIndex`).
  *   This keeps nearby data available for sequential playback while evicting distant chunks first.
- * - LRU re-ordering happens in `get()`: accessing a chunk moves it to the end of the LRU set.
- * - The `lruList` Set maintains insertion order (ES2015+ spec), which doubles as LRU ordering
- *   because `get()` deletes and re-adds entries.
+ * - The `lruList` Set maintains insertion order (ES2015+ spec). `get()` re-inserts accessed
+ *   chunks, making the Set act as a simple access-order cache.
  * - If all chunks are near the current position (no evictable index), the store may temporarily
  *   exceed `maxBytes` until the next sequential write triggers eviction.
+ * - A single chunk larger than `maxBytes` is allowed when the store is empty, to avoid
+ *   permanently rejecting oversized chunks.
  *
- * Note: Uses `Set` iteration for LRU, which is insertion-order dependent. This is intentional —
- * `get()` re-inserts accessed chunks, making the Set act as a simple LRU without a full
- * doubly-linked list implementation.
+ * Note: Uses `Set` iteration for access-order, which is insertion-order dependent. This is
+ * intentional — `get()` re-inserts accessed chunks, making the Set act as a simple access-order
+ * cache without a full doubly-linked list implementation.
  */
 class BoundedChunkStore {
   constructor(chunkLength, opts) {
@@ -77,6 +78,20 @@ class BoundedChunkStore {
       evictIterations++;
     }
 
+    if (this.currentBytes + buf.length > this.maxBytes && this.chunks.size > 0 && buf.length <= this.maxBytes) {
+      queueMicrotask(() => cb(new Error("Storage quota exceeded")));
+      return;
+    }
+    if (this.currentBytes + buf.length > this.maxBytes && this.chunks.size > 0 && buf.length > this.maxBytes) {
+      for (const idx of [...this.lruList]) {
+        if (idx !== index) this._evictChunk(idx);
+      }
+      if (this.currentBytes + buf.length > this.maxBytes && this.chunks.size > 1) {
+        queueMicrotask(() => cb(new Error("Storage quota exceeded")));
+        return;
+      }
+    }
+
     this.chunks.set(index, buf);
     this.lruList.add(index);
     this.currentBytes += buf.length;
@@ -90,7 +105,7 @@ class BoundedChunkStore {
     if (cb) {
       this.baseStore.put(index, buf, cb);
     } else {
-      this.baseStore.put(index, buf);
+      this.baseStore.put(index, buf, () => {});
     }
   }
 

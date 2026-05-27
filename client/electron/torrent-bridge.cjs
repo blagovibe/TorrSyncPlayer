@@ -1,6 +1,7 @@
 const { spawn } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const path = require("node:path");
+const { electronLogger } = require("./electron-logger.cjs");
 const MemoryChunkStore = require("memory-chunk-store");
 const { BoundedChunkStore } = require("./bounded-chunk-store.cjs");
 
@@ -28,6 +29,7 @@ const ALLOWED_STREAM_HOSTS = new Set(["127.0.0.1", "::1"]);
 
 // Rate limiting for ffmpeg processes
 const MAX_CONCURRENT_FFMPEG = 3;
+const MAX_FFMPEG_QUEUE_SIZE = 20;
 let activeFfmpegCount = 0;
 const ffmpegQueue = [];
 
@@ -53,20 +55,27 @@ function runWithFfmpegLimit(fn) {
         settleReject(error);
       } finally {
         activeFfmpegCount--;
-        if (ffmpegQueue.length > 0) {
-          const next = ffmpegQueue.shift();
-          next.task();
-        }
+        processQueue();
       }
     };
+
     const entry = { task, reject: settleReject };
 
     if (activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
       task();
+    } else if (ffmpegQueue.length >= MAX_FFMPEG_QUEUE_SIZE) {
+      settleReject(new Error("ffmpeg queue is full — too many concurrent stream requests"));
     } else {
       ffmpegQueue.push(entry);
     }
   });
+}
+
+function processQueue() {
+  while (ffmpegQueue.length > 0 && activeFfmpegCount < MAX_CONCURRENT_FFMPEG) {
+    const next = ffmpegQueue.shift();
+    next.task();
+  }
 }
 
 // Check ffmpeg availability on startup
@@ -294,11 +303,11 @@ class TorrentBridge {
   }
 
   async addMagnet(magnetLink) {
-    const { MAGNET_LINK_PATTERN, MAX_MAGNET_LINK_LENGTH: MAX_MAGNET_LEN } = require("./torrent-constants.cjs");
+    const { isValidMagnetLink, MAX_MAGNET_LINK_LENGTH: MAX_MAGNET_LEN } = require("./torrent-constants.cjs");
     if (typeof magnetLink !== "string" || magnetLink.length > MAX_MAGNET_LEN) {
       throw new Error("Invalid magnet link: too long or not a string");
     }
-    if (!MAGNET_LINK_PATTERN.test(magnetLink)) {
+    if (!isValidMagnetLink(magnetLink)) {
       throw new Error("Invalid magnet link format");
     }
     const { validateMagnetTrackerUrls } = require("./torrent-constants.cjs");
@@ -466,7 +475,7 @@ class TorrentBridge {
       const result = await this.runFfprobe(streamUrl);
       return parseProbeResult(result.stdout);
     } catch (error) {
-      console.error("Audio track probe failed:", error);
+      electronLogger.error("Audio track probe failed:", error);
       return [];
     }
   }
@@ -482,7 +491,7 @@ class TorrentBridge {
       const result = await this.runFfprobeSubtitles(streamUrl);
       return parseSubtitleResult(result.stdout);
     } catch (error) {
-      console.error("Subtitle probe failed:", error);
+      electronLogger.error("Subtitle probe failed:", error);
       return [];
     }
   }
@@ -561,6 +570,10 @@ class TorrentBridge {
 
     if (typeof startSeconds !== "number" || !Number.isFinite(startSeconds) || startSeconds < 0 || startSeconds > 86400) {
       throw new Error("Invalid start seconds");
+    }
+
+    if (audioTrackIndex !== undefined && audioTrackIndex !== null && (typeof audioTrackIndex !== "number" || !Number.isInteger(audioTrackIndex) || audioTrackIndex < 0)) {
+      throw new Error("Invalid audio track index");
     }
 
     const audioServerBaseUrl = await this.ensureAudioServer();
@@ -826,16 +839,19 @@ class TorrentBridge {
         await new Promise((resolve, reject) => {
           ffmpegQueue.push({
             task: () => {
+              if (!this.audioSessions.has(token)) {
+                activeFfmpegCount--;
+                reject(new Error("Audio session was cleaned up before ffmpeg could start"));
+                processQueue();
+                return;
+              }
               activeFfmpegCount++;
               try {
                 session.process = spawnFfmpeg();
               } catch (spawnError) {
                 activeFfmpegCount--;
                 session.process = null;
-                if (ffmpegQueue.length > 0) {
-                  const next = ffmpegQueue.shift();
-                  next.task();
-                }
+                processQueue();
                 reject(spawnError);
                 return;
               }
@@ -859,7 +875,10 @@ class TorrentBridge {
 
       ffmpeg.stdout.pipe(response);
 
+      let processKilled = false;
       const killProcess = () => {
+        if (processKilled) return;
+        processKilled = true;
         try {
           if (!ffmpeg.killed) {
             ffmpeg.kill("SIGKILL");
@@ -883,7 +902,7 @@ class TorrentBridge {
       ffmpeg.stderr.on("data", (chunk) => {
         const message = String(chunk).trim();
         if (message && !process.env.VITEST && process.env.NODE_ENV !== "test") {
-          console.warn("[ffmpeg] %s", message);
+          electronLogger.warn(`ffmpeg: ${message}`);
         }
       });
 
@@ -891,19 +910,16 @@ class TorrentBridge {
       response.on("finish", killProcess);
       ffmpeg.on("close", () => {
         if (session.process !== ffmpeg) return;
+        response.removeListener("close", killProcess);
+        response.removeListener("finish", killProcess);
         this.audioSessions.delete(token);
         activeFfmpegCount = Math.max(0, activeFfmpegCount - 1);
-        if (ffmpegQueue.length > 0) {
-          const next = ffmpegQueue.shift();
-          next();
-        }
+        processQueue();
         session.process = null;
         session.cleanupTimer = setTimeout(() => {
           this.audioSessions.delete(token);
         }, AUDIO_SESSION_TTL_MS);
         session.cleanupTimer.unref?.();
-        response.removeListener("close", killProcess);
-        response.removeListener("finish", killProcess);
       });
     } catch (error) {
       this.audioSessions.delete(token);
@@ -1026,14 +1042,14 @@ class TorrentBridge {
     }
     this.audioSessions.clear();
     // Reject all pending ffmpeg queue tasks — the service is shutting down
-    for (const pending of ffmpegQueue) {
+    const pendingTasks = ffmpegQueue.splice(0);
+    for (const pending of pendingTasks) {
       try {
         pending.reject(new Error("Torrent bridge is shutting down"));
       } catch {
         // Ignore
       }
     }
-    ffmpegQueue.length = 0;
   }
 
   validateLocalStreamUrl(streamUrl) {

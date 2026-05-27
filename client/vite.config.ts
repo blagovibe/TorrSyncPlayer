@@ -30,7 +30,7 @@ export default defineConfig(async () => ({
       process: "process/browser",
       util: "util/",
       "bittorrent-dht": fileURLToPath(new URL("./src/shims/bittorrent-dht.ts", import.meta.url)),
-      ip: fileURLToPath(new URL("./src/shims/ip-patch/lib/ip.js", import.meta.url)),
+      ip: "ip",
     },
   },
   define: {

@@ -3,8 +3,10 @@
  * Centralizes all hardcoded values for easy tuning and environment overrides.
  */
 
+import { SHARED_TORRENT_LIMITS } from "./config-shared";
+
 export const TORRENT_CONFIG = {
-  maxConnections: 200,
+  maxConnections: SHARED_TORRENT_LIMITS.maxTorrentConnections,
   defaultBufferWindowMB: 50,
   defaultMaxBufferMB: 500,
   prioritizeIntervalMs: 2000,
@@ -25,9 +27,9 @@ export const P2P_CONFIG = {
   connectRetryBaseDelayMs: 1000,
 } as const;
 
-export const P2P_MAX_TORRENT_BYTES = 10 * 1024 * 1024;
-export const IPC_MAX_TORRENT_BYTES = 10 * 1024 * 1024;
-export const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
+export const P2P_MAX_TORRENT_BYTES = SHARED_TORRENT_LIMITS.maxTorrentFileBytes;
+export const IPC_MAX_TORRENT_BYTES = SHARED_TORRENT_LIMITS.maxTorrentFileBytes;
+export const MAX_TORRENT_FILE_BYTES = SHARED_TORRENT_LIMITS.maxTorrentFileBytes;
 
 export const SYNC_CONFIG = {
   defaultToleranceSeconds: 1.5,
@@ -40,13 +42,7 @@ export const STREAM_CONFIG = {
   torrentAddTimeoutMs: 60_000,
   torrentDestroyTimeoutMs: 10_000,
   electronForceExitTimeoutMs: 5000,
-} as const;
-
-export const BACKEND_CONFIG = {
-  audioSessionTtlMs: 5 * 60 * 1000,
-  validateStreamUrls: true,
-  allowedStreamHosts: ["127.0.0.1", "::1"] as readonly string[],
-  subtitleSessionTtlMs: 5 * 60 * 1000,
+  torrentQueueTimeoutMs: 120_000,
 } as const;
 
 export const UI_CONFIG = {
@@ -61,8 +57,8 @@ export const LOG_CONFIG = {
 } as const;
 
 export function getTrackerUrls(): string[] {
-  const env = (import.meta as unknown as { env?: { VITE_WEBTORRENT_TRACKERS?: string } }).env;
-  const envTrackers = env?.VITE_WEBTORRENT_TRACKERS;
+  const env = import.meta.env;
+  const envTrackers = env.VITE_WEBTORRENT_TRACKERS;
   if (envTrackers) {
     return envTrackers.split(",").map((s: string) => s.trim()).filter(Boolean);
   }
@@ -71,6 +67,24 @@ export function getTrackerUrls(): string[] {
     "wss://tracker.openwebtorrent.com",
     "wss://tracker.webtorrent.dev",
   ];
+}
+
+export function getPeerConnectSources(): string[] {
+  const env = import.meta.env;
+  const host = env.VITE_PEERJS_HOST?.trim() || P2P_CONFIG.defaultHost;
+  const secure = host === P2P_CONFIG.defaultHost || env.VITE_PEERJS_SECURE === "true";
+  const port = env.VITE_PEERJS_PORT ? Number(env.VITE_PEERJS_PORT) : P2P_CONFIG.defaultPort;
+  const sources = [`wss://*.openwebtorrent.com`, `wss://*.webtorrent.dev`, `wss://*.btorrent.xyz`];
+  if (host === P2P_CONFIG.defaultHost) {
+    sources.push(`wss://0.peerjs.com`);
+  } else if (host) {
+    if (secure || port === 443) {
+      sources.push(`wss://${host}`);
+    } else {
+      sources.push(`ws://${host}`);
+    }
+  }
+  return sources;
 }
 
 export const VIDEO_EXTENSION_PREFERENCES: Readonly<Record<string, number>> = {
@@ -84,15 +98,13 @@ export const VIDEO_EXTENSION_PREFERENCES: Readonly<Record<string, number>> = {
   ".avi": -1,
 };
 
-export const VIDEO_EXTENSIONS: Readonly<Record<string, true>> = {
-  ".mp4": true, ".mkv": true, ".webm": true, ".mov": true,
-  ".avi": true, ".m4v": true, ".ts": true, ".ogv": true,
-};
+export const VIDEO_EXTENSIONS: Readonly<Record<string, true>> = Object.fromEntries(
+  SHARED_TORRENT_LIMITS.videoExtensions.map((ext) => [ext, true as const]),
+) as Readonly<Record<string, true>>;
 
-export const AUDIO_EXTENSIONS: Readonly<Record<string, true>> = {
-  ".mp3": true, ".m4a": true, ".aac": true, ".flac": true,
-  ".ogg": true, ".opus": true, ".wav": true, ".oga": true, ".wma": true,
-};
+export const AUDIO_EXTENSIONS: Readonly<Record<string, true>> = Object.fromEntries(
+  SHARED_TORRENT_LIMITS.audioExtensions.map((ext) => [ext, true as const]),
+) as Readonly<Record<string, true>>;
 
 export function isVideoExtension(ext: string): boolean {
   return ext in VIDEO_EXTENSIONS;

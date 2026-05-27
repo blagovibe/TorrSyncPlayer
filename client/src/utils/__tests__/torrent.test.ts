@@ -107,7 +107,7 @@ describe("createTorrentFileSource", () => {
     expect(source.kind).toBe("file");
     if (source.kind !== "file") throw new Error("Expected file source");
     expect(source.fileName).toBe("test.torrent");
-    expect(source.bytes).toEqual([1, 2, 3, 4]);
+    expect(source.bytes).toEqual(new Uint8Array([1, 2, 3, 4]));
     expect(source.sourceKey).toContain("file:test.torrent");
   });
 

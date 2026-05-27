@@ -1,0 +1,14 @@
+{
+  "maxTorrentFileBytes": 10485760,
+  "maxMagnetLinkLength": 8000,
+  "maxTorrentConnections": 200,
+  "maxTorrentFileCount": 10000,
+  "maxTorrentFilenameLength": 512,
+  "videoExtensions": [".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".ogv"],
+  "audioExtensions": [".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav", ".oga", ".wma"],
+  "blockedTrackerHosts": ["localhost", "127.0.0.1", "0.0.0.0", "::1", "0000:0000:0000:0000:0000:0000:0000:0001", "[::1]", "0:0:0:0:0:0:0:1"],
+  "allowedTrackerProtocols": ["wss:", "https:"],
+  "maxTrackerUrlLength": 2000,
+  "maxMagnetParamCount": 20,
+  "maxMagnetParamValueLength": 2000
+}

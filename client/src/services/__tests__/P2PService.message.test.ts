@@ -70,7 +70,7 @@ describe("P2PService message validation", () => {
     const svc = new P2PService();
     const errorCallback = vi.fn();
     svc.on("error", errorCallback);
-    const hugeBytes = new Array(11 * 1024 * 1024).fill(0);
+    const hugeBytes = new Uint8Array(11 * 1024 * 1024);
     svc.sendTorrentSource(
       { kind: "file", fileName: "big.torrent", bytes: hugeBytes, sourceKey: "file:big" },
       null, null, null,

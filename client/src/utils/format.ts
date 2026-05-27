@@ -1,5 +1,5 @@
-const SIZE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
-const SPEED_UNITS = ["B/s", "KiB/s", "MiB/s", "GiB/s"] as const;
+const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
+const SPEED_UNITS = ["B/s", "KB/s", "MB/s", "GB/s"] as const;
 
 function formatUnit(value: number, units: readonly string[]): string {
   if (!Number.isFinite(value) || value <= 0) return `0 ${units[0]}`;

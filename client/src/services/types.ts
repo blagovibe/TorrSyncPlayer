@@ -36,7 +36,7 @@ export type SharedTorrentSource =
   | {
       kind: "file";
       fileName: string;
-      bytes: number[];
+      bytes: Uint8Array;
       sourceKey: string;
     };
 

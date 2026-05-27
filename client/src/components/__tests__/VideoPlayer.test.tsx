@@ -30,7 +30,6 @@ describe("VideoPlayer", () => {
     onSeek: vi.fn(),
     onAudioTrackChange: vi.fn(),
     onSubtitleTrackChange: vi.fn(),
-    onMuxStreamRequest: vi.fn(),
   };
 
   it("renders video element", () => {

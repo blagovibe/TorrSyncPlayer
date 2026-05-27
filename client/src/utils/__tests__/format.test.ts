@@ -22,36 +22,36 @@ describe("formatBytes", () => {
     expect(formatBytes(500)).toBe("500 B");
   });
 
-  it("formats KiB", () => {
-    expect(formatBytes(1024)).toBe("1 KiB");
+  it("formats KB", () => {
+    expect(formatBytes(1024)).toBe("1 KB");
   });
 
-  it("formats MiB", () => {
-    expect(formatBytes(1024 * 1024)).toBe("1 MiB");
+  it("formats MB", () => {
+    expect(formatBytes(1024 * 1024)).toBe("1 MB");
   });
 
-  it("formats GiB", () => {
-    expect(formatBytes(1024 * 1024 * 1024)).toBe("1 GiB");
+  it("formats GB", () => {
+    expect(formatBytes(1024 * 1024 * 1024)).toBe("1 GB");
   });
 
-  it("formats TiB", () => {
-    expect(formatBytes(1024 * 1024 * 1024 * 1024)).toBe("1 TiB");
+  it("formats TB", () => {
+    expect(formatBytes(1024 * 1024 * 1024 * 1024)).toBe("1 TB");
   });
 
-  it("formats fractional KiB", () => {
-    expect(formatBytes(1536)).toBe("1.5 KiB");
+  it("formats fractional KB", () => {
+    expect(formatBytes(1536)).toBe("1.5 KB");
   });
 
-  it("formats fractional MiB", () => {
-    expect(formatBytes(1024 * 1024 * 2.5)).toBe("2.5 MiB");
+  it("formats fractional MB", () => {
+    expect(formatBytes(1024 * 1024 * 2.5)).toBe("2.5 MB");
   });
 
   it("uses 0 decimal for values >= 100", () => {
-    expect(formatBytes(100 * 1024)).toBe("100 KiB");
+    expect(formatBytes(100 * 1024)).toBe("100 KB");
   });
 
   it("uses 1 decimal for values >= 10", () => {
-    expect(formatBytes(15 * 1024 * 1024)).toBe("15 MiB");
+    expect(formatBytes(15 * 1024 * 1024)).toBe("15 MB");
   });
 });
 
@@ -68,15 +68,15 @@ describe("formatSpeed", () => {
     expect(formatSpeed(100)).toBe("100 B/s");
   });
 
-  it("formats KiB/s", () => {
-    expect(formatSpeed(1024)).toBe("1 KiB/s");
+  it("formats KB/s", () => {
+    expect(formatSpeed(1024)).toBe("1 KB/s");
   });
 
-  it("formats MiB/s", () => {
-    expect(formatSpeed(1024 * 1024)).toBe("1 MiB/s");
+  it("formats MB/s", () => {
+    expect(formatSpeed(1024 * 1024)).toBe("1 MB/s");
   });
 
-  it("formats GiB/s", () => {
-    expect(formatSpeed(1024 * 1024 * 1024)).toBe("1 GiB/s");
+  it("formats GB/s", () => {
+    expect(formatSpeed(1024 * 1024 * 1024)).toBe("1 GB/s");
   });
 });

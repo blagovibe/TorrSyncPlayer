@@ -170,12 +170,20 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
       if ((typeof smi !== "number" && smi !== null) || (typeof sati !== "number" && sati !== null) || (typeof ssti !== "number" && ssti !== null)) {
         return null;
       }
-      // Validate source.bytes if present (must be array of numbers 0-255)
       if (src.bytes !== undefined) {
-        if (!Array.isArray(src.bytes) || !src.bytes.every((b: unknown) => typeof b === "number" && b >= 0 && b <= 255)) {
+        let bytesArray: number[];
+        if (Array.isArray(src.bytes)) {
+          bytesArray = src.bytes;
+        } else if (typeof src.bytes === "object" && src.bytes !== null) {
+          const values = Object.values(src.bytes);
+          if (!values.every((b: unknown) => typeof b === "number" && b >= 0 && b <= 255)) {
+            return null;
+          }
+          bytesArray = values as number[];
+        } else {
           return null;
         }
-        if (src.bytes.length > P2P_MAX_TORRENT_BYTES) {
+        if (!bytesArray.every((b: number) => b >= 0 && b <= 255) || bytesArray.length > P2P_MAX_TORRENT_BYTES) {
           return null;
         }
       }
@@ -623,7 +631,12 @@ export class P2PService {
 
     this.reconnectTimeoutId = this.cleanup.setTimeout(async () => {
       this.reconnectTimeoutId = null;
-      if (this.isDisconnecting || this._state === "destroyed" || this._state === "disconnecting") {
+      if (this.isDisconnecting) {
+        this.isReconnecting = false;
+        this.setState("disconnected");
+        return;
+      }
+      if (this._state === "destroyed" || this._state === "disconnecting") {
         this.isReconnecting = false;
         this.isDisconnecting = false;
         this.setState("disconnected");
@@ -726,6 +739,10 @@ export class P2PService {
       }
       if (message.type === "chat" && this.isChatRateLimited(peerId)) {
         p2pLogger.warn(`Chat rate limit exceeded for peer ${peerId}, dropping message`);
+        return;
+      }
+      if (message.type === "torrent_source" && this.isTorrentSourceRateLimited(peerId)) {
+        p2pLogger.warn(`Torrent source rate limit exceeded for peer ${peerId}, dropping message`);
         return;
       }
       switch (message.type) {
@@ -876,6 +893,7 @@ export class P2PService {
   clearRateLimitForPeer(peerId: string): void {
     this.syncMessageTimestamps.delete(peerId);
     this.chatMessageTimestamps.delete(peerId);
+    this.torrentSourceMessageTimestamps.delete(peerId);
   }
 
   private syncMessageTimestamps = new Map<string, number[]>();
@@ -886,6 +904,10 @@ export class P2PService {
   private readonly chatRateLimit = 10;
   private readonly chatRateLimitWindowMs = 10_000;
   private readonly maxChatTimestampsPerPeer = 50;
+  private torrentSourceMessageTimestamps = new Map<string, number[]>();
+  private readonly torrentSourceRateLimit = 1;
+  private readonly torrentSourceRateLimitWindowMs = 3000;
+  private readonly maxTorrentSourceTimestampsPerPeer = 10;
   private rateLimitCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private readonly rateLimitCleanupIntervalMs = 60_000;
 
@@ -913,9 +935,30 @@ export class P2PService {
     return recent.length > this.chatRateLimit;
   }
 
+  private isTorrentSourceRateLimited(peerId: string): boolean {
+    const now = Date.now();
+    const timestamps = this.torrentSourceMessageTimestamps.get(peerId) ?? [];
+    const recent = timestamps.filter((ts) => now - ts < this.torrentSourceRateLimitWindowMs);
+    recent.push(now);
+    if (recent.length > this.maxTorrentSourceTimestampsPerPeer) {
+      recent.splice(0, recent.length - this.maxTorrentSourceTimestampsPerPeer);
+    }
+    this.torrentSourceMessageTimestamps.set(peerId, recent);
+    return recent.length > this.torrentSourceRateLimit;
+  }
+
+  private readonly pendingPings = new Map<number, number>();
+  private readonly maxPendingPings = 10;
+
   private sendPing(): void {
     if (!this.isConnected()) return;
-    const pingPayload = { type: "ping", ts: Date.now() };
+    const now = Date.now();
+    if (this.pendingPings.size >= this.maxPendingPings) {
+      const oldest = this.pendingPings.keys().next().value;
+      if (oldest !== undefined) this.pendingPings.delete(oldest);
+    }
+    this.pendingPings.set(now, now);
+    const pingPayload = { type: "ping", ts: now };
     const targetConnections = Array.from(this.connections.values()).filter((c) => c.open);
     for (const connection of targetConnections) {
       try {
@@ -926,15 +969,17 @@ export class P2PService {
     }
   }
 
-    private handlePong(pongTs: number): void {
-      const now = Date.now();
-      if (pongTs > now || pongTs < now - 30000) return;
-      const rtt = now - pongTs;
-      if (rtt > 0) {
-        this.lastRttMs = rtt;
-        this.emit("connection_quality", this.getConnectionQuality());
-      }
+  private handlePong(pongTs: number): void {
+    const now = Date.now();
+    if (!this.pendingPings.has(pongTs)) return;
+    this.pendingPings.delete(pongTs);
+    if (pongTs > now || pongTs < now - 5000) return;
+    const rtt = now - pongTs;
+    if (rtt > 0) {
+      this.lastRttMs = rtt;
+      this.emit("connection_quality", this.getConnectionQuality());
     }
+  }
 
     /**
      * Send a torrent source to connected peer(s).
@@ -1006,6 +1051,7 @@ export class P2PService {
 
   /** Disconnect from all peers and clean up resources. Idempotent. */
   public async disconnect(): Promise<void> {
+    if (this.isDisconnecting) return;
     this.isDisconnecting = true;
     this.isReconnecting = false;
     if (this.reconnectTimeoutId !== null) {
@@ -1021,9 +1067,18 @@ export class P2PService {
     this.connections.clear();
     this.syncMessageTimestamps.clear();
     this.chatMessageTimestamps.clear();
-    this.rateLimitCleanupTimer = null;
+    this.torrentSourceMessageTimestamps.clear();
+    this.pendingPings.clear();
+    if (this.rateLimitCleanupTimer !== null) {
+      clearInterval(this.rateLimitCleanupTimer);
+      this.rateLimitCleanupTimer = null;
+    }
     if (this.peer && !this.peer.destroyed) {
-      this.peer.disconnect();
+      try {
+        this.peer.disconnect();
+      } catch (error) {
+        p2pLogger.warn("peer.disconnect() failed during disconnect():", error);
+      }
       if (typeof this.peer.destroy === "function") {
         this.peer.destroy();
       }

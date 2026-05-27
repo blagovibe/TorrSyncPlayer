@@ -24,6 +24,10 @@ export function setLoggerConsole(consoleObj: { log: ConsoleFn; warn: ConsoleFn; 
   consoleRef = consoleObj;
 }
 
+export function getLoggerConsole(): { log: ConsoleFn; warn: ConsoleFn; error: ConsoleFn } {
+  return consoleRef;
+}
+
 export function setLogLevel(level: LogLevel): void {
   currentLogLevel = level;
 }
