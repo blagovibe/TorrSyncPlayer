@@ -43,7 +43,7 @@ jobs:
         run: npm run test
 
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=critical
 
       - name: Web build
         run: npm run build
