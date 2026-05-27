@@ -124,6 +124,95 @@ describe("P2PService connection lifecycle", () => {
     expect(service.isConnected()).toBe(true);
   });
 
+  it("emits disconnected when connection closes and can disconnect cleanly", async () => {
+    const service = new P2PService();
+    const connected = vi.fn();
+    const disconnected = vi.fn();
+    const peerConnected = vi.fn();
+    const peerDisconnected = vi.fn();
+
+    service.on("connected", connected);
+    service.on("disconnected", disconnected);
+    service.on("peer_connected", peerConnected);
+    service.on("peer_disconnected", peerDisconnected);
+
+    const initializePromise = service.initialize();
+    const peer = peerInstances[0] as { connections: Array<{ emitOpen: () => void; close: () => void; emitData: (d: unknown) => void }>; emitOpen: (peerId: string) => void };
+    peer.emitOpen("guest-peer");
+    await initializePromise;
+
+    const connectPromise = service.connect("host-peer");
+    const connection = peer.connections[0];
+    connection.emitOpen();
+    await connectPromise;
+
+    expect(connected).toHaveBeenCalledOnce();
+    expect(peerConnected).toHaveBeenCalledWith("host-peer");
+    expect(service.isConnected()).toBe(true);
+
+    connection.close();
+    expect(disconnected).toHaveBeenCalled();
+    expect(peerDisconnected).toHaveBeenCalledWith("host-peer");
+    expect(service.isConnected()).toBe(false);
+  });
+
+  it("disconnect is idempotent and resets all state", async () => {
+    const service = new P2PService();
+
+    const initializePromise = service.initialize();
+    const peer = peerInstances[0] as { connections: Array<{ emitOpen: () => void; close: () => void }>; emitOpen: (peerId: string) => void };
+    peer.emitOpen("guest-peer");
+    await initializePromise;
+
+    const connectPromise = service.connect("host-peer");
+    const connection = peer.connections[0];
+    connection.emitOpen();
+    await connectPromise;
+
+    expect(service.isInRoom()).toBe(true);
+
+    await service.disconnect();
+    expect(service.isConnected()).toBe(false);
+    expect(service.isInRoom()).toBe(false);
+
+    await service.disconnect();
+    expect(service.isConnected()).toBe(false);
+  });
+
+  it("can reconnect after disconnect by re-initializing", async () => {
+    const service = new P2PService();
+    const connected1 = vi.fn();
+    const disconnected1 = vi.fn();
+    const connected2 = vi.fn();
+
+    service.on("connected", connected1);
+    service.on("disconnected", disconnected1);
+
+    const init1 = service.initialize();
+    const peer1 = peerInstances[peerInstances.length - 1] as { emitOpen: (id: string) => void; connections: Array<{ emitOpen: () => void }> };
+    peer1.emitOpen("peer-1");
+    await init1;
+
+    const conn1 = service.connect("remote-1");
+    peer1.connections[0].emitOpen();
+    await conn1;
+    expect(connected1).toHaveBeenCalledTimes(1);
+
+    await service.disconnect();
+    expect(disconnected1).toHaveBeenCalled();
+
+    service.on("connected", connected2);
+    const init2 = service.initialize();
+    const peer2 = peerInstances[peerInstances.length - 1] as { emitOpen: (id: string) => void; connections: Array<{ emitOpen: () => void }> };
+    peer2.emitOpen("peer-2");
+    await init2;
+
+    const conn2 = service.connect("remote-2");
+    peer2.connections[0].emitOpen();
+    await conn2;
+    expect(connected2).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps selectedAudioTrackIndex in torrent source messages", async () => {
     const service = new P2PService();
     const received = vi.fn();

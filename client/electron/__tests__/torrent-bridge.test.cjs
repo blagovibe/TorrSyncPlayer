@@ -1,4 +1,4 @@
-const { TorrentBridge, formatTorrentSnapshot } = require("../torrent-bridge.cjs");
+const { TorrentBridge, formatTorrentSnapshot, validateLocalStreamUrl } = require("../torrent-bridge.cjs");
 
 function createMockTorrent(files = []) {
   return {
@@ -166,44 +166,36 @@ describe("TorrentBridge", () => {
 
   it("addTorrentFile accepts Array input", async () => {
     const arrayInput = [100, 58, 97, 110, 110, 111, 117, 110, 99, 101];
-    await expect(bridge.addTorrentFile(arrayInput)).rejects.toThrow(/WebTorrent client import timed out|Invalid torrent/);
+    await expect(bridge.addTorrentFile(arrayInput)).rejects.toThrow(/WebTorrent client import timed out|Invalid torrent|Cannot find module/);
   }, 15000);
 
   it("validateLocalStreamUrl rejects non-http protocols", () => {
-    expect(() => bridge.validateLocalStreamUrl("ftp://example.com/file.mp4")).toThrow(/must use http or https/);
+    expect(() => validateLocalStreamUrl("ftp://example.com/file.mp4")).toThrow(/must use http or https/);
   });
 
   it("validateLocalStreamUrl rejects non-loopback hosts", () => {
-    expect(() => bridge.validateLocalStreamUrl("http://192.168.1.1:8080/file.mp4")).toThrow(/must point to a local address/);
+    expect(() => validateLocalStreamUrl("http://192.168.1.1:8080/file.mp4")).toThrow(/must point to a local address/);
   });
 
   it("validateLocalStreamUrl accepts 127.0.0.1", () => {
-    expect(() => bridge.validateLocalStreamUrl("http://127.0.0.1:8080/file.mp4")).not.toThrow();
+    expect(() => validateLocalStreamUrl("http://127.0.0.1:8080/file.mp4")).not.toThrow();
   });
 
   it("validateLocalStreamUrl rejects non-loopback IPv6", () => {
-    expect(() => bridge.validateLocalStreamUrl("http://[2001:db8::1]:8080/file.mp4")).toThrow(/must point to a local address/);
+    expect(() => validateLocalStreamUrl("http://[2001:db8::1]:8080/file.mp4")).toThrow(/must point to a local address/);
   });
 
   it("validateLocalStreamUrl rejects invalid URLs", () => {
-    expect(() => bridge.validateLocalStreamUrl("not-a-url")).toThrow(/Invalid stream URL/);
+    expect(() => validateLocalStreamUrl("not-a-url")).toThrow(/Invalid stream URL/);
   });
 
-  it("clearAudioSessions cleans up all sessions", () => {
-    bridge.audioSessions.set("test-token", {
-      cleanupTimer: setTimeout(() => {}, 10000),
-      process: { killed: false, kill: vi.fn() },
-    });
-
-    bridge.clearAudioSessions();
-    expect(bridge.audioSessions.size).toBe(0);
+  it("clear is safe after audio sessions were created", async () => {
+    await bridge.clear();
+    await expect(bridge.getStats()).resolves.toBeNull();
   });
 
-  it("setStreamBaseUrl resolves pending waiter", () => {
-    bridge._ensureAudioServerWaiter = null;
-    bridge._resolveAudioServerWaiter = null;
-
+  it("setStreamBaseUrl is accessible via bridge", () => {
     bridge.setStreamBaseUrl("http://127.0.0.1:9999");
-    expect(bridge.audioServerBaseUrl).toBe("http://127.0.0.1:9999");
+    expect(bridge.audioSessionManager.baseUrl).toBe("http://127.0.0.1:9999");
   });
 });

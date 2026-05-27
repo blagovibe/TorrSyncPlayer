@@ -59,13 +59,13 @@ contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
 });
 
 let closeRequestHandler = null;
+let closeRequestWrapper = null;
 contextBridge.exposeInMainWorld("torrsyncElectronWindow", {
   onCloseRequest: (callback) => {
-    if (closeRequestHandler) {
-      ipcRenderer.removeListener("window-close-request", closeRequestHandler);
-    }
     closeRequestHandler = callback;
-    ipcRenderer.once("window-close-request", closeRequestHandler);
+    if (closeRequestWrapper) return;
+    closeRequestWrapper = () => closeRequestHandler?.();
+    ipcRenderer.once("window-close-request", closeRequestWrapper);
   },
   closeConfirmed: () => {
     ipcRenderer.send("window-close-confirmed");

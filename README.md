@@ -166,7 +166,7 @@ Yes! The app supports audio files from torrents. The UI will show "Audio file" i
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - npm 9+
 
 ### Setup
@@ -199,7 +199,7 @@ Releases are created as **drafts** on GitHub and must be manually published. To 
 
 ### Dependencies
 
-- The `ip` package is overridden to `2.0.2` in `package.json` to address a known security vulnerability in earlier versions.
+- The `ip` package is overridden to `2.0.1` in `package.json` to address a known security vulnerability in earlier versions.
 
 ### Quality Checks
 
@@ -221,6 +221,10 @@ TorrSyncPlayer/
 │   │   ├── services/        # Business logic (P2P, Sync, Torrent)
 │   │   └── utils/           # Helpers
 │   ├── electron/            # Electron main process
+│   │   ├── ffmpeg-pipeline.cjs       # ffmpeg rate limiting + probing
+│   │   ├── audio-session-manager.cjs # Audio/subtitle stream sessions
+│   │   ├── torrent-bridge.cjs        # WebTorrent client orchestration
+│   │   └── ...
 │   └── package.json
 └── README.md
 ```

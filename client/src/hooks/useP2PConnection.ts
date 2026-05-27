@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import P2PService from "../services/P2PService";
 import {
   type ChatMessage,
@@ -222,13 +222,29 @@ export function useP2PConnection(): P2PConnection {
     return () => { window.removeEventListener("beforeunload", cleanup); cleanup(); };
   }, []);
 
-  return {
+  const onSync = useCallback((cb: (msg: SyncMessage) => void) => {
+    syncListeners.current.add(cb);
+    return () => { syncListeners.current.delete(cb); };
+  }, []);
+
+  const onTorrentSource = useCallback((cb: (msg: TorrentSourceMessage) => void) => {
+    torrentSourceListeners.current.add(cb);
+    return () => { torrentSourceListeners.current.delete(cb); };
+  }, []);
+
+  const onRoomConfig = useCallback((cb: (msg: RoomConfigMessage) => void) => {
+    roomConfigListeners.current.add(cb);
+    return () => { roomConfigListeners.current.delete(cb); };
+  }, []);
+
+  return useMemo(() => ({
     peerId, peerRole, peers, isConnected, isConnecting, connectionError,
     connectionQuality, rttMs, reconnectFailed, chatMessages,
     p2pService: p2pServiceRef.current, createRoom, joinRoom, disconnect,
     sendChat, broadcastRoomState, scheduleBroadcast,
-    onSync: (cb: (msg: SyncMessage) => void) => { syncListeners.current.add(cb); return () => { syncListeners.current.delete(cb); }; },
-    onTorrentSource: (cb: (msg: TorrentSourceMessage) => void) => { torrentSourceListeners.current.add(cb); return () => { torrentSourceListeners.current.delete(cb); }; },
-    onRoomConfig: (cb: (msg: RoomConfigMessage) => void) => { roomConfigListeners.current.add(cb); return () => { roomConfigListeners.current.delete(cb); }; },
-  };
+    onSync, onTorrentSource, onRoomConfig,
+  }), [peerId, peerRole, peers, isConnected, isConnecting, connectionError,
+    connectionQuality, rttMs, reconnectFailed, chatMessages,
+    createRoom, joinRoom, disconnect, sendChat, broadcastRoomState, scheduleBroadcast,
+    onSync, onTorrentSource, onRoomConfig]);
 }

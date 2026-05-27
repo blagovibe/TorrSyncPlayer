@@ -82,8 +82,10 @@ export function useSyncPlayback(
   const handleTimeUpdate = useCallback((currentTime: number, videoDuration: number, torrentService?: TorrentService | null) => {
     if (!selectedMediaFile?.file || !torrentService) return;
     if (!videoDuration || videoDuration <= 0 || !Number.isFinite(videoDuration)) return;
-    // @ts-expect-error TS control flow narrowing does not persist in useCallback closures
-    torrentService.updatePlaybackPosition(currentTime, selectedMediaFile.file.length, videoDuration);
+    const fileLength = selectedMediaFile.file.length;
+    if (fileLength !== undefined) {
+      torrentService.updatePlaybackPosition(currentTime, fileLength, videoDuration);
+    }
   }, [selectedMediaFile]);
 
   return { syncServiceRef, seek, setSyncTolerance, handleTimeUpdate, tryApplyPendingRemoteSync };

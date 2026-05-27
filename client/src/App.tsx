@@ -19,7 +19,7 @@ function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [magnetLink, setMagnetLink] = useState("");
-  const [torrentFile, setTorrentFile] = useState<File | null>(null);
+  const torrentFileRef = useRef<File | null>(null);
   const [bufferWindowMB, setBufferWindowMB] = useState(50);
   const [maxBufferMB, setMaxBufferMB] = useState(500);
   const [browserModeWarning, setBrowserModeWarning] = useState(false);
@@ -131,7 +131,8 @@ function App() {
     if (videoRef.current) { videoRef.current.removeAttribute("src"); videoRef.current.load(); }
     roomState.reset();
     setCurrentView("home");
-    setMagnetLink(""); setTorrentFile(null);
+    setMagnetLink("");
+    torrentFileRef.current = null;
     setShowLeaveConfirm(false); setIsPlayerReady(false);
   };
 
@@ -142,7 +143,6 @@ function App() {
 
   const handleLoadMagnet = async () => {
     if (roomState.state.peerRole !== "master" || !magnetLink.trim()) return;
-    setTorrentFile(null);
     try {
       const { createMagnetSource } = await import("./utils/torrent");
       torrent.loadTorrent({
@@ -173,7 +173,7 @@ function App() {
 
   const sharedLabel = roomState.state.currentTorrentSource
     ? roomState.state.currentTorrentSource.kind === "magnet" ? "Magnet link" : roomState.state.currentTorrentSource.fileName
-    : torrentFile?.name ?? null;
+    : null;
 
   return (
     <main className="app-shell">
@@ -192,7 +192,7 @@ function App() {
             isConnected: p2p.isConnected, connectionQuality: p2p.connectionQuality, rttMs: p2p.rttMs,
           }}
           torrent={{
-            magnetLink, torrentFileName: torrentFile?.name ?? null, sharedSourceLabel: sharedLabel,
+            magnetLink, torrentFileName: roomState.state.currentTorrentSource?.kind === "file" ? roomState.state.currentTorrentSource.fileName : null, sharedSourceLabel: sharedLabel,
             mediaFiles: roomState.state.mediaFiles ?? [],
             selectedMediaIndex: roomState.state.selectedMediaIndex,
             selectedMediaLabel: roomState.state.selectedMediaLabel,
@@ -217,7 +217,7 @@ function App() {
           onSubtitleTrackChange={(idx) => { roomState.setSubtitleIndex(idx); debouncedBroadcast(); }}
           onSyncToleranceChange={sync.setSyncTolerance}
           onMagnetLinkChange={setMagnetLink}
-          onTorrentFileChange={(f) => { setTorrentFile(f); if (f) torrent.loadTorrentFile(f); }}
+          onTorrentFileChange={(f) => { torrentFileRef.current = f; if (f) torrent.loadTorrentFile(f); }}
           onPlaybackStarted={() => {}}
           onAudioTrackChange={(idx) => { roomState.setAudioTrackIndex(idx); debouncedBroadcast(); }}
           onPlayerReady={(ready) => {
@@ -225,7 +225,7 @@ function App() {
             if (ready) sync.tryApplyPendingRemoteSync();
           }}
           onLoadMagnet={() => void handleLoadMagnet()}
-          onLoadTorrentFile={() => { if (torrentFile) torrent.loadTorrentFile(torrentFile); }}
+          onLoadTorrentFile={() => { if (torrentFileRef.current) torrent.loadTorrentFile(torrentFileRef.current); }}
           onSelectMediaFile={(mf) => {
             if (roomState.state.peerRole !== "master" || !roomState.state.currentTorrentSource) return;
             torrent.loadTorrent({

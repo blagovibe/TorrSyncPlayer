@@ -18,6 +18,35 @@ fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
 fs.cpSync(path.join(projectDir, "dist"), path.join(stageDir, "dist"), { recursive: true });
 fs.cpSync(path.join(projectDir, "electron"), path.join(stageDir, "electron"), { recursive: true });
+fs.cpSync(path.join(projectDir, "torrent-shared.json"), path.join(stageDir, "torrent-shared.json"));
+
+const sharedConfig = JSON.parse(fs.readFileSync(path.join(projectDir, "torrent-shared.json"), "utf8"));
+const preloadPath = path.join(stageDir, "electron", "preload.cjs");
+const originalPreload = fs.readFileSync(preloadPath, "utf8");
+const injectedPreload = originalPreload.replace(
+  'const shared = require("../torrent-shared.json");',
+  `const shared = ${JSON.stringify(sharedConfig)};`
+);
+const maxTorrentBytesLine = `const MAX_TORRENT_FILE_BYTES = ${sharedConfig.maxTorrentFileBytes};`;
+const injectedWithConstants = injectedPreload.replace(
+  "const MAX_TORRENT_FILE_BYTES = shared.maxTorrentFileBytes;",
+  maxTorrentBytesLine
+);
+fs.writeFileSync(preloadPath, injectedWithConstants);
+
+for (const cjsFile of ["electron/torrent-constants.cjs", "electron/torrent-bridge.cjs", "electron/audio-session-manager.cjs"]) {
+  const cjsPath = path.join(stageDir, cjsFile);
+  if (fs.existsSync(cjsPath)) {
+    const original = fs.readFileSync(cjsPath, "utf8");
+    const injected = original.replace(
+      'require("../torrent-shared.json")',
+      `(${JSON.stringify(sharedConfig)})`
+    );
+    if (injected !== original) {
+      fs.writeFileSync(cjsPath, injected);
+    }
+  }
+}
 
 const stagedPackage = {
   ...sourcePackage,
@@ -45,6 +74,7 @@ const stagedPackage = {
     win: {
       target: ["portable"],
       icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.ico"),
+      publisherName: "TorrSyncPlayer",
     },
     mac: {
       icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.icns"),
@@ -59,10 +89,14 @@ if (!npmCli) {
   throw new Error("npm_execpath is not set. Run this script through npm run electron:build.");
 }
 
-execFileSync(process.execPath, [npmCli, "install", "--omit=dev", "--no-audit", "--fund=false"], {
-  cwd: stageDir,
-  stdio: "inherit",
-});
+try {
+  execFileSync(process.execPath, [npmCli, "install", "--omit=dev", "--no-audit", "--fund=false"], {
+    cwd: stageDir,
+    stdio: "inherit",
+  });
+} catch (error) {
+  throw new Error(`npm install failed in ${stageDir}: ${error?.message ?? error}`);
+}
 
 // npm overrides field in package.json handles top-level ip package resolution.
 // Nested node_modules instances are addressed via the override mechanism.

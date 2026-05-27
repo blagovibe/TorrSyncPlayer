@@ -1,5 +1,5 @@
 import type { SharedTorrentSource } from "../services/types";
-import { isValidMagnetLink as isValidMagnetLinkFromConstants, MAX_MAGNET_LINK_LENGTH } from "./torrentConstants";
+import { isValidMagnetLinkFormat, MAX_MAGNET_LINK_LENGTH } from "./torrentConstants";
 import { SHARED_TORRENT_LIMITS } from "../config-shared";
 
 const MAX_TRACKER_URL_LENGTH = SHARED_TORRENT_LIMITS.maxTrackerUrlLength;
@@ -43,7 +43,7 @@ const ALLOWED_TRACKER_PROTOCOLS: Set<string> = new Set(SHARED_TORRENT_LIMITS.all
 export function isValidMagnetLink(magnetLink: string): boolean {
   const trimmed = magnetLink.trim();
   if (trimmed.length > MAX_MAGNET_LINK_LENGTH) return false;
-  if (!isValidMagnetLinkFromConstants(trimmed)) return false;
+  if (!isValidMagnetLinkFormat(trimmed)) return false;
   try {
     const queryStart = trimmed.indexOf("?");
     if (queryStart === -1) return true;

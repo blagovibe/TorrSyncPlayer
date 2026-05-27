@@ -117,7 +117,7 @@ function VideoPlayer({
   const canControlSeekRef = useRef(canControlSeek);
   const togglePlayRef = useRef<() => Promise<void>>(null!);
   const hasMediaMetadataRef = useRef(false);
-  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);

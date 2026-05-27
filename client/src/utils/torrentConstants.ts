@@ -10,7 +10,7 @@ import { SHARED_TORRENT_LIMITS } from "../config-shared";
 const INFO_HASH_PATTERN = /^(?:urn:)?(?:btih|btmh|sha1):[a-fA-F0-9]{40}$|^(?:urn:)?ed2k:[a-fA-F0-9]{32}$/;
 const MAX_MAGNET_LINK_LENGTH = SHARED_TORRENT_LIMITS.maxMagnetLinkLength;
 
-function isValidMagnetLink(magnetLink: string): boolean {
+function isValidMagnetLinkFormat(magnetLink: string): boolean {
   if (!magnetLink.startsWith("magnet:?")) return false;
   const queryStart = magnetLink.indexOf("?");
   if (queryStart === -1) return false;
@@ -20,4 +20,4 @@ function isValidMagnetLink(magnetLink: string): boolean {
   return INFO_HASH_PATTERN.test(xt);
 }
 
-export { isValidMagnetLink, MAX_MAGNET_LINK_LENGTH };
+export { isValidMagnetLinkFormat, MAX_MAGNET_LINK_LENGTH };

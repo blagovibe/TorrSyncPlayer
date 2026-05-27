@@ -22,7 +22,7 @@ interface PlayerSettingsMenuProps {
   onBufferMaxChange: (v: number) => void;
   onBufferApply: (windowMB: number, maxBufferMB: number) => void;
   onClose: () => void;
-  menuRef: RefObject<HTMLDivElement>;
+  menuRef: RefObject<HTMLDivElement | null>;
 }
 
 export interface AudioTrackSnapshot {

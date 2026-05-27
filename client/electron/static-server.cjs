@@ -88,7 +88,7 @@ function buildCspHeader(streamBaseUrl, extraPeerSources) {
     ? extraPeerSources
     : getDefaultPeerConnectSources();
   const connectSources = ["'self'", ...peerSources, mediaSource].join(' ');
-  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${mediaSource}; connect-src ${connectSources}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'`;
+  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${mediaSource}; connect-src ${connectSources}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; upgrade-insecure-requests`;
 }
 
 class StaticServer {
