@@ -31,6 +31,7 @@
   },
   "overrides": {
     "ip": "2.0.1",
+    "tmp": "^0.2.6",
     "esbuild": "^0.25.0"
   },
   "devDependencies": {
