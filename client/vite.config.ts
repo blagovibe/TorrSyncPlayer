@@ -1,10 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
+
+const bittorrentProtocolMseShimId = '\x00bittorrent-protocol/mse-shim'
+
+const bittorrentProtocolMseShim = () => ({
+  name: 'bittorrent-protocol-mse-shim',
+  enforce: 'pre' as const,
+  resolveId(source: string) {
+    if (source === './mse.js' || source.endsWith('/bittorrent-protocol/mse.js')) {
+      return bittorrentProtocolMseShimId
+    }
+    return null
+  },
+  load(id: string) {
+    if (id === bittorrentProtocolMseShimId) {
+      return "export const nativeRC4 = false; export class MessageStreamEncryptor { constructor() {} encrypt(d){return d} decrypt(d){return d} }"
+    }
+    return null
+  }
+})
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), bittorrentProtocolMseShim()],
   base: "./",
   root: ".",
   build: {
