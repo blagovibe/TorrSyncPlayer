@@ -4,12 +4,13 @@ import { type SyncMessage } from "../services/types";
 import { clampSyncTolerance } from "../utils/syncUtils";
 import { useRoomStateContext } from "./useRoomStateContext";
 import type P2PService from "../services/P2PService";
+import type { TorrentService } from "./useTorrentLoader";
 
 export interface SyncPlayback {
   syncServiceRef: React.MutableRefObject<SyncService | null>;
   seek: (timestamp: number) => void;
   setSyncTolerance: (value: number) => void;
-  handleTimeUpdate: (currentTime: number, videoDuration: number) => void;
+  handleTimeUpdate: (currentTime: number, videoDuration: number, torrentService?: TorrentService | null) => void;
   tryApplyPendingRemoteSync: () => void;
 }
 
@@ -62,7 +63,7 @@ export function useSyncPlayback(
     if (peerRole === "master" && currentTorrentSource) scheduleBroadcast();
 
     return () => { svc.dispose(); if (syncServiceRef.current === svc) syncServiceRef.current = null; };
-  }, [currentView, peerRole, videoRef, p2pService, getCurrentSourceKey, currentTorrentSource, tryApplyPendingRemoteSync, scheduleBroadcast, disposeSync]);
+  }, [currentView, peerRole, syncToleranceSeconds, videoRef, p2pService, getCurrentSourceKey, currentTorrentSource, tryApplyPendingRemoteSync, scheduleBroadcast, disposeSync]);
 
   useEffect(() => {
     syncServiceRef.current?.setSyncToleranceSeconds(syncToleranceSeconds);
@@ -78,8 +79,11 @@ export function useSyncPlayback(
     syncServiceRef.current?.setSyncToleranceSeconds(t);
   }, [setSyncToleranceSeconds]);
 
-  const handleTimeUpdate = useCallback((_currentTime: number, _videoDuration: number) => {
-    if (!selectedMediaFile) return;
+  const handleTimeUpdate = useCallback((currentTime: number, videoDuration: number, torrentService?: TorrentService | null) => {
+    if (!selectedMediaFile?.file || !torrentService) return;
+    if (!videoDuration || videoDuration <= 0 || !Number.isFinite(videoDuration)) return;
+    // @ts-expect-error TS control flow narrowing does not persist in useCallback closures
+    torrentService.updatePlaybackPosition(currentTime, selectedMediaFile.file.length, videoDuration);
   }, [selectedMediaFile]);
 
   return { syncServiceRef, seek, setSyncTolerance, handleTimeUpdate, tryApplyPendingRemoteSync };

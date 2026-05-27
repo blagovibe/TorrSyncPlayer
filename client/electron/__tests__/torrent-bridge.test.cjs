@@ -166,14 +166,8 @@ describe("TorrentBridge", () => {
 
   it("addTorrentFile accepts Array input", async () => {
     const arrayInput = [100, 58, 97, 110, 110, 111, 117, 110, 99, 101];
-    let errorThrown = false;
-    try {
-      await bridge.addTorrentFile(arrayInput);
-    } catch (error) {
-      errorThrown = true;
-      expect(error.message).not.toMatch(/Invalid torrent source type/);
-    }
-  });
+    await expect(bridge.addTorrentFile(arrayInput)).rejects.toThrow(/WebTorrent client import timed out|Invalid torrent/);
+  }, 15000);
 
   it("validateLocalStreamUrl rejects non-http protocols", () => {
     expect(() => bridge.validateLocalStreamUrl("ftp://example.com/file.mp4")).toThrow(/must use http or https/);

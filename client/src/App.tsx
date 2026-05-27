@@ -27,6 +27,7 @@ function App() {
 
   const roomState = useRoomStateContext();
 
+  const p2p = useP2PConnection();
   const broadcastTimeoutRef = useRef<number | null>(null);
   const clearBroadcastTimeout = () => {
     if (broadcastTimeoutRef.current !== null) {
@@ -40,9 +41,7 @@ function App() {
       p2p.scheduleBroadcast(targetPeerId);
       broadcastTimeoutRef.current = null;
     }, 500);
-  }, []);
-
-  const p2p = useP2PConnection();
+  }, [p2p]);
   const torrent = useTorrentLoader(videoRef, currentView, debouncedBroadcast);
   const sync = useSyncPlayback(videoRef, { current: p2p.p2pService }, currentView, debouncedBroadcast);
 
@@ -238,7 +237,7 @@ function App() {
           }}
           onLeaveRoom={handleLeaveRoom}
           onResetTorrentInRoom={handleResetTorrent}
-          onTimeUpdate={sync.handleTimeUpdate}
+          onTimeUpdate={(time, dur) => sync.handleTimeUpdate(time, dur ?? 0, torrent.getTorrentService())}
           onBufferingChange={() => {}}
           onBufferSettingsChange={(bw, mx) => {
             torrent.getTorrentService().setBufferSettings(bw, mx);

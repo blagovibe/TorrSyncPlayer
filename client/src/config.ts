@@ -48,7 +48,6 @@ export const STREAM_CONFIG = {
 export const UI_CONFIG = {
   hideControlsDelayMs: 3000,
   broadcastDebounceMs: 500,
-  maxRoomPasswordLength: 32,
   maxChatMessages: 500,
 } as const;
 
@@ -118,7 +117,7 @@ export function getVideoPreference(ext: string): number {
   return VIDEO_EXTENSION_PREFERENCES[ext] ?? 0;
 }
 
-const NATIVE_BROWSER_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov", ".m4v", ".ts"]);
+const NATIVE_BROWSER_VIDEO_FORMATS = new Set(SHARED_TORRENT_LIMITS.nativeBrowserVideoFormats);
 
 export function needsVideoConversion(ext: string): boolean {
   return isVideoExtension(ext) && !NATIVE_BROWSER_VIDEO_FORMATS.has(ext);

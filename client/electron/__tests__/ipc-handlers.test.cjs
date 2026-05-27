@@ -3,7 +3,7 @@ const { validateIpcSender } = require("../ipc-handlers.cjs");
 function makeEvent(frameUrl) {
   return {
     senderFrame: { url: frameUrl },
-    sender: { id: 1 },
+    sender: { id: 1, isDestroyed: () => false },
   };
 }
 
@@ -27,7 +27,7 @@ describe("validateIpcSender", () => {
   });
 
   it("rejects requests with no frame URL", () => {
-    const event = { senderFrame: null, sender: { id: 1 } };
+    const event = { senderFrame: null, sender: { id: 1, isDestroyed: () => false } };
     expect(validateIpcSender(event, null, devUrl, getMainWindowWebContentsId)).toBe(false);
   });
 

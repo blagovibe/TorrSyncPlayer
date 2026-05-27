@@ -12,6 +12,10 @@ function getAllowedOrigins(staticServerInstance, devServerUrl) {
 }
 
 function validateIpcSender(event, staticServerInstance, devServerUrl, getMainWindowWebContentsId) {
+  if (event.sender.isDestroyed()) {
+    electronLogger.warn("IPC validation failed: sender webContents has been destroyed");
+    return false;
+  }
   const mainWindowId = getMainWindowWebContentsId();
   if (mainWindowId !== null && event.sender.id !== mainWindowId) {
     electronLogger.warn(`IPC validation failed: sender webContents ID ${event.sender.id} does not match main window ID ${mainWindowId}`);

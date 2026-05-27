@@ -87,4 +87,3 @@ export function createLogger(namespace: string): Logger {
 export const torrentLogger = createLogger("torrent");
 export const p2pLogger = createLogger("p2p");
 export const uiLogger = createLogger("ui");
-export const electronLogger = createLogger("electron");

@@ -1075,12 +1075,9 @@ export class P2PService {
     }
     if (this.peer && !this.peer.destroyed) {
       try {
-        this.peer.disconnect();
-      } catch (error) {
-        p2pLogger.warn("peer.disconnect() failed during disconnect():", error);
-      }
-      if (typeof this.peer.destroy === "function") {
         this.peer.destroy();
+      } catch (error) {
+        p2pLogger.warn("peer.destroy() failed during disconnect():", error);
       }
     }
     this.peer = null;

@@ -13,6 +13,7 @@ import {
   getVideoPreference,
   needsVideoConversion,
 } from "../config";
+import { SHARED_TORRENT_LIMITS } from "../config-shared";
 
 type MediaKind = "video" | "audio";
 
@@ -76,8 +77,8 @@ function getFileExtension(name: string): string {
 }
 
 // Formats natively supported by most browsers for <video> element
-const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set([".mp4", ".webm", ".ogv", ".mov", ".m4v", ".ts"]);
-const BROWSER_SUPPORTED_AUDIO_FORMATS = new Set([".mp3", ".ogg", ".opus", ".wav", ".oga", ".aac", ".m4a", ".flac", ".wma"]);
+const BROWSER_SUPPORTED_VIDEO_FORMATS = new Set(SHARED_TORRENT_LIMITS.nativeBrowserVideoFormats);
+const BROWSER_SUPPORTED_AUDIO_FORMATS = new Set(SHARED_TORRENT_LIMITS.nativeBrowserAudioFormats);
 
 type TorrentEmitter = {
   on: (event: string, callback: (...args: unknown[]) => void) => void;

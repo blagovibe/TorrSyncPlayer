@@ -75,7 +75,7 @@ interface RoomPageProps {
   onLeaveRoom: () => void;
   onBufferingChange?: (isBuffering: boolean) => void;
   onResetTorrentInRoom?: () => void;
-  onTimeUpdate?: (currentTime: number, duration: number) => void;
+  onTimeUpdate?: (currentTime: number, duration: number | undefined) => void;
   onBufferSettingsChange?: (bufferWindowMB: number, maxBufferMB: number) => void;
   onSyncToleranceChange: (value: number) => void;
   onSeek?: (timestamp: number) => void;
@@ -192,30 +192,13 @@ function RoomPage({
     try {
       await navigator.clipboard.writeText(peerId);
       setCopied(true);
-      if (copiedTimerRef.current !== null) {
-        clearTimeout(copiedTimerRef.current);
-      }
+      if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      try {
-        const textArea = document.createElement("textarea");
-        textArea.value = peerId;
-        document.body.appendChild(textArea);
-        textArea.select();
-        textArea.setSelectionRange(0, 99999);
-        await navigator.clipboard.writeText(peerId);
-        setCopied(true);
-        if (copiedTimerRef.current !== null) {
-          clearTimeout(copiedTimerRef.current);
-        }
-        copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-        document.body.removeChild(textArea);
-      } catch {
-        setCopyFailed(true);
-        setCopied(false);
-        uiLogger.error("Failed to copy peer ID — please copy manually");
-        window.setTimeout(() => setCopyFailed(false), 4000);
-      }
+      setCopyFailed(true);
+      setCopied(false);
+      uiLogger.error("Failed to copy peer ID — please copy manually");
+      window.setTimeout(() => setCopyFailed(false), 4000);
     }
   };
 
