@@ -18,18 +18,11 @@ fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
 fs.cpSync(path.join(projectDir, "dist"), path.join(stageDir, "dist"), { recursive: true });
 fs.cpSync(path.join(projectDir, "electron"), path.join(stageDir, "electron"), { recursive: true });
-if (fs.existsSync(path.join(projectDir, "local-packages"))) {
-  fs.cpSync(path.join(projectDir, "local-packages"), path.join(stageDir, "local-packages"), { recursive: true });
-}
 
 const stagedPackage = {
   ...sourcePackage,
   private: true,
   main: "electron/main.cjs",
-  dependencies: {
-    ...sourcePackage.dependencies,
-    ip: "file:./local-packages/ip-patched",
-  },
   overrides: sourcePackage.overrides,
   build: {
     appId: "com.torrsyncplayer.app",
@@ -71,60 +64,5 @@ execFileSync(process.execPath, [npmCli, "install", "--omit=dev", "--no-audit", "
   stdio: "inherit",
 });
 
-const patchedIpDir = path.join(stageDir, "local-packages", "ip-patched");
-const patchedPackageJson = JSON.parse(fs.readFileSync(path.join(patchedIpDir, "package.json"), "utf8"));
-patchedPackageJson.name = "ip";
-fs.writeFileSync(path.join(patchedIpDir, "package.json"), `${JSON.stringify(patchedPackageJson, null, 2)}\n`);
-
-// The npm `overrides` field in package.json handles top-level ip package resolution,
-// but nested node_modules (e.g., inside webtorrent or its deps) may still pull in the
-// original vulnerable `ip` package. This manual patching walk ensures ALL instances
-// of `ip` across every node_modules directory are replaced with our patched local copy.
-// This is defense-in-depth: overrides alone are insufficient for transitive nested deps.
-function ensureIpModule(nodeModulesDir) {
-  const ipPath = path.join(nodeModulesDir, "ip");
-  let needsFix = false;
-  if (fs.existsSync(ipPath)) {
-    try {
-      const contents = fs.readdirSync(ipPath);
-      if (contents.length === 0) needsFix = true;
-    } catch {
-      needsFix = true;
-    }
-    if (needsFix) fs.rmSync(ipPath, { recursive: true, force: true });
-  } else {
-    needsFix = true;
-  }
-  if (needsFix) {
-    const parentPkgPath = path.join(nodeModulesDir, "..", "package.json");
-    try {
-      const parentPkg = JSON.parse(fs.readFileSync(parentPkgPath, "utf8"));
-      const deps = parentPkg.dependencies || {};
-      const overrides = parentPkg.overrides || {};
-      if ("ip" in deps || "ip" in overrides) {
-        fs.cpSync(patchedIpDir, ipPath, { recursive: true });
-      }
-    } catch (error) {
-      console.warn(`[prepare-electron-app] Warning: failed to patch ip module in ${nodeModulesDir}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-}
-
-function walkForNodeModules(dir) {
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const fullPath = path.join(dir, entry.name);
-    if (entry.name === "node_modules") {
-      ensureIpModule(fullPath);
-    }
-    walkForNodeModules(fullPath);
-  }
-}
-
-walkForNodeModules(stageDir);
+// npm overrides field in package.json handles top-level ip package resolution.
+// Nested node_modules instances are addressed via the override mechanism.
