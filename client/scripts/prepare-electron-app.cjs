@@ -50,6 +50,7 @@ for (const cjsFile of ["electron/torrent-constants.cjs", "electron/torrent-bridg
 
 const stagedPackage = {
   ...sourcePackage,
+  author: "TorrSyncPlayer",
   private: true,
   main: "electron/main.cjs",
   overrides: sourcePackage.overrides,
@@ -74,7 +75,6 @@ const stagedPackage = {
     win: {
       target: ["portable"],
       icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.ico"),
-      publisherName: "TorrSyncPlayer",
     },
     mac: {
       icon: path.join(projectDir, "..", "TorrSyncPlayer_Icon.icns"),
