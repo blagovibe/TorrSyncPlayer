@@ -5,6 +5,7 @@ import { clampSyncTolerance } from "../utils/syncUtils";
 import { useRoomStateContext } from "./useRoomStateContext";
 import type P2PService from "../services/P2PService";
 import type { TorrentService } from "./useTorrentLoader";
+import { uiLogger } from "../utils/logger";
 
 export interface SyncPlayback {
   syncServiceRef: React.MutableRefObject<SyncService | null>;
@@ -42,7 +43,11 @@ export function useSyncPlayback(
     const curKey = getCurrentSourceKey();
     if (curKey && pending.sourceKey !== curKey) return;
     roomState.setPendingSync(null);
-    syncServiceRef.current.applyRemoteSync(pending);
+    try {
+      syncServiceRef.current.applyRemoteSync(pending);
+    } catch (error) {
+      uiLogger.error("Failed to apply remote sync:", error);
+    }
   }, [peerRole, selectedMediaFile, roomState, getCurrentSourceKey]);
 
   useEffect(() => {
@@ -70,13 +75,23 @@ export function useSyncPlayback(
   }, [syncToleranceSeconds]);
 
   const seek = useCallback((timestamp: number) => {
-    if (peerRole === "master" && syncServiceRef.current) syncServiceRef.current.seek(timestamp);
+    if (peerRole === "master" && syncServiceRef.current) {
+      try {
+        syncServiceRef.current.seek(timestamp);
+      } catch (error) {
+        uiLogger.error("Seek failed:", error);
+      }
+    }
   }, [peerRole]);
 
   const setSyncTolerance = useCallback((value: number) => {
     const t = clampSyncTolerance(value);
     setSyncToleranceSeconds(t);
-    syncServiceRef.current?.setSyncToleranceSeconds(t);
+    try {
+      syncServiceRef.current?.setSyncToleranceSeconds(t);
+    } catch (error) {
+      uiLogger.error("Failed to set sync tolerance:", error);
+    }
   }, [setSyncToleranceSeconds]);
 
   const handleTimeUpdate = useCallback((currentTime: number, videoDuration: number, torrentService?: TorrentService | null) => {
@@ -84,7 +99,11 @@ export function useSyncPlayback(
     if (!videoDuration || videoDuration <= 0 || !Number.isFinite(videoDuration)) return;
     const fileLength = selectedMediaFile.file.length;
     if (fileLength !== undefined) {
-      torrentService.updatePlaybackPosition(currentTime, fileLength, videoDuration);
+      try {
+        torrentService.updatePlaybackPosition(currentTime, fileLength, videoDuration);
+      } catch (error) {
+        uiLogger.warn("Failed to update playback position:", error);
+      }
     }
   }, [selectedMediaFile]);
 

@@ -3,6 +3,7 @@ import HomePage from "./components/HomePage";
 import RoomPage from "./components/RoomPage";
 import { uiLogger } from "./utils/logger";
 import ConfirmModal from "./components/ConfirmModal";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { useP2PConnection } from "./hooks/useP2PConnection";
 import { useTorrentLoader } from "./hooks/useTorrentLoader";
 import { useSyncPlayback } from "./hooks/useSyncPlayback";
@@ -176,85 +177,92 @@ function App() {
     : null;
 
   return (
-    <main className="app-shell">
-      {currentView === "home" ? (
-        <HomePage
-          peerId={p2p.peerId}
-          onCreateRoom={handleCreateRoom}
-          onJoinRoom={handleJoinRoom}
-          isConnecting={p2p.isConnecting}
-          connectionError={p2p.connectionError}
-        />
-      ) : (
-        <RoomPage
-          connection={{
-            peerId: p2p.peerId, peerRole: p2p.peerRole, peers: p2p.peers,
-            isConnected: p2p.isConnected, connectionQuality: p2p.connectionQuality, rttMs: p2p.rttMs,
-          }}
-          torrent={{
-            magnetLink, torrentFileName: roomState.state.currentTorrentSource?.kind === "file" ? roomState.state.currentTorrentSource.fileName : null, sharedSourceLabel: sharedLabel,
-            mediaFiles: roomState.state.mediaFiles ?? [],
-            selectedMediaIndex: roomState.state.selectedMediaIndex,
-            selectedMediaLabel: roomState.state.selectedMediaLabel,
-            selectedMediaKind: roomState.state.selectedMediaKind,
-            selectedMediaAudioTracks: roomState.state.selectedMediaAudioTracks,
-            selectedAudioTrackIndex: roomState.state.selectedAudioTrackIndex,
-            selectedSubtitles: roomState.state.selectedSubtitles,
-            selectedSubtitleIndex: roomState.state.selectedSubtitleIndex,
-            isLoadingTorrent: torrent.isLoadingTorrent, downloadSpeed: torrent.downloadSpeed,
-            bufferingProgress: bufferProgress, torrentPeerCount: torrent.torrentPeerCount,
-            torrentError: torrent.torrentError, torrentPeerHint, bufferHint,
-            trackerLost: torrent.trackerLost, bufferWindowMB, maxBufferMB,
-          }}
-          player={{
-            videoRef, playbackNotice: torrent.playbackNotice,
-            syncToleranceSeconds: roomState.state.syncToleranceSeconds,
-            canControl: roomState.state.peerRole === "master",
-          }}
-          chat={{ chatMessages: p2p.chatMessages, onSendChat: p2p.sendChat }}
-          ffmpegAvailable={ffmpegAvailable}
-          browserModeWarning={browserModeWarning}
-          onSubtitleTrackChange={(idx) => { roomState.setSubtitleIndex(idx); debouncedBroadcast(); }}
-          onSyncToleranceChange={sync.setSyncTolerance}
-          onMagnetLinkChange={setMagnetLink}
-          onTorrentFileChange={(f) => { torrentFileRef.current = f; if (f) torrent.loadTorrentFile(f); }}
-          onPlaybackStarted={() => {}}
-          onAudioTrackChange={(idx) => { roomState.setAudioTrackIndex(idx); debouncedBroadcast(); }}
-          onPlayerReady={(ready) => {
-            setIsPlayerReady(ready);
-            if (ready) sync.tryApplyPendingRemoteSync();
-          }}
-          onLoadMagnet={() => void handleLoadMagnet()}
-          onLoadTorrentFile={() => { if (torrentFileRef.current) torrent.loadTorrentFile(torrentFileRef.current); }}
-          onSelectMediaFile={(mf) => {
-            if (roomState.state.peerRole !== "master" || !roomState.state.currentTorrentSource) return;
-            torrent.loadTorrent({
-              source: roomState.state.currentTorrentSource,
-              selectedMediaIndex: mf.index, selectedAudioTrackIndex: null, selectedSubtitleIndex: null,
-              autoplay: true, broadcast: true,
-            });
-            roomState.setAudioTrackIndex(null);
-          }}
-          onLeaveRoom={handleLeaveRoom}
-          onResetTorrentInRoom={handleResetTorrent}
-          onTimeUpdate={(time, dur) => sync.handleTimeUpdate(time, dur ?? 0, torrent.getTorrentService())}
-          onBufferingChange={() => {}}
-          onBufferSettingsChange={(bw, mx) => {
-            torrent.getTorrentService().setBufferSettings(bw, mx);
-            setBufferWindowMB(bw); setMaxBufferMB(mx);
-          }}
-          onSeek={sync.seek}
-          onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
-          onShowResetConfirm={() => setShowResetConfirm(true)}
-          onReturnHome={() => setCurrentView("home")}
-          reconnectFailed={p2p.reconnectFailed}
-          onRequestResend={() => { if (p2p.p2pService?.isConnected()) p2p.p2pService.sendChat("/resend"); }}
-        />
-      )}
-      <ConfirmModal isOpen={showLeaveConfirm} title="Leave room?" message="Are you sure you want to leave the room? All connections will be closed." confirmLabel="Leave" danger onConfirm={handleLeaveRoom} onCancel={() => setShowLeaveConfirm(false)} />
-      <ConfirmModal isOpen={showResetConfirm} title="Change torrent source?" message="Current playback will stop and the room will be reset." confirmLabel="Change" danger onConfirm={handleResetTorrent} onCancel={() => setShowResetConfirm(false)} />
-      <ConfirmModal isOpen={showCloseConfirm} title="Close application?" message="Are you sure you want to close TorrSyncPlayer? All connections will be lost." confirmLabel="Close" danger onConfirm={handleCloseConfirmed} onCancel={handleCloseCancelled} />
-    </main>
+    <ErrorBoundary
+      onReset={() => {
+        roomState.reset();
+        setCurrentView("home");
+      }}
+    >
+      <main className="app-shell">
+        {currentView === "home" ? (
+          <HomePage
+            peerId={p2p.peerId}
+            onCreateRoom={handleCreateRoom}
+            onJoinRoom={handleJoinRoom}
+            isConnecting={p2p.isConnecting}
+            connectionError={p2p.connectionError}
+          />
+        ) : (
+          <RoomPage
+            connection={{
+              peerId: p2p.peerId, peerRole: p2p.peerRole, peers: p2p.peers,
+              isConnected: p2p.isConnected, connectionQuality: p2p.connectionQuality, rttMs: p2p.rttMs,
+            }}
+            torrent={{
+              magnetLink, torrentFileName: roomState.state.currentTorrentSource?.kind === "file" ? roomState.state.currentTorrentSource.fileName : null, sharedSourceLabel: sharedLabel,
+              mediaFiles: roomState.state.mediaFiles ?? [],
+              selectedMediaIndex: roomState.state.selectedMediaIndex,
+              selectedMediaLabel: roomState.state.selectedMediaLabel,
+              selectedMediaKind: roomState.state.selectedMediaKind,
+              selectedMediaAudioTracks: roomState.state.selectedMediaAudioTracks,
+              selectedAudioTrackIndex: roomState.state.selectedAudioTrackIndex,
+              selectedSubtitles: roomState.state.selectedSubtitles,
+              selectedSubtitleIndex: roomState.state.selectedSubtitleIndex,
+              isLoadingTorrent: torrent.isLoadingTorrent, downloadSpeed: torrent.downloadSpeed,
+              bufferingProgress: bufferProgress, torrentPeerCount: torrent.torrentPeerCount,
+              torrentError: torrent.torrentError, torrentPeerHint, bufferHint,
+              trackerLost: torrent.trackerLost, bufferWindowMB, maxBufferMB,
+            }}
+            player={{
+              videoRef, playbackNotice: torrent.playbackNotice,
+              syncToleranceSeconds: roomState.state.syncToleranceSeconds,
+              canControl: roomState.state.peerRole === "master",
+            }}
+            chat={{ chatMessages: p2p.chatMessages, onSendChat: p2p.sendChat }}
+            ffmpegAvailable={ffmpegAvailable}
+            browserModeWarning={browserModeWarning}
+            onSubtitleTrackChange={(idx) => { roomState.setSubtitleIndex(idx); debouncedBroadcast(); }}
+            onSyncToleranceChange={sync.setSyncTolerance}
+            onMagnetLinkChange={setMagnetLink}
+            onTorrentFileChange={(f) => { torrentFileRef.current = f; if (f) torrent.loadTorrentFile(f); }}
+            onPlaybackStarted={() => {}}
+            onAudioTrackChange={(idx) => { roomState.setAudioTrackIndex(idx); debouncedBroadcast(); }}
+            onPlayerReady={(ready) => {
+              setIsPlayerReady(ready);
+              if (ready) sync.tryApplyPendingRemoteSync();
+            }}
+            onLoadMagnet={() => void handleLoadMagnet()}
+            onLoadTorrentFile={() => { if (torrentFileRef.current) torrent.loadTorrentFile(torrentFileRef.current); }}
+            onSelectMediaFile={(mf) => {
+              if (roomState.state.peerRole !== "master" || !roomState.state.currentTorrentSource) return;
+              torrent.loadTorrent({
+                source: roomState.state.currentTorrentSource,
+                selectedMediaIndex: mf.index, selectedAudioTrackIndex: null, selectedSubtitleIndex: null,
+                autoplay: true, broadcast: true,
+              });
+              roomState.setAudioTrackIndex(null);
+            }}
+            onLeaveRoom={handleLeaveRoom}
+            onResetTorrentInRoom={handleResetTorrent}
+            onTimeUpdate={(time, dur) => sync.handleTimeUpdate(time, dur ?? 0, torrent.getTorrentService())}
+            onBufferingChange={() => {}}
+            onBufferSettingsChange={(bw, mx) => {
+              torrent.getTorrentService().setBufferSettings(bw, mx);
+              setBufferWindowMB(bw); setMaxBufferMB(mx);
+            }}
+            onSeek={sync.seek}
+            onShowLeaveConfirm={() => setShowLeaveConfirm(true)}
+            onShowResetConfirm={() => setShowResetConfirm(true)}
+            onReturnHome={() => setCurrentView("home")}
+            reconnectFailed={p2p.reconnectFailed}
+            onRequestResend={() => { if (p2p.p2pService?.isConnected()) p2p.p2pService.sendChat("/resend"); }}
+          />
+        )}
+        <ConfirmModal isOpen={showLeaveConfirm} title="Leave room?" message="Are you sure you want to leave the room? All connections will be closed." confirmLabel="Leave" danger onConfirm={handleLeaveRoom} onCancel={() => setShowLeaveConfirm(false)} />
+        <ConfirmModal isOpen={showResetConfirm} title="Change torrent source?" message="Current playback will stop and the room will be reset." confirmLabel="Change" danger onConfirm={handleResetTorrent} onCancel={() => setShowResetConfirm(false)} />
+        <ConfirmModal isOpen={showCloseConfirm} title="Close application?" message="Are you sure you want to close TorrSyncPlayer? All connections will be lost." confirmLabel="Close" danger onConfirm={handleCloseConfirmed} onCancel={handleCloseCancelled} />
+      </main>
+    </ErrorBoundary>
   );
 }
 

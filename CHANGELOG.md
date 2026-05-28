@@ -2,6 +2,21 @@
 
 All notable changes to TorrSyncPlayer will be documented in this file.
 
+## [0.1.21] - 2026-05-28
+
+### Bug Fixes
+- Исправлена проблема с отображением окна при запуске
+
+### Improvements
+- Улучшена типизация и обработка ошибок
+- Унифицирована конфигурация
+- Добавлены JSDoc комментарии
+- Улучшено тестовое покрытие (+135 тестов)
+- Добавлен lazy loading для WebTorrent
+- Настроен Content Security Policy
+- Создан скрипт security-audit
+- Оптимизированы React компоненты
+
 ## [Unreleased]
 
 ### Security

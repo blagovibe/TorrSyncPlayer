@@ -10,6 +10,7 @@ test_output.txt
 
 # IDE / AI tool directories
 .kilo/
+.roo/
 !.kilo/package.json
 !.kilo/package-lock.json
 .codex/
@@ -17,3 +18,4 @@ test_output.txt
 .cursor/
 .idea/
 .vscode/
+plans/

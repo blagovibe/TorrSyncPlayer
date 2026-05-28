@@ -7,13 +7,14 @@ import { torrentLogger } from "../utils/logger";
 import {
   TORRENT_CONFIG,
   STREAM_CONFIG,
+  SHARED_TORRENT_LIMITS,
   getTrackerUrls,
   isVideoExtension,
   isAudioExtension,
   getVideoPreference,
   needsVideoConversion,
-} from "../config";
-import { SHARED_TORRENT_LIMITS } from "../config-shared";
+} from "../config-unified";
+import { loadWebTorrent, type TorrentClient } from "./WebTorrentLoader";
 
 type MediaKind = "video" | "audio";
 
@@ -37,12 +38,6 @@ type TorrentEvents = {
 
 type EventKey = keyof TorrentEvents;
 type TorrentSource = string | Uint8Array;
-type TorrentClient = {
-  add: (torrentSource: TorrentSource, opts?: Record<string, unknown>, callback?: (torrent: TorrentInstance) => void) => TorrentInstance | null;
-  destroy: (callback?: () => void) => void;
-  createServer?: (options: { controller: ServiceWorkerRegistration }) => unknown;
-  _server?: { close?: () => void };
-};
 
 
 
@@ -88,6 +83,21 @@ type TorrentEmitter = {
 
 type BackendType = "browser" | "electron";
 
+/**
+ * Service for managing torrent downloads and streaming.
+ *
+ * Supports both browser WebTorrent and Electron native backends.
+ * Handles media file discovery, streaming, and buffer management.
+ *
+ * @example
+ * ```typescript
+ * const torrentService = new TorrentService();
+ * torrentService.on("ready", (torrent, mediaFile) => {
+ *   console.log("Ready to play:", mediaFile.name);
+ * });
+ * const torrent = await torrentService.addMagnet("magnet:?xt=urn:btih:...");
+ * ```
+ */
 export class TorrentService {
   private client: TorrentClient | null = null;
   private backendType: BackendType | null = null;
@@ -116,10 +126,18 @@ export class TorrentService {
   private addAbortController: AbortController | null = null;
   private loadGeneration = 0;
 
+  /**
+   * Check if the service has been destroyed.
+   * @returns True if the service is destroyed and cannot be reused.
+   */
   isDestroyed(): boolean {
     return this._isDestroyed;
   }
 
+  /**
+   * Check if the service is currently being destroyed.
+   * @returns True if destruction is in progress.
+   */
   isDestroying(): boolean {
     return this._isDestroying;
   }
@@ -232,7 +250,12 @@ export class TorrentService {
       });
   }
 
-  /** Get the preferred (largest, highest-priority) media file from a torrent. */
+  /**
+   * Get the preferred (largest, highest-priority) media file from a torrent.
+   * @param torrent - The torrent instance to search.
+   * @returns The preferred media file for playback.
+   * @throws If no supported media files are found.
+   */
   getPreferredMediaFile(torrent: TorrentInstance): TorrentMediaFile {
     const playableFiles = this.getPlayableMediaFiles(torrent);
     if (playableFiles.length === 0) {
@@ -243,7 +266,11 @@ export class TorrentService {
     return playableFiles[0];
   }
 
-  /** Probe a media file for available audio tracks via the Electron backend. */
+  /**
+   * Probe a media file for available audio tracks via the Electron backend.
+   * @param file - The torrent file to probe.
+   * @returns Array of audio track information, or empty array if unavailable.
+   */
   async probeAudioTracks(file: TorrentFile): Promise<AudioTrackInfo[]> {
     const backend = this.getElectronBackend();
     if (!backend?.probeAudioTracks || !file.streamUrl) return [];
@@ -255,6 +282,13 @@ export class TorrentService {
     }
   }
 
+  /**
+   * Create a stream URL for a specific audio track.
+   * @param file - The torrent file containing the audio track.
+   * @param trackIndex - The index of the audio track.
+   * @param startSeconds - The start time offset in seconds.
+   * @returns The stream URL, or null if creation failed.
+   */
   async createAudioTrackStreamUrl(
     file: TorrentFile,
     trackIndex: number,
@@ -274,6 +308,13 @@ export class TorrentService {
     }
   }
 
+  /**
+   * Create a multiplexed stream URL with video and audio combined.
+   * @param file - The torrent file to stream.
+   * @param audioTrackIndex - The index of the audio track to include.
+   * @param startSeconds - The start time offset in seconds.
+   * @returns The muxed stream URL, or null if creation failed.
+   */
   async createMuxStreamUrl(
     file: TorrentFile,
     audioTrackIndex: number | null,
@@ -293,7 +334,11 @@ export class TorrentService {
     }
   }
 
-  /** Probe a media file for available subtitle tracks via the Electron backend. */
+  /**
+   * Probe a media file for available subtitle tracks via the Electron backend.
+   * @param file - The torrent file to probe.
+   * @returns Array of subtitle track information, or empty array if unavailable.
+   */
   async probeSubtitles(file: TorrentFile): Promise<SubtitleTrackInfo[]> {
     const backend = this.getElectronBackend();
     if (!backend?.probeSubtitles || !file.streamUrl) return [];
@@ -305,6 +350,13 @@ export class TorrentService {
     }
   }
 
+  /**
+   * Create a stream URL for a specific subtitle track.
+   * @param file - The torrent file containing the subtitle track.
+   * @param trackIndex - The index of the subtitle track.
+   * @param startSeconds - The start time offset in seconds.
+   * @returns The stream URL, or null if creation failed.
+   */
   async createSubtitleStreamUrl(
     file: TorrentFile,
     trackIndex: number,
@@ -520,7 +572,11 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
     }
   }
 
-  /** Get the preferred video file from a torrent. */
+  /**
+   * Get the preferred video file from a torrent.
+   * @param torrent - The torrent instance.
+   * @returns The preferred video file.
+   */
   getVideoFile(torrent: TorrentInstance): TorrentFile {
     return this.getPreferredMediaFile(torrent).file;
   }
@@ -711,12 +767,19 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
     }
   }
 
-  /** Format a media file's size as a human-readable string. */
+  /**
+   * Format a media file's size as a human-readable string.
+   * @param mediaFile - The media file to format.
+   * @returns Human-readable size string (e.g., "1.5 GB").
+   */
   formatMediaFileLabel(mediaFile: TorrentMediaFile): string {
     return formatBytes(mediaFile.length);
   }
 
-  /** Clear the active torrent and release all associated resources. */
+  /**
+   * Clear the active torrent and release all associated resources.
+   * @returns Promise that resolves when cleanup is complete.
+   */
   async clearActiveTorrent(): Promise<void> {
     return this.clearActiveTorrentForAdd();
   }
@@ -795,6 +858,11 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
    */
   private _destroyPromise: Promise<void> | null = null;
 
+  /**
+   * Full destruction of the service. After calling this, the service cannot be reused.
+   * Clears all torrents, blob URLs, service workers, and listeners.
+   * @returns Promise that resolves when destruction is complete.
+   */
   async destroy(): Promise<void> {
     if (this._isDestroyed || this._isDestroying) {
       return this._destroyPromise ?? Promise.resolve();
@@ -849,7 +917,10 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
     }
   }
 
-  /** Get the current buffer window boundaries and maximum buffer size in megabytes. */
+  /**
+   * Get the current buffer window boundaries and maximum buffer size in megabytes.
+   * @returns Object with startMB, endMB, and maxSizeMB properties.
+   */
   getBufferWindow(): { startMB: number; endMB: number; maxSizeMB: number } {
     return {
       startMB: Math.round(Math.max(0, this.currentPlaybackBytes - this.bufferWindowBytes) / 1024 / 1024),
@@ -935,11 +1006,15 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
   }
 
   private enforceBufferLimit(): void {
-    const torrent = this.activeTorrent as unknown as {
+    const torrent: {
       paused?: boolean;
       pause?: () => void;
       resume?: () => void;
-    } | null;
+    } | null = this.activeTorrent ? {
+      paused: (this.activeTorrent as { paused?: boolean }).paused,
+      pause: (this.activeTorrent as { pause?: () => void }).pause,
+      resume: (this.activeTorrent as { resume?: () => void }).resume,
+    } : null;
 
     if (!torrent?.pause || !torrent?.resume) return;
 
@@ -953,9 +1028,7 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
   }
 
   private estimateDownloadedBytes(): number {
-    const torrent = this.activeTorrent as unknown as {
-      downloaded?: number;
-    } | null;
+    const torrent = this.activeTorrent;
     if (!torrent) return 0;
     if (typeof torrent.downloaded === "number" && torrent.downloaded > 0) {
       return torrent.downloaded;
@@ -979,7 +1052,8 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
       if (this._isDestroyed || this._isDestroying) {
         throw new Error("TorrentService has been destroyed");
       }
-      const { default: WebTorrent } = await import("webtorrent");
+      // Use lazy loader for WebTorrent - reduces initial bundle size
+      const WebTorrent = await loadWebTorrent();
       this.client = new WebTorrent({
         maxConns: TORRENT_CONFIG.maxConnections,
         tracker: { announce: getTrackerUrls() },
@@ -1028,7 +1102,7 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
     try {
       const snapshot = await adapter.getStats();
       if (!snapshot || !this.activeTorrent || this._isDestroyed) return;
-      this.mergeTorrentSnapshot(this.activeTorrent, snapshot as unknown as TorrentInstance);
+      this.mergeTorrentSnapshot(this.activeTorrent, snapshot as TorrentInstance);
       this.emitTorrentStats(this.activeTorrent);
     } catch (error) {
       this.emit("error", this.normalizeError(error));

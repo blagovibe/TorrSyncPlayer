@@ -122,7 +122,11 @@ export function useP2PConnection(): P2PConnection {
   }, [setPendingSync, setCtxSyncTolerance, roomState]);
 
   const initialize = useCallback(async (role: "host" | "guest") => {
-    p2pServiceRef.current?.disconnect();
+    try {
+      await p2pServiceRef.current?.disconnect();
+    } catch (error) {
+      uiLogger.warn("Previous service cleanup failed:", error);
+    }
     setPendingSync(null);
     const svc = new P2PService();
     if (role === "host") {
@@ -132,7 +136,13 @@ export function useP2PConnection(): P2PConnection {
     }
     setupListeners(svc, role);
     p2pServiceRef.current = svc;
-    await svc.initialize();
+    try {
+      await svc.initialize();
+    } catch (error) {
+      uiLogger.error("P2P initialization failed:", error);
+      p2pServiceRef.current = null;
+      throw error;
+    }
     setPeerId(svc.getPeerId());
     return svc;
   }, [setupListeners, setPendingSync]);
@@ -150,21 +160,27 @@ export function useP2PConnection(): P2PConnection {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to initialize room";
       uiLogger.error("Failed to create room:", err);
-      try { p2pServiceRef.current?.disconnect(); } catch (e) { uiLogger.warn("Cleanup failed:", e); }
+      try {
+        await p2pServiceRef.current?.disconnect();
+      } catch (cleanupError) {
+        uiLogger.warn("Cleanup failed:", cleanupError);
+      }
       p2pServiceRef.current = null;
       setConnectionError(msg);
       setPeerRole(null);
       setCtxPeerRole(null);
       setPeers([]);
       setIsConnected(false);
-    } finally { setIsConnecting(false); }
+    } finally {
+      setIsConnecting(false);
+    }
   }, [isConnecting, initialize, setCtxPeerRole]);
 
   const joinRoom = useCallback(async (code: string) => {
     if (isConnecting) return;
     const normalized = code.trim().toUpperCase();
     if (!normalized || normalized.length !== 6 || !/^[A-Z0-9]+$/.test(normalized)) {
-      setConnectionError("Invalid peer ID");
+      setConnectionError("Invalid peer ID. Please enter a 6-character room code.");
       return;
     }
     setIsConnecting(true);
@@ -172,7 +188,9 @@ export function useP2PConnection(): P2PConnection {
     setReconnectFailed(false);
     try {
       const svc = await initialize("guest");
-      const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Connection timed out.")), 60_000));
+      const timeout = new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error("Connection timed out. Please check the room code and try again.")), 60_000)
+      );
       await Promise.race([svc.connect(`torrsync-${normalized}`), timeout]);
       setPeerRole("slave");
       setCtxPeerRole("slave");
@@ -184,23 +202,39 @@ export function useP2PConnection(): P2PConnection {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Connection failed";
       uiLogger.error("Failed to connect:", err);
-      try { p2pServiceRef.current?.disconnect(); } catch (e) { uiLogger.warn("Cleanup:", e); }
+      try {
+        await p2pServiceRef.current?.disconnect();
+      } catch (cleanupError) {
+        uiLogger.warn("Cleanup failed:", cleanupError);
+      }
       p2pServiceRef.current = null;
       setConnectionError(msg);
       setPeerRole(null);
       setCtxPeerRole(null);
       setPeers([]);
       setIsConnected(false);
-    } finally { setIsConnecting(false); }
+    } finally {
+      setIsConnecting(false);
+    }
   }, [isConnecting, initialize, setCtxPeerRole]);
 
   const disconnect = useCallback(async () => {
-    try { await p2pServiceRef.current?.disconnect(); } catch (e) { uiLogger.warn("Disconnect:", e); }
+    try {
+      await p2pServiceRef.current?.disconnect();
+    } catch (error) {
+      uiLogger.warn("Disconnect error:", error);
+    }
     p2pServiceRef.current = null;
-    setPeerId(""); setPeerRole(null); setCtxPeerRole(null); setPeers([]);
-    setIsConnected(false); setIsConnecting(false);
-    setConnectionError(null); setPendingSync(null);
-    setReconnectFailed(false); setChatMessages([]);
+    setPeerId("");
+    setPeerRole(null);
+    setCtxPeerRole(null);
+    setPeers([]);
+    setIsConnected(false);
+    setIsConnecting(false);
+    setConnectionError(null);
+    setPendingSync(null);
+    setReconnectFailed(false);
+    setChatMessages([]);
   }, [setPendingSync, setCtxPeerRole]);
 
   const sendChat = useCallback((text: string) => {

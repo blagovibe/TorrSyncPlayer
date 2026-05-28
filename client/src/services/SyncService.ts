@@ -1,6 +1,6 @@
 import { type SyncMessage } from "./types";
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
-import { SYNC_CONFIG } from "../config";
+import { SYNC_CONFIG } from "../config-unified";
 
 type SyncEvents = {
   sync_play: (message: SyncMessage) => void;
@@ -24,6 +24,19 @@ type SuppressFlags = {
   state: boolean;
 };
 
+/**
+ * Service for synchronizing playback between peers.
+ *
+ * Handles play/pause/seek events and ensures all peers stay in sync.
+ * The master peer broadcasts state changes, while slave peers apply them.
+ *
+ * @example
+ * ```typescript
+ * const sync = new SyncService(p2pService, videoElement, "master");
+ * sync.on("sync_play", (msg) => console.log("Play at", msg.position));
+ * sync.play(); // Broadcasts play event to all peers
+ * ```
+ */
 export class SyncService {
   private readonly signaling: SyncTransport;
   private readonly video: HTMLVideoElement;
@@ -73,7 +86,10 @@ export class SyncService {
     return () => this.listeners[event].delete(callback);
   }
 
-  /** Dispose of the sync service and clean up all event listeners. */
+  /**
+   * Dispose of the sync service and clean up all event listeners.
+   * After calling this, the service should not be used.
+   */
   dispose(): void {
     this.disposed = true;
     this.stopHeartbeat();
@@ -84,16 +100,27 @@ export class SyncService {
     }
   }
 
-  /** Set the sync tolerance in seconds. Values are normalized to non-negative. */
+  /**
+   * Set the sync tolerance in seconds. Values are normalized to non-negative.
+   * @param value - The tolerance in seconds.
+   */
   setSyncToleranceSeconds(value: number): void {
     this.syncToleranceSeconds = this.normalizeTolerance(value);
   }
 
+  /**
+   * Get the current sync tolerance in seconds.
+   * @returns The tolerance in seconds.
+   */
   getSyncToleranceSeconds(): number {
     return this.syncToleranceSeconds;
   }
 
-  /** Create a sync message snapshot of the current playback state. */
+  /**
+   * Create a sync message snapshot of the current playback state.
+   * @param sourceKey - Optional source key to identify the torrent.
+   * @returns A sync message representing the current state.
+   */
   createSnapshot(sourceKey?: string): SyncMessage {
     const message: SyncMessage = {
       action: "state",
@@ -107,7 +134,10 @@ export class SyncService {
     return message;
   }
 
-  /** Start playback on the master and broadcast a sync message. */
+  /**
+   * Start playback on the master and broadcast a sync message.
+   * On slave peers, this only starts local playback.
+   */
   play(): void {
     if (this.role === "master") {
       this.suppressNextEventSync.play = true;
@@ -123,7 +153,10 @@ export class SyncService {
     });
   }
 
-  /** Pause playback on the master and broadcast a sync message. */
+  /**
+   * Pause playback on the master and broadcast a sync message.
+   * On slave peers, this only pauses local playback.
+   */
   pause(): void {
     try {
       this.video.pause();
@@ -138,7 +171,10 @@ export class SyncService {
     }
   }
 
-  /** Seek to a timestamp on the master and broadcast a sync message. */
+  /**
+   * Seek to a timestamp on the master and broadcast a sync message.
+   * @param timestamp - The position to seek to in seconds.
+   */
   seek(timestamp: number): void {
     const wasPlaying = !this.video.paused;
     if (this.role === "master") {
@@ -152,6 +188,10 @@ export class SyncService {
     }
   }
 
+  /**
+   * Get the current playback time.
+   * @returns The current time in seconds.
+   */
   getCurrentTime(): number {
     return this.video.currentTime;
   }

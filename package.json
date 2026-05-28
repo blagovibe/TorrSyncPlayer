@@ -14,6 +14,7 @@
     "preview": "npm --prefix client run preview",
     "lint": "npm --prefix client run lint",
     "type-check": "npm --prefix client run type-check",
-    "test": "npm --prefix client run test"
+    "test": "npm --prefix client run test",
+    "security:audit": "node scripts/security-audit.cjs"
   }
 }

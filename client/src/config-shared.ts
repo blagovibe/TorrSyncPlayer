@@ -1,18 +1,11 @@
-import sharedConfig from "../torrent-shared.json";
+/**
+ * Shared torrent configuration.
+ * 
+ * @deprecated Import from "./config-unified" instead.
+ * This file is kept for backward compatibility.
+ * 
+ * @module config-shared
+ */
 
-export const SHARED_TORRENT_LIMITS = {
-  maxTorrentFileBytes: sharedConfig.maxTorrentFileBytes,
-  maxMagnetLinkLength: sharedConfig.maxMagnetLinkLength,
-  maxTorrentConnections: sharedConfig.maxTorrentConnections,
-  maxTorrentFileCount: sharedConfig.maxTorrentFileCount,
-  maxTorrentFilenameLength: sharedConfig.maxTorrentFilenameLength,
-  videoExtensions: sharedConfig.videoExtensions as readonly string[],
-  audioExtensions: sharedConfig.audioExtensions as readonly string[],
-  nativeBrowserVideoFormats: sharedConfig.nativeBrowserVideoFormats as readonly string[],
-  nativeBrowserAudioFormats: sharedConfig.nativeBrowserAudioFormats as readonly string[],
-  blockedTrackerHosts: sharedConfig.blockedTrackerHosts,
-  allowedTrackerProtocols: sharedConfig.allowedTrackerProtocols,
-  maxTrackerUrlLength: sharedConfig.maxTrackerUrlLength,
-  maxMagnetParamCount: sharedConfig.maxMagnetParamCount,
-  maxMagnetParamValueLength: sharedConfig.maxMagnetParamValueLength,
-} as const;
+// Re-export from the unified config
+export { SHARED_TORRENT_LIMITS } from "./config-unified";

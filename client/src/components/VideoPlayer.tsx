@@ -1,4 +1,15 @@
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+/**
+ * @fileoverview Video player component with optimized rendering.
+ * 
+ * Performance optimizations:
+ * - React.memo for preventing unnecessary re-renders
+ * - useCallback for stable function references
+ * - useMemo for expensive computations
+ * - Refs for callback props to avoid stale closures
+ * - Conditional rendering to skip unnecessary DOM updates
+ */
+
+import { type RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./VideoPlayer.css";
 import type { AudioTrackInfo, SubtitleTrackInfo } from "../services/types";
 import { UI_CONFIG } from "../config";
@@ -81,7 +92,13 @@ interface VideoPlayerProps {
   onSeek?: (timestamp: number) => void;
 }
 
-function VideoPlayer({
+/**
+ * VideoPlayer component with optimized rendering.
+ * 
+ * Uses React.memo to prevent re-renders when props haven't changed.
+ * Internal state changes (playback, buffering) still trigger updates.
+ */
+const VideoPlayerInner = memo(function VideoPlayerInner({
   videoRef: externalVideoRef,
   mediaLabel,
   mediaKind,
@@ -108,6 +125,8 @@ function VideoPlayer({
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = externalVideoRef ?? internalVideoRef;
   const hideTimerRef = useRef<number | null>(null);
+  
+  // Use refs for callback props to avoid stale closures in event handlers
   const onPlayerReadyRef = useRef(onPlayerReady);
   const onAudioTrackChangeRef = useRef(onAudioTrackChange);
   const onSubtitleTrackChangeRef = useRef(onSubtitleTrackChange);
@@ -116,9 +135,12 @@ function VideoPlayer({
   const canControlPlaybackRef = useRef(canControlPlayback);
   const canControlSeekRef = useRef(canControlSeek);
   const togglePlayRef = useRef<() => Promise<void>>(null!);
+  
   const hasMediaMetadataRef = useRef(false);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  
+  // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -134,6 +156,7 @@ function VideoPlayer({
   const [editBufferWindowMB, setEditBufferWindowMB] = useState(bufferWindowMB);
   const [editMaxBufferMB, setEditMaxBufferMB] = useState(maxBufferMB);
 
+  // Memoize fallback track snapshots to prevent unnecessary recalculations
   const fallbackAudioTrackSnapshots = useMemo(
     () => fallbackAudioTracks.map((track, index) => ({
       sourceIndex: index,
@@ -153,13 +176,16 @@ function VideoPlayer({
     [fallbackSubtitles],
   );
 
+  // Update refs when props change
   useEffect(() => { onSubtitleTrackChangeRef.current = onSubtitleTrackChange; }, [onSubtitleTrackChange]);
   useEffect(() => { setEditBufferWindowMB(bufferWindowMB); }, [bufferWindowMB]);
   useEffect(() => { setEditMaxBufferMB(maxBufferMB); }, [maxBufferMB]);
 
+  // Memoize expensive computations
   const progress = useMemo(() => duration ? (currentTime / duration) * 100 : 0, [currentTime, duration]);
   const activeVideoScaleLabel = ["fit", "fill", "stretch", "original"].includes(videoScale) ? videoScale : "fit";
 
+  // Memoize callback functions to prevent child re-renders
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
     if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
@@ -167,6 +193,7 @@ function VideoPlayer({
     hideTimerRef.current = window.setTimeout(() => setShowControls(false), HIDE_DELAY_MS);
   }, [settingsOpen]);
 
+  // Update refs when props change
   useEffect(() => { onPlayerReadyRef.current = onPlayerReady; }, [onPlayerReady]);
   useEffect(() => { onAudioTrackChangeRef.current = onAudioTrackChange; }, [onAudioTrackChange]);
   useEffect(() => { onBufferingChangeRef.current = onBufferingChange; }, [onBufferingChange]);
@@ -174,6 +201,7 @@ function VideoPlayer({
   useEffect(() => { canControlPlaybackRef.current = canControlPlayback; }, [canControlPlayback]);
   useEffect(() => { canControlSeekRef.current = canControlSeek; }, [canControlSeek]);
 
+  // Update subtitle URL when selection changes
   useEffect(() => {
     if (selectedSubtitleIndex === null || selectedSubtitleIndex === undefined) {
       setSubtitleUrl(null);
@@ -183,9 +211,13 @@ function VideoPlayer({
     if (track?.streamUrl) setSubtitleUrl(track.streamUrl);
   }, [selectedSubtitleIndex, fallbackSubtitles]);
 
+  // Persist video scale to localStorage
   useEffect(() => { try { window.localStorage.setItem(VIDEO_SCALE_STORAGE_KEY, videoScale); } catch { /* ok */ } }, [videoScale]);
+  
+  // Notify parent when player is ready
   useEffect(() => { onPlayerReadyRef.current?.(true); return () => onPlayerReadyRef.current?.(false); }, []);
 
+  // Sync audio tracks from video element
   const syncAudioTracks = useCallback(() => {
     const v = videoRef.current;
     const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
@@ -201,9 +233,11 @@ function VideoPlayer({
     setAudioTracks(snap.map((t) => ({ ...t, enabled: res ? t.sourceIndex === res.sourceIndex : t.enabled })));
   }, [mediaLabel, selectedAudioTrackIndex, videoRef]);
 
+  // Reset audio tracks when media changes
   useEffect(() => { hasMediaMetadataRef.current = false; setAudioTracks([]); setAudioTracksSupported(detectAudioTracksSupport()); setSettingsOpen(false); setIsBuffering(false); setIsStalled(false); }, [mediaLabel]);
   useEffect(() => { if (audioTracksSupported) syncAudioTracks(); }, [audioTracksSupported, syncAudioTracks]);
 
+  // Memoized toggle play function
   const togglePlay = useCallback(async () => {
     if (!canControlPlayback) return;
     const v = videoRef.current;
@@ -218,12 +252,14 @@ function VideoPlayer({
   }, [canControlPlayback, videoRef]);
   togglePlayRef.current = togglePlay;
 
+  // Memoized volume control
   const applyVolume = useCallback((nv: number) => {
     const n = Number.isFinite(nv) ? Math.min(1, Math.max(0, nv)) : 1;
     setVolume(n);
     if (videoRef.current) videoRef.current.volume = n;
   }, [videoRef]);
 
+  // Memoized audio track activation
   const activateAudioTrack = useCallback((idx: number) => {
     const v = videoRef.current;
     const tl = v ? (v as VideoWithAudioTracks).audioTracks : undefined;
@@ -239,10 +275,12 @@ function VideoPlayer({
     if (sel) onAudioTrackChangeRef.current?.(sel.sourceIndex);
   }, [audioTracks, fallbackAudioTrackSnapshots, videoRef]);
 
+  // Memoized subtitle track activation
   const activateSubtitleTrack = useCallback((idx: number | null) => {
     onSubtitleTrackChangeRef.current?.(idx);
   }, []);
 
+  // Video event listeners for buffering state
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -260,6 +298,7 @@ function VideoPlayer({
     return () => { v.removeEventListener("waiting", onWait); v.removeEventListener("canplay", onCan); v.removeEventListener("playing", onPlay); v.removeEventListener("stalled", onStall); v.removeEventListener("timeupdate", onTU); if (timer !== null) window.clearTimeout(timer); };
   }, [videoRef]);
 
+  // Keyboard shortcuts handler
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && settingsOpen) { setSettingsOpen(false); return; }
@@ -277,6 +316,7 @@ function VideoPlayer({
     return () => window.removeEventListener("keydown", handler);
   }, [settingsOpen, videoRef, canControlSeek, canControlPlayback]);
 
+  // Close settings menu on outside click
   useEffect(() => {
     if (!settingsOpen) return;
     const handler = (e: PointerEvent) => {
@@ -381,6 +421,61 @@ function VideoPlayer({
       <div className="video-progress" style={{ width: `${progress}%` }} />
     </section>
   );
+});
+
+// Custom comparison function for React.memo
+function areVideoPlayerPropsEqual(
+  prevProps: VideoPlayerProps,
+  nextProps: VideoPlayerProps
+): boolean {
+  // Compare primitive props
+  if (
+    prevProps.mediaLabel !== nextProps.mediaLabel ||
+    prevProps.mediaKind !== nextProps.mediaKind ||
+    prevProps.statusMessage !== nextProps.statusMessage ||
+    prevProps.canControlPlayback !== nextProps.canControlPlayback ||
+    prevProps.canControlSeek !== nextProps.canControlSeek ||
+    prevProps.canControlAudioTracks !== nextProps.canControlAudioTracks ||
+    prevProps.canControlSubtitleTracks !== nextProps.canControlSubtitleTracks ||
+    prevProps.selectedAudioTrackIndex !== nextProps.selectedAudioTrackIndex ||
+    prevProps.selectedSubtitleIndex !== nextProps.selectedSubtitleIndex ||
+    prevProps.bufferWindowMB !== nextProps.bufferWindowMB ||
+    prevProps.maxBufferMB !== nextProps.maxBufferMB
+  ) {
+    return false;
+  }
+
+  // Compare array props by reference (assumes immutable updates)
+  if (
+    prevProps.fallbackAudioTracks !== nextProps.fallbackAudioTracks ||
+    prevProps.fallbackSubtitles !== nextProps.fallbackSubtitles
+  ) {
+    return false;
+  }
+
+  // Compare function props by reference (assumes stable references via useCallback)
+  if (
+    prevProps.onPlaybackStart !== nextProps.onPlaybackStart ||
+    prevProps.onAudioTrackChange !== nextProps.onAudioTrackChange ||
+    prevProps.onSubtitleTrackChange !== nextProps.onSubtitleTrackChange ||
+    prevProps.onPlayerReady !== nextProps.onPlayerReady ||
+    prevProps.onBufferingChange !== nextProps.onBufferingChange ||
+    prevProps.onTimeUpdate !== nextProps.onTimeUpdate ||
+    prevProps.onBufferSettingsChange !== nextProps.onBufferSettingsChange ||
+    prevProps.onSeek !== nextProps.onSeek
+  ) {
+    return false;
+  }
+
+  // Compare videoRef by reference
+  if (prevProps.videoRef !== nextProps.videoRef) {
+    return false;
+  }
+
+  return true;
 }
+
+// Export with custom comparison for optimal re-render prevention
+const VideoPlayer = memo(VideoPlayerInner, areVideoPlayerPropsEqual);
 
 export default VideoPlayer;

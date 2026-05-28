@@ -86,24 +86,41 @@ export function useTorrentLoader(
   const playMedia = useCallback(async (mf: TorrentMediaFile, autoplay: boolean) => {
     const el = videoRef.current;
     if (!el) throw new Error("Media player is not ready");
-    await svc().streamToMedia(mf.file, el);
+    try {
+      await svc().streamToMedia(mf.file, el);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to stream media";
+      uiLogger.error("Stream to media failed:", error);
+      throw new Error(`Media streaming failed: ${message}`);
+    }
     setMediaFile(mf);
     setMediaAudioTracks([]);
     setCtxSubtitles([]);
     const probeIndex = mf.index;
     void svc().probeAudioTracks(mf.file).then((t) => {
       if (fileRef.current?.index === probeIndex) setMediaAudioTracks(t);
-    }).catch(() => undefined);
+    }).catch((error) => {
+      uiLogger.warn("Audio track probe failed:", error);
+    });
     void svc().probeSubtitles(mf.file).then((s) => {
       if (fileRef.current?.index === probeIndex) setCtxSubtitles(s);
-    }).catch(() => undefined);
+    }).catch((error) => {
+      uiLogger.warn("Subtitle probe failed:", error);
+    });
     el.defaultMuted = false; el.muted = false;
     if (el.volume <= 0) el.volume = 1;
     setMediaIndex(mf.index); setMediaLabel(mf.name); setMediaKind(mf.kind);
     if (!autoplay) return;
-    try { await el.play(); setNotice(null); } catch (e) {
-      if (isPlaybackBlockedError(e)) setNotice("Autoplay was blocked. Press Play to start.");
-      else throw e;
+    try {
+      await el.play();
+      setNotice(null);
+    } catch (e) {
+      if (isPlaybackBlockedError(e)) {
+        setNotice("Autoplay was blocked. Press Play to start.");
+      } else {
+        uiLogger.error("Playback failed:", e);
+        throw e;
+      }
     }
   }, [videoRef, svc, setMediaFile, setMediaIndex, setMediaLabel, setMediaKind, setMediaAudioTracks, setCtxSubtitles]);
 
@@ -214,18 +231,29 @@ export function useTorrentLoader(
   const loadTorrentFile = useCallback((file: File) => {
     if (roleRef.current !== "master") return;
     if (file.size > MAX_TORRENT_FILE_BYTES) {
-      setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+      const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+      const maxMB = (MAX_TORRENT_FILE_BYTES / 1024 / 1024).toFixed(0);
+      const errorMsg = `File too large (${sizeMB} MB). Maximum allowed size is ${maxMB} MB.`;
+      setError(errorMsg);
       return;
     }
     void (async () => {
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
+        const arrayBuffer = await file.arrayBuffer();
+        if (!arrayBuffer) {
+          throw new Error("Failed to read file: empty result");
+        }
+        const bytes = new Uint8Array(arrayBuffer);
         loadTorrent({
           source: createTorrentFileSource(file.name, bytes),
           selectedMediaIndex: null, selectedAudioTrackIndex: null, selectedSubtitleIndex: null,
           autoplay: true, broadcast: true,
         });
-      } catch (e) { uiLogger.error("File load:", e); }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Failed to load torrent file";
+        uiLogger.error("File load:", e);
+        setError(message);
+      }
     })();
   }, [loadTorrent]);
 

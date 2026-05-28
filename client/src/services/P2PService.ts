@@ -1,7 +1,7 @@
 import { Peer, type DataConnection, type PeerJSOption } from "peerjs";
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import { p2pLogger } from "../utils/logger";
-import { P2P_CONFIG, P2P_MAX_TORRENT_BYTES } from "../config";
+import { P2P_CONFIG, P2P_MAX_TORRENT_BYTES } from "../config-unified";
 import { sanitizeChatMessage, validateChatMessage } from "../utils/sanitize";
 import {
   type ConnectionQuality,
@@ -276,6 +276,21 @@ function canTransition(from: P2PServiceState, to: P2PServiceState): boolean {
   return VALID_TRANSITIONS[from]?.has(to) ?? false;
 }
 
+/**
+ * Peer-to-peer service for WebRTC connections via PeerJS.
+ *
+ * Manages peer connections, message passing, and connection state.
+ * Supports host/guest roles for synchronized playback.
+ *
+ * @example
+ * ```typescript
+ * const p2p = new P2PService();
+ * p2p.setHost();
+ * await p2p.initialize();
+ * await p2p.connect("remote-peer-id");
+ * p2p.on("connected", () => console.log("Connected!"));
+ * ```
+ */
 export class P2PService {
   private peerId: string;
   private role: "host" | "guest" = "host";
@@ -1052,7 +1067,10 @@ export class P2PService {
     this.sendPayload({ type: "chat", content }, targetPeerId);
   }
 
-  /** Disconnect from all peers and clean up resources. Idempotent. */
+  /**
+   * Disconnect from all peers and clean up resources. Idempotent.
+   * @returns Promise that resolves when disconnection is complete.
+   */
   public async disconnect(): Promise<void> {
     if (this.isDisconnecting) return;
     this.isDisconnecting = true;
