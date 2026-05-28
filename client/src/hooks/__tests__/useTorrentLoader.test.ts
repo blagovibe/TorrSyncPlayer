@@ -2,7 +2,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useTorrentLoader, type TorrentLoader } from "../useTorrentLoader";
+import { useTorrentLoader } from "../useTorrentLoader";
 import { RoomStateProvider } from "../../contexts/RoomStateContext";
 import TorrentService, { type TorrentMediaFile } from "../../services/TorrentService";
 
@@ -195,7 +195,7 @@ describe("useTorrentLoader", () => {
         { wrapper: Wrapper }
       );
 
-      const service = result.current.getTorrentService();
+      result.current.getTorrentService();
 
       // Should create new instance
       expect(TorrentService).toHaveBeenCalled();
@@ -209,7 +209,7 @@ describe("useTorrentLoader", () => {
         { wrapper: Wrapper }
       );
 
-      const service = result.current.getTorrentService();
+      result.current.getTorrentService();
 
       // Should create new instance
       expect(TorrentService).toHaveBeenCalled();

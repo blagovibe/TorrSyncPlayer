@@ -2,7 +2,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useSyncPlayback, type SyncPlayback } from "../useSyncPlayback";
+import { useSyncPlayback } from "../useSyncPlayback";
 import { RoomStateProvider } from "../../contexts/RoomStateContext";
 import SyncService from "../../services/SyncService";
 import type P2PService from "../../services/P2PService";
@@ -107,7 +107,7 @@ describe("useSyncPlayback", () => {
 
   describe("SyncService initialization", () => {
     it("initializes SyncService when in room view with peer role", () => {
-      const { result } = renderHook(
+      renderHook(
         () => useSyncPlayback(mockVideoRef, mockP2pService, "room", mockScheduleBroadcast),
         { wrapper: Wrapper }
       );
@@ -244,9 +244,6 @@ describe("useSyncPlayback", () => {
       );
 
       const mockTorrentService = createMockTorrentService();
-      const mockMediaFile = {
-        file: { length: 1024000 },
-      } as any;
 
       // Set selectedMediaFile in context
       // This requires context setup
@@ -316,7 +313,7 @@ describe("useSyncPlayback", () => {
       );
 
       const mockTorrentService = createMockTorrentService();
-      (mockTorrentService as any).updatePlaybackPosition.mockImplementation(() => {
+      vi.spyOn(mockTorrentService, "updatePlaybackPosition").mockImplementation(() => {
         throw new Error("Update failed");
       });
 

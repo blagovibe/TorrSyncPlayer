@@ -3,6 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import TorrentService from "../TorrentService";
 import type { ElectronTorrentBackendAdapter } from "../torrent-backend";
 
+interface MockMediaFile {
+  name: string;
+  streamUrl: string | undefined;
+}
+
 // Mock the torrent-backend module
 const mockAddMagnet = vi.fn();
 const mockAddTorrentFile = vi.fn();
@@ -263,7 +268,7 @@ describe("TorrentService Electron backend tests", () => {
       ];
       mockProbeAudioTracks.mockResolvedValue(mockTracks);
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const tracks = await service.probeAudioTracks(file);
 
       expect(mockProbeAudioTracks).toHaveBeenCalledWith("http://localhost:12345/stream/0");
@@ -278,7 +283,7 @@ describe("TorrentService Electron backend tests", () => {
 
       mockProbeAudioTracks.mockRejectedValue(new Error("Probe failed"));
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const tracks = await service.probeAudioTracks(file);
 
       expect(tracks).toEqual([]);
@@ -290,7 +295,7 @@ describe("TorrentService Electron backend tests", () => {
       setupElectronBackend();
       const service = new TorrentService();
 
-      const file = { streamUrl: undefined } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: undefined };
       const tracks = await service.probeAudioTracks(file);
 
       expect(tracks).toEqual([]);
@@ -306,7 +311,7 @@ describe("TorrentService Electron backend tests", () => {
       const streamUrl = "http://localhost:12345/stream/0/audio/1";
       mockCreateAudioTrackStreamUrl.mockResolvedValue(streamUrl);
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const result = await service.createAudioTrackStreamUrl(file, 1, 0);
 
       expect(mockCreateAudioTrackStreamUrl).toHaveBeenCalledWith({
@@ -330,7 +335,7 @@ describe("TorrentService Electron backend tests", () => {
       ];
       mockProbeSubtitles.mockResolvedValue(mockSubtitles);
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const subtitles = await service.probeSubtitles(file);
 
       expect(mockProbeSubtitles).toHaveBeenCalledWith("http://localhost:12345/stream/0");
@@ -345,7 +350,7 @@ describe("TorrentService Electron backend tests", () => {
 
       mockProbeSubtitles.mockRejectedValue(new Error("Probe failed"));
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const subtitles = await service.probeSubtitles(file);
 
       expect(subtitles).toEqual([]);
@@ -360,7 +365,7 @@ describe("TorrentService Electron backend tests", () => {
       const streamUrl = "http://localhost:12345/stream/0/subtitle/0";
       mockCreateSubtitleStreamUrl.mockResolvedValue(streamUrl);
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const result = await service.createSubtitleStreamUrl(file, 0, 0);
 
       expect(mockCreateSubtitleStreamUrl).toHaveBeenCalledWith({
@@ -382,7 +387,7 @@ describe("TorrentService Electron backend tests", () => {
       const muxUrl = "http://localhost:12345/stream/0/mux";
       mockCreateMultiplexedStreamUrl.mockResolvedValue(muxUrl);
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const result = await service.createMuxStreamUrl(file, 0, 0);
 
       expect(mockCreateMultiplexedStreamUrl).toHaveBeenCalledWith({
@@ -401,7 +406,7 @@ describe("TorrentService Electron backend tests", () => {
 
       mockCreateMultiplexedStreamUrl.mockRejectedValue(new Error("Mux failed"));
 
-      const file = { streamUrl: "http://localhost:12345/stream/0" } as any;
+      const file: MockMediaFile = { name: "video.mp4", streamUrl: "http://localhost:12345/stream/0" };
       const result = await service.createMuxStreamUrl(file, 0, 0);
 
       expect(result).toBeNull();

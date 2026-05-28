@@ -17,6 +17,23 @@ import P2PService, {
 } from "../P2PService";
 
 // Mock PeerJS
+interface MockPeerInstance {
+  id: string;
+  options?: unknown;
+  open: boolean;
+  destroyed: boolean;
+  connect: (peerId: string) => ReturnType<typeof createMockConnection>;
+  destroy: () => void;
+  reconnect: () => void;
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+  off: (event: string, cb: (...args: unknown[]) => void) => void;
+  emit: (event: string, ...args: unknown[]) => void;
+  _triggerOpen: (openId: string) => void;
+  _triggerError: (error: Error) => void;
+  _triggerDisconnected: () => void;
+  _triggerConnection: (conn: ReturnType<typeof createMockConnection>) => void;
+}
+
 const createMockConnection = (peerId: string, isOpen = false) => {
   const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
   const conn = {
@@ -42,7 +59,7 @@ const createMockConnection = (peerId: string, isOpen = false) => {
 
 const MockPeer = vi.fn().mockImplementation((id: string, options?: unknown) => {
   const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
-  const peerInstance: any = {
+  const peerInstance: MockPeerInstance = {
     id,
     options,
     open: false,
@@ -72,16 +89,16 @@ const MockPeer = vi.fn().mockImplementation((id: string, options?: unknown) => {
     },
     _triggerOpen: (openId: string) => {
       peerInstance.open = true;
-      listeners["open"]?.forEach((cb: any) => cb(openId));
+      listeners["open"]?.forEach((cb) => cb(openId));
     },
     _triggerError: (error: Error) => {
-      listeners["error"]?.forEach((cb: any) => cb(error));
+      listeners["error"]?.forEach((cb) => cb(error));
     },
     _triggerDisconnected: () => {
-      listeners["disconnected"]?.forEach((cb: any) => cb());
+      listeners["disconnected"]?.forEach((cb) => cb());
     },
     _triggerConnection: (conn: ReturnType<typeof createMockConnection>) => {
-      listeners["connection"]?.forEach((cb: any) => cb(conn));
+      listeners["connection"]?.forEach((cb) => cb(conn));
     },
   };
   return peerInstance;

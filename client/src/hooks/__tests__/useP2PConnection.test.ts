@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useP2PConnection } from "../useP2PConnection";
 import { RoomStateProvider } from "../../contexts/RoomStateContext";
-import P2PService from "../../services/P2PService";
 
 // Mock P2PService
 const mockInitialize = vi.fn();
