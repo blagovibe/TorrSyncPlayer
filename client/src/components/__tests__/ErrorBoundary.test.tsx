@@ -30,7 +30,7 @@ describe("ErrorBoundary", () => {
         <ThrowingComponent />
       </ErrorBoundary>
     );
-    expect(screen.getByText("Something went wrong")).toBeTruthy();
+    expect(screen.getByText("Application Error")).toBeTruthy();
     expect(screen.getByText("Test error")).toBeTruthy();
   });
 
@@ -63,6 +63,6 @@ function ThrowNoMessage(): ReactElement {
         <ThrowNoMessage />
       </ErrorBoundary>
     );
-    expect(screen.getByText("Something went wrong")).toBeTruthy();
+    expect(screen.getByText("Application Error")).toBeTruthy();
   });
 });

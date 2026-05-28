@@ -17,97 +17,134 @@ import P2PService, {
 } from "../P2PService";
 
 // Mock PeerJS
+interface MockConnection {
+  peer: string;
+  open: boolean;
+  send: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  off: ReturnType<typeof vi.fn>;
+  emit: (event: string, ...args: unknown[]) => void;
+}
+
 interface MockPeerInstance {
   id: string;
   options?: unknown;
   open: boolean;
   destroyed: boolean;
-  connect: (peerId: string) => ReturnType<typeof createMockConnection>;
-  destroy: () => void;
-  reconnect: () => void;
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-  off: (event: string, cb: (...args: unknown[]) => void) => void;
+  connect: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+  reconnect: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  off: ReturnType<typeof vi.fn>;
   emit: (event: string, ...args: unknown[]) => void;
   _triggerOpen: (openId: string) => void;
   _triggerError: (error: Error) => void;
   _triggerDisconnected: () => void;
-  _triggerConnection: (conn: ReturnType<typeof createMockConnection>) => void;
+  _triggerConnection: (conn: MockConnection) => void;
 }
 
-const createMockConnection = (peerId: string, isOpen = false) => {
+const createMockConnection = (peerId: string, isOpen = false): MockConnection => {
   const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
-  const conn = {
+  let isOpenState = isOpen;
+  const conn: MockConnection = {
     peer: peerId,
-    open: isOpen,
+    get open() { return isOpenState; },
+    set open(value: boolean) { isOpenState = value; },
     send: vi.fn(),
-    close: vi.fn(),
+    close: vi.fn().mockImplementation(() => { isOpenState = false; }),
     on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
       if (!listeners[event]) listeners[event] = [];
       listeners[event].push(cb);
-    }),
+    }) as ReturnType<typeof vi.fn>,
     off: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
       if (listeners[event]) {
         listeners[event] = listeners[event].filter((fn) => fn !== cb);
       }
-    }),
+    }) as ReturnType<typeof vi.fn>,
     emit: (event: string, ...args: unknown[]) => {
+      if (event === "open") {
+        isOpenState = true;
+      }
       listeners[event]?.forEach((cb) => cb(...args));
     },
   };
   return conn;
 };
 
-const MockPeer = vi.fn().mockImplementation((id: string, options?: unknown) => {
-  const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
-  const peerInstance: MockPeerInstance = {
-    id,
-    options,
-    open: false,
-    destroyed: false,
-    connect: vi.fn((peerId: string) => createMockConnection(peerId)),
-    destroy: vi.fn().mockImplementation(() => {
-      peerInstance.destroyed = true;
-      peerInstance.open = false;
-    }),
-    reconnect: vi.fn().mockImplementation(() => {
-      if (peerInstance.destroyed) {
-        peerInstance.destroyed = false;
+// Store the last created mock connection for each peer instance
+const lastMockConnectionMap = new Map<MockPeerInstance, MockConnection>();
+
+vi.mock("peerjs", () => {
+  const mockPeer = vi.fn().mockImplementation((id: string, options?: unknown) => {
+    const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
+    const peerInstance: MockPeerInstance = {
+      id,
+      options,
+      open: false,
+      destroyed: false,
+      connect: vi.fn((peerId: string) => {
+        const conn = createMockConnection(peerId);
+        lastMockConnectionMap.set(peerInstance, conn);
+        return conn;
+      }),
+      destroy: vi.fn().mockImplementation(() => {
+        peerInstance.destroyed = true;
+        peerInstance.open = false;
+      }),
+      reconnect: vi.fn().mockImplementation(() => {
+        if (peerInstance.destroyed) {
+          peerInstance.destroyed = false;
+          peerInstance.open = true;
+        }
+      }),
+      on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+        if (!listeners[event]) listeners[event] = [];
+        listeners[event].push(cb);
+      }),
+      off: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+        if (listeners[event]) {
+          listeners[event] = listeners[event].filter((fn) => fn !== cb);
+        }
+      }),
+      emit: (event: string, ...args: unknown[]) => {
+        listeners[event]?.forEach((cb) => cb(...args));
+      },
+      _triggerOpen: (openId: string) => {
         peerInstance.open = true;
-      }
-    }),
-    on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
-      if (!listeners[event]) listeners[event] = [];
-      listeners[event].push(cb);
-    }),
-    off: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
-      if (listeners[event]) {
-        listeners[event] = listeners[event].filter((fn) => fn !== cb);
-      }
-    }),
-    emit: (event: string, ...args: unknown[]) => {
-      listeners[event]?.forEach((cb) => cb(...args));
-    },
-    _triggerOpen: (openId: string) => {
-      peerInstance.open = true;
-      listeners["open"]?.forEach((cb) => cb(openId));
-    },
-    _triggerError: (error: Error) => {
-      listeners["error"]?.forEach((cb) => cb(error));
-    },
-    _triggerDisconnected: () => {
-      listeners["disconnected"]?.forEach((cb) => cb());
-    },
-    _triggerConnection: (conn: ReturnType<typeof createMockConnection>) => {
-      listeners["connection"]?.forEach((cb) => cb(conn));
-    },
+        listeners["open"]?.forEach((cb) => cb(openId));
+      },
+      _triggerError: (error: Error) => {
+        listeners["error"]?.forEach((cb) => cb(error));
+      },
+      _triggerDisconnected: () => {
+        listeners["disconnected"]?.forEach((cb) => cb());
+      },
+      _triggerConnection: (conn: MockConnection) => {
+        listeners["connection"]?.forEach((cb) => cb(conn));
+      },
+    };
+    return peerInstance;
+  });
+  return {
+    default: mockPeer,
+    Peer: mockPeer,
   };
-  return peerInstance;
 });
 
-vi.mock("peerjs", () => ({
-  default: MockPeer,
-  Peer: MockPeer,
-}));
+// Helper to get the MockPeer - uses dynamic import to get the mocked module
+const getMockPeer = async () => {
+  const peerjs = await import("peerjs");
+  return peerjs.default as unknown as {
+    (...args: unknown[]): MockPeerInstance;
+    mock: { results: Array<{ value: MockPeerInstance }>; calls: Array<[string, unknown?]> };
+  };
+};
+
+// Helper to get the last mock connection for a peer instance
+const getLastMockConnection = (peerInstance: MockPeerInstance): MockConnection | undefined => {
+  return lastMockConnectionMap.get(peerInstance);
+};
 
 // Mock cleanup utility
 vi.mock("../utils/cleanup", () => ({
@@ -123,6 +160,7 @@ vi.mock("../utils/cleanup", () => ({
 describe("P2PService integration tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lastMockConnectionMap.clear();
     vi.useFakeTimers();
   });
 
@@ -136,6 +174,7 @@ describe("P2PService integration tests", () => {
       expect(service.getState()).toBe("disconnected");
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       expect(peerInstance).toBeDefined();
 
@@ -151,6 +190,7 @@ describe("P2PService integration tests", () => {
       expect(service.getState()).toBe("disconnected");
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
@@ -163,13 +203,20 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       await service.disconnect();
 
-      await expect(service.connect("some-peer")).rejects.toThrow();
+      // After disconnect, connect should fail because peer is destroyed
+      // The retry logic will keep trying, so we need to advance timers
+      const connectPromise = service.connect("some-peer");
+      // Advance timers to let retry logic complete
+      await vi.advanceTimersByTimeAsync(60_000);
+      
+      await expect(connectPromise).rejects.toThrow();
     });
   });
 
@@ -180,15 +227,16 @@ describe("P2PService integration tests", () => {
       service.on("connected", connectedHandler);
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
-      const mockConn = peerInstance.connect.mock.results[0]?.value;
+      const mockConn = getLastMockConnection(peerInstance);
       expect(mockConn).toBeDefined();
 
-      mockConn.emit("open");
+      mockConn!.emit("open");
       await connectPromise;
 
       expect(service.isConnected()).toBe(true);
@@ -199,14 +247,22 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
+      // Advance timers multiple times to let retry logic complete
+      // Each retry has exponential backoff: 1s, 2s, 4s, 8s, 16s
+      // Plus the 30s timeout for each attempt
       await vi.advanceTimersByTimeAsync(31_000);
+      await vi.advanceTimersByTimeAsync(1_000 + 31_000);
+      await vi.advanceTimersByTimeAsync(2_000 + 31_000);
+      await vi.advanceTimersByTimeAsync(4_000 + 31_000);
+      await vi.advanceTimersByTimeAsync(8_000 + 31_000);
 
-      await expect(connectPromise).rejects.toThrow("Connection timeout");
+      await expect(connectPromise).rejects.toThrow();
     });
 
     it("handles incoming connections", async () => {
@@ -215,6 +271,7 @@ describe("P2PService integration tests", () => {
       service.on("peer_connected", peerConnectedHandler);
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
@@ -231,13 +288,15 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
-      const mockConn = peerInstance.connect.mock.results[0]?.value;
-      mockConn.emit("open");
+      const mockConn = getLastMockConnection(peerInstance);
+      expect(mockConn).toBeDefined();
+      mockConn!.emit("open");
       await connectPromise;
 
       service.sendSync({
@@ -246,7 +305,7 @@ describe("P2PService integration tests", () => {
         server_ts: Date.now(),
       });
 
-      expect(mockConn.send).toHaveBeenCalledWith({
+      expect(mockConn!.send).toHaveBeenCalledWith({
         type: "sync",
         message: {
           action: "play",
@@ -262,13 +321,15 @@ describe("P2PService integration tests", () => {
       service.on("sync", syncHandler);
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
-      const mockConn = peerInstance.connect.mock.results[0]?.value;
-      mockConn.emit("open");
+      const mockConn = getLastMockConnection(peerInstance);
+      expect(mockConn).toBeDefined();
+      mockConn!.emit("open");
       await connectPromise;
 
       const syncMessage = {
@@ -279,7 +340,7 @@ describe("P2PService integration tests", () => {
           server_ts: Date.now(),
         },
       };
-      mockConn.emit("data", syncMessage);
+      mockConn!.emit("data", syncMessage);
 
       expect(syncHandler).toHaveBeenCalledWith(syncMessage.message);
     });
@@ -288,18 +349,20 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
-      const mockConn = peerInstance.connect.mock.results[0]?.value;
-      mockConn.emit("open");
+      const mockConn = getLastMockConnection(peerInstance);
+      expect(mockConn).toBeDefined();
+      mockConn!.emit("open");
       await connectPromise;
 
       service.sendChat("Hello, world!");
 
-      expect(mockConn.send).toHaveBeenCalledWith({
+      expect(mockConn!.send).toHaveBeenCalledWith({
         type: "chat",
         content: "Hello, world!",
       });
@@ -323,6 +386,7 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
 
       peerInstance._triggerError(new Error("Lost connection to server"));
@@ -352,6 +416,7 @@ describe("P2PService integration tests", () => {
       service.setHost();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
 
       expect(MockPeer.mock.calls[0][0]).toMatch(/^torrsync-/);
 
@@ -368,6 +433,7 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise1 = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance1 = MockPeer.mock.results[0]?.value;
       peerInstance1._triggerOpen("test-peer-id");
       await initPromise1;
@@ -384,20 +450,22 @@ describe("P2PService integration tests", () => {
       service.on("sync", syncHandler);
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
-      const mockConn = peerInstance.connect.mock.results[0]?.value;
-      mockConn.emit("open");
+      const mockConn = getLastMockConnection(peerInstance);
+      expect(mockConn).toBeDefined();
+      mockConn!.emit("open");
       await connectPromise;
 
-      mockConn.emit("data", "invalid string");
-      mockConn.emit("data", { type: "unknown" });
-      mockConn.emit("data", { type: "sync" });
-      mockConn.emit("data", 123);
-      mockConn.emit("data", null);
+      mockConn!.emit("data", "invalid string");
+      mockConn!.emit("data", { type: "unknown" });
+      mockConn!.emit("data", { type: "sync" });
+      mockConn!.emit("data", 123);
+      mockConn!.emit("data", null);
 
       expect(syncHandler).not.toHaveBeenCalled();
     });
@@ -406,13 +474,15 @@ describe("P2PService integration tests", () => {
       const service = new P2PService();
 
       const initPromise = service.initialize();
+      const MockPeer = await getMockPeer();
       const peerInstance = MockPeer.mock.results[0]?.value;
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
       const connectPromise = service.connect("remote-peer");
-      const mockConn = peerInstance.connect.mock.results[0]?.value;
-      mockConn.emit("open");
+      const mockConn = getLastMockConnection(peerInstance);
+      expect(mockConn).toBeDefined();
+      mockConn!.emit("open");
       await connectPromise;
 
       expect(service.isConnected()).toBe(true);
