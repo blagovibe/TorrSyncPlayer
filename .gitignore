@@ -9,7 +9,7 @@ Thumbs.db
 test_output.txt
 
 # IDE / AI tool directories
-.kilo/*
+.kilo/
 !.kilo/package.json
 !.kilo/package-lock.json
 .codex/

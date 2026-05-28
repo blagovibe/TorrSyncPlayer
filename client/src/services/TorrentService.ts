@@ -594,15 +594,24 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
     }
 
     // Fallback: download as blob and create object URL
+    let blobObjectUrl: string | null = null;
     try {
       const blob = await file.blob();
       this.revokeAllBlobUrls();
-      const objectUrl = URL.createObjectURL(blob);
-      this.activeObjectUrl = objectUrl;
-      this.activeBlobUrls.add(objectUrl);
-      mediaElement.src = objectUrl;
+      blobObjectUrl = URL.createObjectURL(blob);
+      this.activeObjectUrl = blobObjectUrl;
+      this.activeBlobUrls.add(blobObjectUrl);
+      this.scheduleBlobUrlCleanup(blobObjectUrl);
+      mediaElement.src = blobObjectUrl;
       mediaElement.load();
     } catch (blobError) {
+      if (blobObjectUrl) {
+        URL.revokeObjectURL(blobObjectUrl);
+        this.activeBlobUrls.delete(blobObjectUrl);
+        if (this.activeObjectUrl === blobObjectUrl) {
+          this.activeObjectUrl = null;
+        }
+      }
       throw new Error(`Failed to load media using all available methods. Last error: ${(blobError as Error)?.message ?? String(blobError)}`);
     }
   }
@@ -1084,9 +1093,29 @@ this.torrentCleanup.on(torrent as unknown as TorrentEmitter, "error", ((error?: 
 
   private revokeAllBlobUrls(): void {
     for (const url of this.activeBlobUrls) {
-      URL.revokeObjectURL(url);
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // URL may already be revoked
+      }
     }
     this.activeBlobUrls.clear();
+  }
+
+  private scheduleBlobUrlCleanup(blobUrl: string, timeoutMs = 300_000): void {
+    this.cleanup.setTimeout(() => {
+      if (this.activeObjectUrl === blobUrl) {
+        torrentLogger.warn('Blob URL auto-cleanup triggered after timeout');
+        this.revokeActiveObjectUrl();
+      } else {
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch {
+          // URL may already be revoked
+        }
+        this.activeBlobUrls.delete(blobUrl);
+      }
+    }, timeoutMs);
   }
 
   private normalizePeerId(peerId: unknown): string | null {

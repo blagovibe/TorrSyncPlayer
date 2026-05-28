@@ -2,6 +2,7 @@ import { Peer, type DataConnection, type PeerJSOption } from "peerjs";
 import { createCleanup, type CleanupHandle } from "../utils/cleanup";
 import { p2pLogger } from "../utils/logger";
 import { P2P_CONFIG, P2P_MAX_TORRENT_BYTES } from "../config";
+import { sanitizeChatMessage, validateChatMessage } from "../utils/sanitize";
 import {
   type ConnectionQuality,
   type RoomConfigMessage,
@@ -213,11 +214,13 @@ function parseInboundMessage(rawData: unknown): OutboundMessage | null {
         return { type: "pong", ts: message.ts };
       }
       return null;
-    case "chat":
-      if (typeof message.content === "string" && message.content.trim().length > 0) {
-        return { type: "chat", content: message.content.trim() };
-      }
-      return null;
+    case "chat": {
+      const validated = validateChatMessage(message.content);
+      if (!validated) return null;
+      const sanitized = sanitizeChatMessage(validated);
+      if (!sanitized) return null;
+      return { type: "chat", content: sanitized };
+    }
     default:
       return null;
   }

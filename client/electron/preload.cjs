@@ -1,9 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 const shared = require("../torrent-shared.json");
+const path = require("node:path");
 
 const MAX_TORRENT_FILE_BYTES = shared.maxTorrentFileBytes;
 const MAX_TORRENT_FILE_BYTES_MB = MAX_TORRENT_FILE_BYTES / 1024 / 1024;
 const MAX_MAGNET_LINK_LENGTH = shared.maxMagnetLinkLength;
+
+const BASELINE_HRTIME = process.hrtime();
 
 contextBridge.exposeInMainWorld("torrsyncElectronTorrent", {
   addMagnet: (magnetLink) => {
@@ -72,5 +75,81 @@ contextBridge.exposeInMainWorld("torrsyncElectronWindow", {
   },
   closeCancelled: () => {
     ipcRenderer.send("window-close-cancelled");
+  },
+});
+
+const encoder = new TextEncoder();
+async function deriveHmacKey(sharedSecret) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(sharedSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+  return keyMaterial;
+}
+
+async function signMessage(message, key) {
+  const data = encoder.encode(JSON.stringify(message));
+  const signature = await crypto.subtle.sign("HMAC", key, data);
+  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyMessage(message, signature, key) {
+  const data = encoder.encode(JSON.stringify(message));
+  const sigBytes = new Uint8Array(signature.match(/.{2}/g).map(byte => parseInt(byte, 16)));
+  return await crypto.subtle.verify("HMAC", key, sigBytes, data);
+}
+
+let hmacKey = null;
+let hmacEnabled = false;
+
+contextBridge.exposeInMainWorld("torrsyncCrypto", {
+  async initHmac(sharedSecret) {
+    if (!sharedSecret || typeof sharedSecret !== 'string') {
+      hmacEnabled = false;
+      hmacKey = null;
+      return false;
+    }
+    try {
+      hmacKey = await deriveHmacKey(sharedSecret);
+      hmacEnabled = true;
+      return true;
+    } catch (error) {
+      console.error('[TorrSync] HMAC init failed:', error);
+      hmacEnabled = false;
+      hmacKey = null;
+      return false;
+    }
+  },
+
+  async hmacSign(message) {
+    if (!hmacEnabled || !hmacKey) return null;
+    try {
+      return await signMessage(message, hmacKey);
+    } catch {
+      return null;
+    }
+  },
+
+  async hmacVerify(message, signature) {
+    if (!hmacEnabled || !hmacKey) return true;
+    if (!signature) return false;
+    try {
+      return await verifyMessage(message, signature, hmacKey);
+    } catch {
+      return false;
+    }
+  },
+
+  isHmacEnabled() {
+    return hmacEnabled;
+  },
+
+  generateNonce() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   },
 });

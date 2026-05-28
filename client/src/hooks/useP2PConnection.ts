@@ -13,6 +13,7 @@ import { type RoomConfigMessage } from "../services/types";
 import { uiLogger } from "../utils/logger";
 import { UI_CONFIG } from "../config";
 import { useRoomStateContext } from "./useRoomStateContext";
+import { sanitizeChatMessage, validateChatMessage } from "../utils/sanitize";
 
 export interface P2PConnection {
   peerId: string;
@@ -101,10 +102,13 @@ export function useP2PConnection(): P2PConnection {
     svc.on("reconnect_failed", () => { setReconnectFailed(true); });
     svc.on("resend_requested", (id) => { broadcastFn.current(id); });
     svc.on("chat_received", (senderId, content) => {
-      if (typeof content !== "string" || typeof senderId !== "string") return;
-      const trimmed = content.trim();
-      if (!trimmed || trimmed.length > 500) return;
-      setChatMessages((prev) => [...prev, { id: crypto.randomUUID(), sender: senderId, text: trimmed, timestamp: Date.now() }].slice(-UI_CONFIG.maxChatMessages));
+      const validatedContent = validateChatMessage(content);
+      if (!validatedContent || typeof senderId !== "string") return;
+      const sanitizedText = sanitizeChatMessage(validatedContent);
+      if (!sanitizedText) return;
+      const sanitizedSender = sanitizeChatMessage(senderId, 100);
+      if (!sanitizedSender) return;
+      setChatMessages((prev) => [...prev, { id: crypto.randomUUID(), sender: sanitizedSender, text: sanitizedText, timestamp: Date.now() }].slice(-UI_CONFIG.maxChatMessages));
     });
 
     broadcastFn.current = (targetPeerId?: string) => {
@@ -200,12 +204,14 @@ export function useP2PConnection(): P2PConnection {
   }, [setPendingSync, setCtxPeerRole]);
 
   const sendChat = useCallback((text: string) => {
-    if (!text.trim() || !p2pServiceRef.current) return;
-    const trimmed = text.trim();
-    if (trimmed.length > 500) return;
-    const msg = { id: crypto.randomUUID(), sender: peerId, text: trimmed, timestamp: Date.now() };
+    const validated = validateChatMessage(text);
+    if (!validated || !p2pServiceRef.current) return;
+    const sanitizedText = sanitizeChatMessage(validated);
+    if (!sanitizedText) return;
+    const sanitizedSender = sanitizeChatMessage(peerId, 100);
+    const msg = { id: crypto.randomUUID(), sender: sanitizedSender, text: sanitizedText, timestamp: Date.now() };
     setChatMessages((prev) => [...prev, msg].slice(-UI_CONFIG.maxChatMessages));
-    p2pServiceRef.current.sendChat(msg.text);
+    p2pServiceRef.current.sendChat(validated);
   }, [peerId]);
 
   const scheduleBroadcast = useCallback((targetPeerId?: string) => {

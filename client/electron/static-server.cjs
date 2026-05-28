@@ -82,13 +82,30 @@ function getDefaultPeerConnectSources() {
   return ['wss://0.peerjs.com', 'wss://*.openwebtorrent.com', 'wss://*.webtorrent.dev', 'wss://*.btorrent.xyz'];
 }
 
+function generateNonce() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let nonce = '';
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  for (let i = 0; i < bytes.length; i++) {
+    nonce += chars[bytes[i] % chars.length];
+  }
+  return nonce;
+}
+
+const cspNonce = generateNonce();
+
+function getCspNonce() {
+  return cspNonce;
+}
+
 function buildCspHeader(streamBaseUrl, extraPeerSources) {
   const mediaSource = streamBaseUrl || "'self'";
   const peerSources = (extraPeerSources && extraPeerSources.length > 0)
     ? extraPeerSources
     : getDefaultPeerConnectSources();
   const connectSources = ["'self'", ...peerSources, mediaSource].join(' ');
-  return `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: ${mediaSource}; connect-src ${connectSources}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:; upgrade-insecure-requests`;
+  return `default-src 'self'; script-src 'self' 'nonce-${cspNonce}'; style-src 'self' 'nonce-${cspNonce}'; img-src 'self' blob:; media-src 'self' blob: ${mediaSource}; connect-src ${connectSources}; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self'; upgrade-insecure-requests`;
 }
 
 class StaticServer {
