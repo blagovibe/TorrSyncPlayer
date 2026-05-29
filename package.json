@@ -16,5 +16,8 @@
     "type-check": "npm --prefix client run type-check",
     "test": "npm --prefix client run test",
     "security:audit": "node scripts/security-audit.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }

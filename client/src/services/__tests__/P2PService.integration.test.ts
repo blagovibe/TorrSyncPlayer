@@ -146,15 +146,40 @@ const getLastMockConnection = (peerInstance: MockPeerInstance): MockConnection |
   return lastMockConnectionMap.get(peerInstance);
 };
 
-// Mock cleanup utility
-vi.mock("../utils/cleanup", () => ({
-  createCleanup: () => ({
-    add: vi.fn(),
-    setTimeout: vi.fn().mockReturnValue(1),
-    setInterval: vi.fn().mockReturnValue(2),
-    abort: vi.fn(),
-  }),
-  type: {} as unknown,
+// Mock cleanup utility - tracks timers so they can be cleared on abort
+vi.mock("../../utils/cleanup", () => ({
+  createCleanup: () => {
+    const cleanupFns: Array<() => void> = [];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const intervals: ReturnType<typeof setInterval>[] = [];
+    let aborted = false;
+    return {
+      add: vi.fn((fn: () => void) => cleanupFns.push(fn)),
+      setTimeout: vi.fn((callback: () => void, ms: number) => {
+        const id = setTimeout(() => {
+          if (!aborted) callback();
+        }, ms);
+        timers.push(id);
+        return id;
+      }),
+      setInterval: vi.fn((callback: () => void, ms: number) => {
+        const id = setInterval(() => {
+          if (!aborted) callback();
+        }, ms);
+        intervals.push(id);
+        return id;
+      }),
+      abort: vi.fn(() => {
+        aborted = true;
+        for (const id of timers) clearTimeout(id);
+        for (const id of intervals) clearInterval(id);
+        timers.length = 0;
+        intervals.length = 0;
+        for (const fn of cleanupFns) fn();
+      }),
+      get aborted() { return aborted; },
+    };
+  },
 }));
 
 describe("P2PService integration tests", () => {
@@ -210,13 +235,9 @@ describe("P2PService integration tests", () => {
 
       await service.disconnect();
 
-      // After disconnect, connect should fail because peer is destroyed
-      // The retry logic will keep trying, so we need to advance timers
-      const connectPromise = service.connect("some-peer");
-      // Advance timers to let retry logic complete
-      await vi.advanceTimersByTimeAsync(60_000);
-      
-      await expect(connectPromise).rejects.toThrow();
+      // After disconnect, connect should fail immediately because peer is null
+      // (we added a check for this in connect())
+      await expect(service.connect("some-peer")).rejects.toThrow("Peer not initialized");
     });
   });
 
@@ -252,15 +273,12 @@ describe("P2PService integration tests", () => {
       peerInstance._triggerOpen("test-peer-id");
       await initPromise;
 
+      // Start connect - it will fail because no "open" event is emitted
+      // and the timeout fires after advancing timers
       const connectPromise = service.connect("remote-peer");
-      // Advance timers multiple times to let retry logic complete
-      // Each retry has exponential backoff: 1s, 2s, 4s, 8s, 16s
-      // Plus the 30s timeout for each attempt
-      await vi.advanceTimersByTimeAsync(31_000);
-      await vi.advanceTimersByTimeAsync(1_000 + 31_000);
-      await vi.advanceTimersByTimeAsync(2_000 + 31_000);
-      await vi.advanceTimersByTimeAsync(4_000 + 31_000);
-      await vi.advanceTimersByTimeAsync(8_000 + 31_000);
+      
+      // Advance timers to trigger the connection timeout (30s) and retry delays
+      await vi.runAllTimersAsync();
 
       await expect(connectPromise).rejects.toThrow();
     });

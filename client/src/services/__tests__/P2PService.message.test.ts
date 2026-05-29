@@ -1,6 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import P2PService from "../P2PService";
 
+// Mock cleanup utility to prevent timer leaks
+vi.mock("../utils/cleanup", () => ({
+  createCleanup: () => {
+    let aborted = false;
+    return {
+      add: vi.fn(),
+      setTimeout: vi.fn((callback: () => void, _ms: number) => {
+        // Execute callback immediately to avoid hanging promises
+        // In real code, this would be a delayed execution
+        if (!aborted) {
+          callback();
+        }
+        return 1;
+      }),
+      setInterval: vi.fn(() => 2),
+      abort: vi.fn(() => { aborted = true; }),
+      get aborted() { return aborted; },
+    };
+  },
+}));
+
 describe("P2PService message validation", () => {
   it("generates a valid peer ID", () => {
     const svc = new P2PService();

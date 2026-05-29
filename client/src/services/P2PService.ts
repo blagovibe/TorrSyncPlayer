@@ -408,6 +408,9 @@ export class P2PService {
     if (this._state === "destroyed") {
       throw new Error("Cannot connect: P2PService has been destroyed and cannot be reused");
     }
+    if (!this.peer) {
+      throw new Error("Peer not initialized — call initialize() first");
+    }
     const existing = this.getConnection(remotePeerId);
     if (existing?.open) return;
 
@@ -428,7 +431,9 @@ export class P2PService {
         if (attempt < maxRetries) {
           const delay = baseDelay * Math.pow(2, attempt - 1);
           const jitteredDelay = delay * (0.5 + Math.random() * 0.5);
-          await new Promise<void>((resolve) => { setTimeout(resolve, jitteredDelay); });
+          await new Promise<void>((resolve) => {
+            this.cleanup.setTimeout(() => resolve(), jitteredDelay);
+          });
         }
       }
     }
@@ -1110,3 +1115,5 @@ export class P2PService {
  }
  
 export default P2PService;
+
+
