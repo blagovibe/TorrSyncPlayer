@@ -28,6 +28,9 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm install
 
+      - name: Build frontend
+        run: cd frontend && npm run build
+
       - name: Build application
         run: wails build -platform windows/amd64
 
@@ -63,6 +66,9 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm install
 
+      - name: Build frontend
+        run: cd frontend && npm run build
+
       - name: Build application
         run: wails build -platform linux/amd64
 
@@ -92,6 +98,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: cd frontend && npm install
+
+      - name: Build frontend
+        run: cd frontend && npm run build
 
       - name: Build application
         run: wails build -platform darwin/amd64

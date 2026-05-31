@@ -46,6 +46,9 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build frontend
+        run: cd frontend && npm run build
+
       - name: Get release version
         id: version
         shell: pwsh
@@ -145,6 +148,9 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build frontend
+        run: cd frontend && npm run build
+
       - name: Get release version
         id: version
         run: |
@@ -239,6 +245,9 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build frontend
+        run: cd frontend && npm run build
+
       - name: Get release version
         id: version
         run: |
@@ -302,6 +311,9 @@ jobs:
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build frontend
+        run: cd frontend && npm run build
 
       - name: Get release version
         id: version
