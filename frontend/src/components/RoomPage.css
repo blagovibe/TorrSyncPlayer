@@ -1,0 +1,696 @@
+/* RoomPage.css - Netflix/Dark UI Design */
+
+/* ===== Основной контейнер ===== */
+.room-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--color-bg-primary);
+  overflow: hidden;
+  font-family: var(--font-family);
+  color: var(--color-text-primary);
+}
+
+/* ===== Видео контейнер ===== */
+.video-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ===== Overlay панель ===== */
+.video-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  pointer-events: none;
+}
+
+.video-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ===== Верхняя часть overlay ===== */
+.overlay-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--spacing-lg);
+  background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
+}
+
+.room-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.room-id {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  background: rgba(0,0,0,0.6);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(10px);
+}
+
+.copy-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.copy-btn:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-text-muted);
+}
+
+.copy-btn.copied {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.leave-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: var(--color-accent);
+  border: none;
+  color: var(--color-text-primary);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.leave-btn:hover {
+  background: var(--color-accent-hover);
+  transform: scale(1.05);
+}
+
+/* ===== Нижняя часть overlay ===== */
+.overlay-bottom {
+  padding: var(--spacing-lg);
+  background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 60%, transparent 100%);
+}
+
+/* ===== Прогресс торрента ===== */
+.torrent-progress {
+  margin-bottom: var(--spacing-md);
+}
+
+.torrent-progress .progress-bar {
+  height: 4px;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: var(--spacing-xs);
+}
+
+.torrent-progress .progress-fill {
+  height: 100%;
+  background: var(--color-success);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+}
+
+.progress-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.torrent-stats {
+  display: flex;
+  gap: var(--spacing-lg);
+  margin-top: var(--spacing-xs);
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.stat-item svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ===== Управление воспроизведением ===== */
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+}
+
+.control-btn:hover {
+  background: rgba(255,255,255,0.1);
+  transform: scale(1.1);
+}
+
+.control-btn:active {
+  transform: scale(0.95);
+}
+
+.control-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.control-btn.play-btn {
+  width: 56px;
+  height: 56px;
+  background: var(--color-text-primary);
+  color: var(--color-bg-primary);
+}
+
+.control-btn.play-btn:hover {
+  background: #e6e6e6;
+  transform: scale(1.08);
+}
+
+/* ===== Прогресс-бар воспроизведения ===== */
+.seek-bar-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.seek-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  position: relative;
+  transition: height var(--transition-fast);
+}
+
+.seek-bar:hover {
+  height: 6px;
+}
+
+.seek-bar .progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+  position: relative;
+}
+
+.seek-bar .progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.seek-bar:hover .progress-fill::after {
+  opacity: 1;
+}
+
+.time-display {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  min-width: 100px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== Регулятор громкости ===== */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.volume-control svg {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-secondary);
+}
+
+.volume-slider {
+  width: 80px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  outline: none;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--color-text-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--color-text-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+/* ===== Боковая панель пользователей ===== */
+.users-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100vh;
+  background: rgba(20, 20, 20, 0.95);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid var(--color-bg-tertiary);
+  transform: translateX(100%);
+  transition: transform var(--transition-base);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.users-panel.open {
+  transform: translateX(0);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--color-bg-tertiary);
+}
+
+.panel-header h3 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.panel-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+}
+
+.panel-close-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* ===== Список пользователей ===== */
+.users-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-md);
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+}
+
+.user-item:hover {
+  background: var(--color-bg-secondary);
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  flex-shrink: 0;
+}
+
+.user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.user-status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.user-status.host {
+  color: var(--color-warning);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+}
+
+.status-dot.offline {
+  background: var(--color-text-muted);
+}
+
+/* ===== Кнопка открытия панели ===== */
+.panel-toggle {
+  position: fixed;
+  top: var(--spacing-lg);
+  right: var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: rgba(0,0,0,0.6);
+  border: 1px solid var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  backdrop-filter: blur(10px);
+  transition: all var(--transition-fast);
+  z-index: 50;
+}
+
+.panel-toggle:hover {
+  background: rgba(0,0,0,0.8);
+  border-color: var(--color-text-muted);
+}
+
+.panel-toggle .badge {
+  background: var(--color-accent);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+}
+
+/* ===== Информация о торренте ===== */
+.torrent-info-card {
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.torrent-info-card h4 {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--color-text-secondary);
+}
+
+.torrent-file-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  margin-bottom: var(--spacing-sm);
+  word-break: break-word;
+}
+
+/* ===== Плейсхолдер без видео ===== */
+.no-video {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg-primary);
+  color: var(--color-text-muted);
+}
+
+.no-video-icon {
+  width: 80px;
+  height: 80px;
+  margin-bottom: var(--spacing-lg);
+  opacity: 0.5;
+}
+
+.no-video p {
+  font-size: var(--font-size-lg);
+}
+
+/* ===== Список файлов ===== */
+.file-list-overlay {
+  position: absolute;
+  bottom: 120px;
+  left: var(--spacing-lg);
+  background: rgba(20, 20, 20, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  max-width: 400px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--color-bg-tertiary);
+}
+
+.file-list-overlay h4 {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.file-item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.file-item.selected {
+  background: var(--color-accent);
+}
+
+.file-item-name {
+  font-size: var(--font-size-sm);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-item-progress {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-left: var(--spacing-md);
+}
+
+/* ===== Скроллбар ===== */
+.users-list::-webkit-scrollbar,
+.file-list-overlay::-webkit-scrollbar {
+  width: 6px;
+}
+
+.users-list::-webkit-scrollbar-track,
+.file-list-overlay::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.users-list::-webkit-scrollbar-thumb,
+.file-list-overlay::-webkit-scrollbar-thumb {
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-full);
+}
+
+.users-list::-webkit-scrollbar-thumb:hover,
+.file-list-overlay::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ===== Анимации ===== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.video-overlay.visible {
+  animation: fadeIn var(--transition-base);
+}
+
+.users-panel.open {
+  animation: slideIn var(--transition-base);
+}
+
+.loading-indicator {
+  animation: pulse 1.5s infinite;
+}
+
+/* ===== Адаптивность ===== */
+@media (max-width: 768px) {
+  .users-panel {
+    width: 100%;
+    max-width: 320px;
+  }
+  
+  .overlay-top {
+    padding: var(--spacing-md);
+  }
+  
+  .overlay-bottom {
+    padding: var(--spacing-md);
+  }
+  
+  .playback-controls {
+    gap: var(--spacing-sm);
+  }
+  
+  .control-btn {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .control-btn.play-btn {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .control-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .volume-control {
+    display: none;
+  }
+  
+  .time-display {
+    font-size: var(--font-size-xs);
+    min-width: 80px;
+  }
+  
+  .room-id {
+    font-size: var(--font-size-xs);
+  }
+  
+  .copy-btn span,
+  .leave-btn span {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .panel-toggle {
+    top: var(--spacing-md);
+    right: var(--spacing-md);
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .torrent-stats {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+  
+  .file-list-overlay {
+    left: var(--spacing-md);
+    right: var(--spacing-md);
+    max-width: none;
+  }
+}

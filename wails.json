@@ -1,0 +1,31 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TorrSyncPlayer",
+  "outputfilename": "TorrSyncPlayer",
+  "frontend": {
+    "dir": "frontend",
+    "install": "npm install",
+    "build": "npm run build",
+    "dev": "npm run dev",
+    "devserverurl": "http://localhost:5173"
+  },
+  "author": {
+    "name": "TorrSyncPlayer Team",
+    "email": "contact@torrsyncplayer.com"
+  },
+  "info": {
+    "companyName": "TorrSyncPlayer",
+    "productName": "TorrSyncPlayer",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2024 TorrSyncPlayer",
+    "comments": "P2P synchronized video player via torrent protocol"
+  },
+  "nsisType": "multiple",
+  "obfuscate": false,
+  "garbleargs": "",
+  "bindings": {
+    "ts": {
+      "outputType": "ts"
+    }
+  }
+}

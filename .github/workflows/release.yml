@@ -1,87 +1,375 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [created]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.25'
+  WAILS_VERSION: 'v2.9.2'
+  APP_NAME: 'TorrSyncPlayer'
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  # ============================================
+  # Windows Portable Build
+  # ============================================
+  build-windows:
+    name: Build Windows (amd64) Portable
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Determine release tag
-        run: |
-          REF="${{ github.ref }}"
-          if [[ "$REF" == refs/tags/v* ]]; then
-            RELEASE_TAG="${REF#refs/tags/}"
-          else
-            RELEASE_TAG="push-${{ github.run_id }}-${{ github.run_attempt }}"
-          fi
-          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
-
-      - name: Create release tag (non-version-tag only)
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$RELEASE_TAG" -m "Automated release for ${{ github.sha }}"
-          git push origin "$RELEASE_TAG"
-
-      - name: Find latest successful CI run
-        id: find_run
-        uses: actions/github-script@v7
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          script: |
-            const runs = await github.rest.actions.listWorkflowRunsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'ci.yml',
-              branch: 'main',
-              status: 'success',
-              per_page: 10
-            });
-            const sorted = (runs.data.workflow_runs || []).sort(
-              (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
-            );
-            const run = sorted[0];
-            if (!run) {
-              core.setFailed('No successful CI run found');
-              return;
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Get release version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          if (-not $tag) {
+            $tag = "${{ inputs.tag }}"
+          }
+          if (-not $tag) {
+            $tag = "v0.0.0-dev"
+          }
+          $version = $tag -replace '^v', ''
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "Version: $version"
+
+      - name: Build portable EXE
+        run: |
+          wails build `
+            -portable `
+            -platform windows/amd64 `
+            -ldflags "-X main.version=${{ steps.version.outputs.version }}" `
+            -o ${{ env.APP_NAME }}-windows-portable.exe
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $exePath = "build/bin/${{ env.APP_NAME }}-windows-portable.exe"
+          if (Test-Path $exePath) {
+            $size = (Get-Item $exePath).Length / 1MB
+            echo "✅ Build successful: $exePath ($size MB)"
+          } else {
+            # Try alternative path
+            $exePath = "${{ env.APP_NAME }}-windows-portable.exe"
+            if (Test-Path $exePath) {
+              $size = (Get-Item $exePath).Length / 1MB
+              echo "✅ Build successful: $exePath ($size MB)"
+            } else {
+              echo "❌ Build output not found"
+              Get-ChildItem -Recurse -Filter "*.exe" | Select-Object FullName
+              exit 1
             }
-            core.setOutput('run_id', run.id);
-            core.info(`Found CI run #${run.id} (head_sha: ${run.head_sha}, updated: ${run.updated_at})`);
+          }
 
-      - name: Download AppImage artifact
-        uses: actions/download-artifact@v4
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: TorrSyncPlayer-Linux-AppImage
-          path: artifacts/linux
-          run-id: ${{ steps.find_run.outputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ env.APP_NAME }}-windows-portable
+          path: |
+            build/bin/${{ env.APP_NAME }}-windows-portable.exe
+            ${{ env.APP_NAME }}-windows-portable.exe
+          if-no-files-found: error
+          retention-days: 30
 
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: TorrSyncPlayer-Windows
-          path: artifacts/windows
-          run-id: ${{ steps.find_run.outputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish GitHub release assets
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: ${{ env.RELEASE_TAG }}
-          generate_release_notes: true
-          draft: true
+          tag_name: ${{ github.event.release.tag_name }}
           files: |
-            artifacts/linux/*.AppImage
-            artifacts/windows/TorrSyncPlayer*.exe
+            build/bin/${{ env.APP_NAME }}-windows-portable.exe
+            ${{ env.APP_NAME }}-windows-portable.exe
+
+  # ============================================
+  # Linux Build
+  # ============================================
+  build-linux:
+    name: Build Linux (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config \
+            build-essential
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Get release version
+        id: version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          if [ -z "$tag" ]; then
+            tag="${{ inputs.tag }}"
+          fi
+          if [ -z "$tag" ]; then
+            tag="v0.0.0-dev"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Version: $version"
+
+      - name: Build Linux binary
+        run: |
+          wails build \
+            -platform linux/amd64 \
+            -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
+            -o ${{ env.APP_NAME }}-linux-amd64
+
+      - name: Create AppImage structure
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          cp build/bin/${{ env.APP_NAME }}-linux-amd64 AppDir/usr/bin/${{ env.APP_NAME }}
+          chmod +x AppDir/usr/bin/${{ env.APP_NAME }}
+          
+          cat > AppDir/usr/share/applications/${{ env.APP_NAME }}.desktop << EOF
+          [Desktop Entry]
+          Name=TorrSyncPlayer
+          Exec=${{ env.APP_NAME }}
+          Icon=${{ env.APP_NAME }}
+          Type=Application
+          Categories=AudioVideo;Player;
+          Comment=P2P synchronized video player via torrent protocol
+          EOF
+          
+          cp AppDir/usr/share/applications/${{ env.APP_NAME }}.desktop AppDir/
+          
+          # Create a simple icon placeholder if not exists
+          if [ ! -f "build/appicon.png" ]; then
+            convert -size 256x256 xc:blue AppDir/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png 2>/dev/null || \
+            touch AppDir/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
+          else
+            cp build/appicon.png AppDir/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
+            cp build/appicon.png AppDir/${{ env.APP_NAME }}.png
+          fi
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-linux-amd64
+          path: build/bin/${{ env.APP_NAME }}-linux-amd64
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: build/bin/${{ env.APP_NAME }}-linux-amd64
+
+  # ============================================
+  # macOS Build (Intel)
+  # ============================================
+  build-macos-amd64:
+    name: Build macOS (amd64)
+    runs-on: macos-13
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Get release version
+        id: version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          if [ -z "$tag" ]; then
+            tag="${{ inputs.tag }}"
+          fi
+          if [ -z "$tag" ]; then
+            tag="v0.0.0-dev"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Version: $version"
+
+      - name: Build macOS amd64 binary
+        run: |
+          wails build \
+            -platform darwin/amd64 \
+            -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
+            -o ${{ env.APP_NAME }}-macos-amd64
+
+      - name: Upload macOS amd64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-macos-amd64
+          path: build/bin/${{ env.APP_NAME }}-macos-amd64
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: build/bin/${{ env.APP_NAME }}-macos-amd64
+
+  # ============================================
+  # macOS Build (Apple Silicon)
+  # ============================================
+  build-macos-arm64:
+    name: Build macOS (arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Get release version
+        id: version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          if [ -z "$tag" ]; then
+            tag="${{ inputs.tag }}"
+          fi
+          if [ -z "$tag" ]; then
+            tag="v0.0.0-dev"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Version: $version"
+
+      - name: Build macOS arm64 binary
+        run: |
+          wails build \
+            -platform darwin/arm64 \
+            -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
+            -o ${{ env.APP_NAME }}-macos-arm64
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-macos-arm64
+          path: build/bin/${{ env.APP_NAME }}-macos-arm64
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: build/bin/${{ env.APP_NAME }}-macos-arm64
+
+  # ============================================
+  # Create Universal macOS Binary (optional)
+  # ============================================
+  create-macos-universal:
+    name: Create macOS Universal Binary
+    needs: [build-macos-amd64, build-macos-arm64]
+    runs-on: macos-14
+    if: github.event_name == 'release'
+    steps:
+      - name: Download amd64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-macos-amd64
+          path: amd64
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-macos-arm64
+          path: arm64
+
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            amd64/${{ env.APP_NAME }}-macos-amd64 \
+            arm64/${{ env.APP_NAME }}-macos-arm64 \
+            -output ${{ env.APP_NAME }}-macos-universal
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: ${{ env.APP_NAME }}-macos-universal
