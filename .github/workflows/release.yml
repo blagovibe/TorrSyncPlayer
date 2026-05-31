@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: '1.24'
+  GO_VERSION: '1.24.0'
   WAILS_VERSION: 'v2.9.2'
   NODE_VERSION: '20'
   APP_NAME: 'TorrSyncPlayer'
@@ -36,6 +36,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: false
           cache: true
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
@@ -63,11 +64,6 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-      - name: Clean Go cache
-        run: |
-          go clean -modcache
-          go clean -cache
 
       - name: Download Go modules
         run: go mod download
@@ -97,7 +93,6 @@ jobs:
       - name: Build portable EXE
         env:
           CGO_ENABLED: 1
-          GOWORK: off
         run: |
           wails build `
             -portable `
@@ -160,6 +155,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: false
           cache: true
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
@@ -184,11 +180,6 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-      - name: Clean Go cache
-        run: |
-          go clean -modcache
-          go clean -cache
 
       - name: Download Go modules
         run: go mod download
@@ -217,7 +208,6 @@ jobs:
       - name: Build Linux binary
         env:
           CGO_ENABLED: 1
-          GOWORK: off
         run: |
           wails build \
             -platform linux/amd64 \
@@ -302,6 +292,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: false
           cache: true
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
@@ -320,11 +311,6 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-      - name: Clean Go cache
-        run: |
-          go clean -modcache
-          go clean -cache
 
       - name: Download Go modules
         run: go mod download
@@ -353,7 +339,6 @@ jobs:
       - name: Build macOS amd64 binary
         env:
           CGO_ENABLED: 1
-          GOWORK: off
         run: |
           wails build \
             -platform darwin/amd64 \
@@ -391,6 +376,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          check-latest: false
           cache: true
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
@@ -409,11 +395,6 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-      - name: Clean Go cache
-        run: |
-          go clean -modcache
-          go clean -cache
 
       - name: Download Go modules
         run: go mod download
@@ -442,7 +423,6 @@ jobs:
       - name: Build macOS arm64 binary
         env:
           CGO_ENABLED: 1
-          GOWORK: off
         run: |
           wails build \
             -platform darwin/arm64 \
