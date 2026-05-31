@@ -130,6 +130,7 @@ func (s *TorrentService) AddTorrentByMagnet(magnetURI string) (*TorrentInfo, err
 	s.emitEvent("torrent:added", info)
 
 	// Запускаем мониторинг прогресса
+	//nolint:gosec // cancel is stored in monitorCancel and called in RemoveTorrent
 	ctx, cancel := context.WithCancel(context.Background())
 	s.monitorMu.Lock()
 	s.monitorCancel[hash] = cancel
@@ -200,6 +201,7 @@ func (s *TorrentService) AddTorrentByFile(filePath string) (*TorrentInfo, error)
 	s.emitEvent("torrent:added", info)
 
 	// Запускаем мониторинг прогресса
+	//nolint:gosec // cancel is stored in monitorCancel and called in RemoveTorrent
 	ctx, cancel := context.WithCancel(context.Background())
 	s.monitorMu.Lock()
 	s.monitorCancel[hash] = cancel
