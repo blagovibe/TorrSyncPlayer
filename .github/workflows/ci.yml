@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
 
 env:
-  NODE_VERSION: '18'
-  GO_VERSION: '1.21'
+  NODE_VERSION: '20'
+  GO_VERSION: '1.25'
 
 jobs:
   # ==========================================
