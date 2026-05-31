@@ -162,25 +162,33 @@ func (s *P2PService) JoinRoomWithSDP(roomID string, offerSDP string) (string, er
 	// Устанавливаем удаленный SDP (offer от хоста)
 	var offer webrtc.SessionDescription
 	if err := json.Unmarshal([]byte(offerSDP), &offer); err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to parse offer SDP: %w", err)
 	}
 
 	if err := peerConnection.SetRemoteDescription(offer); err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to set remote description: %w", err)
 	}
 
 	// Создаем answer
 	answer, err := peerConnection.CreateAnswer(nil)
 	if err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to create answer: %w", err)
 	}
 
 	// Устанавливаем local description
 	if err := peerConnection.SetLocalDescription(answer); err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to set local description: %w", err)
 	}
 
@@ -202,7 +210,9 @@ func (s *P2PService) JoinRoomWithSDP(roomID string, offerSDP string) (string, er
 	answerBytes, err := json.Marshal(answer)
 	if err != nil {
 		delete(s.peers, peerID)
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to marshal answer: %w", err)
 	}
 
@@ -228,10 +238,14 @@ func (s *P2PService) LeaveRoom() error {
 	// Закрываем все соединения
 	for peerID, peerData := range s.peers {
 		if peerData.DataChannel != nil {
-			peerData.DataChannel.Close()
+			if err := peerData.DataChannel.Close(); err != nil {
+				logger.Warn("Failed to close data channel", "peer_id", peerID, "error", err)
+			}
 		}
 		if peerData.PeerConnection != nil {
-			peerData.PeerConnection.Close()
+			if err := peerData.PeerConnection.Close(); err != nil {
+				logger.Warn("Failed to close peer connection", "peer_id", peerID, "error", err)
+			}
 		}
 		logger.Info("Disconnected peer", "service", "p2p", "peer_id", peerID)
 	}
@@ -307,7 +321,9 @@ func (s *P2PService) CreateOffer(peerID string) (string, error) {
 	// Создаем Data Channel
 	dataChannel, err := peerConnection.CreateDataChannel("sync", nil)
 	if err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to create data channel: %w", err)
 	}
 
@@ -317,13 +333,17 @@ func (s *P2PService) CreateOffer(peerID string) (string, error) {
 	// Создаем offer
 	offer, err := peerConnection.CreateOffer(nil)
 	if err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to create offer: %w", err)
 	}
 
 	// Устанавливаем local description
 	if err := peerConnection.SetLocalDescription(offer); err != nil {
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to set local description: %w", err)
 	}
 
@@ -343,7 +363,9 @@ func (s *P2PService) CreateOffer(peerID string) (string, error) {
 	offerBytes, err := json.Marshal(offer)
 	if err != nil {
 		delete(s.peers, peerID)
-		peerConnection.Close()
+		if closeErr := peerConnection.Close(); closeErr != nil {
+			logger.Warn("Failed to close peer connection", "error", closeErr)
+		}
 		return "", fmt.Errorf("failed to marshal offer: %w", err)
 	}
 
@@ -435,10 +457,14 @@ func (s *P2PService) Disconnect() {
 	// Закрываем все peer connections
 	for peerID, peerData := range s.peers {
 		if peerData.DataChannel != nil {
-			peerData.DataChannel.Close()
+			if err := peerData.DataChannel.Close(); err != nil {
+				logger.Warn("Failed to close data channel", "peer_id", peerID, "error", err)
+			}
 		}
 		if peerData.PeerConnection != nil {
-			peerData.PeerConnection.Close()
+			if err := peerData.PeerConnection.Close(); err != nil {
+				logger.Warn("Failed to close peer connection", "peer_id", peerID, "error", err)
+			}
 		}
 		logger.Info("Disconnected peer", "service", "p2p", "peer_id", peerID)
 	}

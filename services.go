@@ -463,7 +463,9 @@ func (s *TorrentService) SetStreamPort(port int) {
 
 	s.httpPort = port
 	if s.httpServer != nil {
-		s.httpServer.Close()
+		if err := s.httpServer.Close(); err != nil {
+			logger.Warn("Failed to close HTTP server", "error", err)
+		}
 		s.httpServer = nil
 	}
 	s.startHTTPServer()
@@ -492,7 +494,9 @@ func (s *TorrentService) Close() {
 
 	// Закрываем торрент-клиент
 	if s.client != nil {
-		s.client.Close()
+		if err := s.client.Close(); err != nil {
+			logger.Warn("Failed to close torrent client", "error", err)
+		}
 	}
 
 	logger.Info("TorrentService closed", "service", "torrent")
