@@ -52,6 +52,9 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
+      - name: Clean Go cache
+        run: go clean -cache
+
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
@@ -106,6 +109,9 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
+      - name: Clean Go cache
+        run: go clean -cache
+
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
@@ -153,6 +159,9 @@ jobs:
 
       - name: Download Go modules
         run: go mod download
+
+      - name: Clean Go cache
+        run: go clean -cache
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci
