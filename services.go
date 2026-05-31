@@ -59,7 +59,7 @@ func (s *TorrentService) Init(ctx context.Context) error {
 
 	// Создаем директорию для торрентов
 	downloadDir := "./torrents"
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+	if err := os.MkdirAll(downloadDir, 0750); err != nil {
 		return fmt.Errorf("failed to create torrents directory: %w", err)
 	}
 
@@ -656,7 +656,11 @@ func (s *TorrentService) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	// Создаем reader для файла
 	reader := targetFile.NewReader()
-	reader.Seek(start, io.SeekStart)
+	if _, err := reader.Seek(start, io.SeekStart); err != nil {
+		logger.Error("Stream seek error", "service", "torrent", "error", err)
+		http.Error(w, "Seek error", http.StatusInternalServerError)
+		return
+	}
 
 	// Ограничиваем количество байт для чтения
 	limit := end - start + 1
