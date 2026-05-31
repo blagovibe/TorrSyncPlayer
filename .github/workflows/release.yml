@@ -18,6 +18,7 @@ env:
   WAILS_VERSION: 'v2.9.2'
   NODE_VERSION: '20'
   APP_NAME: 'TorrSyncPlayer'
+  CGO_ENABLED: '0'
 
 jobs:
   # ============================================
