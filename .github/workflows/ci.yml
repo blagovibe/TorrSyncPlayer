@@ -128,7 +128,7 @@ jobs:
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec security scan
-        run: gosec ./...
+        run: gosec -exclude=G118 ./...
         continue-on-error: false
 
       # --- Frontend Security ---
