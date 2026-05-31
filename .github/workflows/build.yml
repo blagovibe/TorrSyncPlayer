@@ -94,12 +94,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libgtk-3-dev \
-            libwebkit2gtk-4.0-dev \
             libwebkit2gtk-4.1-dev \
             pkg-config \
             build-essential \
             libappindicator3-dev \
             librsvg2-dev
+          # Create pkg-config symlink for webkit2gtk-4.0 (required by wails)
+          if [ -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc ] && [ ! -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc ]; then
+            sudo ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
+          fi
 
       - name: Install Wails CLI
         env:
