@@ -10,7 +10,6 @@ env:
   GO_VERSION: '1.24.0'
   WAILS_VERSION: 'v2.9.2'
   NODE_VERSION: '20'
-  CGO_ENABLED: '0'
 
 jobs:
   build-windows:
@@ -46,6 +45,8 @@ jobs:
           echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -58,6 +59,8 @@ jobs:
         run: cd frontend && npm run build
 
       - name: Build application
+        env:
+          CGO_ENABLED: 1
         run: wails build -platform windows/amd64
 
       - name: Upload artifact
@@ -96,6 +99,8 @@ jobs:
             librsvg2-dev
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -108,6 +113,8 @@ jobs:
         run: cd frontend && npm run build
 
       - name: Build application
+        env:
+          CGO_ENABLED: 1
         run: wails build -platform linux/amd64
 
       - name: Upload artifact
@@ -140,6 +147,8 @@ jobs:
           xcodebuild -version
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -152,6 +161,8 @@ jobs:
         run: cd frontend && npm run build
 
       - name: Build application
+        env:
+          CGO_ENABLED: 1
         run: wails build -platform darwin/amd64
 
       - name: Upload artifact

@@ -18,7 +18,6 @@ env:
   WAILS_VERSION: 'v2.9.2'
   NODE_VERSION: '20'
   APP_NAME: 'TorrSyncPlayer'
-  CGO_ENABLED: '0'
 
 jobs:
   # ============================================
@@ -61,6 +60,8 @@ jobs:
           echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -89,6 +90,8 @@ jobs:
           echo "Version: $version"
 
       - name: Build portable EXE
+        env:
+          CGO_ENABLED: 1
         run: |
           wails build `
             -portable `
@@ -172,6 +175,8 @@ jobs:
             librsvg2-dev
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -199,6 +204,8 @@ jobs:
           echo "Version: $version"
 
       - name: Build Linux binary
+        env:
+          CGO_ENABLED: 1
         run: |
           wails build \
             -platform linux/amd64 \
@@ -298,6 +305,8 @@ jobs:
           xcodebuild -version
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -325,6 +334,8 @@ jobs:
           echo "Version: $version"
 
       - name: Build macOS amd64 binary
+        env:
+          CGO_ENABLED: 1
         run: |
           wails build \
             -platform darwin/amd64 \
@@ -377,6 +388,8 @@ jobs:
           xcodebuild -version
 
       - name: Install Wails CLI
+        env:
+          CGO_ENABLED: 1
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Download Go modules
@@ -404,6 +417,8 @@ jobs:
           echo "Version: $version"
 
       - name: Build macOS arm64 binary
+        env:
+          CGO_ENABLED: 1
         run: |
           wails build \
             -platform darwin/arm64 \
