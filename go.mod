@@ -1,6 +1,6 @@
 module torrsyncplayer
 
-go 1.22
+go 1.24.0
 
 require (
 	github.com/anacrolix/torrent v1.61.0

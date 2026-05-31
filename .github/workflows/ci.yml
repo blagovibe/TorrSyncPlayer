@@ -11,7 +11,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  GO_VERSION: '1.22'
+  GO_VERSION: '1.24.0'
 
 jobs:
   # ==========================================
@@ -42,6 +42,12 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+  
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
   # ==========================================
   # Job 2: Build and Test Go (depends on frontend build)
@@ -67,14 +73,12 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
           cache: true
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend assets
-        working-directory: frontend
-        run: npm run build
+  
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Download Go modules
         run: go mod download
@@ -106,20 +110,11 @@ jobs:
         uses: actions/checkout@v4
 
       # --- Frontend build (required for gosec to avoid embed errors) ---
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend assets
-        working-directory: frontend
-        run: npm run build
+          name: frontend-dist
+          path: frontend/dist
 
       # --- Go Security ---
       - name: Setup Go ${{ env.GO_VERSION }}
