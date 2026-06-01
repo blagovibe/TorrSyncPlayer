@@ -46,19 +46,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install MinGW (GCC for Windows)
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-toolchain
-
-      - name: Add MinGW to PATH
-        shell: pwsh
-        run: |
-          echo "C:\msys64\mingw64\bin" >> $env:GITHUB_PATH
-          echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
+      - name: Install MinGW
+        run: choco install mingw -y
 
       - name: Install Wails CLI
         env:
