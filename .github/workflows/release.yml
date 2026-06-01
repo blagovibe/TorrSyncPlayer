@@ -90,6 +90,7 @@ jobs:
         run: |
           wails build `
             -platform windows/amd64 `
+            -tags disable_libutp `
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" `
             -o ${{ env.APP_NAME }}-windows-portable.exe
 
@@ -209,6 +210,7 @@ jobs:
         run: |
           wails build \
             -platform linux/amd64 \
+            -tags disable_libutp \
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
             -o ${{ env.APP_NAME }}-linux-amd64
 
@@ -376,6 +378,7 @@ jobs:
         run: |
           wails build \
             -platform darwin/amd64 \
+            -tags disable_libutp \
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
             -o ${{ env.APP_NAME }}-macos-amd64
 
@@ -465,6 +468,7 @@ jobs:
         run: |
           wails build \
             -platform darwin/arm64 \
+            -tags disable_libutp \
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
             -o ${{ env.APP_NAME }}-macos-arm64
 
