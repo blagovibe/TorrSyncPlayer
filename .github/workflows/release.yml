@@ -70,12 +70,6 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
-      - name: Clean Go module cache
-        run: |
-          go clean -modcache
-          go clean -cache
-          go mod download
-
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
@@ -101,7 +95,6 @@ jobs:
       - name: Build portable EXE
         env:
           CGO_ENABLED: 1
-          GOWORK: off
         run: |
           wails build `
             -platform windows/amd64 `
@@ -195,12 +188,6 @@ jobs:
 
       - name: Download Go modules
         run: go mod download
-
-      - name: Clean Go module cache
-        run: |
-          go clean -modcache
-          go clean -cache
-          go mod download
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci
@@ -364,12 +351,6 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
-      - name: Clean Go module cache
-        run: |
-          go clean -modcache
-          go clean -cache
-          go mod download
-
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
@@ -453,12 +434,6 @@ jobs:
 
       - name: Download Go modules
         run: go mod download
-
-      - name: Clean Go module cache
-        run: |
-          go clean -modcache
-          go clean -cache
-          go mod download
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci
