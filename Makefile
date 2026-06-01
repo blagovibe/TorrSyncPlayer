@@ -1,79 +1,52 @@
-# TorrSyncPlayer Wails Makefile
+.PHONY: all backend frontend clean test lint help
 
-.PHONY: build dev clean install generate test
+# Цель по умолчанию
+all: backend frontend
 
-# Переменные
-APP_NAME=TorrSyncPlayer
-BUILD_DIR=build/bin
-FRONTEND_DIR=frontend
+## backend: Собрать backend
+backend:
+	$(MAKE) -C backend build
 
-# Установка зависимостей
-install:
-	cd $(FRONTEND_DIR) && npm install
-	go mod download
+## frontend: Собрать frontend
+frontend:
+	$(MAKE) -C frontend build
 
-# Генерация Wails bindings
-generate:
-	wails generate module
-
-# Режим разработки
-dev:
-	wails dev
-
-# Сборка для текущей платформы
-build:
-	wails build
-
-# Сборка для Windows
-build-windows:
-	wails build -platform windows/amd64
-
-# Сборка для Linux
-build-linux:
-	wails build -platform linux/amd64
-
-# Сборка для macOS
-build-macos:
-	wails build -platform darwin/amd64
-
-# Сборка для всех платформ
-build-all: build-windows build-linux build-macos
-
-# Очистка
-clean:
-	rm -rf $(BUILD_DIR)
-	rm -rf $(FRONTEND_DIR)/dist
-	rm -rf $(FRONTEND_DIR)/node_modules
-
-# Тесты
+## test: Запустить все тесты
 test:
-	go test ./...
+	$(MAKE) -C backend test
+	$(MAKE) -C frontend test
 
-test-verbose:
-	go test -v ./...
-
-test-coverage:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
-
-# Линтинт
+## lint: Запустить линтеры
 lint:
-	go vet ./...
-	cd $(FRONTEND_DIR) && npm run lint
+	$(MAKE) -C backend lint
+	$(MAKE) -C frontend lint
 
-# Запуск в режиме разработки с отладкой
-dev-debug:
-	wails dev -debug
+## clean: Очистить сборку
+clean:
+	$(MAKE) -C backend clean
+	$(MAKE) -C frontend clean
 
-# Сборка с отладочной информацией
-build-debug:
-	wails build -debug
+## run-backend: Запустить backend сервер
+run-backend:
+	$(MAKE) -C backend run
 
-# Сборка для production
-build-prod:
-	wails build -ldflags "-s -w"
+## run-frontend: Запустить frontend
+run-frontend:
+	$(MAKE) -C frontend run
 
-# Создание иконок (если нужно)
-icons:
-	wails generate icons
+## dev: Запустить в режиме разработки
+dev:
+	$(MAKE) -C backend dev
+
+## help: Показать справку
+help:
+	@echo "Доступные команды:"
+	@echo "  make all          - Собрать backend и frontend"
+	@echo "  make backend      - Собрать backend"
+	@echo "  make frontend     - Собрать frontend"
+	@echo "  make test         - Запустить все тесты"
+	@echo "  make lint         - Запустить линтеры"
+	@echo "  make clean        - Очистить сборку"
+	@echo "  make run-backend  - Запустить backend сервер"
+	@echo "  make run-frontend - Запустить frontend"
+	@echo "  make dev          - Запустить в режиме разработки"

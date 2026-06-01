@@ -1,138 +1,342 @@
+# ============================================================
+# CI Pipeline для TorrSyncPlayer
+# Запускается при push и pull_request в ветки main, develop
+# ============================================================
+
 name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, develop]
   pull_request:
-    branches: [main, master]
-  workflow_dispatch:
+    branches: [main, develop]
 
-env:
-  NODE_VERSION: '20'
-  GO_VERSION: '1.26.3'
+# Отменяем предыдущие запуски для той же ветки
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # ==========================================
-  # Job 1: Build and Test Frontend first (required for Go embed)
-  # ==========================================
-  build-and-test-frontend:
-    name: Build & Test Frontend
+  # --------------------------------------------------------
+  # Lint backend код
+  # --------------------------------------------------------
+  lint-backend:
+    name: Линт Backend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: backend/go.sum
 
-      - name: Install dependencies
-        run: npm ci
+      # Устанавливаем golangci-lint
+      - name: Установка golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: backend
 
-      - name: Run unit tests
-        run: npm run test:run
+      # Запускаем golangci-lint
+      - name: Запуск golangci-lint
+        working-directory: backend
+        run: golangci-lint run --timeout=5m ./...
 
-      - name: Build frontend
-        run: npm run build
-  
-      - name: Upload frontend dist
+  # --------------------------------------------------------
+  # Тесты backend с coverage
+  # --------------------------------------------------------
+  test-backend:
+    name: Тесты Backend
+    needs: lint-backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Запуск тестов с coverage
+        working-directory: backend
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Загрузка coverage отчёта
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-dist
-          path: frontend/dist
+          name: backend-coverage
+          path: backend/coverage.*
+          retention-days: 7
 
-  # ==========================================
-  # Job 2: Build and Test Go (depends on frontend build)
-  # ==========================================
-  build-and-test-go:
-    name: Build & Test Go
-    runs-on: ubuntu-latest
-    needs: build-and-test-frontend
+      - name: Отправка coverage в Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: backend/coverage.out
+          flags: backend
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # --------------------------------------------------------
+  # Сборка backend на разных платформах
+  # --------------------------------------------------------
+  build-backend:
+    name: Сборка Backend (${{ matrix.os }})
+    needs: test-backend
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Setup Go ${{ env.GO_VERSION }}
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: false
+          go-version: "1.25"
           cache: true
-  
-      - name: Download frontend dist
-        uses: actions/download-artifact@v4
+          cache-dependency-path: backend/go.sum
+
+      - name: Сборка backend
+        working-directory: backend
+        run: make build
+
+      - name: Загрузка артефакта
+        uses: actions/upload-artifact@v4
         with:
-          name: frontend-dist
-          path: frontend/dist
+          name: backend-${{ matrix.os }}
+          path: |
+            backend/build/
+            backend/bin/
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Download Go modules
-        run: go mod download
-
-      - name: Tidy Go modules
-        run: go mod tidy
-
-      - name: Verify Go modules
-        run: go mod verify
-
-      - name: Build Go code
-        run: go build ./...
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run Go tests with race detector
-        run: go test ./... -race -count=1 -v
-
-  # ==========================================
-  # Job 3: Security Scan (depends on frontend build)
-  # ==========================================
-  security-scan:
-    name: Security Scan
+  # --------------------------------------------------------
+  # Lint frontend код (clang-tidy)
+  # --------------------------------------------------------
+  lint-frontend:
+    name: Линт Frontend
     runs-on: ubuntu-latest
-    needs: build-and-test-frontend
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Frontend build (required for gosec to avoid embed errors) ---
-      - name: Download frontend dist
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
+      # Устанавливаем системные зависимости
+      - name: Установка зависимостей
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            clang-tidy \
+            libmpv-dev \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libxcb-xinerama0 \
+            libxcb-xinput-dev \
+            libxcb-xfixes0-dev
 
-      # --- Go Security ---
-      - name: Setup Go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v5
+      # Устанавливаем Qt 6.5
+      - name: Установка Qt
+        uses: jurplel/install-qt-action@v3
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: false
+          version: "6.5.*"
+          host: "linux"
+          target: "desktop"
+          arch: "gcc_64"
+          modules: "qt5compat qtmultimedia"
           cache: true
 
-      - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
-
-      - name: Run gosec security scan
-        run: gosec ./...
-        continue-on-error: true
-
-      # --- Frontend Security ---
-      - name: Run npm audit (high severity)
+      # Запускаем clang-tidy
+      - name: Запуск clang-tidy
         working-directory: frontend
-        run: npm audit --audit-level=high
-        continue-on-error: true
+        run: |
+          clang-tidy src/*.cpp -- \
+            -I/usr/include/x86_64-linux-gnu/qt6 \
+            -I/usr/include/x86_64-linux-gnu/qt6/QtCore \
+            -I/usr/include/x86_64-linux-gnu/qt6/QtGui \
+            -I/usr/include/x86_64-linux-gnu/qt6/QtWidgets \
+            -I/usr/include/x86_64-linux-gnu/qt6/QtNetwork \
+            -std=c++17
+
+  # --------------------------------------------------------
+  # Сборка frontend на Linux
+  # --------------------------------------------------------
+  build-frontend-linux:
+    name: Сборка Frontend (Linux)
+    needs: lint-frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Установка зависимостей
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libmpv-dev \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libxcb-xinerama0 \
+            libxcb-xinput-dev \
+            libxcb-xfixes0-dev
+
+      - name: Установка Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.*"
+          host: "linux"
+          target: "desktop"
+          arch: "gcc_64"
+          modules: "qt5compat qtmultimedia"
+          cache: true
+
+      - name: Сборка frontend с coverage
+        run: |
+          cd frontend
+          mkdir -p build
+          cd build
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+          ninja
+
+      - name: Запуск тестов C++ с coverage
+        working-directory: frontend/build
+        run: |
+          ctest --output-on-failure
+          # Генерация coverage отчёта с lcov
+          lcov --capture --directory . --output-file coverage.info
+          lcov --remove coverage.info '/usr/*' --output-file coverage.info
+          lcov --list coverage.info
+
+      - name: Загрузка coverage отчёта
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/build/coverage.info
+          retention-days: 7
+
+      - name: Отправка coverage в Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: frontend/build/coverage.info
+          flags: frontend
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Загрузка артефакта
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-linux
+          path: frontend/build/TorrSyncPlayer*
+          if-no-files-found: warn
+          retention-days: 7
+
+  # --------------------------------------------------------
+  # Сборка frontend на Windows
+  # --------------------------------------------------------
+  build-frontend-windows:
+    name: Сборка Frontend (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Установка Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.*"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2019_64"
+          modules: "qt5compat qtmultimedia"
+          cache: true
+
+      - name: Сборка frontend
+        shell: cmd
+        run: |
+          cd frontend
+          mkdir build
+          cd build
+          cmake .. -G "Visual Studio 17 2022" -A x64
+          cmake --build . --config Release
+
+      - name: Загрузка артефакта
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-windows
+          path: frontend/build/Release/TorrSyncPlayer*
+          if-no-files-found: warn
+          retention-days: 7
+
+  # --------------------------------------------------------
+  # Coverage проверка для PR
+  # --------------------------------------------------------
+  coverage-check:
+    name: Проверка Coverage
+    needs: [test-backend, build-frontend-linux]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Загрузка backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/
+
+      - name: Загрузка frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/build/
+
+      - name: Проверка минимального coverage
+        run: |
+          # Проверяем backend coverage (минимум 60%)
+          BACKEND_COVERAGE=$(go tool cover -func=backend/coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Backend coverage: ${BACKEND_COVERAGE}%"
+          if (( $(echo "$BACKEND_COVERAGE < 60" | bc -l) )); then
+            echo "❌ Backend coverage ниже 60%: ${BACKEND_COVERAGE}%"
+            exit 1
+          fi
+          echo "✅ Backend coverage достаточный: ${BACKEND_COVERAGE}%"
+
+      - name: Комментарий с coverage в PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          message: |
+            ## 📊 Coverage Report
+            
+            | Component | Coverage |
+            |-----------|----------|
+            | Backend | [Codecov](https://codecov.io/gh/${{ github.repository }}) |
+            | Frontend | [Codecov](https://codecov.io/gh/${{ github.repository }}) |
+            
+            Coverage отчёты загружены в Codecov.

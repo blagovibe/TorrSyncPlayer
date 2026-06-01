@@ -1,5 +1,0 @@
-* text=auto
-
-# Force LF for shell scripts and CJS files
-*.sh text eol=lf
-*.cjs text eol=lf

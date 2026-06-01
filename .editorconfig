@@ -1,15 +1,51 @@
+# EditorConfig для TorrSyncPlayer
+# https://editorconfig.org/
+
 root = true
 
+# ── Универсальные настройки ──────────────────────────────────────────────
 [*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# ── Go файлы ─────────────────────────────────────────────────────────────
+[*.go]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# ── C++ файлы ────────────────────────────────────────────────────────────
+[*.{cpp,h,hpp}]
+indent_style = space
+indent_size = 4
+
+# ── CMake ────────────────────────────────────────────────────────────────
+[CMakeLists.txt]
+indent_style = space
+indent_size = 4
+
+# ── Makefile ─────────────────────────────────────────────────────────────
+[Makefile]
+indent_style = tab
+
+# ── JSON ─────────────────────────────────────────────────────────────────
+[*.json]
 indent_style = space
 indent_size = 2
-end_of_line = lf
-charset = utf-8
-trim_trailing_whitespace = true
-insert_final_newline = true
 
+# ── YAML ─────────────────────────────────────────────────────────────────
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# ── BAT скрипты ─────────────────────────────────────────────────────────
+[*.bat]
+end_of_line = crlf
+indent_style = space
+indent_size = 4
+
+# ── Markdown ─────────────────────────────────────────────────────────────
 [*.md]
 trim_trailing_whitespace = false
-
-[*.{cjs,mjs}]
-indent_size = 2

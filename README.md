@@ -1,118 +1,109 @@
 # TorrSyncPlayer
 
-P2P synchronized video player via torrent protocol.
+[![CI](https://github.com/USERNAME/TorrSyncPlayer/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/TorrSyncPlayer/actions/workflows/ci.yml)
+[![Release](https://github.com/USERNAME/TorrSyncPlayer/actions/workflows/release.yml/badge.svg)](https://github.com/USERNAME/TorrSyncPlayer/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-TorrSyncPlayer allows users to watch videos together in real-time using torrent streaming and WebRTC peer-to-peer connections.
+Десктопный торрент-плеер с P2P синхронизацией воспроизведения.
 
-## Features
+## Возможности
 
-- 🎬 Stream video from torrents
-- 👥 Synchronized playback with friends
-- 🔗 P2P connections via WebRTC
-- 💬 Built-in chat
-- 🎮 Master/Slave synchronization model
+- **Потоковое воспроизведение** — мгновенный старт просмотра без полной загрузки
+- **P2P комнаты** — синхронный просмотр с друзьями через WebRTC
+- **Безопасность** — JWT аутентификация, парольная защита комнат
+- **Метрики** — Prometheus метрики для мониторинга
+- **Docker** — готовая Docker конфигурация для развёртывания
 
-## Production Deployment
+## Стек
 
-### TURN Servers
+- **Backend:** Go 1.25+, anacrolix/torrent, pion/webrtc v4
+- **Frontend:** C++17, Qt 6.5+, libmpv
 
-For production deployment, TURN servers are **required** to ensure reliable P2P connections for all users. Without TURN, approximately 10-20% of users behind symmetric NATs or corporate firewalls will be unable to connect.
+## Документация
 
-See [TURN_SETUP.md](docs/TURN_SETUP.md) for detailed instructions on:
-- Setting up your own coturn server
-- Using cloud TURN services (Twilio, Xirsys, Metered.ca)
-- Configuring TURN in TorrSyncPlayer
-- Security best practices
+- [Руководство пользователя](docs/USER_GUIDE.md) — инструкция по использованию
+- [Руководство по установке](docs/INSTALL.md) — установка и настройка
+- [Changelog](CHANGELOG.md) — история изменений
 
-Quick configuration via environment variables:
-```bash
-TURN_SERVER_URLS=turn:your-turn-server.com:3478
-TURN_USERNAME=torrsync
-TURN_CREDENTIAL=your_secure_password
-```
+## Быстрый старт
 
-## Tech Stack
-
-- **Backend:** Go
-- **Frontend:** React + TypeScript
-- **Desktop Framework:** Wails v2
-- **Torrent Client:** anacrolix/torrent
-- **P2P:** pion/webrtc
-
-## Requirements
-
-- Go 1.21+
-- Node.js 20+
-- Wails CLI
-
-## Installation
-
-### Install Wails CLI
+### Backend
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+cd backend
+make build
+make run
 ```
 
-### Clone and setup
+### Frontend
 
 ```bash
-git clone https://github.com/yourusername/TorrSyncPlayer.git
-cd TorrSyncPlayer
-make install
+cd frontend
+./build.sh  # Linux/macOS
+build.bat   # Windows
 ```
 
-## Development
+### Docker
 
 ```bash
-# Run in development mode
-wails dev
-
-# Build for production
-wails build
+docker-compose up -d
 ```
 
-## Project Structure
+## Запуск
+
+```bash
+# Терминал 1
+cd backend && make run
+
+# Терминал 2
+cd frontend/build && ./TorrSyncPlayer
+```
+
+## Структура проекта
 
 ```
 TorrSyncPlayer/
-├── main.go              # Application entry point
-├── app.go               # Main app structure
-├── services.go          # Torrent service
-├── p2p_service.go       # P2P service (WebRTC)
-├── sync_service.go      # Playback synchronization
-├── config/              # Configuration packages
-│   └── turn_config.go   # TURN server configuration
-├── docs/                # Documentation
-│   └── TURN_SETUP.md    # TURN server setup guide
-├── wails.json           # Wails configuration
-├── Makefile             # Build commands
-├── go.mod               # Go module
-├── frontend/            # React frontend
-│   ├── src/
-│   │   ├── components/  # React components
-│   │   ├── hooks/       # Custom hooks
-│   │   ├── services/    # API services
-│   │   ├── types/       # TypeScript types
-│   │   └── utils/       # Utilities
-│   └── wailsjs/         # Wails generated files
-└── .github/workflows/   # CI/CD
+├── backend/           # Go backend (HTTP API + P2P + Torrent)
+│   ├── cmd/server/    # Точка входа
+│   ├── internal/      # Внутренние пакеты
+│   │   ├── api/       # HTTP API handlers
+│   │   ├── auth/      # Аутентификация
+│   │   ├── metrics/   # Prometheus метрики
+│   │   ├── models/    # Модели данных
+│   │   ├── p2p/       # WebRTC P2P сервис
+│   │   ├── sync/      # Сервис синхронизации
+│   │   ├── torrent/   # Торрент сервис
+│   │   └── version/   # Информация о версии
+│   └── pkg/logger/    # Логгер
+├── frontend/          # Qt/C++ frontend
+│   ├── src/           # Исходный код
+│   └── resources/     # Ресурсы (иконки и т.д.)
+├── docs/              # Документация
+│   ├── USER_GUIDE.md  # Руководство пользователя
+│   └── INSTALL.md     # Руководство по установке
+├── Dockerfile         # Docker образ
+├── docker-compose.yml # Docker Compose конфигурация
+└── CHANGELOG.md       # История изменений
 ```
 
-## Building
+## API
 
-```bash
-# Build for current platform
-make build
-
-# Build for specific platform
-make build-windows
-make build-linux
-make build-macos
-
-# Build for all platforms
-make build-all
+### Версия
+```
+GET /api/v1/version
 ```
 
-## License
+### Health Check
+```
+GET /health
+GET /health/detailed
+```
 
-MIT License - see [LICENSE](LICENSE) file for details.
+### Метрики
+```
+GET /metrics
+```
+
+## Лицензия
+
+[MIT](LICENSE)

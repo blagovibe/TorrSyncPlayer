@@ -1,57 +1,51 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out
+# Dependencies
+node_modules/
 
-# Output of the go coverage tool
-*.out
-
-# Dependency directories
-vendor/
-
-# Go workspace file
-go.work
-
-# Build output
-build/
-bin/
-
-# Wails
-frontend/dist/
-frontend/node_modules/
+# Secrets and config
+.env
+*.pem
+*.key
+*.secret
+config.yaml
+*.env.local
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+*.sublime-*
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Environment
-.env
-.env.local
-.env.*.local
+# Go
+backend/bin/
+backend/*.exe
+backend/build/
+vendor/
+*.test
+*.out
+.go/
+go.work
 
-# Torrent data
-torrents/
-*.torrent
+# Qt
+frontend/build/
+frontend/cmake-build-*/
+moc_*
+ui_*
+*.qmlc
+*.jsc
+build-*/
+*.o
+*.so
+*.dylib
+*.a
+*.lib
 
-# Logs
-*.log
-npm-debug.log*
-
-# AI/LLM generated files
-.roo/
-plans/
-.claude/
-.cursor/
-.copilot/
-.aider*
+# Editor
+*.swp
+*.swo
+*~
