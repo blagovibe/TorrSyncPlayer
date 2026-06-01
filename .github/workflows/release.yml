@@ -47,7 +47,20 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install MinGW
-        run: choco install mingw -y
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config
+          msystem: MINGW64
+          path-type: minimal
+          release: true
+          platform-check-severity: fatal
+          cache: true
+
+      - name: Add MinGW to PATH
+        run: |
+          echo "C:\msys64\mingw64\bin" >> $env:GITHUB_PATH
+          echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
 
       - name: Install Wails CLI
         env:
@@ -60,6 +73,7 @@ jobs:
       - name: Clean Go module cache
         run: |
           go clean -modcache
+          go clean -cache
           go mod download
 
       - name: Install frontend dependencies
@@ -87,10 +101,10 @@ jobs:
       - name: Build portable EXE
         env:
           CGO_ENABLED: 1
+          GOWORK: off
         run: |
           wails build `
             -platform windows/amd64 `
-            -tags disable_libutp `
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" `
             -o ${{ env.APP_NAME }}-windows-portable.exe
 
@@ -169,6 +183,10 @@ jobs:
             build-essential \
             libappindicator3-dev \
             librsvg2-dev
+          # Create pkg-config symlink for webkit2gtk-4.0 (required by wails)
+          if [ -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc ] && [ ! -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc ]; then
+            sudo ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
+          fi
 
       - name: Install Wails CLI
         env:
@@ -181,6 +199,7 @@ jobs:
       - name: Clean Go module cache
         run: |
           go clean -modcache
+          go clean -cache
           go mod download
 
       - name: Install frontend dependencies
@@ -210,7 +229,6 @@ jobs:
         run: |
           wails build \
             -platform linux/amd64 \
-            -tags disable_libutp \
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
             -o ${{ env.APP_NAME }}-linux-amd64
 
@@ -312,7 +330,7 @@ jobs:
   # ============================================
   build-macos-amd64:
     name: Build macOS (amd64)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -349,6 +367,7 @@ jobs:
       - name: Clean Go module cache
         run: |
           go clean -modcache
+          go clean -cache
           go mod download
 
       - name: Install frontend dependencies
@@ -378,7 +397,6 @@ jobs:
         run: |
           wails build \
             -platform darwin/amd64 \
-            -tags disable_libutp \
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
             -o ${{ env.APP_NAME }}-macos-amd64
 
@@ -439,6 +457,7 @@ jobs:
       - name: Clean Go module cache
         run: |
           go clean -modcache
+          go clean -cache
           go mod download
 
       - name: Install frontend dependencies
@@ -468,7 +487,6 @@ jobs:
         run: |
           wails build \
             -platform darwin/arm64 \
-            -tags disable_libutp \
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
             -o ${{ env.APP_NAME }}-macos-arm64
 
