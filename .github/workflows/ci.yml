@@ -37,7 +37,7 @@ jobs:
 
       # Устанавливаем golangci-lint
       - name: Установка golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: backend
@@ -169,11 +169,11 @@ jobs:
         working-directory: frontend
         run: |
           clang-tidy src/*.cpp -- \
-            -I/usr/include/x86_64-linux-gnu/qt6 \
-            -I/usr/include/x86_64-linux-gnu/qt6/QtCore \
-            -I/usr/include/x86_64-linux-gnu/qt6/QtGui \
-            -I/usr/include/x86_64-linux-gnu/qt6/QtWidgets \
-            -I/usr/include/x86_64-linux-gnu/qt6/QtNetwork \
+            -I${Qt6_DIR}/include \
+            -I${Qt6_DIR}/include/QtCore \
+            -I${Qt6_DIR}/include/QtGui \
+            -I${Qt6_DIR}/include/QtWidgets \
+            -I${Qt6_DIR}/include/QtNetwork \
             -std=c++17
 
   # --------------------------------------------------------
