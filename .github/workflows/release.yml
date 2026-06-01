@@ -52,15 +52,16 @@ jobs:
           update: true
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config
           msystem: MINGW64
-          path-type: minimal
+          path-type: inherit
           release: true
           platform-check-severity: fatal
           cache: true
 
-      - name: Add MinGW to PATH
+      - name: Verify GCC installation
         run: |
-          echo "C:\msys64\mingw64\bin" >> $env:GITHUB_PATH
-          echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
+          gcc --version
+          where.exe gcc
+          echo "CC=$(where.exe gcc)" >> $env:GITHUB_ENV
 
       - name: Install Wails CLI
         env:
