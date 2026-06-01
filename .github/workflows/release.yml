@@ -84,7 +84,6 @@ jobs:
           CGO_ENABLED: 1
         run: |
           wails build `
-            -portable `
             -platform windows/amd64 `
             -ldflags "-X main.version=${{ steps.version.outputs.version }}" `
             -o ${{ env.APP_NAME }}-windows-portable.exe
