@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: '1.24.0'
+  GO_VERSION: '1.25.0'
   WAILS_VERSION: 'v2.12.0'
   NODE_VERSION: '20'
   APP_NAME: 'TorrSyncPlayer'
@@ -260,6 +260,37 @@ jobs:
             cp build/appicon.png AppDir/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
             cp build/appicon.png AppDir/${{ env.APP_NAME }}.png
           fi
+
+      - name: Install appimagetool
+        run: |
+          curl -Lo appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+          mv appimagetool.AppImage /usr/local/bin/appimagetool
+
+      - name: Create AppImage
+        env:
+          ARCH: x86_64
+        run: |
+          appimagetool AppDir
+
+      - name: Rename AppImage to standard format
+        run: |
+          mv TorrSyncPlayer-x86_64.AppImage ${{ env.APP_NAME }}-linux-amd64.AppImage
+
+      - name: Upload Linux AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-linux-amd64-AppImage
+          path: ${{ env.APP_NAME }}-linux-amd64.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach AppImage to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: ${{ env.APP_NAME }}-linux-amd64.AppImage
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4

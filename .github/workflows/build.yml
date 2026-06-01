@@ -61,7 +61,7 @@ jobs:
 
       - name: Build application
         env:
-          CGO_ENABLED: 0
+          CGO_ENABLED: 1
         run: wails build -platform windows/amd64 -skipembedcreate
 
       - name: Upload artifact
