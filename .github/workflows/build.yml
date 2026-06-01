@@ -37,7 +37,7 @@ jobs:
           update: true
           install: >-
             mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-toolchain
 
       - name: Add MinGW to PATH
         shell: pwsh
