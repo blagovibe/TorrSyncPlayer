@@ -166,6 +166,13 @@ private slots:
      */
     void onNetworkError(const QString &message);
     
+    /**
+     * @brief Обработка получения списка файлов торрента
+     * @param torrentId ID торрента
+     * @param files JSON массив файлов
+     */
+    void onFilesReceived(const QString &torrentId, const QJsonArray &files);
+    
     // ── Слоты graceful degradation ─────────────────────────────────────
     
     /**

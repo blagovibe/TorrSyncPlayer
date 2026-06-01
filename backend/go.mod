@@ -1,6 +1,6 @@
 module github.com/yourname/torrplayer/backend
 
-go 1.25
+go 1.24
 
 require (
 	github.com/anacrolix/torrent v1.58.1
