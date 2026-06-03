@@ -26,6 +26,8 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
@@ -67,14 +69,16 @@ var (
 
 // Config конфигурация сервера
 type Config struct {
-	Port            string
-	DataDir         string
-	TLSCert         string
-	TLSKey          string
-	UseTLS          bool
-	AutoTLS         bool // Генерировать self-signed сертификат
-	JWTSecret       string
-	EnableProfiling bool // Включить pprof профилирование
+	Port                  string
+	DataDir               string
+	UseMemoryStorage      bool  // Использовать in-memory хранилище
+	MemoryStorageCapacity int64 // Максимальный размер in-memory хранилища в байтах
+	TLSCert               string
+	TLSKey                string
+	UseTLS                bool
+	AutoTLS               bool // Генерировать self-signed сертификат
+	JWTSecret             string
+	EnableProfiling       bool // Включить pprof профилирование
 }
 
 func main() {
@@ -101,13 +105,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Инициализация сервисов
-	torrentSvc, err := torrent.NewService(config.DataDir)
+	// Инициализация сервиса буферизации
+	bufferSvc := buffer.NewService(constants.DefaultMaxBufferSize)
+	bufferSvc.StartPeriodicUpdate(constants.BufferUpdateInterval)
+
+	// Опции торрент-сервиса
+	torrentOpts := torrent.ServiceOptions{
+		UseMemoryStorage:      config.UseMemoryStorage,
+		MemoryStorageCapacity: config.MemoryStorageCapacity,
+	}
+
+	// Инициализация торрент-сервиса с буферизацией и in-memory storage
+	torrentSvc, err := torrent.NewServiceWithOptions(config.DataDir, bufferSvc, torrentOpts)
 	if err != nil {
 		logger.Error("Ошибка инициализации торрент-сервиса", "error", err)
 		os.Exit(1)
 	}
 	defer torrentSvc.Close()
+
+	logger.Info("Торрент-сервис инициализирован",
+		"memory_storage", config.UseMemoryStorage,
+		"memory_capacity", config.MemoryStorageCapacity,
+	)
 
 	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
@@ -205,6 +224,8 @@ func parseFlags() Config {
 
 	flag.StringVar(&config.Port, "port", getEnv("PORT", defaultPort), "Порт сервера")
 	flag.StringVar(&config.DataDir, "data-dir", getEnv("DATA_DIR", defaultDir), "Директория для данных")
+	flag.BoolVar(&config.UseMemoryStorage, "memory-storage", getEnvBool("MEMORY_STORAGE", true), "Использовать in-memory хранилище")
+	flag.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", getEnvInt64("MEMORY_CAPACITY", constants.DefaultMaxBufferSize), "Максимальный размер in-memory хранилища в байтах")
 	flag.StringVar(&config.TLSCert, "tls-cert", getEnv("TLS_CERT", ""), "Путь к TLS сертификату")
 	flag.StringVar(&config.TLSKey, "tls-key", getEnv("TLS_KEY", ""), "Путь к TLS ключу")
 	flag.BoolVar(&config.UseTLS, "tls", false, "Включить TLS")
@@ -362,6 +383,25 @@ func setupPprof() {
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	return defaultValue
+}
+
+// getEnvBool возвращает булево значение переменной окружения или значение по умолчанию
+func getEnvBool(key string, defaultValue bool) bool {
+	if value, exists := os.LookupEnv(key); exists {
+		return value == "true" || value == "1" || value == "yes"
+	}
+	return defaultValue
+}
+
+// getEnvInt64 возвращает целочисленное значение переменной окружения или значение по умолчанию
+func getEnvInt64(key string, defaultValue int64) int64 {
+	if value, exists := os.LookupEnv(key); exists {
+		var result int64
+		if _, err := fmt.Sscanf(value, "%d", &result); err == nil {
+			return result
+		}
 	}
 	return defaultValue
 }

@@ -1,4 +1,4 @@
-// Package api предоставляет интеграционные тесты для HTTP API.
+﻿// Package api предоставляет интеграционные тесты для HTTP API.
 // Тестирует полный цикл работы с API: регистрация, логин, торрент операции, комнаты.
 // Этот файл содержит только дополнительные интеграционные тесты, не дублирующие handlers_test.go.
 package api
@@ -102,6 +102,26 @@ func (m *integrationMockTorrentService) ServeFile(w http.ResponseWriter, r *http
 
 func (m *integrationMockTorrentService) Close() error {
 	return nil
+}
+
+func (m *integrationMockTorrentService) UpdateBufferPosition(torrentID string, position int64) {
+	//                            
+}
+
+func (m *integrationMockTorrentService) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
+	//                               
+	return &models.BufferInfo{
+		TorrentID:       torrentID,
+		FileIndex:       0,
+		CurrentPosition: 0,
+		BufferStart:     0,
+		BufferEnd:       1024 * 1024,
+		BufferSize:      1024 * 1024,
+		BufferedBytes:   512 * 1024,
+		BufferedPercent: 50.0,
+		DownloadSpeed:   1024 * 1024,
+		IsBuffering:     true,
+	}, nil
 }
 
 // integrationMockP2PService мок для P2PService
@@ -991,3 +1011,5 @@ func decodeIntegrationJSON(t *testing.T, resp *http.Response, v interface{}) {
 		t.Fatalf("Failed to decode JSON: %v", err)
 	}
 }
+
+

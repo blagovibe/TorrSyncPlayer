@@ -32,6 +32,14 @@ type TorrentService interface {
 	// ServeFile обрабатывает HTTP стриминг файла.
 	// Поддерживает Range запросы для перемотки.
 	ServeFile(w http.ResponseWriter, r *http.Request, torrentID string)
+	// UpdateBufferPosition обновляет текущую позицию воспроизведения для буферизации.
+	// Параметр torrentID - идентификатор торрента.
+	// Параметр position - позиция в байтах.
+	UpdateBufferPosition(torrentID string, position int64)
+	// GetBufferInfo возвращает информацию о состоянии буфера.
+	// Параметр torrentID - идентификатор торрента.
+	// Возвращает информацию о буфере или ошибку.
+	GetBufferInfo(torrentID string) (*models.BufferInfo, error)
 	// Close закрывает сервис торрентов.
 	// Останавливает торрент-клиент и освобождает ресурсы.
 	Close() error

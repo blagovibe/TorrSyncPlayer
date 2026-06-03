@@ -96,6 +96,8 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/{id}/files", GetFiles(config.TorrentSvc))
 				r.Post("/{id}/select", SelectFile(config.TorrentSvc))
 				r.Get("/{id}/stream", StreamFile(config.TorrentSvc))
+				r.Post("/{id}/buffer/position", SetBufferPosition(config.TorrentSvc))
+				r.Get("/{id}/buffer/info", GetBufferInfo(config.TorrentSvc))
 			})
 
 			// P2P endpoints

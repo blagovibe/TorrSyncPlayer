@@ -184,3 +184,32 @@ func NewFileListResponse(files []FileInfo, totalCount, limit, offset int) FileLi
 		HasMore:    offset+limit < totalCount,
 	}
 }
+
+// ============ Buffer Models ============
+
+// StreamConfig конфигурация стриминга
+type StreamConfig struct {
+	BufferPercent    int   `json:"buffer_percent"`     // Процент буферизации (5-20)
+	BufferDuration   int   `json:"buffer_duration"`    // Длительность буфера в секундах
+	MaxBufferSize    int64 `json:"max_buffer_size"`    // Максимальный размер буфера в байтах
+	PreBufferPercent int   `json:"pre_buffer_percent"` // Процент предварительной буферизации
+}
+
+// BufferInfo информация о состоянии буфера
+type BufferInfo struct {
+	TorrentID       string  `json:"torrent_id"`
+	FileIndex       int     `json:"file_index"`
+	CurrentPosition int64   `json:"current_position"` // Текущая позиция в байтах
+	BufferStart     int64   `json:"buffer_start"`     // Начало буфера
+	BufferEnd       int64   `json:"buffer_end"`       // Конец буфера
+	BufferSize      int64   `json:"buffer_size"`      // Размер буфера
+	BufferedBytes   int64   `json:"buffered_bytes"`   // Загружено байт
+	BufferedPercent float64 `json:"buffered_percent"` // Процент загрузки буфера
+	DownloadSpeed   int64   `json:"download_speed"`   // Скорость загрузки (байт/сек)
+	IsBuffering     bool    `json:"is_buffering"`     // Идёт ли буферизация
+}
+
+// SetBufferPositionRequest запрос на установку позиции буфера
+type SetBufferPositionRequest struct {
+	Position int64 `json:"position"` // Позиция в байтах
+}

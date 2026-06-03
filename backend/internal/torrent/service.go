@@ -18,9 +18,11 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/storage"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
@@ -43,6 +45,23 @@ type Service struct {
 	torrents      map[string]*torrent.Torrent
 	dataDir       string
 	selectedFiles map[string]int // torrentID -> fileIndex
+	bufferService *buffer.Service
+}
+
+// ServiceOptions содержит опции для настройки торрент-сервиса
+type ServiceOptions struct {
+	// NoDHT отключает DHT (для тестов)
+	NoDHT bool
+	// DisableUTP отключает UTP (для тестов)
+	DisableUTP bool
+	// DisableTCP отключает TCP (для тестов)
+	DisableTCP bool
+	// ListenPort порт для прослушивания (0 = случайный)
+	ListenPort int
+	// UseMemoryStorage использует in-memory хранилище вместо диска
+	UseMemoryStorage bool
+	// MemoryStorageCapacity максимальный размер in-memory хранилища (0 = без ограничений)
+	MemoryStorageCapacity int64
 }
 
 // readCloserWithClose обёртка для io.ReadSeekCloser с безопасным закрытием.
@@ -66,20 +85,52 @@ func (r *readCloserWithClose) Close() error {
 
 // NewService создаёт новый сервис торрентов.
 // Параметр dataDir - директория для хранения данных торрентов.
+// Параметр bufferService - сервис буферизации (может быть nil).
 // Создаёт директорию если не существует.
 // Возвращает инициализированный сервис или ошибку.
-func NewService(dataDir string) (*Service, error) {
-	// Создаём директорию для данных если не существует
-	if err := os.MkdirAll(dataDir, dataDirPermissions); err != nil {
-		logger.Error("Torrent: не удалось создать директорию данных", "dataDir", dataDir, "error", err)
-		return nil, fmt.Errorf("не удалось создать директорию данных: %w", err)
-	}
+func NewService(dataDir string, bufferService *buffer.Service) (*Service, error) {
+	return NewServiceWithOptions(dataDir, bufferService, ServiceOptions{})
+}
 
+// NewServiceWithOptions создаёт новый сервис торрентов с расширенными опциями.
+// Позволяет настроить параметры сети для тестирования.
+// Поддерживает in-memory хранилище для данных торрентов.
+func NewServiceWithOptions(dataDir string, bufferService *buffer.Service, opts ServiceOptions) (*Service, error) {
 	// Конфигурация торрент-клиента
 	cfg := torrent.NewDefaultClientConfig()
-	cfg.DataDir = dataDir
+
+	// Выбираем тип хранилища: in-memory или диск
+	if opts.UseMemoryStorage {
+		// Используем in-memory хранилище
+		memStorage := storage.NewMemoryStorage(opts.MemoryStorageCapacity)
+		cfg.DefaultStorage = memStorage
+		logger.Info("Torrent: используется in-memory хранилище", "capacity", opts.MemoryStorageCapacity)
+	} else {
+		// Используем файловое хранилище
+		if err := os.MkdirAll(dataDir, dataDirPermissions); err != nil {
+			logger.Error("Torrent: не удалось создать директорию данных", "dataDir", dataDir, "error", err)
+			return nil, fmt.Errorf("не удалось создать директорию данных: %w", err)
+		}
+		cfg.DataDir = dataDir
+		logger.Info("Torrent: используется файловое хранилище", "dataDir", dataDir)
+	}
+
 	cfg.NoUpload = false
 	cfg.Seed = true
+
+	// Применяем опции для тестирования
+	if opts.NoDHT {
+		cfg.NoDHT = true
+	}
+	if opts.DisableUTP {
+		cfg.DisableUTP = true
+	}
+	if opts.DisableTCP {
+		cfg.DisableTCP = true
+	}
+	if opts.ListenPort != 0 {
+		cfg.ListenPort = opts.ListenPort
+	}
 
 	client, err := torrent.NewClient(cfg)
 	if err != nil {
@@ -87,13 +138,14 @@ func NewService(dataDir string) (*Service, error) {
 		return nil, fmt.Errorf("не удалось создать торрент-клиент: %w", err)
 	}
 
-	logger.Info("Torrent: сервис инициализирован", "dataDir", dataDir)
+	logger.Info("Torrent: сервис инициализирован")
 
 	return &Service{
 		client:        client,
 		torrents:      make(map[string]*torrent.Torrent),
 		dataDir:       dataDir,
 		selectedFiles: make(map[string]int),
+		bufferService: bufferService,
 	}, nil
 }
 
@@ -182,6 +234,11 @@ func (s *Service) RemoveTorrent(id string) error {
 	t.Drop()
 	delete(s.torrents, id)
 	delete(s.selectedFiles, id)
+
+	// Удаляем из сервиса буферизации
+	if s.bufferService != nil {
+		s.bufferService.UnregisterTorrent(id)
+	}
 
 	logger.Info("Torrent: торрент удалён", "torrentID", id, "name", torrentName)
 	return nil
@@ -282,12 +339,42 @@ func (s *Service) SelectFile(torrentID string, fileIndex int) error {
 	files[fileIndex].SetPriority(torrent.PiecePriorityNormal)
 	s.selectedFiles[torrentID] = fileIndex
 
+	// Регистрируем в сервисе буферизации
+	if s.bufferService != nil {
+		s.bufferService.RegisterTorrent(
+			torrentID,
+			files[fileIndex],
+			constants.DefaultBufferPercent,
+			constants.DefaultBufferDuration,
+			constants.DefaultMaxBufferSize,
+		)
+	}
+
 	logger.Info("Torrent: выбран файл для стриминга",
 		"torrentID", torrentID,
 		"fileIndex", fileIndex,
 		"fileName", files[fileIndex].DisplayPath(),
 	)
 	return nil
+}
+
+// UpdateBufferPosition обновляет текущую позицию воспроизведения для буферизации.
+// Параметр torrentID - идентификатор торрента.
+// Параметр position - позиция в байтах.
+func (s *Service) UpdateBufferPosition(torrentID string, position int64) {
+	if s.bufferService != nil {
+		s.bufferService.UpdatePosition(torrentID, position)
+	}
+}
+
+// GetBufferInfo возвращает информацию о состоянии буфера.
+// Параметр torrentID - идентификатор торрента.
+// Возвращает информацию о буфере или ошибку.
+func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
+	if s.bufferService == nil {
+		return nil, errors.New(errors.ErrUnavailable, "сервис буферизации не инициализирован")
+	}
+	return s.bufferService.GetBufferInfo(torrentID)
 }
 
 // ServeFile обрабатывает HTTP стриминг файла торрента.

@@ -190,3 +190,37 @@ const (
 	// TLSMinVersion минимальная версия TLS
 	TLSMinVersion = 0x0303 // TLS 1.2
 )
+
+// ── Buffer Constants ──────────────────────────────────────────────────────
+
+const (
+	// DefaultBufferPercent процент буферизации от размера файла
+	DefaultBufferPercent = 10
+
+	// DefaultBufferDuration длительность буфера в секундах
+	DefaultBufferDuration = 60
+
+	// DefaultMaxBufferSize максимальный размер буфера (512 МБ)
+	DefaultMaxBufferSize = 512 * 1024 * 1024
+
+	// DefaultPreBufferPercent процент предварительной буферизации перед стартом
+	DefaultPreBufferPercent = 5
+
+	// BufferUpdateInterval интервал обновления приоритетов
+	BufferUpdateInterval = 1 * time.Second
+
+	// PiecePriorityNow немедленная загрузка
+	PiecePriorityNow = 4
+
+	// PiecePriorityHigh высокий приоритет
+	PiecePriorityHigh = 3
+
+	// PiecePriorityNormal обычный приоритет
+	PiecePriorityNormal = 2
+
+	// PiecePriorityReadahead предзагрузка
+	PiecePriorityReadahead = 1
+
+	// PiecePriorityNone не загружать
+	PiecePriorityNone = 0
+)

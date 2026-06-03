@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // setupTestServer создаёт тестовый сервер с реальными сервисами.
@@ -25,18 +26,18 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	// Создаём временную директорию для данных
 	dataDir := t.TempDir()
 
+	// Создаём сервис буферизации для тестов
+	bufferSvc := buffer.NewService(64 * 1024 * 1024) // 64 МБ для тестов
+
 	// Инициализация сервисов
-	torrentSvc, err := torrent.NewService(dataDir)
+	torrentSvc, err := torrent.NewService(dataDir, bufferSvc)
 	require.NoError(t, err)
 
-	p2pSvc, err := p2p.NewService()
+	p2pSvc, err := p2p.NewService(auth.NewAuthService([]byte("test-secret-key-for-e2e-tests")))
 	require.NoError(t, err)
 
 	syncSvc := sync.NewService()
 	authStore := auth.NewUserStore()
-
-	// Устанавливаем тестовый секрет
-	auth.SetSecret([]byte("test-secret-key-for-e2e-tests"))
 
 	// Создаём роутер
 	router := NewRouter(RouterConfig{

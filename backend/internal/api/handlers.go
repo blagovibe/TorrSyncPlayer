@@ -565,6 +565,91 @@ func StreamFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 	}
 }
 
+// ============ Buffer Handlers ============
+
+// SetBufferPosition обработчик установки текущей позиции воспроизведения для буферизации.
+// Принимает JSON с полем position (позиция в байтах).
+// Обновляет приоритеты загрузки кусков на основе новой позиции.
+//
+// @Summary      Установить позицию буфера
+// @Description  Устанавливает текущую позицию воспроизведения для оптимизации буферизации
+// @Tags         torrents
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                           true  "Torrent ID"
+// @Param        request  body      models.SetBufferPositionRequest  true  "Позиция в байтах"
+// @Success      200      {object}  models.SuccessResponse
+// @Failure      400      {object}  APIError
+// @Router       /api/v1/torrents/{id}/buffer/position [post]
+func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := chi.URLParam(r, "id")
+		if torrentID == "" {
+			WriteError(w, http.StatusBadRequest, "ID торрента не указан")
+			return
+		}
+
+		if err := validateTorrentID(torrentID); err != nil {
+			WriteError(w, http.StatusBadRequest, "Некорректный ID торрента")
+			return
+		}
+
+		// Ограничиваем размер тела запроса для защиты от DoS
+		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
+
+		var req models.SetBufferPositionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			WriteError(w, http.StatusBadRequest, "Неверный формат запроса")
+			return
+		}
+
+		// Валидация позиции
+		if req.Position < 0 {
+			WriteError(w, http.StatusBadRequest, "Позиция не может быть отрицательной")
+			return
+		}
+
+		torrentSvc.UpdateBufferPosition(torrentID, req.Position)
+
+		WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Позиция обновлена"})
+	}
+}
+
+// GetBufferInfo обработчик получения информации о состоянии буфера.
+// Возвращает информацию о текущей позиции, границах буфера и процент загрузки.
+//
+// @Summary      Информация о буфере
+// @Description  Возвращает информацию о состоянии буферизации для торрента
+// @Tags         torrents
+// @Produce      json
+// @Param        id   path      string  true  "Torrent ID"
+// @Success      200  {object}  models.BufferInfo
+// @Failure      400  {object}  APIError
+// @Failure      404  {object}  APIError
+// @Router       /api/v1/torrents/{id}/buffer/info [get]
+func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := chi.URLParam(r, "id")
+		if torrentID == "" {
+			WriteError(w, http.StatusBadRequest, "ID торрента не указан")
+			return
+		}
+
+		if err := validateTorrentID(torrentID); err != nil {
+			WriteError(w, http.StatusBadRequest, "Некорректный ID торрента")
+			return
+		}
+
+		info, err := torrentSvc.GetBufferInfo(torrentID)
+		if err != nil {
+			handleError(w, r, NewAppError(ErrorTypeNotFound, "Информация о буфере не найдена", err), "получение информации о буфере")
+			return
+		}
+
+		WriteJSON(w, http.StatusOK, info)
+	}
+}
+
 // ============ P2P Handlers ============
 
 // CreateRoom обработчик создания P2P комнаты.
