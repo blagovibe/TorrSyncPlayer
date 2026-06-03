@@ -4,10 +4,14 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
-	"github.com/yourname/torrplayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
 
 // contextKey тип для ключей контекста.
@@ -16,12 +20,14 @@ type contextKey string
 const (
 	// ClaimsKey ключ для хранения claims в контексте запроса.
 	ClaimsKey contextKey = "auth_claims"
+	// JTIKey ключ для хранения JTI в контексте запроса.
+	JTIKey contextKey = "auth_jti"
 )
 
 // JWTMiddleware создаёт middleware для проверки JWT токена.
-// Проверяет наличие и валидность токена в заголовке Authorization.
+// Проверяет наличие, валидность токена и его отзыв.
 // Токен должен быть в формате: Bearer <token>
-func JWTMiddleware(next http.Handler) http.Handler {
+func (s *AuthService) JWTMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Получаем заголовок Authorization
 		authHeader := r.Header.Get("Authorization")
@@ -37,21 +43,35 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		token := parts[1]
-		if token == "" {
+		tokenString := parts[1]
+		if tokenString == "" {
 			writeAuthError(w, http.StatusUnauthorized, "Пустой токен")
 			return
 		}
 
 		// Валидируем токен
-		claims, err := ValidateToken(token)
+		claims, err := s.ValidateToken(tokenString)
 		if err != nil {
-			writeAuthError(w, http.StatusUnauthorized, "Невалидный или истёкший токен")
+			if errors.Is(err, ErrExpiredToken) {
+				writeAuthError(w, http.StatusUnauthorized, "Токен истёк")
+				return
+			}
+			writeAuthError(w, http.StatusUnauthorized, "Невалидный токен")
 			return
 		}
 
-		// Добавляем claims в контекст запроса
+		// Проверяем, не отозван ли токен
+		jti, err := s.ExtractJTI(tokenString)
+		if err == nil && revocationStore.IsRevoked(jti) {
+			writeAuthError(w, http.StatusUnauthorized, "Токен отозван")
+			return
+		}
+
+		// Добавляем claims и JTI в контекст запроса
 		ctx := context.WithValue(r.Context(), ClaimsKey, claims)
+		if err == nil {
+			ctx = context.WithValue(ctx, JTIKey, jti)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -64,6 +84,64 @@ func GetClaims(r *http.Request) *models.Claims {
 		return nil
 	}
 	return claims
+}
+
+// GetJTI извлекает JTI из контекста запроса.
+// Возвращает пустую строку если JTI не найден.
+func GetJTI(r *http.Request) string {
+	jti, ok := r.Context().Value(JTIKey).(string)
+	if !ok {
+		return ""
+	}
+	return jti
+}
+
+// LogoutHandler обработчик для отзыва JWT токена.
+// POST /api/v1/auth/logout
+//
+// @Summary      Выход
+// @Description  Отзывает JWT токен (добавляет в список отозванных)
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  models.SuccessResponse
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      401  {object}  models.ErrorResponse
+// @Router       /api/v1/auth/logout [post]
+func (s *AuthService) LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Проверяем наличие заголовка Authorization
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		response.WriteJSON(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Отсутствует заголовок Authorization"})
+		return
+	}
+
+	// Получаем JTI из контекста (установлен middleware)
+	jti := GetJTI(r)
+	if jti == "" {
+		// Пробуем извлечь JTI из токена напрямую
+		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+			tokenString = strings.TrimPrefix(tokenString, "bearer ")
+			if tokenString == "" {
+				response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Пустой токен"})
+				return
+			}
+			jti, _ = s.ExtractJTI(tokenString)
+		}
+	}
+
+	if jti == "" {
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Не удалось идентифицировать токен"})
+		return
+	}
+
+	// Отзываем токен
+	// Устанавливаем время истечения как текущее время + 24 часа
+	// (на случай если токен ещё не истёк)
+	revocationStore.Revoke(jti, time.Now().Add(constants.RevocationStoreTTL))
+
+	response.WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Токен успешно отозван"})
 }
 
 // writeAuthError записывает ошибку аутентификации в формате JSON.

@@ -6,7 +6,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/yourname/torrplayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // TorrentService интерфейс для работы с торрентами.

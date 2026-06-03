@@ -16,12 +16,21 @@
 - Добавлен заголовок лицензии MIT во все исходные файлы (.go, .cpp, .h)
 - Создано руководство пользователя (`docs/USER_GUIDE.md`)
 - Создано руководство по установке (`docs/INSTALL.md`)
-- Создан этот CHANGELOG
+- Создана документация по архитектуре (`docs/ARCHITECTURE.md`)
+- Создано руководство для контрибьюторов (`CONTRIBUTING.md`)
+- Добавлена валидация roomID в API endpoints
+- Добавлены тесты для валидации (`internal/validation/validation_test.go`)
+- Добавлены тесты для auth handlers (`internal/auth/handlers_test.go`)
+- Добавлены тесты для API handlers (`internal/api/handlers_test.go`)
+- Добавлены тесты для torrent service (`internal/torrent/service_test.go`)
+- Добавлены тесты для p2p service (`internal/p2p/service_test.go`)
+- Добавлены тесты для sync service (`internal/sync/service_test.go`)
 
 ### Изменено
 
 - Улучшена документация README.md с ссылками на документацию
 - Обновлён CI pipeline с поддержкой coverage отчётов
+- Обновлён CHANGELOG с последними изменениями
 
 ### Исправлено
 
@@ -29,6 +38,9 @@
   - `torrent/service.go`: `gracefulShutdownTimeout`, `dataDirPermissions`
   - `p2p/service.go`: `eventChannelSize`, `sseTimeout`, `ssePingInterval`, `peerIDLength`
   - `sync/service.go`: `maxPositionJump`, `smoothAdjustmentRatio`, `msPerSecond`
+- Исправлен баг с RoomEvents роутом: изменён путь с `/api/v1/rooms/events` на `/api/v1/rooms/{roomID}/events`
+- Исправлен Signal handler: добавлена правильная обработка WebRTC сигналов
+- Исправлен LogoutHandler: добавлена корректная обработка выхода из системы
 
 ## [1.0.0] - 2025-06-01
 

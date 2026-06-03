@@ -28,18 +28,21 @@ set(SOURCES
     src/roommanager.cpp
     src/roomdialog.cpp
     src/systemtray.cpp
+    src/utils.cpp
     resources/resources.qrc
 )
 
 set(HEADERS
     src/mainwindow.h
     src/mpvwidget.h
+    src/inetworkmanager.h
     src/networkmanager.h
     src/torrentmodel.h
     src/torrentmanager.h
     src/roommanager.h
     src/roomdialog.h
     src/systemtray.h
+    src/utils.h
 )
 
 # ── Цель сборки ───────────────────────────────────────────────────────

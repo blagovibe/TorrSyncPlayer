@@ -12,10 +12,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yourname/torrplayer/backend/internal/auth"
-	"github.com/yourname/torrplayer/backend/internal/p2p"
-	"github.com/yourname/torrplayer/backend/internal/sync"
-	"github.com/yourname/torrplayer/backend/internal/torrent"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
 )
 
 // setupTestServer создаёт тестовый сервер с реальными сервисами.

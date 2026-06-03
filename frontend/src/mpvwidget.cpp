@@ -16,6 +16,9 @@
 // Таймер для обработки событий mpv
 static const int MPV_EVENT_TIMER_MS = 30;
 
+// Задержка debounce для перемотки (мс)
+static const int SEEK_DEBOUNCE_MS = 300;
+
 MpvWidget::MpvWidget(QWidget *parent)
     : QWidget(parent)
 {
@@ -35,10 +38,21 @@ MpvWidget::MpvWidget(QWidget *parent)
     pal.setColor(QPalette::Window, Qt::black);
     setAutoFillBackground(true);
     setPalette(pal);
+    
+    // Создаём debounce таймер для перемотки
+    m_seekDebounceTimer = new QTimer(this);
+    m_seekDebounceTimer->setSingleShot(true);
+    m_seekDebounceTimer->setInterval(SEEK_DEBOUNCE_MS);
+    connect(m_seekDebounceTimer, &QTimer::timeout, this, &MpvWidget::onSeekDebounceTimeout);
 }
 
 MpvWidget::~MpvWidget()
 {
+    // Останавливаем debounce таймер
+    if (m_seekDebounceTimer) {
+        m_seekDebounceTimer->stop();
+    }
+    
     // Освобождаем ресурсы mpv
     if (m_mpvGL) {
         mpv_render_context_free(m_mpvGL);
@@ -213,11 +227,33 @@ void MpvWidget::seek(double position)
 {
     if (!m_mpv) return;
     
-    QMutexLocker locker(&m_mutex);
-    
     // Ограничиваем позицию допустимыми значениями
     if (position < 0) position = 0;
-    if (position > m_duration && m_duration > 0) position = m_duration;
+    
+    QMutexLocker locker(&m_mutex);
+    
+    if (m_duration > 0 && position > m_duration) {
+        position = m_duration;
+    }
+    
+    // Сохраняем позицию для отложенного выполнения
+    m_pendingSeekPosition = position;
+    
+    // Сбрасываем предыдущий таймер и запускаем новый (debounce)
+    // Это предотвращает утечку памяти при быстрой перемотке
+    m_seekDebounceTimer->stop();
+    m_seekDebounceTimer->start();
+    
+    qDebug() << "MpvWidget: перемотка запрошена на" << position << "(debounce " << SEEK_DEBOUNCE_MS << "мс)";
+}
+
+void MpvWidget::onSeekDebounceTimeout()
+{
+    if (!m_mpv) return;
+    
+    QMutexLocker locker(&m_mutex);
+    
+    double position = m_pendingSeekPosition;
     
     QByteArray posStr = QByteArray::number(position, 'f', 2);
     const char *args[] = {"seek", posStr.constData(), "absolute", nullptr};
@@ -233,7 +269,7 @@ void MpvWidget::seek(double position)
         return;
     }
     
-    qDebug() << "MpvWidget: перемотка на" << position;
+    qDebug() << "MpvWidget: перемотка выполнена на" << position;
 }
 
 double MpvWidget::position() const
@@ -300,6 +336,7 @@ void MpvWidget::onMpvEvents()
     if (!m_mpv) return;
     
     // Обрабатываем события внутри блокировки мьютекса
+    bool hasEvents = false;
     {
         QMutexLocker locker(&m_mutex);
         
@@ -312,11 +349,14 @@ void MpvWidget::onMpvEvents()
             
             processMpvEvent(event);
         }
+        
+        // Проверяем наличие событий под блокировкой
+        hasEvents = !m_eventBuffer.isEmpty();
     } // Мьютекс разблокирован здесь
     
     // Эмитируем буферизированные события после разблокировки мьютекса
     // Это предотвращает race condition и potential deadlock
-    if (!m_eventBuffer.isEmpty()) {
+    if (hasEvents) {
         emitBufferedEvents();
     }
 }

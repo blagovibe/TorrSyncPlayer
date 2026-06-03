@@ -15,7 +15,6 @@ type FileInfo struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	Size  int64  `json:"size"`
-	Path  string `json:"path"`
 }
 
 // RoomInfo информация о P2P комнате

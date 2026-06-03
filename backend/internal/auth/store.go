@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourname/torrplayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 )
 
 // UserStore хранилище пользователей в памяти.
@@ -28,17 +30,14 @@ func NewUserStore() *UserStore {
 // Create создаёт нового пользователя.
 // Возвращает ошибку если пользователь уже существует.
 func (s *UserStore) Create(username, password string) (*models.User, error) {
-	if username == "" {
-		return nil, fmt.Errorf("имя пользователя не может быть пустым")
+	// Валидация имени пользователя
+	if err := validation.ValidateUsername(username); err != nil {
+		return nil, err
 	}
-	if len(username) < 3 || len(username) > 32 {
-		return nil, fmt.Errorf("имя пользователя должно быть от 3 до 32 символов")
-	}
-	if password == "" {
-		return nil, fmt.Errorf("пароль не может быть пустым")
-	}
-	if len(password) < 6 {
-		return nil, fmt.Errorf("пароль должен быть не менее 6 символов")
+
+	// Валидация пароля
+	if err := validation.ValidatePassword(password); err != nil {
+		return nil, err
 	}
 
 	s.mu.Lock()
@@ -55,9 +54,15 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 		return nil, fmt.Errorf("ошибка хеширования пароля: %w", err)
 	}
 
+	// Генерируем уникальный ID
+	id, err := generateID()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка генерации ID: %w", err)
+	}
+
 	// Создаём пользователя
 	user := &models.User{
-		ID:           generateID(),
+		ID:           id,
 		Username:     username,
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now().Unix(),
@@ -109,8 +114,11 @@ func (s *UserStore) GetByID(id string) (*models.User, bool) {
 }
 
 // generateID генерирует уникальный идентификатор.
-func generateID() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+// Возвращает ошибку если не удалось получить случайные байты.
+func generateID() (string, error) {
+	bytes := make([]byte, constants.JTIBytes)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("ошибка чтения случайных байт: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
 }

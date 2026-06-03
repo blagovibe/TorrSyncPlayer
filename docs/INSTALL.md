@@ -81,7 +81,7 @@ brew install qt@6 mpv cmake ninja
 ### Клонирование репозитория
 
 ```bash
-git clone https://github.com/yourname/torrplayer.git
+git clone https://github.com/blagovibe/TorrSyncPlayer.git
 cd torrplayer
 ```
 
@@ -126,7 +126,7 @@ make all
 
 ### Скачивание
 
-1. Перейдите на страницу [Releases](https://github.com/yourname/torrplayer/releases)
+1. Перейдите на страницу [Releases](https://github.com/blagovibe/TorrSyncPlayer/releases)
 2. Скачайте архив для вашей ОС
 3. Распакуйте в удобное место
 

@@ -13,6 +13,7 @@
 #include "torrentmodel.h"
 #include "torrentmanager.h"
 #include "roommanager.h"
+#include "utils.h"
 
 #include <QDebug>
 #include <QMessageBox>
@@ -27,16 +28,7 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QApplication>
-
-// ── Форматирование размера ──────────────────────────────────────────────
-
-static QString formatBytes(qint64 bytes)
-{
-    if (bytes < 1024) return QString("%1 B").arg(bytes);
-    if (bytes < 1024 * 1024) return QString("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
-    if (bytes < 1024 * 1024 * 1024) return QString("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 1);
-    return QString("%1 GB").arg(bytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2);
-}
+#include <QThread>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -369,7 +361,7 @@ void MainWindow::onFilesReceived(const QString &torrentId, const QJsonArray &fil
         QString name = file["name"].toString();
         qint64 size = file["size"].toVariant().toLongLong();
         
-        QString displayText = QString("%1 (%2)").arg(name).arg(formatBytes(size));
+        QString displayText = QString("%1 (%2)").arg(name).arg(Utils::formatBytes(size));
         QStandardItem *item = new QStandardItem(displayText);
         item->setData(i, Qt::UserRole);
         model->appendRow(item);
@@ -560,4 +552,29 @@ void MainWindow::onServerAvailable()
     m_torrentManager->listTorrents();
     
     updateStatus(tr("✓ Подключение восстановлено"));
+}
+
+// ── Graceful Shutdown ──────────────────────────────────────────────────
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    qDebug() << "MainWindow: начало graceful shutdown";
+    
+    // Если пользователь в комнате - выходим из неё
+    if (m_roomManager->isInRoom()) {
+        qDebug() << "MainWindow: выход из комнаты перед закрытием";
+        m_roomManager->leaveRoom();
+    }
+    
+    // Останавливаем воспроизведение и освобождаем ресурсы MpvWidget
+    if (m_mpvWidget) {
+        qDebug() << "MainWindow: остановка MpvWidget";
+        m_mpvWidget->pause();
+    }
+    
+    // Даём время для завершения сетевых запросов (100мс)
+    QThread::msleep(100);
+    
+    qDebug() << "MainWindow: graceful shutdown завершён";
+    event->accept();
 }

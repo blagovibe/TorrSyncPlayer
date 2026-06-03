@@ -47,10 +47,40 @@ func TestUserStoreCreate(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "Короткий пароль",
+			name:        "Короткий пароль (менее 8 символов)",
 			username:    "testuser3",
 			password:    "12345",
 			expectError: true,
+		},
+		{
+			name:        "Пароль без букв",
+			username:    "testuser4",
+			password:    "12345678",
+			expectError: true,
+		},
+		{
+			name:        "Пароль без цифр",
+			username:    "testuser5",
+			password:    "password",
+			expectError: true,
+		},
+		{
+			name:        "Имя с недопустимыми символами",
+			username:    "test@user!",
+			password:    "password123",
+			expectError: true,
+		},
+		{
+			name:        "Валидный пользователь с дефисом",
+			username:    "test-user",
+			password:    "password123",
+			expectError: false,
+		},
+		{
+			name:        "Валидный пользователь с подчёркиванием",
+			username:    "test_user",
+			password:    "password123",
+			expectError: false,
 		},
 	}
 
@@ -171,7 +201,8 @@ func TestGenerateID(t *testing.T) {
 	// Генерируем несколько ID и проверяем уникальность
 	ids := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		id := generateID()
+		id, err := generateID()
+		assert.NoError(t, err)
 		assert.NotEmpty(t, id)
 		assert.False(t, ids[id], "ID должен быть уникальным")
 		ids[id] = true

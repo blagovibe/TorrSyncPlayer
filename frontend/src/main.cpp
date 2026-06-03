@@ -13,6 +13,7 @@
  * - Главное окно MainWindow
  * - Системный трей (если доступен)
  * - Опционально: автозапуск Go backend
+ * - Обработчики сигналов для graceful shutdown
  */
 
 #include <QApplication>
@@ -29,8 +30,83 @@
 #include "mainwindow.h"
 #include "systemtray.h"
 
+// ── Graceful Shutdown Support ──────────────────────────────────────────
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <signal.h>
+#include <unistd.h>
+#endif
+
 // Глобальный указатель на процесс сервера для корректного завершения
 static QProcess *g_serverProcess = nullptr;
+
+// Флаг для предотвращения повторного завершения
+static volatile bool g_shuttingDown = false;
+
+#ifdef Q_OS_WIN
+/**
+ * @brief Обработчик консольных событий Windows (Ctrl+C, Close, Logoff, Shutdown)
+ */
+static BOOL WINAPI consoleHandler(DWORD signal)
+{
+    switch (signal) {
+    case CTRL_C_EVENT:
+    case CTRL_CLOSE_EVENT:
+    case CTRL_LOGOFF_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        qDebug() << "Получен сигнал завершения (Windows):" << signal;
+        g_shuttingDown = true;
+        QApplication::quit();
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+#else
+/**
+ * @brief Обработчик POSIX сигналов (SIGINT, SIGTERM)
+ */
+static void signalHandler(int signal)
+{
+    qDebug() << "Получен сигнал завершения (POSIX):" << signal;
+    g_shuttingDown = true;
+    QApplication::quit();
+}
+#endif
+
+/**
+ * @brief Настройка обработчиков сигналов для graceful shutdown
+ * Поддерживает Windows (Ctrl+C, Close) и POSIX (SIGINT, SIGTERM)
+ */
+static void setupSignalHandlers()
+{
+#ifdef Q_OS_WIN
+    if (!SetConsoleCtrlHandler(consoleHandler, TRUE)) {
+        qWarning() << "Не удалось установить обработчик консольных событий Windows";
+    } else {
+        qDebug() << "Обработчик консольных событий Windows установлен";
+    }
+#else
+    struct sigaction sa;
+    sa.sa_handler = signalHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGINT, &sa, nullptr) != 0) {
+        qWarning() << "Не удалось установить обработчик SIGINT";
+    } else {
+        qDebug() << "Обработчик SIGINT установлен";
+    }
+
+    if (sigaction(SIGTERM, &sa, nullptr) != 0) {
+        qWarning() << "Не удалось установить обработчик SIGTERM";
+    } else {
+        qDebug() << "Обработчик SIGTERM установлен";
+    }
+#endif
+}
 
 /**
  * @brief Запуск Go backend сервера
@@ -112,6 +188,11 @@ bool startGoServer(QObject *parent)
  */
 void stopGoServer()
 {
+    if (g_shuttingDown) {
+        return; // Предотвращаем повторный вызов
+    }
+    g_shuttingDown = true;
+    
     if (g_serverProcess && g_serverProcess->state() == QProcess::Running) {
         qDebug() << "Завершение серверного процесса...";
         
@@ -169,6 +250,9 @@ void setupStyle()
  */
 int main(int argc, char *argv[])
 {
+    // ── Настройка обработчиков сигналов (до создания QApplication) ──────
+    setupSignalHandlers();
+    
     // ── Настройка приложения ──────────────────────────────────────────
     
     // Включаем поддержку высокого DPI

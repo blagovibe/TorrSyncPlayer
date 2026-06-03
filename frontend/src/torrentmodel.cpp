@@ -4,29 +4,10 @@
  */
 
 #include "torrentmodel.h"
+#include "utils.h"
 
 #include <QDebug>
 #include <QJsonArray>
-
-// ── Вспомогательные функции ───────────────────────────────────────────
-
-/**
- * @brief Форматирование размера в байтах в читаемый вид
- * @param bytes Размер в байтах
- * @return Строка вида "1.5 GB"
- */
-static QString formatBytes(qint64 bytes)
-{
-    if (bytes < 1024) {
-        return QString("%1 B").arg(bytes);
-    } else if (bytes < 1024 * 1024) {
-        return QString("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
-    } else if (bytes < 1024 * 1024 * 1024) {
-        return QString("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 1);
-    } else {
-        return QString("%1 GB").arg(bytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2);
-    }
-}
 
 TorrentModel::TorrentModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -97,7 +78,7 @@ QVariant TorrentModel::data(const QModelIndex &index, int role) const
             .arg(torrent.name)
             .arg(torrent.progress * 100, 0, 'f', 1)
             .arg(torrent.status)
-            .arg(formatBytes(torrent.size));
+            .arg(Utils::formatBytes(torrent.size));
 
     default:
         return QVariant();

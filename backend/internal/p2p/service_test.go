@@ -1,7 +1,10 @@
 package p2p
 
 import (
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,4 +261,104 @@ func TestClose_EmptiesState(t *testing.T) {
 	// Закрываем сервис
 	err = svc.Close()
 	require.NoError(t, err)
+}
+
+// TestConcurrentRoomCreation проверяет потокобезопасность создания комнат
+func TestConcurrentRoomCreation(t *testing.T) {
+	svc, err := NewService()
+	require.NoError(t, err)
+	defer svc.Close()
+
+	var wg sync.WaitGroup
+	numGoroutines := 50
+
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			_, _ = svc.CreateRoom(fmt.Sprintf("Room %d", idx), "")
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestConcurrentGetRoomInfo проверяет потокобезопасность чтения информации о комнате
+func TestConcurrentGetRoomInfo(t *testing.T) {
+	svc, err := NewService()
+	require.NoError(t, err)
+	defer svc.Close()
+
+	room, err := svc.CreateRoom("Test Room", "")
+	require.NoError(t, err)
+
+	err = svc.JoinRoom(room.ID, "")
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	numGoroutines := 50
+
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			_, _ = svc.GetRoomInfo()
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestConcurrentSetLocalUserID проверяет потокобезопасность SetLocalUserID
+func TestConcurrentSetLocalUserID(t *testing.T) {
+	svc, err := NewService()
+	require.NoError(t, err)
+	defer svc.Close()
+
+	var wg sync.WaitGroup
+	numGoroutines := 50
+
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			svc.SetLocalUserID(fmt.Sprintf("user_%d", idx))
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestConcurrentEventChannel проверяет потокобезопасность работы с каналом событий
+func TestConcurrentEventChannel(t *testing.T) {
+	svc, err := NewService()
+	require.NoError(t, err)
+	defer svc.Close()
+
+	events := svc.GetEvents()
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	// Горутины создают комнаты (генерируют события)
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			_, _ = svc.CreateRoom(fmt.Sprintf("Room %d", idx), "")
+		}(i)
+	}
+
+	// Горутина читает события
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range events {
+			// Читаем события
+		}
+	}()
+
+	wg.Wait()
+	// Даём время на обработку событий
+	time.Sleep(100 * time.Millisecond)
 }

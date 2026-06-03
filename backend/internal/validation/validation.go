@@ -169,6 +169,38 @@ func ValidateFileIndex(index, maxIndex int) error {
 	return nil
 }
 
+// ValidateTorrentID валидирует ID торрента (hex строка длиной 40 символов).
+func ValidateTorrentID(id string) error {
+	if id == "" {
+		return fmt.Errorf("ID торрента не может быть пустым")
+	}
+	if len(id) != 40 {
+		return fmt.Errorf("ID торрента должен быть 40 символов (получено %d)", len(id))
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return fmt.Errorf("ID торрента содержит недопустимый символ: %c", c)
+		}
+	}
+	return nil
+}
+
+// ValidateRoomID валидирует ID комнаты (hex строка длиной 32 символа = 16 байт).
+func ValidateRoomID(id string) error {
+	if id == "" {
+		return fmt.Errorf("ID комнаты не может быть пустым")
+	}
+	if len(id) != 32 {
+		return fmt.Errorf("ID комнаты должен быть 32 символа (получено %d)", len(id))
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return fmt.Errorf("ID комнаты содержит недопустимый символ: %c", c)
+		}
+	}
+	return nil
+}
+
 // SanitizeString очищает строку от потенциально опасных символов.
 // Используется для вывода пользовательского ввода.
 func SanitizeString(s string) string {

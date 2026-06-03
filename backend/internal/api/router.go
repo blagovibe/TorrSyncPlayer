@@ -9,19 +9,22 @@ package api
 import (
 	"net/http"
 
+	_ "github.com/blagovibe/TorrSyncPlayer/backend/docs"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 	"github.com/go-chi/chi/v5"
-	"github.com/yourname/torrplayer/backend/internal"
-	"github.com/yourname/torrplayer/backend/internal/auth"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"golang.org/x/time/rate"
 )
 
 // RouterConfig конфигурация роутера.
 type RouterConfig struct {
-	TorrentSvc internal.TorrentService
-	P2pSvc     internal.P2PService
-	SyncSvc    internal.SyncService
-	AuthStore  *auth.UserStore
+	TorrentSvc  internal.TorrentService
+	P2pSvc      internal.P2PService
+	SyncSvc     internal.SyncService
+	AuthStore   *auth.UserStore
+	AuthService *auth.AuthService
 }
 
 // NewRouter создаёт и настраивает HTTP роутер.
@@ -38,33 +41,35 @@ func NewRouter(config RouterConfig) http.Handler {
 	r.Use(Logger)                    // 4. Логирование
 	r.Use(CSRFMiddleware)            // 5. CSRF защита
 
-	// Health check (без rate limiting и аутентификации для мониторинга)
-	r.Get("/health", HealthCheck())
+	// Swagger UI
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
-	// Расширенный health check с проверкой сервисов
-	r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))
+	// Health check (без rate limiting и аутентификации для мониторинга)
+	r.Get(APIPathHealth, HealthCheck())
 
 	// Version endpoint
-	r.Get("/api/v1/version", VersionHandler())
+	r.Get(APIPathVersion, VersionHandler())
 
 	// Prometheus metrics endpoint
-	r.Get("/metrics", MetricsHandler())
+	r.Get(APIPathMetrics, MetricsHandler())
 
 	// CSRF token endpoint для получения токена
-	r.Get("/api/v1/csrf-token", func(w http.ResponseWriter, r *http.Request) {
-		token, err := csrfStore.generateToken()
+	r.Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
+		// Извлекаем session ID из запроса
+		sessionID := extractSessionID(r)
+		token, err := csrfStore.generateToken(sessionID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Ошибка генерации токена")
+			WriteError(w, http.StatusInternalServerError, "Ошибка генерации токена")
 			return
 		}
 		w.Header().Set("X-CSRF-Token", token)
-		writeJSON(w, http.StatusOK, map[string]string{
+		WriteJSON(w, http.StatusOK, map[string]string{
 			"csrfToken": token,
 		})
 	})
 
 	// Создаём обработчик аутентификации
-	authHandler := auth.NewAuthHandler(config.AuthStore)
+	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
@@ -73,6 +78,7 @@ func NewRouter(config RouterConfig) http.Handler {
 			r.Use(NewRateLimiter(rate.Limit(0.17), 5)) // ~10 запросов/минуту
 			r.Post("/register", authHandler.Register)
 			r.Post("/login", authHandler.Login)
+			r.Post("/logout", config.AuthService.LogoutHandler)
 		})
 
 		// Защищённые endpoints
@@ -80,7 +86,7 @@ func NewRouter(config RouterConfig) http.Handler {
 			// Rate limiting: 60 запросов/минуту (1/сек, burst 10)
 			r.Use(NewRateLimiter(rate.Limit(1), 10))
 			// JWT аутентификация
-			r.Use(auth.JWTMiddleware)
+			r.Use(config.AuthService.JWTMiddleware)
 
 			// Torrent endpoints
 			r.Route("/torrents", func(r chi.Router) {
@@ -98,7 +104,7 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Post("/join", JoinRoom(config.P2pSvc))
 				r.Post("/leave", LeaveRoom(config.P2pSvc))
 				r.Post("/signal", Signal(config.P2pSvc))
-				r.Get("/events", RoomEvents(config.P2pSvc))
+				r.Get("/{roomID}/events", RoomEvents(config.P2pSvc))
 			})
 
 			// Sync endpoints
@@ -108,6 +114,9 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Post("/seek", SyncSeek(config.SyncSvc))
 				r.Get("/status", SyncStatus(config.SyncSvc))
 			})
+
+			// Detailed health check (требует JWT аутентификации)
+			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))
 		})
 	})
 

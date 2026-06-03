@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"bytes"
@@ -14,16 +14,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yourname/torrplayer/backend/internal/auth"
-	"github.com/yourname/torrplayer/backend/internal/models"
-	"github.com/yourname/torrplayer/backend/internal/p2p"
-	syncsvc "github.com/yourname/torrplayer/backend/internal/sync"
-	"github.com/yourname/torrplayer/backend/internal/torrent"
-	"github.com/yourname/torrplayer/backend/internal/validation"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
+	syncsvc "github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// Глобальные сервисы для API-тестов
+// Р“Р»РѕР±Р°Р»СЊРЅС‹Рµ СЃРµСЂРІРёСЃС‹ РґР»СЏ API-С‚РµСЃС‚РѕРІ
 var (
 	apiP2pSvc    *p2p.Service
 	apiSyncSvc   *syncsvc.Service
@@ -52,11 +52,11 @@ func initTorrentService() {
 	})
 }
 
-// getTestToken возвращает токен для тестового пользователя
+// getTestToken РІРѕР·РІСЂР°С‰Р°РµС‚ С‚РѕРєРµРЅ РґР»СЏ С‚РµСЃС‚РѕРІРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
 func getTestToken(t *testing.T) string {
 	t.Helper()
-	// Создаём пользователя и получаем токен
-	authHandler := auth.NewAuthHandler(apiAuthStore)
+	// РЎРѕР·РґР°С‘Рј РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ Рё РїРѕР»СѓС‡Р°РµРј С‚РѕРєРµРЅ
+	authHandler := auth.NewAuthHandler(apiAuthStore, auth.NewAuthService([]byte("test-secret-for-api-tests-32bytes!")))
 
 	body := `{"username":"testuser","password":"password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
@@ -65,7 +65,7 @@ func getTestToken(t *testing.T) string {
 	authHandler.Register(rr, req)
 
 	if rr.Code != http.StatusCreated {
-		// Если пользователь уже существует, пробуем залогиниться
+		// Р•СЃР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚, РїСЂРѕР±СѓРµРј Р·Р°Р»РѕРіРёРЅРёС‚СЊСЃСЏ
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		rr = httptest.NewRecorder()
@@ -79,12 +79,12 @@ func getTestToken(t *testing.T) string {
 	return resp.Token
 }
 
-// TestMain создаёт общие сервисы для всех API-тестов
+// TestMain СЃРѕР·РґР°С‘С‚ РѕР±С‰РёРµ СЃРµСЂРІРёСЃС‹ РґР»СЏ РІСЃРµС… API-С‚РµСЃС‚РѕРІ
 func TestMain(m *testing.M) {
-	// Инициализируем логгер до создания сервисов
+	// РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј Р»РѕРіРіРµСЂ РґРѕ СЃРѕР·РґР°РЅРёСЏ СЃРµСЂРІРёСЃРѕРІ
 	logger.Init("error", "text")
 
-	p2pSvc, err := p2p.NewService()
+	p2pSvc, err := p2p.NewService(auth.NewAuthService([]byte("test-secret-for-api-tests-32bytes!")))
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +96,7 @@ func TestMain(m *testing.M) {
 		panic(torrentInitErr)
 	}
 
-	// Создаём auth store для тестов
+	// РЎРѕР·РґР°С‘Рј auth store РґР»СЏ С‚РµСЃС‚РѕРІ
 	apiAuthStore = auth.NewUserStore()
 
 	apiRouter = NewRouter(RouterConfig{
@@ -129,14 +129,14 @@ func TestHealthCheck(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var response map[string]string
+	var response map[string]interface{}
 	parseJSON(t, rec.Body, &response)
 	assert.Equal(t, "ok", response["status"])
 }
 
 // ============ Torrent Handler Tests ============
 
-// TestAddTorrent_InvalidJSON проверяет обработку невалидного JSON
+// TestAddTorrent_InvalidJSON РїСЂРѕРІРµСЂСЏРµС‚ РѕР±СЂР°Р±РѕС‚РєСѓ РЅРµРІР°Р»РёРґРЅРѕРіРѕ JSON
 func TestAddTorrent_InvalidJSON(t *testing.T) {
 	handler := AddTorrent(apiTorrentSvc)
 
@@ -153,7 +153,7 @@ func TestAddTorrent_InvalidJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, apiErr.Code)
 }
 
-// TestAddTorrent_InvalidMagnetURI проверяет валидацию magnet URI
+// TestAddTorrent_InvalidMagnetURI РїСЂРѕРІРµСЂСЏРµС‚ РІР°Р»РёРґР°С†РёСЋ magnet URI
 func TestAddTorrent_InvalidMagnetURI(t *testing.T) {
 	handler := AddTorrent(apiTorrentSvc)
 
@@ -179,7 +179,7 @@ func TestAddTorrent_InvalidMagnetURI(t *testing.T) {
 	}
 }
 
-// TestAddTorrent_Timeout проверяет таймаут при получении метаданных
+// TestAddTorrent_Timeout РїСЂРѕРІРµСЂСЏРµС‚ С‚Р°Р№РјР°СѓС‚ РїСЂРё РїРѕР»СѓС‡РµРЅРёРё РјРµС‚Р°РґР°РЅРЅС‹С…
 func TestAddTorrent_Timeout(t *testing.T) {
 	handler := AddTorrent(apiTorrentSvc)
 
@@ -187,7 +187,7 @@ func TestAddTorrent_Timeout(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 
-	// Устанавливаем короткий таймаут на контекст запроса
+	// РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РєРѕСЂРѕС‚РєРёР№ С‚Р°Р№РјР°СѓС‚ РЅР° РєРѕРЅС‚РµРєСЃС‚ Р·Р°РїСЂРѕСЃР°
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -195,7 +195,7 @@ func TestAddTorrent_Timeout(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	// Ожидаем 500 (таймаут получения метаданных) или 201 (если успели)
+	// РћР¶РёРґР°РµРј 500 (С‚Р°Р№РјР°СѓС‚ РїРѕР»СѓС‡РµРЅРёСЏ РјРµС‚Р°РґР°РЅРЅС‹С…) РёР»Рё 201 (РµСЃР»Рё СѓСЃРїРµР»Рё)
 	assert.Contains(t, []int{http.StatusCreated, http.StatusInternalServerError}, rec.Code)
 }
 
@@ -209,7 +209,7 @@ func TestListTorrents(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Теперь ответ содержит пагинированную структуру
+	// РўРµРїРµСЂСЊ РѕС‚РІРµС‚ СЃРѕРґРµСЂР¶РёС‚ РїР°РіРёРЅРёСЂРѕРІР°РЅРЅСѓСЋ СЃС‚СЂСѓРєС‚СѓСЂСѓ
 	var response models.TorrentListResponse
 	parseJSON(t, rec.Body, &response)
 	assert.NotNil(t, response.Torrents)
@@ -223,7 +223,8 @@ func TestRemoveTorrent_NotFound(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/torrents/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/torrents/nonexistent", nil)
+	// РСЃРїРѕР»СЊР·СѓРµРј РІР°Р»РёРґРЅС‹Р№ С„РѕСЂРјР°С‚ torrentID (40 hex СЃРёРјРІРѕР»РѕРІ)
+	req := httptest.NewRequest(http.MethodDelete, "/torrents/0123456789abcdef0123456789abcdef01234567", nil)
 	rec := httptest.NewRecorder()
 
 	r.ServeHTTP(rec, req)
@@ -249,7 +250,8 @@ func TestGetFiles_NotFound(t *testing.T) {
 	r := chi.NewRouter()
 	r.Get("/torrents/{id}/files", handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/torrents/nonexistent/files", nil)
+	// РСЃРїРѕР»СЊР·СѓРµРј РІР°Р»РёРґРЅС‹Р№ С„РѕСЂРјР°С‚ torrentID (40 hex СЃРёРјРІРѕР»РѕРІ)
+	req := httptest.NewRequest(http.MethodGet, "/torrents/0123456789abcdef0123456789abcdef01234567/files", nil)
 	rec := httptest.NewRecorder()
 
 	r.ServeHTTP(rec, req)
@@ -262,7 +264,8 @@ func TestSelectFile_InvalidJSON(t *testing.T) {
 	r := chi.NewRouter()
 	r.Post("/torrents/{id}/select", handler)
 
-	req := httptest.NewRequest(http.MethodPost, "/torrents/some-id/select", bytes.NewBufferString("invalid"))
+	// РСЃРїРѕР»СЊР·СѓРµРј РІР°Р»РёРґРЅС‹Р№ С„РѕСЂРјР°С‚ torrentID (40 hex СЃРёРјРІРѕР»РѕРІ)
+	req := httptest.NewRequest(http.MethodPost, "/torrents/0123456789abcdef0123456789abcdef01234567/select", bytes.NewBufferString("invalid"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -348,7 +351,7 @@ func TestJoinRoom_Success(t *testing.T) {
 
 	var response models.SuccessResponse
 	parseJSON(t, rec.Body, &response)
-	assert.Equal(t, "Присоединились к комнате", response.Message)
+	assert.Equal(t, "РџСЂРёСЃРѕРµРґРёРЅРёР»РёСЃСЊ Рє РєРѕРјРЅР°С‚Рµ", response.Message)
 }
 
 func TestJoinRoom_NotFound(t *testing.T) {
@@ -391,7 +394,7 @@ func TestLeaveRoom_Success(t *testing.T) {
 
 	var response models.SuccessResponse
 	parseJSON(t, rec.Body, &response)
-	assert.Equal(t, "Вышли из комнаты", response.Message)
+	assert.Equal(t, "Р’С‹С€Р»Рё РёР· РєРѕРјРЅР°С‚С‹", response.Message)
 }
 
 func TestLeaveRoom_NotJoined(t *testing.T) {
@@ -571,7 +574,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 func TestWriteJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
 	data := map[string]string{"key": "value"}
-	writeJSON(rec, http.StatusOK, data)
+	WriteJSON(rec, http.StatusOK, data)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
@@ -583,7 +586,7 @@ func TestWriteJSON(t *testing.T) {
 
 func TestWriteError(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeError(rec, http.StatusBadRequest, "test error")
+	WriteError(rec, http.StatusBadRequest, "test error")
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -595,7 +598,7 @@ func TestWriteError(t *testing.T) {
 
 func TestWriteErrorResponse(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeJSON(rec, http.StatusNotFound, models.ErrorResponse{Error: "not found"})
+	WriteJSON(rec, http.StatusNotFound, models.ErrorResponse{Error: "not found"})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
@@ -649,7 +652,7 @@ func TestValidateMagnetURI(t *testing.T) {
 func TestFullTorrentFlow(t *testing.T) {
 	token := getTestToken(t)
 
-	// 1. Получаем список торрентов (с токеном) - теперь с пагинацией
+	// 1. РџРѕР»СѓС‡Р°РµРј СЃРїРёСЃРѕРє С‚РѕСЂСЂРµРЅС‚РѕРІ (СЃ С‚РѕРєРµРЅРѕРј) - С‚РµРїРµСЂСЊ СЃ РїР°РіРёРЅР°С†РёРµР№
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -660,7 +663,7 @@ func TestFullTorrentFlow(t *testing.T) {
 	parseJSON(t, rec.Body, &response)
 	assert.NotNil(t, response.Torrents)
 
-	// 2. Пытаемся добавить невалидный magnet URI
+	// 2. РџС‹С‚Р°РµРјСЃСЏ РґРѕР±Р°РІРёС‚СЊ РЅРµРІР°Р»РёРґРЅС‹Р№ magnet URI
 	body := `{"magnetUri":"invalid"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/torrents", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -669,8 +672,8 @@ func TestFullTorrentFlow(t *testing.T) {
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	// 3. Пытаемся удалить несуществующий торрент
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/torrents/nonexistent", nil)
+	// 3. РџС‹С‚Р°РµРјСЃСЏ СѓРґР°Р»РёС‚СЊ РЅРµСЃСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ С‚РѕСЂСЂРµРЅС‚ (РёСЃРїРѕР»СЊР·СѓРµРј РІР°Р»РёРґРЅС‹Р№ С„РѕСЂРјР°С‚ ID)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/torrents/0123456789abcdef0123456789abcdef01234567", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec = httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
@@ -714,3 +717,94 @@ func TestConcurrentRequests(t *testing.T) {
 		}
 	}
 }
+
+// ============ TorrentID Validation Tests ============
+
+func TestValidateTorrentID(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"valid hex id", "0123456789abcdef0123456789abcdef01234567", false},
+		{"valid uppercase", "0123456789ABCDEF0123456789ABCDEF01234567", false},
+		{"empty id", "", true},
+		{"too short", "abc123", true},
+		{"too long", "0123456789abcdef0123456789abcdef0123456789abcdef", true},
+		{"invalid chars", "xyz123456789abcdef0123456789abcdef0123456", true},
+		{"special chars", "0123456789abcdef0123456789abcdef0123456!", true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			err := validation.ValidateTorrentID(tt.id)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestRemoveTorrent_InvalidID(t *testing.T) {
+	handler := RemoveTorrent(apiTorrentSvc)
+
+	r := chi.NewRouter()
+	r.Delete("/torrents/{id}", handler)
+
+	// РќРµРІР°Р»РёРґРЅС‹Р№ ID (СЃР»РёС€РєРѕРј РєРѕСЂРѕС‚РєРёР№)
+	req := httptest.NewRequest(http.MethodDelete, "/torrents/invalid", nil)
+	rec := httptest.NewRecorder()
+
+	r.ServeHTTP(rec, req)
+	// РћР¶РёРґР°РµРј 400 (РЅРµРІР°Р»РёРґРЅС‹Р№ ID) РёР»Рё 404 (РЅРµ РЅР°Р№РґРµРЅ)
+	assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, rec.Code)
+}
+
+func TestGetFiles_InvalidID(t *testing.T) {
+	handler := GetFiles(apiTorrentSvc)
+
+	r := chi.NewRouter()
+	r.Get("/torrents/{id}/files", handler)
+
+	// РќРµРІР°Р»РёРґРЅС‹Р№ ID
+	req := httptest.NewRequest(http.MethodGet, "/torrents/invalid-id/files", nil)
+	rec := httptest.NewRecorder()
+
+	r.ServeHTTP(rec, req)
+	assert.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, rec.Code)
+}
+
+// TestRoomEvents_WithRoomID проверяет SSE endpoint для событий комнаты с параметром roomID в URL
+func TestRoomEvents_WithRoomID(t *testing.T) {
+handler := RoomEvents(apiP2pSvc)
+
+r := chi.NewRouter()
+r.Get("/rooms/{roomID}/events", handler)
+
+// Используем валидный roomID (hex строка длиной 32 символа)
+roomID := "0123456789abcdef0123456789abcdef"
+
+// Создаём контекст с коротким таймаутом чтобы прервать SSE соединение
+ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+defer cancel()
+
+req := httptest.NewRequest(http.MethodGet, "/rooms/"+roomID+"/events", nil)
+req = req.WithContext(ctx)
+rec := httptest.NewRecorder()
+
+handler.ServeHTTP(rec, req)
+
+// Проверяем что ответ начался с SSE заголовков
+assert.Equal(t, http.StatusOK, rec.Code)
+assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+
+// Проверяем что начальное событие connected было отправлено
+body := rec.Body.String()
+assert.Contains(t, body, "event: connected")
+assert.Contains(t, body, "status")
+}
+

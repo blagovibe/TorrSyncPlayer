@@ -16,27 +16,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 	"github.com/pion/webrtc/v4"
-	"github.com/yourname/torrplayer/backend/internal/auth"
-	"github.com/yourname/torrplayer/backend/internal/errors"
-	"github.com/yourname/torrplayer/backend/internal/models"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // Константы P2P сервиса
 const (
 	// eventChannelSize размер буфера канала событий
-	eventChannelSize = 100
-
-	// sseTimeout таймаут для SSE соединения
-	sseTimeout = 30 * time.Minute
-
-	// ssePingInterval интервал отправки ping для поддержания SSE соединения
-	ssePingInterval = 30 * time.Second
+	eventChannelSize = constants.P2PEventChannelSize
 
 	// peerIDLength длина идентификатора пира в байтах
-	peerIDLength = 16
+	peerIDLength = constants.PeerIDLength
 )
 
 // Peer представляет подключённый пир в P2P сети.
@@ -64,24 +59,34 @@ type Room struct {
 	RequireAuth bool // Требовать JWT аутентификацию для входа
 }
 
+// DataChannelEvent представляет событие создания нового DataChannel.
+// Используется для безопасной передачи DataChannel из потока WebRTC в основную горутину.
+type DataChannelEvent struct {
+	PeerID      string
+	DataChannel *webrtc.DataChannel
+}
+
 // Service сервис P2P соединений через WebRTC.
 // Управляет комнатами, пирами и событиями в потокобезопасном режиме.
 type Service struct {
-	mu          sync.RWMutex
-	rooms       map[string]*Room
-	peers       map[string]*Peer
-	eventChan   chan models.P2PEvent
-	api         *webrtc.API
-	config      webrtc.Configuration // Конфигурация ICE с STUN серверами
-	currentRoom string
-	localPeerID string
-	localUserID string // ID текущего пользователя
+	mu              sync.RWMutex
+	rooms           map[string]*Room
+	peers           map[string]*Peer
+	eventChan       chan models.P2PEvent
+	dataChannelChan chan DataChannelEvent // Канал для безопасной передачи DataChannel
+	api             *webrtc.API
+	config          webrtc.Configuration // Конфигурация ICE с STUN серверами
+	currentRoom     string
+	localPeerID     string
+	localUserID     string            // ID текущего пользователя
+	closeChan       chan struct{}     // Канал для сигнализации о закрытии
+	authService     *auth.AuthService // Сервис аутентификации для валидации JWT
 }
 
 // NewService создаёт новый P2P сервис.
 // Инициализирует WebRTC API с STUN серверами для NAT traversal.
 // Возвращает инициализированный сервис или ошибку если не удалось создать API.
-func NewService() (*Service, error) {
+func NewService(authService *auth.AuthService) (*Service, error) {
 	// Конфигурация ICE с STUN серверами для преодоления NAT
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -96,18 +101,30 @@ func NewService() (*Service, error) {
 
 	// Создаём WebRTC API с настройками
 	settingEngine := webrtc.SettingEngine{}
-	api := webrtc.NewAPI(
+	webrtcAPI := webrtc.NewAPI(
 		webrtc.WithSettingEngine(settingEngine),
 	)
 
 	service := &Service{
-		rooms:       make(map[string]*Room),
-		peers:       make(map[string]*Peer),
-		eventChan:   make(chan models.P2PEvent, eventChannelSize),
-		api:         api,
-		config:      config,
-		localPeerID: generateID(),
+		rooms:           make(map[string]*Room),
+		peers:           make(map[string]*Peer),
+		eventChan:       make(chan models.P2PEvent, eventChannelSize),
+		dataChannelChan: make(chan DataChannelEvent, eventChannelSize),
+		api:             webrtcAPI,
+		config:          config,
+		localPeerID:     generateID(),
+		closeChan:       make(chan struct{}),
 	}
+
+	// Запускаем обработчик событий DataChannel в отдельной горутине
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("P2P: горутина handleDataChannelEvents завершилась с паникой", "error", r)
+			}
+		}()
+		service.handleDataChannelEvents()
+	}()
 
 	logger.Info("P2P сервис инициализирован",
 		"localPeerID", service.localPeerID,
@@ -137,7 +154,7 @@ func (s *Service) CreateRoom(name, password string) (*models.RoomInfo, error) {
 	// Хешируем пароль если указан
 	var passwordHash string
 	if password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), constants.BcryptCost)
 		if err != nil {
 			logger.Error("P2P: ошибка хеширования пароля", "error", err, "roomID", roomID)
 			return nil, fmt.Errorf("ошибка хеширования пароля: %w", err)
@@ -153,7 +170,7 @@ func (s *Service) CreateRoom(name, password string) (*models.RoomInfo, error) {
 		Password:    passwordHash,
 		Peers:       make(map[string]*Peer),
 		CreatedAt:   time.Now(),
-		RequireAuth: true, // По умолчанию требуем аутентификацию
+		RequireAuth: constants.P2PDefaultRoomAuth, // По умолчанию требуем аутентификацию
 	}
 
 	s.rooms[roomID] = room
@@ -245,7 +262,7 @@ func (s *Service) JoinRoom(roomID, password string) error {
 // Возвращает ошибку если аутентификация не удалась.
 func (s *Service) JoinRoomWithToken(roomID, password, token string) error {
 	// Валидируем JWT токен
-	claims, err := auth.ValidateToken(token)
+	claims, err := s.authService.ValidateToken(token)
 	if err != nil {
 		logger.Warn("P2P: невалидный JWT токен", "roomID", roomID, "error", err)
 		return fmt.Errorf("аутентификация не удалась: невалидный токен")
@@ -275,7 +292,7 @@ func (s *Service) AuthenticatePeer(peerID, token string) error {
 	}
 
 	// Валидируем JWT токен
-	claims, err := auth.ValidateToken(token)
+	claims, err := s.authService.ValidateToken(token)
 	if err != nil {
 		logger.Warn("P2P: невалидный JWT токен пира", "peerID", peerID, "error", err)
 		return fmt.Errorf("аутентификация не удалась")
@@ -322,10 +339,14 @@ func (s *Service) LeaveRoom() error {
 	// Закрываем подключение
 	if peer, exists := s.peers[s.localPeerID]; exists {
 		if peer.DataChannel != nil {
-			peer.DataChannel.Close()
+			if err := peer.DataChannel.Close(); err != nil {
+				logger.Warn("P2P: ошибка закрытия DataChannel", "error", err, "peerID", s.localPeerID)
+			}
 		}
 		if peer.Connection != nil {
-			peer.Connection.Close()
+			if err := peer.Connection.Close(); err != nil {
+				logger.Warn("P2P: ошибка закрытия PeerConnection", "error", err, "peerID", s.localPeerID)
+			}
 		}
 		delete(s.peers, s.localPeerID)
 	}
@@ -390,19 +411,18 @@ func (s *Service) GetEvents() chan models.P2PEvent {
 }
 
 // RoomEventsHandler возвращает HTTP обработчик для SSE событий комнаты.
-// Использует Server-Sent Events для доставки событий в реальном времени.
-// Поддерживает CORS и автоматическое переподключение.
+// Поддерживает таймаут соединения, ping/pong и ограничение количества соединений.
 func (s *Service) RoomEventsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		events := s.GetEvents()
+
 		// Устанавливаем заголовки для SSE
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			logger.Error("P2P: streaming не поддерживается")
 			http.Error(w, "Streaming не поддерживается", http.StatusInternalServerError)
 			return
 		}
@@ -411,52 +431,27 @@ func (s *Service) RoomEventsHandler() http.HandlerFunc {
 		fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n")
 		flusher.Flush()
 
-		// Подписываемся на события
-		events := s.GetEvents()
-
-		// Таймаут для SSE соединения
-		timeoutTimer := time.NewTimer(sseTimeout)
-		defer timeoutTimer.Stop()
-
-		// Таймер для ping для поддержания соединения
-		pingTicker := time.NewTicker(ssePingInterval)
+		// Таймер для ping (каждые 30 секунд)
+		pingTicker := time.NewTicker(30 * time.Second)
 		defer pingTicker.Stop()
 
 		for {
 			select {
 			case event, ok := <-events:
 				if !ok {
-					logger.Info("P2P: канал SSE событий закрыт")
 					return
 				}
-
-				// Сбрасываем таймаут при получении события
-				if !timeoutTimer.Stop() {
-					select {
-					case <-timeoutTimer.C:
-					default:
-					}
-				}
-				timeoutTimer.Reset(sseTimeout)
-
 				data, err := json.Marshal(event)
 				if err != nil {
-					logger.Warn("P2P: ошибка сериализации SSE события", "error", err)
+					logger.Error("P2P: ошибка сериализации SSE события", "error", err)
 					continue
 				}
 				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
 				flusher.Flush()
 
 			case <-pingTicker.C:
-				// Отправляем ping для поддержания соединения
 				fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
 				flusher.Flush()
-
-			case <-timeoutTimer.C:
-				logger.Info("P2P: SSE соединение закрыто по таймауту")
-				fmt.Fprintf(w, "event: timeout\ndata: {\"message\":\"Connection timeout\"}\n\n")
-				flusher.Flush()
-				return
 
 			case <-r.Context().Done():
 				logger.Info("P2P: клиент SSE закрыл соединение")
@@ -495,6 +490,14 @@ func (s *Service) GetRoomInfo() (*models.RoomInfo, error) {
 func (s *Service) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Сигнализируем горутине обработчика о закрытии
+	select {
+	case <-s.closeChan:
+		// Уже закрыт
+	default:
+		close(s.closeChan)
+	}
 
 	// Закрываем все подключения
 	for peerID, peer := range s.peers {
@@ -563,13 +566,40 @@ func (s *Service) setupPeerConnection(pc *webrtc.PeerConnection, roomID string) 
 			s.emitEvent("data_channel_close", dc.Label())
 		})
 
-		// Сохраняем ссылку на data channel
-		s.mu.Lock()
-		if peer, exists := s.peers[s.localPeerID]; exists {
-			peer.DataChannel = dc
+		// Отправляем DataChannel через канал в основную горутину
+		// вместо прямого доступа к s.peers из потока WebRTC
+		select {
+		case s.dataChannelChan <- DataChannelEvent{
+			PeerID:      s.localPeerID,
+			DataChannel: dc,
+		}:
+			logger.Debug("P2P: DataChannel отправлен в канал обработки", "peerID", s.localPeerID)
+		default:
+			logger.Warn("P2P: канал DataChannel полный, событие пропущено", "peerID", s.localPeerID)
 		}
-		s.mu.Unlock()
 	})
+}
+
+// handleDataChannelEvents обрабатывает события DataChannel из канала.
+// Выполняется в отдельной горутине для безопасного доступа к s.peers.
+func (s *Service) handleDataChannelEvents() {
+	logger.Info("P2P: обработчик DataChannel событий запущен")
+	for {
+		select {
+		case event := <-s.dataChannelChan:
+			s.mu.Lock()
+			if peer, exists := s.peers[event.PeerID]; exists {
+				peer.DataChannel = event.DataChannel
+				logger.Debug("P2P: DataChannel сохранён для пира", "peerID", event.PeerID)
+			} else {
+				logger.Warn("P2P: пир не найден для DataChannel", "peerID", event.PeerID)
+			}
+			s.mu.Unlock()
+		case <-s.closeChan:
+			logger.Info("P2P: обработчик DataChannel событий остановлен")
+			return
+		}
+	}
 }
 
 // emitEvent отправляет событие в канал событий.
@@ -591,6 +621,10 @@ func (s *Service) emitEvent(eventType string, data interface{}) {
 // Возвращает hex-строку из peerIDLength случайных байт.
 func generateID() string {
 	bytes := make([]byte, peerIDLength)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// crypto/rand может вернуть ошибку только при проблемах
+		// с системным источником энтропии (очень редкий случай)
+		panic(fmt.Sprintf("P2P: не удалось сгенерировать случайный ID: %v", err))
+	}
 	return hex.EncodeToString(bytes)
 }

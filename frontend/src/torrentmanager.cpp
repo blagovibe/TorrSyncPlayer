@@ -35,6 +35,13 @@ void TorrentManager::addTorrent(const QString &magnetUri)
         return;
     }
     
+    // Проверка максимальной длины magnet URI (8192 символа)
+    const int maxMagnetUriLength = 8192;
+    if (magnetUri.length() > maxMagnetUriLength) {
+        emit error(tr("Magnet-ссылка слишком длинная (максимум %1 символов)").arg(maxMagnetUriLength));
+        return;
+    }
+    
     if (!magnetUri.startsWith("magnet:?")) {
         emit error(tr("Некорректная magnet-ссылка. Должна начинаться с 'magnet:?'"));
         return;

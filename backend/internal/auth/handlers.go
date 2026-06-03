@@ -5,48 +5,64 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/yourname/torrplayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
 
 // AuthHandler обработчик аутентификации.
 type AuthHandler struct {
-	store *UserStore
+	store       *UserStore
+	authService *AuthService
 }
 
 // NewAuthHandler создаёт новый обработчик аутентификации.
-func NewAuthHandler(store *UserStore) *AuthHandler {
-	return &AuthHandler{store: store}
+func NewAuthHandler(store *UserStore, authService *AuthService) *AuthHandler {
+	return &AuthHandler{
+		store:       store,
+		authService: authService,
+	}
 }
 
 // Register обработчик регистрации нового пользователя.
 // Принимает JSON с полями username и password.
 // Возвращает токен аутентификации при успешной регистрации.
+//
+// @Summary      Регистрация
+// @Description  Регистрирует нового пользователя и возвращает JWT токен
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.RegisterRequest  true  "Данные для регистрации"
+// @Success      201      {object}  models.AuthResponse
+// @Failure      400      {object}  models.ErrorResponse
+// @Router       /api/v1/auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Ограничиваем размер тела запроса
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxRequestSize) // 1MB
 
 	var req models.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Неверный формат запроса"})
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Неверный формат запроса"})
 		return
 	}
 
 	// Создаём пользователя
 	user, err := h.store.Create(req.Username, req.Password)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
 	// Генерируем токен
-	token, err := GenerateToken(user)
+	token, err := h.authService.GenerateToken(user)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Ошибка создания токена"})
+		response.WriteJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Ошибка создания токена"})
 		return
 	}
 
 	// Возвращаем ответ
-	writeJSON(w, http.StatusCreated, models.AuthResponse{
+	response.WriteJSON(w, http.StatusCreated, models.AuthResponse{
 		Token: token,
 		User:  *user,
 	})
@@ -55,40 +71,43 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 // Login обработчик входа в систему.
 // Принимает JSON с полями username и password.
 // Возвращает токен аутентификации при успешном входе.
+//
+// @Summary      Вход
+// @Description  Аутентифицирует пользователя и возвращает JWT токен
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.LoginRequest  true  "Данные для входа"
+// @Success      200      {object}  models.AuthResponse
+// @Failure      401      {object}  models.ErrorResponse
+// @Router       /api/v1/auth/login [post]
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Ограничиваем размер тела запроса
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxRequestSize)
 
 	var req models.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Неверный формат запроса"})
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Неверный формат запроса"})
 		return
 	}
 
 	// Аутентифицируем пользователя
 	user, err := h.store.Authenticate(req.Username, req.Password)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Неверное имя пользователя или пароль"})
+		response.WriteJSON(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Неверное имя пользователя или пароль"})
 		return
 	}
 
 	// Генерируем токен
-	token, err := GenerateToken(user)
+	token, err := h.authService.GenerateToken(user)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Ошибка создания токена"})
+		response.WriteJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Ошибка создания токена"})
 		return
 	}
 
 	// Возвращаем ответ
-	writeJSON(w, http.StatusOK, models.AuthResponse{
+	response.WriteJSON(w, http.StatusOK, models.AuthResponse{
 		Token: token,
 		User:  *user,
 	})
-}
-
-// writeJSON записывает JSON ответ с указанным статусом.
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
 }

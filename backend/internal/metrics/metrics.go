@@ -134,11 +134,16 @@ func (m *Metrics) SyncOperation() {
 
 // GetUptime возвращает время работы сервера в секундах
 func (m *Metrics) GetUptime() float64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return time.Since(m.startTime).Seconds()
 }
 
 // GetMemoryStats возвращает статистику использования памяти
 func (m *Metrics) GetMemoryStats() map[string]uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
@@ -155,10 +160,10 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	memStats := m.GetMemoryStats()
+	memStats := m.getMemoryStatsUnsafe()
 
 	return map[string]interface{}{
-		"uptime_seconds": m.GetUptime(),
+		"uptime_seconds": m.getUptimeUnsafe(),
 		"requests": map[string]int64{
 			"total":   m.requestsTotal,
 			"success": m.requestsSuccess,
@@ -183,19 +188,37 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 	}
 }
 
+// getUptimeUnsafe возвращает uptime без блокировки (вызывать под RLock)
+func (m *Metrics) getUptimeUnsafe() float64 {
+	return time.Since(m.startTime).Seconds()
+}
+
+// getMemoryStatsUnsafe возвращает статистику памяти без блокировки (вызывать под RLock)
+func (m *Metrics) getMemoryStatsUnsafe() map[string]uint64 {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	return map[string]uint64{
+		"alloc":       memStats.Alloc,
+		"total_alloc": memStats.TotalAlloc,
+		"sys":         memStats.Sys,
+		"num_gc":      uint64(memStats.NumGC),
+	}
+}
+
 // FormatPrometheus форматирует метрики в формате Prometheus
 func (m *Metrics) FormatPrometheus() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	memStats := m.GetMemoryStats()
+	memStats := m.getMemoryStatsUnsafe()
 
 	var result string
 
 	// Время работы
 	result += "# HELP torrserver_uptime_seconds Uptime in seconds\n"
 	result += "# TYPE torrserver_uptime_seconds gauge\n"
-	result += fmt.Sprintf("torrserver_uptime_seconds %.2f\n", m.GetUptime())
+	result += fmt.Sprintf("torrserver_uptime_seconds %.2f\n", m.getUptimeUnsafe())
 
 	// Запросы
 	result += "# HELP torrserver_requests_total Total requests\n"

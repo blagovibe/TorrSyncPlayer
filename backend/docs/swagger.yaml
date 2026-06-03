@@ -1,0 +1,626 @@
+basePath: /api/v1
+definitions:
+  api.APIError:
+    properties:
+      code:
+        type: integer
+      message:
+        type: string
+    type: object
+  models.AddTorrentRequest:
+    properties:
+      magnetUri:
+        type: string
+    type: object
+  models.AuthResponse:
+    properties:
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+    type: object
+  models.CreateRoomRequest:
+    properties:
+      name:
+        type: string
+      password:
+        type: string
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  models.FileInfo:
+    properties:
+      index:
+        type: integer
+      name:
+        type: string
+      size:
+        type: integer
+    type: object
+  models.FileListResponse:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/models.FileInfo'
+        type: array
+      hasMore:
+        type: boolean
+      limit:
+        type: integer
+      offset:
+        type: integer
+      totalCount:
+        type: integer
+    type: object
+  models.JoinRoomRequest:
+    properties:
+      password:
+        type: string
+      roomId:
+        type: string
+    type: object
+  models.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  models.RegisterRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  models.RoomInfo:
+    properties:
+      hostId:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      peerCount:
+        type: integer
+    type: object
+  models.SeekRequest:
+    properties:
+      position:
+        type: number
+    type: object
+  models.SelectFileRequest:
+    properties:
+      fileIndex:
+        type: integer
+    type: object
+  models.SignalRequest:
+    properties:
+      roomId:
+        type: string
+      signal:
+        items:
+          type: integer
+        type: array
+    type: object
+  models.SuccessResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  models.SyncStatus:
+    properties:
+      duration:
+        type: number
+      isPlaying:
+        type: boolean
+      position:
+        type: number
+      timestamp:
+        type: integer
+    type: object
+  models.TorrentInfo:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      progress:
+        type: number
+      size:
+        type: integer
+      status:
+        type: string
+    type: object
+  models.TorrentListResponse:
+    properties:
+      hasMore:
+        type: boolean
+      limit:
+        type: integer
+      offset:
+        type: integer
+      torrents:
+        items:
+          $ref: '#/definitions/models.TorrentInfo'
+        type: array
+      totalCount:
+        type: integer
+    type: object
+  models.User:
+    properties:
+      createdAt:
+        type: integer
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+host: localhost:8889
+info:
+  contact:
+    email: support@torrsyncplayer.local
+    name: TorrSyncPlayer Support
+    url: https://github.com/blagovibe/TorrSyncPlayer/issues
+  description: HTTP API для TorrSyncPlayer — торрент-плеера с P2P синхронизацией воспроизведения.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: https://github.com/blagovibe/TorrSyncPlayer
+  title: TorrSyncPlayer API
+  version: "1.0"
+paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Аутентифицирует пользователя и возвращает JWT токен
+      parameters:
+      - description: Данные для входа
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Вход
+      tags:
+      - auth
+  /api/v1/auth/logout:
+    post:
+      description: Отзывает JWT токен (добавляет в список отозванных)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Выход
+      tags:
+      - auth
+  /api/v1/auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Регистрирует нового пользователя и возвращает JWT токен
+      parameters:
+      - description: Данные для регистрации
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Регистрация
+      tags:
+      - auth
+  /api/v1/health:
+    get:
+      description: Базовая проверка работоспособности сервера (не требует аутентификации)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Проверка здоровья
+      tags:
+      - system
+  /api/v1/rooms:
+    post:
+      consumes:
+      - application/json
+      description: Создаёт новую P2P комнату для синхронизации воспроизведения
+      parameters:
+      - description: Данные комнаты
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateRoomRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.RoomInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Создать комнату
+      tags:
+      - rooms
+  /api/v1/rooms/events:
+    get:
+      description: Подписка на события P2P комнаты в реальном времени через Server-Sent
+        Events
+      parameters:
+      - description: Room ID
+        in: path
+        name: roomID
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: События комнаты (SSE)
+      tags:
+      - rooms
+  /api/v1/rooms/join:
+    post:
+      consumes:
+      - application/json
+      description: Присоединяет пользователя к существующей P2P комнате
+      parameters:
+      - description: Данные для входа
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.JoinRoomRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Присоединиться к комнате
+      tags:
+      - rooms
+  /api/v1/rooms/leave:
+    post:
+      description: Выходит из текущей P2P комнаты
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Покинуть комнату
+      tags:
+      - rooms
+  /api/v1/rooms/signal:
+    post:
+      consumes:
+      - application/json
+      description: Отправляет WebRTC сигнал (SDP offer/answer, ICE candidate) через
+        data channel
+      parameters:
+      - description: WebRTC сигнал
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.SignalRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Отправить WebRTC сигнал
+      tags:
+      - rooms
+  /api/v1/sync/pause:
+    post:
+      description: Приостанавливает синхронизированное воспроизведение
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SyncStatus'
+      summary: Приостановить воспроизведение
+      tags:
+      - sync
+  /api/v1/sync/play:
+    post:
+      description: Запускает синхронизированное воспроизведение
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SyncStatus'
+      summary: Запустить воспроизведение
+      tags:
+      - sync
+  /api/v1/sync/seek:
+    post:
+      consumes:
+      - application/json
+      description: Выполняет синхронизированную перемотку на указанную позицию
+      parameters:
+      - description: Позиция перемотки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.SeekRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SyncStatus'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Перемотка
+      tags:
+      - sync
+  /api/v1/sync/status:
+    get:
+      description: Возвращает текущий статус синхронизации воспроизведения
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SyncStatus'
+      summary: Статус синхронизации
+      tags:
+      - sync
+  /api/v1/torrents:
+    get:
+      description: Возвращает список всех торрентов с пагинацией
+      parameters:
+      - default: 20
+        description: Лимит записей
+        in: query
+        maximum: 100
+        name: limit
+        type: integer
+      - default: 0
+        description: Смещение
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.TorrentListResponse'
+      summary: Список торрентов
+      tags:
+      - torrents
+    post:
+      consumes:
+      - application/json
+      description: Добавляет торрент по magnet-ссылке и возвращает информацию о нём
+      parameters:
+      - description: Magnet URI
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.AddTorrentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.TorrentInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Добавить торрент
+      tags:
+      - torrents
+  /api/v1/torrents/{id}:
+    delete:
+      description: Удаляет торрент по его ID
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Удалить торрент
+      tags:
+      - torrents
+  /api/v1/torrents/{id}/files:
+    get:
+      description: Возвращает список файлов торрента с пагинацией
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 20
+        description: Лимит записей
+        in: query
+        maximum: 100
+        name: limit
+        type: integer
+      - default: 0
+        description: Смещение
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.FileListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Список файлов торрента
+      tags:
+      - torrents
+  /api/v1/torrents/{id}/select:
+    post:
+      consumes:
+      - application/json
+      description: Выбирает файл торрента для стриминга по индексу
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Индекс файла
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.SelectFileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Выбрать файл для стриминга
+      tags:
+      - torrents
+  /api/v1/torrents/{id}/stream:
+    get:
+      description: Стримит выбранный файл торрента с поддержкой Range запросов
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.APIError'
+      summary: Стриминг файла
+      tags:
+      - torrents
+securityDefinitions:
+  BearerAuth:
+    description: 'Введите JWT токен в формате: Bearer <token>'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

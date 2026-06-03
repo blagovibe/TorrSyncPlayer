@@ -15,6 +15,7 @@
 #include <QWidget>
 #include <QMutex>
 #include <QVector>
+#include <QTimer>
 
 // Обёртка для C-заголовка libmpv
 extern "C" {
@@ -158,6 +159,12 @@ private slots:
      * Вызывается после разблокировки мьютекса для безопасной эмиссии сигналов
      */
     void emitBufferedEvents();
+
+    /**
+     * @brief Выполнение отложенной перемотки после debounce
+     * Вызывается таймером для предотвращения утечки при быстрой перемотке
+     */
+    void onSeekDebounceTimeout();
 
 private:
     /**

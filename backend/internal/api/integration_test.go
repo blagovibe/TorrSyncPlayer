@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/torrplayer/backend/internal/auth"
-	"github.com/yourname/torrplayer/backend/internal/models"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // testServices содержит моки сервисов для тестирования
@@ -54,7 +54,7 @@ func (m *integrationMockTorrentService) AddMagnet(ctx context.Context, magnetURI
 	}
 	m.torrents[info.ID] = info
 	m.files[info.ID] = []models.FileInfo{
-		{Index: 0, Name: "video.mp4", Size: 1024 * 1024 * 100, Path: "video.mp4"},
+		{Index: 0, Name: "video.mp4", Size: 1024 * 1024 * 100},
 	}
 	return info, nil
 }

@@ -24,13 +24,33 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourname/torrplayer/backend/internal/api"
-	"github.com/yourname/torrplayer/backend/internal/auth"
-	"github.com/yourname/torrplayer/backend/internal/p2p"
-	"github.com/yourname/torrplayer/backend/internal/sync"
-	"github.com/yourname/torrplayer/backend/internal/torrent"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/api"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
+
+// @title           TorrSyncPlayer API
+// @version         1.0
+// @description     HTTP API для TorrSyncPlayer — торрент-плеера с P2P синхронизацией воспроизведения.
+// @termsOfService  https://github.com/blagovibe/TorrSyncPlayer
+
+// @contact.name   TorrSyncPlayer Support
+// @contact.url    https://github.com/blagovibe/TorrSyncPlayer/issues
+// @contact.email  support@torrsyncplayer.local
+
+// @license.name  MIT
+// @license.url   https://opensource.org/licenses/MIT
+
+// @host      localhost:8889
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Введите JWT токен в формате: Bearer <token>
 
 const (
 	defaultPort     = "8889"
@@ -72,10 +92,8 @@ func main() {
 		"build_time", BuildTime,
 	)
 
-	// Устанавливаем секрет для JWT
-	if config.JWTSecret != "" {
-		auth.SetSecret([]byte(config.JWTSecret))
-	}
+	// Создаём сервис аутентификации
+	authService := auth.NewAuthService([]byte(config.JWTSecret))
 
 	// Создаём директорию для данных
 	if err := os.MkdirAll(config.DataDir, 0755); err != nil {
@@ -91,7 +109,7 @@ func main() {
 	}
 	defer torrentSvc.Close()
 
-	p2pSvc, err := p2p.NewService()
+	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
 		logger.Error("Ошибка инициализации P2P-сервиса", "error", err)
 		os.Exit(1)
@@ -106,10 +124,11 @@ func main() {
 
 	// Создаём роутер
 	router := api.NewRouter(api.RouterConfig{
-		TorrentSvc: torrentSvc,
-		P2pSvc:     p2pSvc,
-		SyncSvc:    syncSvc,
-		AuthStore:  authStore,
+		TorrentSvc:  torrentSvc,
+		P2pSvc:      p2pSvc,
+		SyncSvc:     syncSvc,
+		AuthStore:   authStore,
+		AuthService: authService,
 	})
 
 	// Настраиваем HTTP сервер
@@ -139,6 +158,11 @@ func main() {
 
 	// Запускаем сервер в горутине
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("HTTP сервер: горутина завершилась с паникой", "error", r)
+			}
+		}()
 		logger.Info("HTTP сервер запущен", "port", config.Port, "tls", config.UseTLS)
 		var err error
 		if config.UseTLS {
@@ -163,9 +187,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
+	// Останавливаем HTTP сервер
 	if err := server.Shutdown(ctx); err != nil {
-		logger.Error("Ошибка при остановке сервера", "error", err)
+		logger.Error("Ошибка при остановке HTTP сервера", "error", err)
 	}
+	logger.Info("HTTP сервер остановлен")
+
+	// Останавливаем CSRF cleanup горутину
+	api.CSRFStore.Stop()
 
 	logger.Info("Сервер остановлен")
 }
@@ -316,6 +345,11 @@ func setupPprof() {
 
 	// Запускаем pprof сервер на отдельном порту
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("pprof: горутина завершилась с паникой", "error", r)
+			}
+		}()
 		pprofAddr := ":6060"
 		logger.Info("pprof сервер запущен", "addr", pprofAddr)
 		if err := http.ListenAndServe(pprofAddr, pprofMux); err != nil {

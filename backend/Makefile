@@ -1,4 +1,4 @@
-.PHONY: build run clean test lint help
+.PHONY: build run clean test lint help check-version test-race
 
 # Переменные
 BINARY_NAME=torrsyncplayer
@@ -11,12 +11,18 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # LDFLAGS для версионирования
-LDFLAGS=-ldflags "-X github.com/yourname/torrplayer/backend/internal/version.Version=$(VERSION) \
-	-X github.com/yourname/torrplayer/backend/internal/version.Commit=$(COMMIT) \
-	-X github.com/yourname/torrplayer/backend/internal/version.BuildTime=$(BUILD_TIME)"
+LDFLAGS=-ldflags "-X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=$(VERSION) \
+	-X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=$(COMMIT) \
+	-X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(BUILD_TIME)"
 
 # Цель по умолчанию
-all: build
+all: check-version build
+
+## check-version: Проверить версию Go
+check-version:
+	@echo "Проверка версии Go..."
+	@go version
+	@go version | grep -q "go1.2[0-9]" || echo "Warning: Go 1.20+ required"
 
 ## build: Собрать проект
 build:
@@ -52,12 +58,23 @@ test-verbose:
 	@echo "Запуск тестов (verbose)..."
 	go test -v ./...
 
+## test-race: Запустить тесты с детектором гонок (требуется gcc)
+test-race:
+	@echo "Запуск тестов с race detector..."
+	@which gcc > /dev/null 2>&1 || (echo "Ошибка: gcc не найден. Установите MinGW или TDM-GCC для использования race detector." && exit 1)
+	CGO_ENABLED=1 go test -race -v ./...
+
 ## test-coverage: Запустить тесты с отчётом о покрытии
 test-coverage:
 	@echo "Запуск тестов с покрытием..."
 	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Отчёт о покрытии: coverage.html"
+
+## test-short: Запустить только быстрые тесты (без интеграционных)
+test-short:
+	@echo "Запуск быстрых тестов..."
+	go test -short ./...
 
 ## clean: Очистить сборку
 clean:

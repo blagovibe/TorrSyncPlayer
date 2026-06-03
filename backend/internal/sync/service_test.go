@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yourname/torrplayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // TestNewService проверяет инициализацию сервиса синхронизации

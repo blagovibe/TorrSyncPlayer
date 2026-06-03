@@ -11,27 +11,27 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/anacrolix/torrent"
-	"github.com/yourname/torrplayer/backend/internal/errors"
-	"github.com/yourname/torrplayer/backend/internal/models"
-	"github.com/yourname/torrplayer/backend/internal/validation"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // Константы сервиса торрентов
 const (
 	// gracefulShutdownTimeout таймаут для корректной остановки сервиса
-	gracefulShutdownTimeout = 30 * time.Second
+	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
 
 	// dataDirPermissions права доступа к директории данных
-	dataDirPermissions = 0755
+	dataDirPermissions = constants.DataDirPermissions
 )
 
 // Service сервис управления торрентами.
@@ -43,6 +43,25 @@ type Service struct {
 	torrents      map[string]*torrent.Torrent
 	dataDir       string
 	selectedFiles map[string]int // torrentID -> fileIndex
+}
+
+// readCloserWithClose обёртка для io.ReadSeekCloser с безопасным закрытием.
+// Гарантирует идемпотентное закрытие (Close можно вызывать многократно).
+type readCloserWithClose struct {
+	io.ReadSeekCloser
+	closed bool
+	mu     sync.Mutex
+}
+
+// Close закрывает reader только один раз (идемпотентное закрытие)
+func (r *readCloserWithClose) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	return r.ReadSeekCloser.Close()
 }
 
 // NewService создаёт новый сервис торрентов.
@@ -219,7 +238,6 @@ func (s *Service) GetFiles(torrentID string) ([]models.FileInfo, error) {
 			Index: i,
 			Name:  f.DisplayPath(),
 			Size:  f.Length(),
-			Path:  f.Path(),
 		})
 	}
 
@@ -277,25 +295,25 @@ func (s *Service) SelectFile(torrentID string, fileIndex int) error {
 // Автоматически определяет Content-Type по расширению файла.
 // Возвращает 400 если файл не выбран, 404 если торрент не найден.
 func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID string) {
+	// Одна блокировка для обеих операций - предотвращает гонку данных
+	// когда другой поток может удалить торрент между двумя RLock
 	s.mu.RLock()
 	t, exists := s.torrents[torrentID]
-	s.mu.RUnlock()
-
 	if !exists {
+		s.mu.RUnlock()
 		logger.Warn("Torrent: торрент не найден для стриминга", "torrentID", torrentID)
 		http.Error(w, "Торрент не найден", http.StatusNotFound)
 		return
 	}
 
-	s.mu.RLock()
 	fileIndex, hasSelection := s.selectedFiles[torrentID]
-	s.mu.RUnlock()
-
 	if !hasSelection {
+		s.mu.RUnlock()
 		logger.Warn("Torrent: файл не выбран для стриминга", "torrentID", torrentID)
 		http.Error(w, "Файл не выбран для стриминга", http.StatusBadRequest)
 		return
 	}
+	s.mu.RUnlock()
 
 	files := t.Files()
 	if fileIndex >= len(files) {
@@ -311,6 +329,11 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 	file := files[fileIndex]
 	reader := file.NewReader()
 
+	// Закрываем reader после завершения стриминга для предотвращения утечки файловых дескрипторов
+	// Используем обёртку с отложенным закрытием
+	closer := &readCloserWithClose{ReadSeekCloser: reader}
+	defer closer.Close()
+
 	logger.Info("Torrent: начало стриминга",
 		"torrentID", torrentID,
 		"fileIndex", fileIndex,
@@ -320,7 +343,7 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 
 	// Используем http.ServeContent для полной поддержки RFC 7233
 	// Автоматически обрабатывает Range запросы, Content-Range, If-Range и т.д.
-	http.ServeContent(w, r, file.DisplayPath(), time.Now(), reader)
+	http.ServeContent(w, r, file.DisplayPath(), time.Now(), closer)
 }
 
 // Close закрывает сервис торрентов с graceful shutdown.
@@ -342,6 +365,11 @@ func (s *Service) Close() error {
 		torrentCount := len(s.torrents)
 
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("Torrent: горутина close завершилась с паникой", "error", r)
+				}
+			}()
 			s.client.Close()
 			close(done)
 		}()
@@ -383,43 +411,4 @@ func (s *Service) torrentToInfo(t *torrent.Torrent) *models.TorrentInfo {
 	}
 
 	return info
-}
-
-// detectContentType определяет MIME тип по расширению файла.
-// Поддерживает видео, аудио и субтитры.
-// Возвращает application/octet-stream для неизвестных типов.
-func detectContentType(filename string) string {
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".mp4", ".m4v":
-		return "video/mp4"
-	case ".mkv":
-		return "video/x-matroska"
-	case ".avi":
-		return "video/x-msvideo"
-	case ".webm":
-		return "video/webm"
-	case ".mov":
-		return "video/quicktime"
-	case ".wmv":
-		return "video/x-ms-wmv"
-	case ".flv":
-		return "video/x-flv"
-	case ".mp3":
-		return "audio/mpeg"
-	case ".aac":
-		return "audio/aac"
-	case ".wav":
-		return "audio/wav"
-	case ".ogg":
-		return "audio/ogg"
-	case ".flac":
-		return "audio/flac"
-	case ".srt":
-		return "application/x-subrip"
-	case ".ass", ".ssa":
-		return "text/x-ass"
-	default:
-		return "application/octet-stream"
-	}
 }

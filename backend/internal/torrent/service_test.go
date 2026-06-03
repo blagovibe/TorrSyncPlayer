@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025-2026 TorrSyncPlayer contributors
+// See LICENSE file for full license text
+
 package torrent
 
 import (
@@ -8,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yourname/torrplayer/backend/internal/validation"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 )
 
 // Глобальный сервис для тестов — создаётся один раз через TestMain
@@ -36,6 +40,7 @@ func TestMain(m *testing.M) {
 
 // TestNewService проверяет инициализацию торрент-сервиса
 func TestNewService(t *testing.T) {
+	t.Parallel()
 	require.NotNil(t, testService)
 	assert.NotNil(t, testService.client)
 	assert.NotNil(t, testService.torrents)
@@ -44,6 +49,7 @@ func TestNewService(t *testing.T) {
 
 // TestAddMagnet_EmptyURI проверяет валидацию пустой magnet-ссылки
 func TestAddMagnet_EmptyURI(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -55,6 +61,7 @@ func TestAddMagnet_EmptyURI(t *testing.T) {
 // TestAddMagnet_Timeout проверяет обработку невалидной magnet-ссылки
 // с таймаутом (реальный торрент-клиент не сможет получить метаданные)
 func TestAddMagnet_Timeout(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -66,12 +73,14 @@ func TestAddMagnet_Timeout(t *testing.T) {
 
 // TestListTorrents_Empty проверяет получение пустого списка торрентов
 func TestListTorrents_Empty(t *testing.T) {
+	t.Parallel()
 	torrents := testService.ListTorrents()
 	assert.NotNil(t, torrents)
 }
 
 // TestRemoveTorrent_NotFound проверяет удаление несуществующего торрента
 func TestRemoveTorrent_NotFound(t *testing.T) {
+	t.Parallel()
 	err := testService.RemoveTorrent("nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "не найден")
@@ -79,6 +88,7 @@ func TestRemoveTorrent_NotFound(t *testing.T) {
 
 // TestGetFiles_NotFound проверяет получение файлов несуществующего торрента
 func TestGetFiles_NotFound(t *testing.T) {
+	t.Parallel()
 	_, err := testService.GetFiles("nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "не найден")
@@ -86,12 +96,14 @@ func TestGetFiles_NotFound(t *testing.T) {
 
 // TestSelectFile_InvalidIndex проверяет выбор файла в несуществующем торренте
 func TestSelectFile_InvalidIndex(t *testing.T) {
+	t.Parallel()
 	err := testService.SelectFile("nonexistent", 0)
 	assert.Error(t, err)
 }
 
 // TestClose проверяет корректное закрытие сервиса
 func TestClose(t *testing.T) {
+	t.Parallel()
 	// Используем глобальный сервис — просто проверяем что Close не паникует
 	err := testService.Close()
 	assert.NoError(t, err)
@@ -99,6 +111,7 @@ func TestClose(t *testing.T) {
 
 // TestClose_MultipleCalls проверяет что повторный Close не вызывает панику
 func TestClose_MultipleCalls(t *testing.T) {
+	t.Parallel()
 	// Первый Close уже был в TestClose, проверяем что повторный не паникует
 	err := testService.Close()
 	assert.NoError(t, err)
@@ -106,6 +119,7 @@ func TestClose_MultipleCalls(t *testing.T) {
 
 // TestValidatePosition проверяет валидацию позиции воспроизведения
 func TestValidatePosition(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		pos     float64
@@ -119,7 +133,9 @@ func TestValidatePosition(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validation.ValidatePosition(tt.pos)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -130,34 +146,56 @@ func TestValidatePosition(t *testing.T) {
 	}
 }
 
-// TestDetectContentType проверяет определение MIME-типа по расширению файла
-func TestDetectContentType(t *testing.T) {
+// TestValidateTorrentID проверяет валидацию ID торрента
+func TestValidateTorrentID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		filename string
-		expected string
+		name    string
+		id      string
+		wantErr bool
 	}{
-		{"video.mp4", "video/mp4"},
-		{"video.mkv", "video/x-matroska"},
-		{"video.avi", "video/x-msvideo"},
-		{"video.webm", "video/webm"},
-		{"video.mov", "video/quicktime"},
-		{"video.wmv", "video/x-ms-wmv"},
-		{"video.flv", "video/x-flv"},
-		{"audio.mp3", "audio/mpeg"},
-		{"audio.aac", "audio/aac"},
-		{"audio.wav", "audio/wav"},
-		{"audio.ogg", "audio/ogg"},
-		{"audio.flac", "audio/flac"},
-		{"subtitle.srt", "application/x-subrip"},
-		{"subtitle.ass", "text/x-ass"},
-		{"subtitle.ssa", "text/x-ass"},
-		{"unknown.xyz", "application/octet-stream"},
+		{"valid hex id", "0123456789abcdef0123456789abcdef01234567", false},
+		{"empty id", "", true},
+		{"too short", "abc123", true},
+		{"too long", "0123456789abcdef0123456789abcdef0123456789abcdef", true},
+		{"invalid chars", "xyz123456789abcdef0123456789abcdef0123456", true},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.filename, func(t *testing.T) {
-			result := detectContentType(tt.filename)
-			assert.Equal(t, tt.expected, result)
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validation.ValidateTorrentID(tt.id)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
+	}
+}
+
+// TestServiceWithTimeout проверяет что все операции завершаются за разумное время
+func TestServiceWithTimeout(t *testing.T) {
+	t.Parallel()
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		// Проверяем ListTorrents
+		torrents := testService.ListTorrents()
+		assert.NotNil(t, torrents)
+
+		// Проверяем RemoveTorrent с несуществующим ID
+		err := testService.RemoveTorrent("nonexistent-id-for-timeout-test")
+		assert.Error(t, err)
+	}()
+
+	select {
+	case <-done:
+		// Тест завершился успешно
+	case <-time.After(10 * time.Second):
+		t.Fatal("тест завис — операции не завершились за 10 секунд")
 	}
 }

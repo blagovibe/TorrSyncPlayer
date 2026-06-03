@@ -13,22 +13,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourname/torrplayer/backend/internal/errors"
-	"github.com/yourname/torrplayer/backend/internal/models"
-	"github.com/yourname/torrplayer/backend/internal/validation"
-	"github.com/yourname/torrplayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // Константы сервиса синхронизации
 const (
 	// maxPositionJump максимальный прыжок позиции в секундах для плавной подстройки
-	maxPositionJump = 2.0
+	maxPositionJump = constants.MaxPositionJump
 
 	// smoothAdjustmentRatio коэффициент плавной подстройки позиции
-	smoothAdjustmentRatio = 0.3
+	smoothAdjustmentRatio = constants.SmoothAdjustmentRatio
 
 	// msPerSecond количество миллисекунд в одной секунде
-	msPerSecond = 1000.0
+	msPerSecond = constants.MsPerSecond
 )
 
 // Service сервис синхронизации воспроизведения.

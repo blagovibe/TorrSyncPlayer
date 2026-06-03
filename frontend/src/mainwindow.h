@@ -32,6 +32,8 @@
 #include <QGroupBox>
 #include <QProgressBar>
 #include <QJsonArray>
+#include <QCloseEvent>
+#include <QThread>
 
 // Предварительные объявления
 class MpvWidget;
@@ -186,6 +188,14 @@ private slots:
      * Обновляет данные и переключает в online режим
      */
     void onServerAvailable();
+
+protected:
+    /**
+     * @brief Обработка события закрытия окна
+     * Выполняет graceful shutdown: выход из комнаты, остановка плеера
+     * @param event Событие закрытия
+     */
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     /**

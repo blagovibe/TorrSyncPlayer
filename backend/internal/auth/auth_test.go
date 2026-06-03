@@ -1,15 +1,20 @@
 package auth
 
 import (
-	"encoding/hex"
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yourname/torrplayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
+
+// testAuthService создаёт AuthService с фиксированным секретом для тестов
+func testAuthService() *AuthService {
+	return NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+}
 
 func TestHashPassword(t *testing.T) {
 	tests := []struct {
@@ -97,30 +102,31 @@ func TestCheckPassword(t *testing.T) {
 }
 
 func TestGenerateToken(t *testing.T) {
-	// Устанавливаем фиксированный секрет для тестов
-	SetSecret([]byte("test-secret-key-for-testing-32bytes!"))
+	authService := testAuthService()
 
 	user := &models.User{
 		ID:       "user123",
 		Username: "testuser",
 	}
 
-	token, err := GenerateToken(user)
+	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
-	assert.Contains(t, token, ".") // Формат: data.signature
+
+	// JWT токен должен содержать две точки (три части: header.payload.signature)
+	parts := strings.Split(token, ".")
+	assert.Len(t, parts, 3, "JWT токен должен содержать 3 части")
 }
 
 func TestValidateToken(t *testing.T) {
-	// Устанавливаем фиксированный секрет для тестов
-	SetSecret([]byte("test-secret-key-for-testing-32bytes!"))
+	authService := testAuthService()
 
 	user := &models.User{
 		ID:       "user123",
 		Username: "testuser",
 	}
 
-	token, err := GenerateToken(user)
+	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -152,7 +158,7 @@ func TestValidateToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			claims, err := ValidateToken(tt.token)
+			claims, err := authService.ValidateToken(tt.token)
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, claims)
@@ -167,31 +173,121 @@ func TestValidateToken(t *testing.T) {
 }
 
 func TestValidateTokenExpired(t *testing.T) {
-	// Устанавливаем фиксированный секрет для тестов
-	SetSecret([]byte("test-secret-key-for-testing-32bytes!"))
+	authService := testAuthService()
 
-	// Создаём токен с истёкшим временем вручную
-	expiredTime := time.Now().Add(-48 * time.Hour).Unix() // 48 часов назад
-	data := "user123|testuser|" + fmt.Sprintf("%d", expiredTime)
-	signature := createSignature(data)
-	token := hex.EncodeToString([]byte(data)) + "." + hex.EncodeToString(signature)
+	user := &models.User{
+		ID:       "user123",
+		Username: "testuser",
+	}
 
-	_, err := ValidateToken(token)
+	// Создаём истёкший токен напрямую через jwt.NewWithClaims
+	claims := jwt.MapClaims{
+		"userId":   user.ID,
+		"username": user.Username,
+		"exp":      time.Now().Add(-1 * time.Hour).Unix(), // Истёк час назад
+		"iat":      time.Now().Add(-2 * time.Hour).Unix(),
+		"jti":      "test-expired-jti",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	expiredToken, err := token.SignedString(authService.jwtSecret)
+	require.NoError(t, err)
+
+	_, err = authService.ValidateToken(expiredToken)
 	assert.Error(t, err)
-	assert.Equal(t, ErrExpiredToken, err)
+	assert.ErrorIs(t, err, ErrExpiredToken)
 }
 
-func TestEncodeDecodeHex(t *testing.T) {
-	tests := []string{
-		"simple string",
-		"user123|testuser|1234567890",
-		"специальные символы: !@#$%^&*()",
+func TestExtractJTI(t *testing.T) {
+	authService := testAuthService()
+
+	user := &models.User{
+		ID:       "user123",
+		Username: "testuser",
 	}
 
-	for _, original := range tests {
-		encoded := hex.EncodeToString([]byte(original))
-		decoded, err := hex.DecodeString(encoded)
-		require.NoError(t, err)
-		assert.Equal(t, original, string(decoded))
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	jti, err := authService.ExtractJTI(token)
+	require.NoError(t, err)
+	assert.NotEmpty(t, jti)
+
+	// Проверяем что JTI уникален
+	token2, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	jti2, err := authService.ExtractJTI(token2)
+	require.NoError(t, err)
+	assert.NotEqual(t, jti, jti2, "JTI должен быть уникальным для каждого токена")
+}
+
+func TestTokenRevocation(t *testing.T) {
+	authService := testAuthService()
+
+	// Создаём новый store для тестов
+	store := NewTokenRevocationStore()
+	SetRevocationStore(store)
+
+	user := &models.User{
+		ID:       "user123",
+		Username: "testuser",
 	}
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	// Извлекаем JTI
+	jti, err := authService.ExtractJTI(token)
+	require.NoError(t, err)
+
+	// Токен не должен быть отозван
+	assert.False(t, store.IsRevoked(jti))
+
+	// Отзываем токен
+	store.Revoke(jti, time.Now().Add(24*time.Hour))
+
+	// Токен должен быть отозван
+	assert.True(t, store.IsRevoked(jti))
+
+	// Проверяем что валидный токен всё ещё проходит валидацию
+	claims, err := authService.ValidateToken(token)
+	require.NoError(t, err)
+	assert.Equal(t, user.ID, claims.UserID)
+}
+
+func TestTokenRevocationStoreCleanup(t *testing.T) {
+	store := &TokenRevocationStore{
+		revokedTokens: make(map[string]time.Time),
+		ttl:           100 * time.Millisecond,
+	}
+
+	// Добавляем токен с коротким TTL
+	store.Revoke("jti1", time.Now().Add(100*time.Millisecond))
+	assert.Equal(t, 1, store.Count())
+
+	// Ждём истечения
+	time.Sleep(200 * time.Millisecond)
+
+	// Проверяем что токен автоматически удалён при проверке
+	assert.False(t, store.IsRevoked("jti1"))
+}
+
+func TestValidateTokenWrongSecret(t *testing.T) {
+	// Создаём первый сервис
+	authService1 := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+
+	user := &models.User{
+		ID:       "user123",
+		Username: "testuser",
+	}
+
+	token, err := authService1.GenerateToken(user)
+	require.NoError(t, err)
+
+	// Создаём второй сервис с другим секретом
+	authService2 := NewAuthService([]byte("different-secret-key-for-testing!"))
+
+	// Токен не должен пройти валидацию с другим секретом
+	_, err = authService2.ValidateToken(token)
+	assert.Error(t, err)
 }

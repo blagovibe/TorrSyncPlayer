@@ -1,0 +1,197 @@
+# ============================================================
+# Конфигурация clang-tidy для TorrSyncPlayer frontend
+# Документация: https://clang.llvm.org/extra/clang-tidy/
+# ============================================================
+
+# Проверяемые чекеры
+Checks: >
+  # Современный C++ (C++17)
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  
+  # Читаемость кода
+  readability-*,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  
+  # Потенциальные баги
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-branch-clone,
+  
+  # Производительность
+  performance-*,
+  -performance-avoid-endl,
+  
+  # Портабельность
+  portability-*,
+  
+  # Общие проверки
+  google-*,
+  -google-readability-todo,
+  -google-runtime-references,
+  
+  # Специфичные для Qt
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-special-member-functions
+
+# Формат вывода
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/.*\.h$'
+
+# Настройки чекеров
+CheckOptions:
+  # Наименования (Qt стиль)
+  - key:             readability-identifier-naming.ClassCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.StructCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.FunctionCase
+    value:           camelBack
+  - key:             readability-identifier-naming.MethodCase
+    value:           camelBack
+  - key:             readability-identifier-naming.VariableCase
+    value:           camelBack
+  - key:             readability-identifier-naming.MemberCase
+    value:           camelBack
+  - key:             readability-identifier-naming.MemberSuffix
+    value:           _
+  - key:             readability-identifier-naming.PrivateMemberSuffix
+    value:           _
+  - key:             readability-identifier-naming.ProtectedMemberSuffix
+    value:           _
+  - key:             readability-identifier-naming.ParameterCase
+    value:           camelBack
+  - key:             readability-identifier-naming.EnumCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.EnumConstantCase
+    value:           UPPER_CASE
+  - key:             readability-identifier-naming.ConstantCase
+    value:           UPPER_CASE
+  - key:             readability-identifier-naming.GlobalConstantCase
+    value:           UPPER_CASE
+  - key:             readability-identifier-naming.NamespaceCase
+    value:           lower_case
+  - key:             readability-identifier-naming.TemplateParameterCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.TypeAliasCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.TypedefCase
+    value:           CamelCase
+  
+  # Длина строки
+  - key:             readability-max-line-length.LineLength
+    value:           120
+  
+  # Размер функции
+  - key:             readability-function-size.LineThreshold
+    value:           80
+  - key:             readability-function-size.StatementThreshold
+    value:           60
+  - key:             readability-function-size.BranchThreshold
+    value:           10
+  
+  # Цикломатическая сложность
+  - key:             readability-function-cognitive-complexity.Threshold
+    value:           25
+  
+  # Количество параметров
+  - key:             readability-function-size.ParameterThreshold
+    value:           6
+  
+  # Количество возвратов
+  - key:             readability-function-size.ReturnThreshold
+    value:           3
+  
+  # Количество переменных
+  - key:             readability-function-size.VariableThreshold
+    value:           10
+  
+  # Вложенность
+  - key:             readability-function-size.NestingThreshold
+    value:           4
+  
+  # Магические числа (игнорируем 0, 1, 2, 100, 1000)
+  - key:             readability-magic-numbers.IgnoredIntegerValues
+    value:           '0;1;2;100;1000'
+  - key:             readability-magic-numbers.IgnoredFloatingPointValues
+    value:           '0.0;1.0;2.0;100.0;0.5'
+  
+  # Google style
+  - key:             google-runtime-operator.IgnoreMacros
+    value:           1
+  - key:             google-explicit-constructor.AllowExplicit
+    value:           0
+  
+  # Современный C++
+  - key:             modernize-loop-convert.MaxCopySize
+    value:           16
+  - key:             modernize-loop-convert.MinConfidence
+    value:           reasonable
+  - key:             modernize-loop-convert.NamingStyle
+    value:           CamelCase
+  - key:             modernize-pass-by-value.IncludeStyle
+    value:           llvm
+  - key:             modernize-replace-auto-ptr.IncludeStyle
+    value:           llvm
+  - key:             modernize-use-nullptr.NullMacros
+    value:           'NULL;nullptr;Q_NULLPTR'
+  
+  # Безопасность
+  - key:             bugprone-argument-comment.StrictMode
+    value:           0
+  - key:             bugprone-argument-comment.CommentBoolLiterals
+    value:           0
+  - key:             bugprone-argument-comment.CommentIntegerLiterals
+    value:           0
+  - key:             bugprone-argument-comment.CommentFloatLiterals
+    value:           0
+  - key:             bugprone-argument-comment.CommentStringLiterals
+    value:           0
+  - key:             bugprone-argument-comment.CommentCharacterLiterals
+    value:           0
+  - key:             bugprone-argument-comment.CommentUserDefinedLiterals
+    value:           0
+  - key:             bugprone-argument-comment.CommentNullPtrs
+    value:           0
+  
+  # Производительность
+  - key:             performance-for-range-copy.WarnOnAllAutoCopies
+    value:           0
+  - key:             performance-inefficient-string-concatenation.EnableAlts
+    value:           1
+  - key:             performance-inefficient-vector-operation.EnableAlts
+    value:           1
+  - key:             performance-move-const-arg.CheckTriviallyCopyableMove
+    value:           1
+  - key:             performance-no-automatic-move.InitializerListTypes
+    value:           'std::initializer_list'
+  - key:             performance-no-int-to-ptr.WarnOnLargeIntegerValues
+    value:           1
+  - key:             performance-trivially-destructible.CheckTriviallyDestructibleMove
+    value:           1
+  - key:             performance-type-promotion-in-math-fn.IncludeStyle
+    value:           llvm
+  - key:             performance-unnecessary-copy-initialization.AllowedTypes
+    value:           'std::string;std::vector;QString;QVector;QList;QMap;QHash'
+  - key:             performance-unnecessary-value-param.AllowedTypes
+    value:           'std::string;std::vector;QString;QVector;QList;QMap;QHash;QSharedPointer;QPointer'
+
+# Формат вывода
+FormatStyle: file
+
+# Системные заголовки
+SystemHeaders: false
+
+# Анализ всех файлов
+AnalyzeTemporaryDtors: false
+
+# Пользовательские макросы
+User: torr_sync_player

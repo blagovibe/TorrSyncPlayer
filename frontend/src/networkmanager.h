@@ -13,7 +13,8 @@
 #ifndef NETWORKMANAGER_H
 #define NETWORKMANAGER_H
 
-#include <QObject>
+#include "inetworkmanager.h"
+
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QUrl>
@@ -42,8 +43,9 @@ struct RetryRequest {
  * Поддерживает REST API и SSE подписки.
  * Все запросы выполняются асинхронно.
  * Встроенный retry logic с экспоненциальным backoff.
+ * Реализует интерфейс INetworkManager для возможности подмены в тестах.
  */
-class NetworkManager : public QObject
+class NetworkManager : public INetworkManager
 {
     Q_OBJECT
 

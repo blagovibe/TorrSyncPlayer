@@ -7,14 +7,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yourname/torrplayer/backend/internal/models"
 )
 
 func setupTestHandler() *AuthHandler {
 	store := NewUserStore()
-	return NewAuthHandler(store)
+	authService := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	return NewAuthHandler(store, authService)
 }
 
 func TestRegisterHandler(t *testing.T) {
@@ -184,8 +185,8 @@ func TestLoginHandler(t *testing.T) {
 }
 
 func TestJWTMiddleware(t *testing.T) {
-	// Устанавливаем фиксированный секрет для тестов
-	SetSecret([]byte("test-secret-key-for-testing-32bytes!"))
+	// Создаём AuthService с фиксированным секретом для тестов
+	authService := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
 
 	// Создаём тестовый handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -199,14 +200,14 @@ func TestJWTMiddleware(t *testing.T) {
 	})
 
 	// Оборачиваем в JWT middleware
-	handler := JWTMiddleware(testHandler)
+	handler := authService.JWTMiddleware(testHandler)
 
 	// Создаём тестовый токен
 	user := &models.User{
 		ID:       "user123",
 		Username: "testuser",
 	}
-	token, err := GenerateToken(user)
+	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -260,4 +261,67 @@ func TestGetClaims(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	claims := GetClaims(req)
 	assert.Nil(t, claims)
+}
+
+func TestLogoutHandler(t *testing.T) {
+	// Создаём новый revocation store для изоляции тестов
+	testStore := NewTokenRevocationStore()
+	SetRevocationStore(testStore)
+
+	authService := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+
+	user := &models.User{
+		ID:       "user123",
+		Username: "testuser",
+	}
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		authHeader     string
+		expectedStatus int
+		checkResponse  func(t *testing.T, body []byte)
+	}{
+		{
+			name:           "Успешный logout с валидным токеном",
+			authHeader:     "Bearer " + token,
+			expectedStatus: http.StatusOK,
+			checkResponse: func(t *testing.T, body []byte) {
+				var resp models.SuccessResponse
+				err := json.Unmarshal(body, &resp)
+				require.NoError(t, err)
+				assert.Equal(t, "Токен успешно отозван", resp.Message)
+			},
+		},
+		{
+			name:           "Logout без заголовка Authorization",
+			authHeader:     "",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Logout с пустым токеном",
+			authHeader:     "Bearer ",
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			rr := httptest.NewRecorder()
+
+			authService.LogoutHandler(rr, req)
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+
+			if tt.checkResponse != nil {
+				tt.checkResponse(t, rr.Body.Bytes())
+			}
+		})
+	}
+
 }

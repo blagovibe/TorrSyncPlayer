@@ -40,7 +40,17 @@ NetworkManager::~NetworkManager()
     // Отключаем SSE при уничтожении
     disconnectSSE();
     
-    // Отменяем все активные запросы
+    // Отменяем все активные запросы и очищаем карту
+    for (auto it = m_replyMap.begin(); it != m_replyMap.end(); ++it) {
+        QNetworkReply *reply = it.key();
+        if (reply) {
+            reply->abort();
+            reply->deleteLater();
+        }
+    }
+    m_replyMap.clear();
+    
+    // Очищаем кэш сети
     m_network->clearAccessCache();
     m_network->clearConnectionCache();
     
@@ -329,6 +339,8 @@ void NetworkManager::sendGet(const QString &path)
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
+    // Таймаут 60 секунд на передачу данных
+    request.setTransferTimeout(60000);
     
     QNetworkReply *reply = m_network->get(request);
     m_replyMap[reply] = path;
@@ -345,6 +357,8 @@ void NetworkManager::sendPost(const QString &path, const QJsonObject &body)
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
+    // Таймаут 60 секунд на передачу данных
+    request.setTransferTimeout(60000);
     
     QJsonDocument doc(body);
     QByteArray data = doc.toJson(QJsonDocument::Compact);
@@ -364,6 +378,8 @@ void NetworkManager::sendDelete(const QString &path)
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
+    // Таймаут 60 секунд на передачу данных
+    request.setTransferTimeout(60000);
     
     QNetworkReply *reply = m_network->deleteResource(request);
     m_replyMap[reply] = path;
@@ -400,6 +416,7 @@ void NetworkManager::connectToSSE(const QString &path)
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "text/event-stream");
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+    // SSE соединение должно быть долгоживущим, поэтому таймаут отключен
     request.setTransferTimeout(0);
     
     m_sseReply = m_network->get(request);
