@@ -129,6 +129,26 @@
                 }
             }
         },
+        "/api/v1/csrf-token": {
+            "get": {
+                "description": "Возвращает CSRF токен для защиты от межсайтовой подделки",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Получить CSRF токен",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.CSRFTokenResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/health": {
             "get": {
                 "description": "Базовая проверка работоспособности сервера (не требует аутентификации)",
@@ -143,10 +163,38 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.HealthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/health/detailed": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Расширенная проверка здоровья с проверкой состояния сервисов (требует JWT)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Детальная проверка здоровья",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.HealthResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/models.HealthResponse"
                         }
                     }
                 }
@@ -154,6 +202,11 @@
         },
         "/api/v1/rooms": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Создаёт новую P2P комнату для синхронизации воспроизведения",
                 "consumes": [
                     "application/json"
@@ -192,8 +245,13 @@
                 }
             }
         },
-        "/api/v1/rooms/events": {
+        "/api/v1/rooms/{roomID}/events": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Подписка на события P2P комнаты в реальном времени через Server-Sent Events",
                 "produces": [
                     "text/event-stream"
@@ -223,6 +281,11 @@
         },
         "/api/v1/rooms/join": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Присоединяет пользователя к существующей P2P комнате",
                 "consumes": [
                     "application/json"
@@ -263,6 +326,11 @@
         },
         "/api/v1/rooms/leave": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Выходит из текущей P2P комнаты",
                 "produces": [
                     "application/json"
@@ -289,6 +357,11 @@
         },
         "/api/v1/rooms/signal": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Отправляет WebRTC сигнал (SDP offer/answer, ICE candidate) через data channel",
                 "consumes": [
                     "application/json"
@@ -329,6 +402,11 @@
         },
         "/api/v1/sync/pause": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Приостанавливает синхронизированное воспроизведение",
                 "produces": [
                     "application/json"
@@ -349,6 +427,11 @@
         },
         "/api/v1/sync/play": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Запускает синхронизированное воспроизведение",
                 "produces": [
                     "application/json"
@@ -369,6 +452,11 @@
         },
         "/api/v1/sync/seek": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Выполняет синхронизированную перемотку на указанную позицию",
                 "consumes": [
                     "application/json"
@@ -409,6 +497,11 @@
         },
         "/api/v1/sync/status": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Возвращает текущий статус синхронизации воспроизведения",
                 "produces": [
                     "application/json"
@@ -429,6 +522,11 @@
         },
         "/api/v1/torrents": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Возвращает список всех торрентов с пагинацией",
                 "produces": [
                     "application/json"
@@ -464,6 +562,11 @@
                 }
             },
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Добавляет торрент по magnet-ссылке и возвращает информацию о нём",
                 "consumes": [
                     "application/json"
@@ -510,6 +613,11 @@
         },
         "/api/v1/torrents/{id}": {
             "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Удаляет торрент по его ID",
                 "produces": [
                     "application/json"
@@ -549,8 +657,111 @@
                 }
             }
         },
+        "/api/v1/torrents/{id}/buffer/info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Возвращает информацию о состоянии буфера торрента",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Информация о буфере",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.BufferInfoResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/torrents/{id}/buffer/position": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Устанавливает позицию буфера для приоритетной загрузки",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Установить позицию буфера",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Позиция буфера",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.BufferPositionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/torrents/{id}/files": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Возвращает список файлов торрента с пагинацией",
                 "produces": [
                     "application/json"
@@ -607,6 +818,11 @@
         },
         "/api/v1/torrents/{id}/select": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Выбирает файл торрента для стриминга по индексу",
                 "consumes": [
                     "application/json"
@@ -654,6 +870,11 @@
         },
         "/api/v1/torrents/{id}/stream": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "description": "Стримит выбранный файл торрента с поддержкой Range запросов",
                 "produces": [
                     "application/octet-stream"
@@ -692,6 +913,66 @@
                     }
                 }
             }
+        },
+        "/api/v1/version": {
+            "get": {
+                "description": "Возвращает версию сервера, коммит и время сборки",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Версия сервера",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.VersionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "description": "Базовая проверка работоспособности сервера (не требует аутентификации)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Проверка здоровья",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.HealthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics": {
+            "get": {
+                "description": "Prometheus метрики сервера",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Prometheus метрики",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -722,6 +1003,36 @@
                 },
                 "user": {
                     "$ref": "#/definitions/models.User"
+                }
+            }
+        },
+        "models.BufferInfoResponse": {
+            "type": "object",
+            "properties": {
+                "position": {
+                    "type": "number"
+                },
+                "buffered": {
+                    "type": "number"
+                },
+                "bufferSize": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.BufferPositionRequest": {
+            "type": "object",
+            "properties": {
+                "position": {
+                    "type": "number"
+                }
+            }
+        },
+        "models.CSRFTokenResponse": {
+            "type": "object",
+            "properties": {
+                "csrfToken": {
+                    "type": "string"
                 }
             }
         },
@@ -778,6 +1089,20 @@
                 },
                 "totalCount": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.HealthResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                },
+                "uptime": {
+                    "type": "number"
+                },
+                "version": {
+                    "type": "string"
                 }
             }
         },
@@ -939,6 +1264,20 @@
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.VersionResponse": {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "type": "string"
+                },
+                "commit": {
+                    "type": "string"
+                },
+                "buildTime": {
                     "type": "string"
                 }
             }

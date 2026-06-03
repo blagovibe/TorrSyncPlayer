@@ -7,7 +7,6 @@ package torrent
 import (
 	"context"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -27,12 +26,10 @@ func init() {
 // createTestService создаёт торрент-сервис для тестов с отключённой сетью
 func createTestService(t *testing.T) *Service {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("", "torrent-test-*")
-	require.NoError(t, err)
 
 	bufferSvc := buffer.NewService(64 * 1024 * 1024)
 
-	svc, err := NewServiceWithOptions(tmpDir, bufferSvc, ServiceOptions{
+	svc, err := NewServiceWithOptions(bufferSvc, ServiceOptions{
 		NoDHT:      true,
 		DisableUTP: true,
 		DisableTCP: true,
@@ -41,7 +38,6 @@ func createTestService(t *testing.T) *Service {
 
 	t.Cleanup(func() {
 		svc.Close()
-		os.RemoveAll(tmpDir)
 	})
 
 	return svc
@@ -53,7 +49,6 @@ func TestNewService(t *testing.T) {
 	require.NotNil(t, svc)
 	assert.NotNil(t, svc.client)
 	assert.NotNil(t, svc.torrents)
-	assert.NotEmpty(t, svc.dataDir)
 }
 
 // TestAddMagnet_EmptyURI проверяет валидацию пустой magnet-ссылки

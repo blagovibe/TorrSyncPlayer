@@ -1,4 +1,4 @@
-# Архитектура TorrSyncPlayer
+﻿# Архитектура TorrSyncPlayer
 
 ## Содержание
 
@@ -74,6 +74,13 @@ TorrSyncPlayer — десктопное приложение для потоко
 │  │  │  │ - Magnet     │  │ - Peers      │  │ - Smooth adjust    │  │   │    │
 │  │  │  │ - Streaming  │  │ - JWT auth   │  │                    │  │   │    │
 │  │  │  └──────────────┘  └──────────────┘  └────────────────────┘  │   │    │
+│  │  │  ┌──────────────┐  ┌──────────────┐                          │   │    │
+│  │  │  │   Buffer     │  │   Storage    │                          │   │    │
+│  │  │  │   Service    │  │   Service    │                          │   │    │
+│  │  │  │              │  │              │                          │   │    │
+│  │  │  │ - LRU cache  │  │ - In-memory  │                          │   │    │
+│  │  │  │ - Priorities │  │ - Users      │                          │   │    │
+│  │  │  └──────────────┘  └──────────────┘                          │   │    │
 │  │  └──────────────────────────────────────────────────────────────┘   │    │
 │  │                                    │                                 │    │
 │  │  ┌──────────────────────────────────────────────────────────────┐   │    │
@@ -132,6 +139,12 @@ backend/
 │   ├── sync/             # Сервис синхронизации
 │   │   └── service.go    # Синхронизация воспроизведения
 │   │
+│   ├── buffer/           # Буферизация
+│   │   └── service.go    # LRU кэш, приоритеты
+│   │
+│   ├── storage/          # Хранилище
+│   │   └── storage.go    # In-memory хранилище
+│   │
 │   ├── models/           # Модели данных
 │   │   └── types.go      # Общие типы
 │   │
@@ -166,9 +179,11 @@ backend/
 │                                                                 │
 │  1. Инициализация сервисов:                                     │
 │     - logger.Init()                                             │
-│     - torrentService = torrent.NewService(dataDir)              │
+│     - authService = auth.NewAuthService(jwtSecret)              │
+│     - torrentService = torrent.NewService(bufferService)              │
 │     - p2pService = p2p.NewService(authService)                  │
 │     - syncService = sync.NewService()                           │
+│     - bufferService = buffer.NewService()                       │
 │                                                                 │
 │  2. Создание роутера:                                           │
 │     - router := api.NewRouter(RouterConfig{...})                │
@@ -180,6 +195,7 @@ backend/
 │     - torrentService.Close()                                    │
 │     - p2pService.Close()                                        │
 │     - syncService.Close()                                       │
+│     - bufferService.Close()                                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -196,9 +212,10 @@ backend/
 | Путь | Метод | Описание | Аутентификация |
 |------|-------|----------|----------------|
 | `/health` | GET | Базовый health check | Нет |
-| `/health/detailed` | GET | Детальный health check | JWT |
 | `/api/v1/version` | GET | Версия сервера | Нет |
 | `/metrics` | GET | Prometheus метрики | Нет |
+| `/api/v1/csrf-token` | GET | Получить CSRF токен | Нет |
+| `/swagger/` | GET | Swagger UI | Нет |
 | `/api/v1/auth/register` | POST | Регистрация | Нет |
 | `/api/v1/auth/login` | POST | Вход | Нет |
 | `/api/v1/auth/logout` | POST | Выход | Нет |
@@ -208,6 +225,8 @@ backend/
 | `/api/v1/torrents/{id}/files` | GET | Список файлов | JWT |
 | `/api/v1/torrents/{id}/select` | POST | Выбрать файл | JWT |
 | `/api/v1/torrents/{id}/stream` | GET | Стриминг файла | JWT |
+| `/api/v1/torrents/{id}/buffer/position` | POST | Установить позицию буфера | JWT |
+| `/api/v1/torrents/{id}/buffer/info` | GET | Информация о буфере | JWT |
 | `/api/v1/rooms` | POST | Создать комнату | JWT |
 | `/api/v1/rooms/join` | POST | Присоединиться | JWT |
 | `/api/v1/rooms/leave` | POST | Покинуть комнату | JWT |
@@ -217,6 +236,7 @@ backend/
 | `/api/v1/sync/pause` | POST | Синхр. pause | JWT |
 | `/api/v1/sync/seek` | POST | Синхр. seek | JWT |
 | `/api/v1/sync/status` | GET | Статус синхр. | JWT |
+| `/api/v1/health/detailed` | GET | Детальный health check | JWT |
 
 **Middleware pipeline** (порядок важен):
 
@@ -297,9 +317,35 @@ Request → SecurityHeaders → Recovery → CORS → Logger → CSRF → RateLi
    - Если воспроизведение идёт: expected = position + elapsed - latency
    - Если пауза: expected = position
 3. Плавная подстройка:
-   - Если |diff| > maxPositionJump (5 сек): position += diff * 0.3
+   - Если |diff| > maxPositionJump (2 сек): position += diff * 0.3
    - Иначе: position = expected
 4. Синхронизировать состояние play/pause
+```
+
+### Слой буферизации
+
+**Компоненты** ([`internal/buffer/service.go`](../backend/internal/buffer/service.go)):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Buffer Service                         │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                    LRU Cache                         │    │
+│  │  - DefaultMaxBufferSize: 512 MB                     │    │
+│  │  - DefaultBufferPercent: 10%                        │    │
+│  │  - DefaultBufferDuration: 60 sec                    │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │               Piece Priorities                       │    │
+│  │  - PiecePriorityNow: 4 (немедленная загрузка)       │    │
+│  │  - PiecePriorityHigh: 3 (высокий приоритет)         │    │
+│  │  - PiecePriorityNormal: 2 (обычный)                 │    │
+│  │  - PiecePriorityReadahead: 1 (предзагрузка)         │    │
+│  │  - PiecePriorityNone: 0 (не загружать)              │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -320,7 +366,9 @@ frontend/src/
 ├── roomdialog.h/.cpp     # Диалог создания/присоединения
 ├── systemtray.h/.cpp     # Системный трей
 ├── inetworkmanager.h     # Интерфейс сетевого менеджера
-└── utils.h/.cpp          # Утилиты
+├── utils.h/.cpp          # Утилиты
+├── test_torrentmodel.cpp # Тесты TorrentModel
+└── test_networkmanager.cpp # Тесты NetworkManager
 ```
 
 ### Архитектура главного окна
@@ -681,16 +729,18 @@ type Peer struct {
 ## Безопасность
 
 ### Аутентификация
-- JWT токены для аутентификации пользователей
-- bcrypt хеширование паролей комнат
+- JWT токены для аутентификации пользователей (HS256, 24h TTL)
+- bcrypt хеширование паролей комнат (cost=12)
+- JTI (JWT ID) для отзыва токенов
 - Токены имеют срок действия
 
 ### Защита API
-- CSRF токены для защиты от межсайтовой подделки
+- CSRF токены для защиты от межсайтовой подделки (TTL 1h)
 - Rate limiting (10 req/min для auth, 60 req/min для API)
 - CORS политики
-- Security headers (X-Content-Type-Options, X-Frame-Options и др.)
+- Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
 - Валидация всех входных данных
+- TLS 1.2+ поддержка
 
 ### Потокобезопасность
 - `sync.RWMutex` в каждом сервисе

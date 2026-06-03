@@ -8,6 +8,7 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 - **Версия API:** v1
 - **Формат:** JSON
 - **Аутентификация:** JWT токен (для защищённых endpoints)
+- **Swagger UI:** `http://localhost:8889/swagger/`
 
 ## Аутентификация
 
@@ -26,9 +27,12 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 **Ответ (201):**
 ```json
 {
-  "id": "uuid",
-  "username": "user123",
-  "token": "jwt_token_here"
+  "token": "jwt_token_here",
+  "user": {
+    "id": "uuid",
+    "username": "user123",
+    "createdAt": 1704067200000
+  }
 }
 ```
 
@@ -48,15 +52,50 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 ```json
 {
   "token": "jwt_token_here",
-  "expires_at": "2024-01-01T00:00:00Z"
+  "user": {
+    "id": "uuid",
+    "username": "user123",
+    "createdAt": 1704067200000
+  }
 }
 ```
+
+### POST /api/v1/auth/logout
+
+Выход из системы (отзывает JWT токен).
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Ответ (200):**
+```json
+{
+  "message": "Вы вышли из системы"
+}
+```
+
+## CSRF защита
+
+### GET /api/v1/csrf-token
+
+Получить CSRF токен для защиты от межсайтовой подделки.
+
+**Ответ (200):**
+```json
+{
+  "csrfToken": "csrf_token_here"
+}
+```
+
+Заголовок ответа: `X-CSRF-Token: csrf_token_here`
 
 ## Health Check
 
 ### GET /health
 
-Базовая проверка здоровья сервера.
+Базовая проверка здоровья сервера (не требует аутентификации).
 
 **Ответ (200):**
 ```json
@@ -72,9 +111,14 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 }
 ```
 
-### GET /health/detailed
+### GET /api/v1/health/detailed
 
-Расширенная проверка здоровья с проверкой состояния сервисов.
+Расширенная проверка здоровья с проверкой состояния сервисов (требует JWT).
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Ответ (200):**
 ```json
@@ -102,11 +146,45 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 }
 ```
 
+## Version
+
+### GET /api/v1/version
+
+Получить версию сервера (не требует аутентификации).
+
+**Ответ (200):**
+```json
+{
+  "version": "1.0.0",
+  "commit": "abc123",
+  "buildTime": "2025-01-01T00:00:00Z"
+}
+```
+
+## Metrics
+
+### GET /metrics
+
+Prometheus метрики (не требует аутентификации).
+
+**Ответ (200):**
+```
+# HELP http_requests_total Total number of HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",path="/health"} 42
+...
+```
+
 ## Torrent API
 
 ### GET /api/v1/torrents
 
 Получить список всех торрентов.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Параметры запроса:**
 - `limit` (int, optional) - Количество элементов (по умолчанию 20, максимум 100)
@@ -124,15 +202,21 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
       "status": "downloading"
     }
   ],
-  "total": 10,
+  "totalCount": 10,
   "limit": 20,
-  "offset": 0
+  "offset": 0,
+  "hasMore": true
 }
 ```
 
 ### POST /api/v1/torrents
 
 Добавить торрент по magnet-ссылке.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Запрос:**
 ```json
@@ -154,11 +238,16 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 
 **Ошибки:**
 - `400` - Неверный формат magnet URI
-- `408` - Таймаут получения метаданных
+- `500` - Внутренняя ошибка сервера
 
 ### DELETE /api/v1/torrents/{id}
 
 Удалить торрент.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Ответ (200):**
 ```json
@@ -168,15 +257,21 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 ```
 
 **Ошибки:**
+- `400` - Неверный ID торрента
 - `404` - Торрент не найден
 
 ### GET /api/v1/torrents/{id}/files
 
 Получить список файлов торрента.
 
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
 **Параметры запроса:**
-- `limit` (int, optional) - Количество элементов
-- `offset` (int, optional) - Смещение
+- `limit` (int, optional) - Количество элементов (по умолчанию 20, максимум 100)
+- `offset` (int, optional) - Смещение (по умолчанию 0)
 
 **Ответ (200):**
 ```json
@@ -185,22 +280,28 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
     {
       "index": 0,
       "name": "movie.mp4",
-      "size": 1073741824,
-      "path": "/path/to/movie.mp4"
+      "size": 1073741824
     }
   ],
-  "total": 5,
+  "totalCount": 5,
   "limit": 20,
-  "offset": 0
+  "offset": 0,
+  "hasMore": true
 }
 ```
 
 **Ошибки:**
+- `400` - Неверный ID торрента
 - `404` - Торрент не найден
 
 ### POST /api/v1/torrents/{id}/select
 
 Выбрать файл для стриминга.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Запрос:**
 ```json
@@ -217,12 +318,17 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 ```
 
 **Ошибки:**
-- `400` - Неверный индекс файла
+- `400` - Неверный индекс файла или ID торрента
 - `404` - Торрент не найден
 
 ### GET /api/v1/torrents/{id}/stream
 
 Стриминг выбранного файла.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Заголовки ответа:**
 - `Content-Type`: MIME тип файла
@@ -234,14 +340,60 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 - Субтитры: srt, ass, ssa
 
 **Ошибки:**
-- `400` - Файл не выбран
+- `400` - Файл не выбран или неверный ID
 - `404` - Торрент не найден
+
+### POST /api/v1/torrents/{id}/buffer/position
+
+Установить позицию буфера для приоритетной загрузки.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Запрос:**
+```json
+{
+  "position": 120.5
+}
+```
+
+**Ответ (200):**
+```json
+{
+  "message": "Позиция буфера обновлена"
+}
+```
+
+### GET /api/v1/torrents/{id}/buffer/info
+
+Получить информацию о состоянии буфера.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Ответ (200):**
+```json
+{
+  "position": 120.5,
+  "buffered": 0.15,
+  "bufferSize": 536870912
+}
+```
 
 ## Room API
 
 ### POST /api/v1/rooms
 
 Создать новую комнату.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Запрос:**
 ```json
@@ -256,7 +408,7 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 {
   "id": "room_id",
   "name": "My Room",
-  "hostID": "peer_id",
+  "hostId": "peer_id",
   "peerCount": 1
 }
 ```
@@ -267,6 +419,11 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 ### POST /api/v1/rooms/join
 
 Присоединиться к комнате.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Запрос:**
 ```json
@@ -292,6 +449,11 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 
 Покинуть комнату.
 
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
 **Ответ (200):**
 ```json
 {
@@ -306,10 +468,16 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 
 Отправить WebRTC сигнал.
 
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
 **Запрос:**
 ```json
 {
-  "signal": "base64_encoded_signal_data"
+  "roomId": "room_id",
+  "signal": [1, 2, 3, ...]
 }
 ```
 
@@ -321,11 +489,16 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 ```
 
 **Ошибки:**
-- `400` - Не в комнате
+- `400` - Не в комнате или неверный ID
 
-### GET /api/v1/rooms/events
+### GET /api/v1/rooms/{roomID}/events
 
 Подключиться к SSE потоку событий комнаты.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Заголовки ответа:**
 - `Content-Type: text/event-stream`
@@ -351,6 +524,11 @@ data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
 
 Запустить синхронизированное воспроизведение.
 
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
 **Ответ (200):**
 ```json
 {
@@ -365,6 +543,11 @@ data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
 
 Приостановить воспроизведение.
 
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
+
 **Ответ (200):**
 ```json
 {
@@ -378,6 +561,11 @@ data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
 ### POST /api/v1/sync/seek
 
 Синхронизировать перемотку.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Запрос:**
 ```json
@@ -402,6 +590,11 @@ data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
 ### GET /api/v1/sync/status
 
 Получить текущий статус синхронизации.
+
+**Заголовки:**
+```
+Authorization: Bearer <jwt_token>
+```
 
 **Ответ (200):**
 ```json
@@ -440,7 +633,7 @@ data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
 
 ## Rate Limiting
 
-- **Auth endpoints:** 10 запросов/минуту
+- **Auth endpoints:** 10 запросов/минуту (burst 5)
 - **API endpoints:** 60 запросов/минуту (burst 10)
 
 Заголовки ответа:
@@ -454,12 +647,15 @@ API поддерживает CORS для следующих источников
 - `http://localhost:*` (разработка)
 - Настраивается через переменную окружения `CORS_ORIGINS`
 
+Разрешённые методы: `GET, POST, PUT, DELETE, OPTIONS`
+Разрешённые заголовки: `Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID`
+
 ## SSE (Server-Sent Events)
 
 Для получения событий в реальном времени используйте SSE:
 
 ```javascript
-const eventSource = new EventSource('/api/v1/rooms/events');
+const eventSource = new EventSource('/api/v1/rooms/{roomID}/events');
 
 eventSource.addEventListener('peer_joined', (e) => {
   const data = JSON.parse(e.data);
@@ -472,10 +668,13 @@ eventSource.addEventListener('signal', (e) => {
 });
 ```
 
-## WebSocket (опционально)
+## Безопасность
 
-Для WebRTC signaling можно использовать WebSocket:
-
-```
-ws://localhost:8889/api/v1/ws
-```
+- JWT аутентификация (HS256, 24h TTL, JTI для revocation)
+- bcrypt хеширование паролей (cost=12)
+- CSRF защита (token store с TTL 1h)
+- Rate limiting
+- Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
+- CORS политики
+- Валидация входных данных
+- TLS 1.2+ поддержка

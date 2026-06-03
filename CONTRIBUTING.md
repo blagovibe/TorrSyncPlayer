@@ -21,7 +21,7 @@
 
 | Компонент | Минимальная версия | Рекомендуемая |
 |-----------|-------------------|---------------|
-| Go        | 1.25+             | Последняя stable |
+| Go        | 1.24+             | Последняя stable |
 | Make      | 4.0+              | Последняя      |
 
 ### Frontend (C++/Qt)
@@ -54,14 +54,14 @@ cd TorrSyncPlayer
 
 **Ubuntu/Debian:**
 ```bash
-wget https://go.dev/dl/go1.25.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.24.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 ```
 
 **macOS:**
 ```bash
-brew install go@1.25
+brew install go@1.24
 ```
 
 **Windows:**
@@ -115,7 +115,7 @@ cd backend
 make build
 ```
 
-Исполняемый файл будет в `backend/build/`.
+Исполняемый файл будет в `backend/build/` или `backend/bin/`.
 
 ### Сборка Frontend
 
@@ -212,7 +212,7 @@ go vet ./...
    ```
 
 5. **Константы:**
-   - Выносите магические числа в именованные константы
+   - Выносите магические числа в именованные константы в пакет `constants`
    ```go
    const (
        gracefulShutdownTimeout = 30 * time.Second
@@ -284,6 +284,7 @@ go test ./internal/p2p/...
 go test ./internal/sync/...
 go test ./internal/auth/...
 go test ./internal/validation/...
+go test ./internal/api/...
 
 # Запуск с подробным выводом
 go test -v ./...
@@ -431,7 +432,7 @@ docs(readme): обновлено руководство по установке
 ```
 refactor(sync): вынесены магические числа в константы
 
-- maxPositionJump = 5.0
+- maxPositionJump = 2.0
 - smoothAdjustmentRatio = 0.3
 - msPerSecond = 1000.0
 ```
@@ -445,20 +446,26 @@ TorrSyncPlayer/
 ├── backend/                    # Go backend
 │   ├── cmd/server/             # Точка входа
 │   │   └── main.go
-│   ├── internal/               # Внутние пакеты
-│   │   ├── api/                # HTTP API
-│   │   ├── auth/               # Аутентификация
-│   │   ├── constants/          # Константы
-│   │   ├── errors/             # Обработка ошибок
+│   ├── internal/               # Внутренние пакеты
+│   │   ├── api/                # HTTP API (router, handlers, middleware, tests)
+│   │   ├── auth/               # JWT аутентификация (HS256, bcrypt, revocation)
+│   │   ├── buffer/             # LRU кэш, приоритеты pieces
+│   │   ├── constants/          # Константы (магические числа)
+│   │   ├── errors/             # AppError, ErrorType
 │   │   ├── metrics/            # Prometheus метрики
 │   │   ├── models/             # Модели данных
-│   │   ├── p2p/                # P2P сервис
-│   │   ├── sync/               # Сервис синхронизации
+│   │   ├── p2p/                # WebRTC P2P сервис
+│   │   ├── storage/            # In-memory хранилище
+│   │   ├── sync/               # Синхронизация воспроизведения
 │   │   ├── torrent/            # Торрент сервис
 │   │   ├── validation/         # Валидация
 │   │   ├── version/            # Версия
-│   │   └── interfaces.go       # Интерфейсы
-│   ├── pkg/logger/             # Логгер
+│   │   └── interfaces.go       # Интерфейсы сервисов
+│   ├── pkg/logger/             # slog-based логгер
+│   ├── docs/                   # Swagger спецификация
+│   │   ├── docs.go
+│   │   ├── swagger.json
+│   │   └── swagger.yaml
 │   ├── Makefile
 │   └── go.mod
 │
@@ -473,16 +480,24 @@ TorrSyncPlayer/
 │   │   ├── roommanager.h/.cpp
 │   │   ├── roomdialog.h/.cpp
 │   │   ├── systemtray.h/.cpp
-│   │   └── ...
+│   │   ├── utils.h/.cpp
+│   │   ├── inetworkmanager.h
+│   │   ├── test_torrentmodel.cpp
+│   │   └── test_networkmanager.cpp
 │   ├── resources/              # Ресурсы
 │   ├── CMakeLists.txt
 │   └── build.sh / build.bat
 │
 ├── docs/                       # Документация
-│   ├── ARCHITECTURE.md
-│   ├── API.md
-│   ├── INSTALL.md
-│   └── USER_GUIDE.md
+│   ├── API.md                  # API документация
+│   ├── ARCHITECTURE.md         # Архитектура
+│   ├── INSTALL.md              # Руководство по установке
+│   └── USER_GUIDE.md           # Руководство пользователя
+│
+├── .github/                    # GitHub Actions
+│   └── workflows/
+│       ├── ci.yml              # CI pipeline
+│       └── release.yml         # Release pipeline
 │
 ├── .editorconfig               # Настройки редактора
 ├── .gitignore

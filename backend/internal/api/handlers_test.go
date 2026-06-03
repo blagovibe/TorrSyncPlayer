@@ -38,17 +38,11 @@ var (
 
 func initTorrentService() {
 	torrentOnce.Do(func() {
-		tmpDir, err := os.MkdirTemp("", "api-test-torrent-*")
-		if err != nil {
-			torrentInitErr = err
-			return
-		}
 		// Создаём сервис буферизации для тестов
 		bufferSvc := buffer.NewService(64 * 1024 * 1024) // 64 МБ для тестов
-		svc, err := torrent.NewService(tmpDir, bufferSvc)
+		svc, err := torrent.NewService(bufferSvc)
 		if err != nil {
 			torrentInitErr = err
-			os.RemoveAll(tmpDir)
 			return
 		}
 		apiTorrentSvc = svc

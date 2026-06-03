@@ -23,14 +23,11 @@ import (
 func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	t.Helper()
 
-	// Создаём временную директорию для данных
-	dataDir := t.TempDir()
-
 	// Создаём сервис буферизации для тестов
 	bufferSvc := buffer.NewService(64 * 1024 * 1024) // 64 МБ для тестов
 
-	// Инициализация сервисов
-	torrentSvc, err := torrent.NewService(dataDir, bufferSvc)
+	// Инициализация сервисов (всегда in-memory)
+	torrentSvc, err := torrent.NewService(bufferSvc)
 	require.NoError(t, err)
 
 	p2pSvc, err := p2p.NewService(auth.NewAuthService([]byte("test-secret-key-for-e2e-tests")))

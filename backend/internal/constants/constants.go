@@ -14,9 +14,6 @@ const (
 	// DefaultPort порт сервера по умолчанию
 	DefaultPort = "8889"
 
-	// DefaultDataDir директория для данных по умолчанию
-	DefaultDataDir = "./data"
-
 	// ServerShutdownTimeout таймаут для graceful shutdown сервера
 	ServerShutdownTimeout = 30 * time.Second
 
@@ -28,9 +25,6 @@ const (
 
 	// ServerIdleTimeout таймаут простоя HTTP соединения
 	ServerIdleTimeout = 120 * time.Second
-
-	// DataDirPermissions права доступа к директории данных
-	DataDirPermissions = 0755
 
 	// PprofPort порт для pprof сервера
 	PprofPort = ":6060"

@@ -15,15 +15,17 @@
 ### Минимальные требования
 
 - **ОС:** Windows 10+, Ubuntu 20.04+, macOS 12+
-- **RAM:** 4 ГБ
-- **Диск:** 500 МБ для установки + место для кэша торрентов
+- **RAM:** 8 ГБ (данные торрентов хранятся в оперативной памяти)
+- **Диск:** 500 МБ для установки
 - **Сеть:** стабильное интернет-соединение
+
+> **Примечание:** Все данные торрентов хранятся в оперативной памяти (in-memory storage). Убедитесь, что у вас достаточно RAM для загружаемого контента.
 
 ### Рекомендуемые требования
 
 - **ОС:** Windows 11, Ubuntu 22.04+, macOS 13+
-- **RAM:** 8 ГБ
-- **Диск:** SSD с 10 ГБ свободного места
+- **RAM:** 16 ГБ (для комфортной работы с большими торрентами)
+- **Диск:** SSD с 1 ГБ свободного места
 - **Сеть:** 100 Мбит/с или выше
 
 ## Установка зависимостей
@@ -33,16 +35,16 @@
 #### Ubuntu/Debian
 
 ```bash
-# Установка Go 1.25+
-wget https://go.dev/dl/go1.25.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz
+# Установка Go 1.24+
+wget https://go.dev/dl/go1.24.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 ```
 
 #### macOS
 
 ```bash
-brew install go@1.25
+brew install go@1.24
 ```
 
 #### Windows
@@ -82,7 +84,7 @@ brew install qt@6 mpv cmake ninja
 
 ```bash
 git clone https://github.com/blagovibe/TorrSyncPlayer.git
-cd torrplayer
+cd TorrSyncPlayer
 ```
 
 ### Сборка backend
@@ -100,7 +102,7 @@ make build
 
 ```bash
 cd frontend
-mkdir build
+mkdir -p build
 cd build
 cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja
@@ -127,7 +129,10 @@ make all
 ### Скачивание
 
 1. Перейдите на страницу [Releases](https://github.com/blagovibe/TorrSyncPlayer/releases)
-2. Скачайте архив для вашей ОС
+2. Скачайте архив для вашей ОС:
+   - `TorrSyncPlayer-linux-x64.tar.gz` — Linux x64
+   - `TorrSyncPlayer-windows-x64.zip` — Windows x64
+   - `TorrSyncPlayer-macos-arm64.tar.gz` — macOS ARM64
 3. Распакуйте в удобное место
 
 ### Установка
@@ -135,44 +140,54 @@ make all
 #### Linux
 
 ```bash
-tar -xzf torrplayer-linux-amd64.tar.gz -C /opt/
-sudo ln -s /opt/torrplayer/bin/torrplayer /usr/local/bin/
+tar -xzf TorrSyncPlayer-linux-x64.tar.gz -C /opt/
+sudo ln -s /opt/TorrSyncPlayer/bin/server /usr/local/bin/torrserver
 ```
 
 #### macOS
 
 ```bash
-unzip torrplayer-macos-amd64.zip
-cp -r TorrPlayer.app /Applications/
+tar -xzf TorrSyncPlayer-macos-arm64.tar.gz -C /Applications/
 ```
 
 #### Windows
 
-Распакуйте архив и запустите `TorrPlayer.exe`.
+Распакуйте архив и запустите `TorrSyncPlayer.exe`.
 
 ## Docker
 
 ### Сборка образа
 
 ```bash
-docker build -t torrplayer:latest .
+docker build -t torrsyncplayer:latest .
 ```
 
 ### Запуск контейнера
 
 ```bash
 docker run -d \
-    --name torrplayer \
+    --name torrsyncplayer \
     -p 8889:8889 \
-    -v torrplayer-data:/data \
-    torrplayer:latest
+    torrsyncplayer:latest
 ```
 
 ### Docker Compose
 
 ```bash
+# Запуск только backend
 docker-compose up -d
+
+# Запуск backend + Prometheus + Grafana
+docker-compose --profile monitoring up -d
 ```
+
+### Docker Compose сервисы
+
+| Сервис | Порт | Описание |
+|--------|------|----------|
+| backend | 8889 | TorrSyncPlayer backend |
+| prometheus | 9090 | Prometheus метрики (profile: monitoring) |
+| grafana | 3000 | Grafana дашборды (profile: monitoring) |
 
 ## Настройка
 
@@ -181,33 +196,36 @@ docker-compose up -d
 | Переменная | По умолчанию | Описание |
 |------------|--------------|----------|
 | `PORT` | 8889 | Порт HTTP сервера |
-| `DATA_DIR` | ./data | Директория для данных |
 | `JWT_SECRET` | (пусто) | Секрет для JWT токенов |
-| `LOG_LEVEL` | info | Уровень логирования |
+| `LOG_LEVEL` | info | Уровень логирования (debug/info/warn/error) |
 | `LOG_FORMAT` | text | Формат логов (text/json) |
 | `TLS_CERT` | (пусто) | Путь к TLS сертификату |
 | `TLS_KEY` | (пусто) | Путь к TLS ключу |
 
-### Конфигурационный файл
+### Флаги командной строки
 
-Создайте `config.yaml` в директории данных:
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--port` | 8889 | Порт HTTP сервера |
+| `--jwt-secret` | (пусто) | Секрет для JWT токенов |
+| `--tls` | false | Включить TLS |
+| `--auto-tls` | false | Генерировать self-signed сертификат |
+| `--enable-profiling` | false | Включить pprof на порту 6060 |
 
-```yaml
-server:
-  port: 8889
-  data_dir: ./data
-  
-auth:
-  jwt_secret: "your-secret-key-here"
-  
-logging:
-  level: info
-  format: json
-  
-tls:
-  enabled: false
-  cert_file: ""
-  key_file: ""
+### Запуск с параметрами
+
+```bash
+# С указанием порта
+./server --port 8080
+
+# С TLS
+./server --tls --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+
+# С автогенерацией TLS сертификата
+./server --auto-tls
+
+# С профилированием
+./server --enable-profiling
 ```
 
 ### Запуск как службы
@@ -215,24 +233,24 @@ tls:
 #### Linux (systemd)
 
 ```bash
-sudo cp torrplayer.service /etc/systemd/system/
+sudo cp torrsyncplayer.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable torrplayer
-sudo systemctl start torrplayer
+sudo systemctl enable torrsyncplayer
+sudo systemctl start torrsyncplayer
 ```
 
 #### macOS (launchd)
 
 ```bash
-cp com.torrplayer.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.torrplayer.plist
+cp com.torrsyncplayer.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.torrsyncplayer.plist
 ```
 
 #### Windows (NSSM)
 
 ```bash
-nssm install TorrPlayer "C:\path\to\torrplayer.exe"
-nssm start TorrPlayer
+nssm install TorrSyncPlayer "C:\path\to\server.exe"
+nssm start TorrSyncPlayer
 ```
 
 ## Обновление
@@ -248,7 +266,7 @@ make all
 ### Обновление Docker
 
 ```bash
-docker pull torrplayer:latest
+docker pull torrsyncplayer:latest
 docker-compose up -d
 ```
 
@@ -264,30 +282,29 @@ docker-compose up -d
 ### Linux
 
 ```bash
-sudo systemctl stop torrplayer
-sudo systemctl disable torrplayer
-sudo rm /etc/systemd/system/torrplayer.service
-sudo rm -rf /opt/torrplayer
+sudo systemctl stop torrsyncplayer
+sudo systemctl disable torrsyncplayer
+sudo rm /etc/systemd/system/torrsyncplayer.service
+sudo rm -rf /opt/TorrSyncPlayer
 ```
 
 ### macOS
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.torrplayer.plist
-rm ~/Library/LaunchAgents/com.torrplayer.plist
-rm -rf /Applications/TorrPlayer.app
+launchctl unload ~/Library/LaunchAgents/com.torrsyncplayer.plist
+rm ~/Library/LaunchAgents/com.torrsyncplayer.plist
+rm -rf /Applications/TorrSyncPlayer
 ```
 
 ### Windows
 
-1. Остановите службу: `nssm stop TorrPlayer`
-2. Удалите службу: `nssm remove TorrPlayer`
+1. Остановите службу: `nssm stop TorrSyncPlayer`
+2. Удалите службу: `nssm remove TorrSyncPlayer`
 3. Удалите директорию установки
 
 ### Docker
 
 ```bash
 docker-compose down
-docker rmi torrplayer:latest
-docker volume rm torrplayer-data
+docker rmi torrsyncplayer:latest
 ```

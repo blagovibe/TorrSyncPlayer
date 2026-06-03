@@ -70,8 +70,6 @@ var (
 // Config конфигурация сервера
 type Config struct {
 	Port                  string
-	DataDir               string
-	UseMemoryStorage      bool  // Использовать in-memory хранилище
 	MemoryStorageCapacity int64 // Максимальный размер in-memory хранилища в байтах
 	TLSCert               string
 	TLSKey                string
@@ -99,24 +97,17 @@ func main() {
 	// Создаём сервис аутентификации
 	authService := auth.NewAuthService([]byte(config.JWTSecret))
 
-	// Создаём директорию для данных
-	if err := os.MkdirAll(config.DataDir, 0755); err != nil {
-		logger.Error("Не удалось создать директорию данных", "error", err)
-		os.Exit(1)
-	}
-
 	// Инициализация сервиса буферизации
 	bufferSvc := buffer.NewService(constants.DefaultMaxBufferSize)
 	bufferSvc.StartPeriodicUpdate(constants.BufferUpdateInterval)
 
-	// Опции торрент-сервиса
+	// Опции торрент-сервиса (всегда in-memory)
 	torrentOpts := torrent.ServiceOptions{
-		UseMemoryStorage:      config.UseMemoryStorage,
 		MemoryStorageCapacity: config.MemoryStorageCapacity,
 	}
 
-	// Инициализация торрент-сервиса с буферизацией и in-memory storage
-	torrentSvc, err := torrent.NewServiceWithOptions(config.DataDir, bufferSvc, torrentOpts)
+	// Инициализация торрент-сервиса с буферизацией и in-memory хранилищем
+	torrentSvc, err := torrent.NewServiceWithOptions(bufferSvc, torrentOpts)
 	if err != nil {
 		logger.Error("Ошибка инициализации торрент-сервиса", "error", err)
 		os.Exit(1)
@@ -124,7 +115,6 @@ func main() {
 	defer torrentSvc.Close()
 
 	logger.Info("Торрент-сервис инициализирован",
-		"memory_storage", config.UseMemoryStorage,
 		"memory_capacity", config.MemoryStorageCapacity,
 	)
 
@@ -223,8 +213,6 @@ func parseFlags() Config {
 	var config Config
 
 	flag.StringVar(&config.Port, "port", getEnv("PORT", defaultPort), "Порт сервера")
-	flag.StringVar(&config.DataDir, "data-dir", getEnv("DATA_DIR", defaultDir), "Директория для данных")
-	flag.BoolVar(&config.UseMemoryStorage, "memory-storage", getEnvBool("MEMORY_STORAGE", true), "Использовать in-memory хранилище")
 	flag.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", getEnvInt64("MEMORY_CAPACITY", constants.DefaultMaxBufferSize), "Максимальный размер in-memory хранилища в байтах")
 	flag.StringVar(&config.TLSCert, "tls-cert", getEnv("TLS_CERT", ""), "Путь к TLS сертификату")
 	flag.StringVar(&config.TLSKey, "tls-key", getEnv("TLS_KEY", ""), "Путь к TLS ключу")

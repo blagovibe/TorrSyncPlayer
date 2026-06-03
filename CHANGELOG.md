@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 Все значимые изменения в проекте документируются в этом файле.
 
@@ -25,12 +25,32 @@
 - Добавлены тесты для torrent service (`internal/torrent/service_test.go`)
 - Добавлены тесты для p2p service (`internal/p2p/service_test.go`)
 - Добавлены тесты для sync service (`internal/sync/service_test.go`)
+- Добавлен пакет `buffer` — LRU кэш с приоритетами загрузки pieces
+- Добавлен пакет `storage` — in-memory хранилище
+- Добавлен пакет `errors` — AppError, ErrorType
+- Добавлен пакет `constants` — все магические числа вынесены в константы
+- Добавлена CSRF защита (token store с TTL 1h)
+- Добавлен rate limiting (10 req/min для auth, 60 req/min для API)
+- Добавлена JWT аутентификация (HS256, 24h TTL, JTI для revocation)
+- Добавлен bcrypt (cost=12) для хеширования паролей
+- Добавлен in-memory UserStore и TokenRevocationStore
+- Добавлены Prometheus метрики
+- Добавлен Swagger UI на `/swagger/`
+- Добавлена поддержка TLS 1.2+
+- Добавлен pprof на порту 6060 (опционально)
+- Добавлен graceful shutdown (30s timeout)
+- Добавлен retry logic в NetworkManager (exponential backoff, max 3)
+- Добавлен seek debounce в MpvWidget
+- Добавлены SSE для real-time событий комнаты
+- Добавлена интеграция с Docker Compose (Prometheus + Grafana profiles)
 
 ### Изменено
 
-- Улучшена документация README.md с ссылками на документацию
+- Улучшена документация README.md с полным списком endpoints и ссылками
 - Обновлён CI pipeline с поддержкой coverage отчётов
 - Обновлён CHANGELOG с последними изменениями
+- Обновлена версия Go до 1.24 в go.mod
+- Обновлены зависимости до актуальных версий
 
 ### Исправлено
 
@@ -41,6 +61,26 @@
 - Исправлен баг с RoomEvents роутом: изменён путь с `/api/v1/rooms/events` на `/api/v1/rooms/{roomID}/events`
 - Исправлен Signal handler: добавлена правильная обработка WebRTC сигналов
 - Исправлен LogoutHandler: добавлена корректная обработка выхода из системы
+
+### Безопасность
+
+- JWT аутентификация с отзывом токенов
+- bcrypt хеширование паролей (cost=12)
+- CSRF токены с TTL 1h
+- Rate limiting (10 req/min для auth, 60 req/min для API)
+- Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
+- CORS политики
+- Валидация всех входных данных
+- TLS 1.2+ поддержка
+
+### Известные проблемы
+
+1. `frontend/src/main.cpp:336` — при запуске с `--server-url` URL парсится, но не передаётся в NetworkManager
+2. `frontend/src/networkmanager.cpp:301` — SSL ошибки игнорируются в debug-режиме, production-поведение не реализовано
+3. In-memory UserStore/TokenRevocationStore — без персистентности
+4. Нет интеграции с базой данных
+5. Buffer Service не имеет unit-тестов
+6. Frontend MainWindow/MpvWidget не имеют unit-тестов
 
 ## [1.0.0] - 2025-06-01
 

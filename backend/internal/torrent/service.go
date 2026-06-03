@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -31,19 +30,16 @@ import (
 const (
 	// gracefulShutdownTimeout таймаут для корректной остановки сервиса
 	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
-
-	// dataDirPermissions права доступа к директории данных
-	dataDirPermissions = constants.DataDirPermissions
 )
 
 // Service сервис управления торрентами.
 // Предоставляет методы для добавления, удаления и стриминга торрентов.
 // Потокобезопасен благодаря использованию sync.RWMutex.
+// Всегда использует in-memory хранилище для данных торрентов.
 type Service struct {
 	mu            sync.RWMutex
 	client        *torrent.Client
 	torrents      map[string]*torrent.Torrent
-	dataDir       string
 	selectedFiles map[string]int // torrentID -> fileIndex
 	bufferService *buffer.Service
 }
@@ -58,8 +54,6 @@ type ServiceOptions struct {
 	DisableTCP bool
 	// ListenPort порт для прослушивания (0 = случайный)
 	ListenPort int
-	// UseMemoryStorage использует in-memory хранилище вместо диска
-	UseMemoryStorage bool
 	// MemoryStorageCapacity максимальный размер in-memory хранилища (0 = без ограничений)
 	MemoryStorageCapacity int64
 }
@@ -83,37 +77,24 @@ func (r *readCloserWithClose) Close() error {
 	return r.ReadSeekCloser.Close()
 }
 
-// NewService создаёт новый сервис торрентов.
-// Параметр dataDir - директория для хранения данных торрентов.
+// NewService создаёт новый сервис торрентов с in-memory хранилищем.
 // Параметр bufferService - сервис буферизации (может быть nil).
-// Создаёт директорию если не существует.
 // Возвращает инициализированный сервис или ошибку.
-func NewService(dataDir string, bufferService *buffer.Service) (*Service, error) {
-	return NewServiceWithOptions(dataDir, bufferService, ServiceOptions{})
+func NewService(bufferService *buffer.Service) (*Service, error) {
+	return NewServiceWithOptions(bufferService, ServiceOptions{})
 }
 
 // NewServiceWithOptions создаёт новый сервис торрентов с расширенными опциями.
 // Позволяет настроить параметры сети для тестирования.
-// Поддерживает in-memory хранилище для данных торрентов.
-func NewServiceWithOptions(dataDir string, bufferService *buffer.Service, opts ServiceOptions) (*Service, error) {
+// Всегда использует in-memory хранилище для данных торрентов.
+func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (*Service, error) {
 	// Конфигурация торрент-клиента
 	cfg := torrent.NewDefaultClientConfig()
 
-	// Выбираем тип хранилища: in-memory или диск
-	if opts.UseMemoryStorage {
-		// Используем in-memory хранилище
-		memStorage := storage.NewMemoryStorage(opts.MemoryStorageCapacity)
-		cfg.DefaultStorage = memStorage
-		logger.Info("Torrent: используется in-memory хранилище", "capacity", opts.MemoryStorageCapacity)
-	} else {
-		// Используем файловое хранилище
-		if err := os.MkdirAll(dataDir, dataDirPermissions); err != nil {
-			logger.Error("Torrent: не удалось создать директорию данных", "dataDir", dataDir, "error", err)
-			return nil, fmt.Errorf("не удалось создать директорию данных: %w", err)
-		}
-		cfg.DataDir = dataDir
-		logger.Info("Torrent: используется файловое хранилище", "dataDir", dataDir)
-	}
+	// Всегда используем in-memory хранилище
+	memStorage := storage.NewMemoryStorage(opts.MemoryStorageCapacity)
+	cfg.DefaultStorage = memStorage
+	logger.Info("Torrent: используется in-memory хранилище", "capacity", opts.MemoryStorageCapacity)
 
 	cfg.NoUpload = false
 	cfg.Seed = true
@@ -143,7 +124,6 @@ func NewServiceWithOptions(dataDir string, bufferService *buffer.Service, opts S
 	return &Service{
 		client:        client,
 		torrents:      make(map[string]*torrent.Torrent),
-		dataDir:       dataDir,
 		selectedFiles: make(map[string]int),
 		bufferService: bufferService,
 	}, nil
