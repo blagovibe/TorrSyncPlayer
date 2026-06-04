@@ -21,7 +21,7 @@
  * Наследуется от QObject для поддержки сигналов/слотов.
  * Реализации должны обеспечивать все методы для работы с API.
  */
-class INetworkManager : public QObject
+class INetworkManager : public virtual QObject
 {
     Q_OBJECT
 

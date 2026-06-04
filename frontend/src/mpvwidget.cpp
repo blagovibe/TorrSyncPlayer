@@ -109,18 +109,16 @@ bool MpvWidget::initializeMpv()
         }
         
         // Настройка рендеринга OpenGL
+        // Статическая функция для C callback — не захватывает контекст (C++17)
+        auto glGetProcAddr = [](void *ctx, const char *name) -> void * {
+            Q_UNUSED(ctx);
+            QOpenGLContext *glctx = QOpenGLContext::currentContext();
+            if (!glctx) return nullptr;
+            return reinterpret_cast<void *>(glctx->getProcAddress(name));
+        };
+
         mpv_opengl_init_params gl_init_params = {
-            [](void *ctx) -> int {
-                // Получаем текущий OpenGL контекст
-                QOpenGLContext *glctx = QOpenGLContext::currentContext();
-                if (!glctx) return -1;
-                
-                // Получаем функции OpenGL
-                void *(*get_proc_address)(const char *) = 
-                    reinterpret_cast<void *(*)(const char *)>(
-                        glctx->getProcAddress("glGetIntegerv"));
-                return get_proc_address ? 0 : -1;
-            },
+            glGetProcAddr,
             nullptr
         };
         

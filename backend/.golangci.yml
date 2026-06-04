@@ -22,17 +22,11 @@ run:
 
 # Настройки вывода
 output:
-  # Формат вывода
-  format: colored-line-number
-  
   # Печатать строки с проблемами
   print-issued-lines: true
   
   # Печатать имя линтера
   print-linter-name: true
-  
-  # Уникальные строки по файлу
-  uniq-by-line: true
   
   # Сортировка результатов
   sort-results: true
@@ -66,12 +60,10 @@ linters-settings:
   # Неэффективные присваивания
   ineffassign:
     # Проверять все случаи
-    check-exhaustive: true
   
   # Неиспользуемый код
   unused:
     # Проверять константы
-    check-exported: false
   
   # Проверка цикломатической сложности
   gocyclo:
