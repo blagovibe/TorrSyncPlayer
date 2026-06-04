@@ -19,6 +19,15 @@ static const int MPV_EVENT_TIMER_MS = 30;
 // Задержка debounce для перемотки (мс)
 static const int SEEK_DEBOUNCE_MS = 300;
 
+// Static callback для mpv OpenGL (C-compatible, без capture)
+static void *mpvGetProcAddress(void *ctx, const char *name)
+{
+    Q_UNUSED(ctx);
+    QOpenGLContext *glctx = QOpenGLContext::currentContext();
+    if (!glctx) return nullptr;
+    return reinterpret_cast<void *>(glctx->getProcAddress(name));
+}
+
 MpvWidget::MpvWidget(QWidget *parent)
     : QWidget(parent)
 {
@@ -109,16 +118,9 @@ bool MpvWidget::initializeMpv()
         }
         
         // Настройка рендеринга OpenGL
-        // Статическая функция для C callback — не захватывает контекст (C++17)
-        auto glGetProcAddr = [](void *ctx, const char *name) -> void * {
-            Q_UNUSED(ctx);
-            QOpenGLContext *glctx = QOpenGLContext::currentContext();
-            if (!glctx) return nullptr;
-            return reinterpret_cast<void *>(glctx->getProcAddress(name));
-        };
-
+        // Используем static функцию для C callback (совместимо с MSVC)
         mpv_opengl_init_params gl_init_params = {
-            glGetProcAddr,
+            mpvGetProcAddress,
             nullptr
         };
         

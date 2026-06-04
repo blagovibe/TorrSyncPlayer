@@ -45,7 +45,7 @@ struct RetryRequest {
  * Встроенный retry logic с экспоненциальным backoff.
  * Реализует интерфейс INetworkManager для возможности подмены в тестах.
  */
-class NetworkManager : public virtual INetworkManager
+class NetworkManager : public QObject, public INetworkManager
 {
     Q_OBJECT
 

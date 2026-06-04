@@ -57,14 +57,6 @@ linters-settings:
     # Уровень проверок
     checks: ["all"]
   
-  # Неэффективные присваивания
-  ineffassign:
-    # Проверять все случаи
-  
-  # Неиспользуемый код
-  unused:
-    # Проверять константы
-  
   # Проверка цикломатической сложности
   gocyclo:
     # Минимальная сложность для отчёта
@@ -116,9 +108,7 @@ linters:
     # Статический анализ
     - staticcheck
     - gosimple
-    - ineffassign
-    - unused
-    
+
     # Дополнительные проверки
     - goconst
     - gocyclo
@@ -211,8 +201,6 @@ severity:
     
     - linters:
         - gosimple
-        - ineffassign
-        - unused
       severity: warning
     
     - linters:
