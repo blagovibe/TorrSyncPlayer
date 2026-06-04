@@ -8,7 +8,7 @@ run:
   timeout: 5m
   
   # Версия Go
-  go: "1.25"
+  go: "1.24"
   
   # Выходить при ошибках
   issues-exit-code: 1
