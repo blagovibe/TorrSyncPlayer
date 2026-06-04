@@ -92,7 +92,7 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_mingw'
-          tools: 'tools_mingw,qt.tools.win64_mingw'
+          tools: 'tools_mingw'
 
       - name: Установка Qt (macOS)
         if: matrix.platform == 'macos'
