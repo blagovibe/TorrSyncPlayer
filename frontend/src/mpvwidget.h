@@ -18,10 +18,12 @@
 #include <QTimer>
 
 // Обёртка для C-заголовка libmpv
+#ifdef HAS_MPV
 extern "C" {
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 }
+#endif
 
 /**
  * @class MpvWidget
@@ -175,18 +177,19 @@ private:
     bool initializeMpv();
 
     /**
-     * @brief Обработка событий от mpv
-     * Обрабатывает события изменения позиции, длительности, ошибок
-     * @param event Событие mpv
-     */
-    void processMpvEvent(mpv_event *event);
-
-    /**
      * @brief Безопасная отправка команд mpv
      * Отправляет команду асинхронно без ожидания ответа
      * @param args Массив аргументов (заканчивается nullptr)
      */
     void commandAsync(const char **args);
+
+#ifdef HAS_MPV
+    /**
+     * @brief Обработка событий от mpv
+     * Обрабатывает события изменения позиции, длительности, ошибок
+     * @param event Событие mpv
+     */
+    void processMpvEvent(mpv_event *event);
 
     /**
      * @brief Получение свойства mpv
@@ -200,6 +203,10 @@ private:
 
     mpv_handle *m_mpv = nullptr;        ///< Экземпляр mpv
     mpv_render_context *m_mpvGL = nullptr; ///< Контекст рендеринга OpenGL
+#else
+    void *m_mpv = nullptr;        ///< Заглушка для совместимости
+    void *m_mpvGL = nullptr;      ///< Заглушка для совместимости
+#endif
     mutable QMutex m_mutex;             ///< Мьютекс для потокобезопасности
     bool m_initialized = false;         ///< Флаг инициализации
     double m_position = 0.0;            ///< Текущая позиция

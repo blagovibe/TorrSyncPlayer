@@ -19,6 +19,7 @@ static const int MPV_EVENT_TIMER_MS = 30;
 // Задержка debounce для перемотки (мс)
 static const int SEEK_DEBOUNCE_MS = 300;
 
+#ifdef HAS_MPV
 // Static callback для mpv OpenGL (C-compatible, без capture)
 static void *mpvGetProcAddress(void *ctx, const char *name)
 {
@@ -27,6 +28,7 @@ static void *mpvGetProcAddress(void *ctx, const char *name)
     if (!glctx) return nullptr;
     return reinterpret_cast<void *>(glctx->getProcAddress(name));
 }
+#endif
 
 MpvWidget::MpvWidget(QWidget *parent)
     : QWidget(parent)
@@ -62,6 +64,7 @@ MpvWidget::~MpvWidget()
         m_seekDebounceTimer->stop();
     }
     
+#ifdef HAS_MPV
     // Освобождаем ресурсы mpv
     if (m_mpvGL) {
         mpv_render_context_free(m_mpvGL);
@@ -72,10 +75,12 @@ MpvWidget::~MpvWidget()
         mpv_terminate_destroy(m_mpv);
         m_mpv = nullptr;
     }
+#endif
 }
 
 bool MpvWidget::initializeMpv()
 {
+#ifdef HAS_MPV
     // Блокируем мьютекс для инициализации
     {
         QMutexLocker locker(&m_mutex);
@@ -145,7 +150,7 @@ bool MpvWidget::initializeMpv()
         }
         
         // Устанавливаем callback для обновления
-        mpv_render_context_set_update_callback(m_mpvGL, 
+        mpv_render_context_set_update_callback(m_mpvGL,
             [](void *ctx) {
                 MpvWidget *widget = static_cast<MpvWidget *>(ctx);
                 QTimer::singleShot(0, widget, &MpvWidget::onMpvEvents);
@@ -166,11 +171,15 @@ bool MpvWidget::initializeMpv()
     } // Мьютекс разблокирован здесь
     
     qDebug() << "MpvWidget: mpv успешно инициализирован";
+#else
+    qDebug() << "MpvWidget: mpv не поддерживается (собрано без HAS_MPV)";
+#endif
     return true;
 }
 
 void MpvWidget::play(const QString &url)
 {
+#ifdef HAS_MPV
     if (!m_mpv) {
         if (!initializeMpv()) {
             return;
@@ -195,10 +204,15 @@ void MpvWidget::play(const QString &url)
     
     m_paused = false;
     qDebug() << "MpvWidget: воспроизведение" << url;
+#else
+    Q_UNUSED(url);
+    qDebug() << "MpvWidget: воспроизведение невозможно (собрано без HAS_MPV)";
+#endif
 }
 
 void MpvWidget::pause()
 {
+#ifdef HAS_MPV
     if (!m_mpv) return;
     
     QMutexLocker locker(&m_mutex);
@@ -208,10 +222,14 @@ void MpvWidget::pause()
     m_paused = true;
     
     qDebug() << "MpvWidget: пауза";
+#else
+    qDebug() << "MpvWidget: пауза невозможна (собрано без HAS_MPV)";
+#endif
 }
 
 void MpvWidget::resume()
 {
+#ifdef HAS_MPV
     if (!m_mpv) return;
     
     QMutexLocker locker(&m_mutex);
@@ -221,10 +239,17 @@ void MpvWidget::resume()
     m_paused = false;
     
     qDebug() << "MpvWidget: возобновление";
+#else
+    qDebug() << "MpvWidget: возобновление невозможно (собрано без HAS_MPV)";
+#endif
 }
 
 void MpvWidget::seek(double position)
 {
+#ifndef HAS_MPV
+    Q_UNUSED(position);
+    qWarning() << "mpv not available, seek ignored";
+#else
     if (!m_mpv) return;
     
     // Ограничиваем позицию допустимыми значениями
@@ -245,10 +270,12 @@ void MpvWidget::seek(double position)
     m_seekDebounceTimer->start();
     
     qDebug() << "MpvWidget: перемотка запрошена на" << position << "(debounce " << SEEK_DEBOUNCE_MS << "мс)";
+#endif
 }
 
 void MpvWidget::onSeekDebounceTimeout()
 {
+#ifdef HAS_MPV
     if (!m_mpv) return;
     
     QMutexLocker locker(&m_mutex);
@@ -270,10 +297,14 @@ void MpvWidget::onSeekDebounceTimeout()
     }
     
     qDebug() << "MpvWidget: перемотка выполнена на" << position;
+#else
+    qDebug() << "MpvWidget: перемотка невозможна (собрано без HAS_MPV)";
+#endif
 }
 
 double MpvWidget::position() const
 {
+#ifdef HAS_MPV
     if (!m_mpv) return 0.0;
     
     QMutexLocker locker(&m_mutex);
@@ -282,10 +313,14 @@ double MpvWidget::position() const
     mpv_get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos);
     
     return pos;
+#else
+    return 0.0;
+#endif
 }
 
 double MpvWidget::duration() const
 {
+#ifdef HAS_MPV
     if (!m_mpv) return 0.0;
     
     QMutexLocker locker(&m_mutex);
@@ -294,10 +329,14 @@ double MpvWidget::duration() const
     mpv_get_property(m_mpv, "duration", MPV_FORMAT_DOUBLE, &dur);
     
     return dur;
+#else
+    return 0.0;
+#endif
 }
 
 bool MpvWidget::isPaused() const
 {
+#ifdef HAS_MPV
     if (!m_mpv) return true;
     
     QMutexLocker locker(&m_mutex);
@@ -306,15 +345,20 @@ bool MpvWidget::isPaused() const
     mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused);
     
     return paused != 0;
+#else
+    return true;
+#endif
 }
 
 bool MpvWidget::event(QEvent *event)
 {
+#ifdef HAS_MPV
     // Обрабатываем события mpv
     if (event->type() == QEvent::User) {
         onMpvEvents();
         return true;
     }
+#endif
     
     return QWidget::event(event);
 }
@@ -323,14 +367,17 @@ void MpvWidget::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
     
+#ifdef HAS_MPV
     // Инициализируем mpv при первом показе
     if (!m_initialized) {
         QTimer::singleShot(100, this, [this]() {
             initializeMpv();
         });
     }
+#endif
 }
 
+#ifdef HAS_MPV
 void MpvWidget::onMpvEvents()
 {
     if (!m_mpv) return;
@@ -415,6 +462,7 @@ void MpvWidget::processMpvEvent(mpv_event *event)
         break;
     }
 }
+#endif
 
 void MpvWidget::emitBufferedEvents()
 {
@@ -448,6 +496,7 @@ void MpvWidget::emitBufferedEvents()
     }
 }
 
+#ifdef HAS_MPV
 void MpvWidget::commandAsync(const char **args)
 {
     if (!m_mpv) return;
@@ -469,3 +518,4 @@ int MpvWidget::getProperty(const char *name, mpv_format format, void *data)
     
     return mpv_get_property(m_mpv, name, format, data);
 }
+#endif

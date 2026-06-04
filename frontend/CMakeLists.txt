@@ -12,9 +12,7 @@ set(CMAKE_AUTOUIC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg Test)
 find_package(PkgConfig)
 if(PkgConfig_FOUND)
-    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET libmpv)
-else()
-    message(WARNING "PkgConfig not found, libmpv must be configured manually")
+    pkg_check_modules(MPV QUIET mpv)
 endif()
 
 # ── Исходные файлы ────────────────────────────────────────────────────
@@ -56,8 +54,13 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Network
     Qt6::Svg
 )
-if(PkgConfig_FOUND)
-    target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::MPV)
+
+if(MPV_FOUND)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${MPV_INCLUDE_DIRS})
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${MPV_LIBRARIES})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAS_MPV)
+else()
+    message(WARNING "libmpv not found, building without mpv support")
 endif()
 
 # ── Включение WinAPI для корректной работы mpv на Windows ────────────
