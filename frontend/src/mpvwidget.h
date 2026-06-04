@@ -205,6 +205,8 @@ private:
     double m_position = 0.0;            ///< Текущая позиция
     double m_duration = 0.0;            ///< Длительность медиа
     bool m_paused = false;              ///< Флаг паузы
+    QTimer *m_seekDebounceTimer = nullptr;   ///< Таймер debounce для перемотки
+    double m_pendingSeekPosition = 0.0;      ///< Ожидающая позиция перемотки
     
     // Буфер для событий, ожидающих эмиссии сигналов (защищён m_mutex)
     struct MpvEventData {

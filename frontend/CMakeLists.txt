@@ -87,6 +87,7 @@ if(BUILD_TESTS)
         src/test_torrentmodel.cpp
         src/torrentmodel.cpp
         src/torrentmodel.h
+        src/utils.cpp
     )
     
     add_executable(test_torrentmodel ${TEST_TORRENT_MODEL_SOURCES})
@@ -98,6 +99,11 @@ if(BUILD_TESTS)
     # Автоматическая регистрация moc
     set_target_properties(test_torrentmodel PROPERTIES
         AUTOMOC ON
+    )
+    
+    # Добавляем директорию сборки в include-пути для поиска .moc файлов
+    target_include_directories(test_torrentmodel PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
     )
     
     add_test(NAME TorrentModelTest COMMAND test_torrentmodel)
@@ -118,6 +124,11 @@ if(BUILD_TESTS)
     
     set_target_properties(test_networkmanager PROPERTIES
         AUTOMOC ON
+    )
+    
+    # Добавляем директорию сборки в include-пути для поиска .moc файлов
+    target_include_directories(test_networkmanager PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
     )
     
     add_test(NAME NetworkManagerTest COMMAND test_networkmanager)

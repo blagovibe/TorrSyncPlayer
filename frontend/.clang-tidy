@@ -190,8 +190,5 @@ FormatStyle: file
 # Системные заголовки
 SystemHeaders: false
 
-# Анализ всех файлов
-AnalyzeTemporaryDtors: false
-
 # Пользовательские макросы
 User: torr_sync_player

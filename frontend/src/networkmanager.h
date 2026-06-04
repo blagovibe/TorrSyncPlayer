@@ -45,7 +45,7 @@ struct RetryRequest {
  * Встроенный retry logic с экспоненциальным backoff.
  * Реализует интерфейс INetworkManager для возможности подмены в тестах.
  */
-class NetworkManager : public INetworkManager
+class NetworkManager : public QObject, public INetworkManager
 {
     Q_OBJECT
 
@@ -214,6 +214,13 @@ public:
      * @param delayMs Задержка в миллисекундах (100-10000)
      */
     void setRetryBaseDelay(int delayMs) { m_retryBaseDelay = qBound(100, delayMs, 10000); }
+    
+    /**
+     * @brief Парсинг JSON ответа
+     * @param data Сырые данные
+     * @return JSON документ
+     */
+    QJsonDocument parseJson(const QByteArray &data);
 
 signals:
     // ── Torrent signals ───────────────────────────────────────────────
@@ -386,13 +393,6 @@ private:
      * Закрывает текущее SSE соединение
      */
     void disconnectSSE();
-    
-    /**
-     * @brief Парсинг JSON ответа
-     * @param data Сырые данные
-     * @return JSON документ
-     */
-    QJsonDocument parseJson(const QByteArray &data);
     
     /**
      * @brief Обработка ошибки API

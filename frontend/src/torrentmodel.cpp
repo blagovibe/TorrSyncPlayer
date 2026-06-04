@@ -111,7 +111,6 @@ QHash<int, QByteArray> TorrentModel::roleNames() const
     roles[DownloadedRole] = "downloaded";
     roles[UploadSpeedRole] = "uploadSpeed";
     roles[DownloadSpeedRole] = "downloadSpeed";
-    roles[DisplayRole] = "display";
     return roles;
 }
 
