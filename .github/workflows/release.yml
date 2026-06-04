@@ -131,14 +131,16 @@ jobs:
         run: |
           cd frontend
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=ON .
+          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DCMAKE_BUILD_TYPE=Release .
           cmake --build . --config Release
 
-          mkdir ..\release\TorrSyncPlayer-windows-x64
-          copy Release\TorrSyncPlayer.exe ..\release\TorrSyncPlayer-windows-x64\
-          copy ..\bin\torrsyncplayer-backend.exe ..\release\TorrSyncPlayer-windows-x64\
+          mkdir release\TorrSyncPlayer-windows-x64
+          copy Release\TorrSyncPlayer.exe release\TorrSyncPlayer-windows-x64\
+          copy ..\bin\torrsyncplayer-backend.exe release\TorrSyncPlayer-windows-x64\
 
-          cd ..\release
+          windeployqt --release --no-translations release\TorrSyncPlayer-windows-x64\TorrSyncPlayer.exe
+
+          cd release
           powershell Compress-Archive -Path TorrSyncPlayer-windows-x64\* -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
 
       # ── Сборка frontend (macOS) ───────────────────────────────
@@ -261,13 +263,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Загрузка артефакта (Windows)
+      - name: Upload artifact (Windows)
         if: matrix.platform == 'windows'
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
           path: frontend/release/TorrSyncPlayer-windows-x64.zip
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
       - name: Загрузка артефакта (macOS)
