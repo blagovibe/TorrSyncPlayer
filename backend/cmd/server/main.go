@@ -112,7 +112,7 @@ func main() {
 		logger.Error("Ошибка инициализации торрент-сервиса", "error", err)
 		os.Exit(1)
 	}
-	defer torrentSvc.Close()
+	defer func() { _ = torrentSvc.Close() }()
 
 	logger.Info("Торрент-сервис инициализирован",
 		"memory_capacity", config.MemoryStorageCapacity,
@@ -123,7 +123,7 @@ func main() {
 		logger.Error("Ошибка инициализации P2P-сервиса", "error", err)
 		os.Exit(1)
 	}
-	defer p2pSvc.Close()
+	defer func() { _ = p2pSvc.Close() }()
 
 	syncSvc := sync.NewService()
 	defer syncSvc.Close()
@@ -313,13 +313,13 @@ func generateSelfSignedCert() (certPath, keyPath string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("ошибка создания файла сертификата: %w", err)
 	}
-	defer certFile.Close()
+	defer func() { _ = certFile.Close() }()
 
 	keyFile, err := os.CreateTemp("", "key-*.pem")
 	if err != nil {
 		return "", "", fmt.Errorf("ошибка создания файла ключа: %w", err)
 	}
-	defer keyFile.Close()
+	defer func() { _ = keyFile.Close() }()
 
 	// Записываем сертификат
 	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {

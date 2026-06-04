@@ -278,7 +278,7 @@ func TestGetPlaybackState_Consistency(t *testing.T) {
 
 	// После изменений состояние должно отражать изменения
 	svc.Play()
-	svc.UpdatePosition(42.0)
+	_ = svc.UpdatePosition(42.0)
 
 	status3 := svc.GetStatus()
 	assert.True(t, status3.IsPlaying)

@@ -50,8 +50,8 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	// Функция очистки
 	cleanup := func() {
 		server.Close()
-		torrentSvc.Close()
-		p2pSvc.Close()
+		_ = torrentSvc.Close()
+		_ = p2pSvc.Close()
 		syncSvc.Close()
 	}
 
@@ -65,7 +65,7 @@ func TestE2E_HealthCheck(t *testing.T) {
 
 	resp, err := http.Get(server.URL + "/health")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -85,7 +85,7 @@ func TestE2E_Version(t *testing.T) {
 
 	resp, err := http.Get(server.URL + "/api/v1/version")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -106,7 +106,7 @@ func TestE2E_Metrics(t *testing.T) {
 
 	resp, err := http.Get(server.URL + "/metrics")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Contains(t, resp.Header.Get("Content-Type"), "text/plain")
@@ -126,7 +126,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 
 	resp, err := http.Post(server.URL+"/api/v1/auth/register", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	// 2. Вход в систему
@@ -138,7 +138,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 
 	resp, err = http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var loginResult map[string]interface{}
@@ -157,7 +157,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err = client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -177,7 +177,7 @@ func TestE2E_TorrentList(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -208,7 +208,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var playResult map[string]interface{}
@@ -229,7 +229,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	resp, err = client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var seekResult map[string]interface{}
@@ -248,7 +248,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	resp, err = client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var pauseResult map[string]interface{}
@@ -263,7 +263,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	resp, err = client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var statusResult map[string]interface{}
@@ -295,7 +295,7 @@ func TestE2E_RoomFlow(t *testing.T) {
 
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var roomResult map[string]interface{}
@@ -315,7 +315,7 @@ func TestE2E_UnauthorizedAccess(t *testing.T) {
 	// Запрос без токена
 	resp, err := client.Get(server.URL + "/api/v1/torrents")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// Запрос с невалидным токеном
@@ -325,7 +325,7 @@ func TestE2E_UnauthorizedAccess(t *testing.T) {
 
 	resp, err = client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
@@ -350,7 +350,7 @@ func TestE2E_InvalidInput(t *testing.T) {
 
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
@@ -367,7 +367,7 @@ func getAuthToken(t *testing.T, baseURL string) string {
 
 	resp, err := http.Post(baseURL+"/api/v1/auth/register", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Вход
 	loginBody := map[string]string{
@@ -378,7 +378,7 @@ func getAuthToken(t *testing.T, baseURL string) string {
 
 	resp, err = http.Post(baseURL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result map[string]interface{}
 	err = json.NewDecoder(resp.Body).Decode(&result)
@@ -403,7 +403,7 @@ func TestE2E_ContextCancellation(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }

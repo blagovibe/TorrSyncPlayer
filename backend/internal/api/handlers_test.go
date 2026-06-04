@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"bytes"
@@ -105,8 +105,8 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	apiTorrentSvc.Close()
-	p2pSvc.Close()
+	_ = apiTorrentSvc.Close()
+	_ = p2pSvc.Close()
 	apiSyncSvc.Close()
 	os.Exit(code)
 }

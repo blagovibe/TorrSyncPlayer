@@ -196,7 +196,9 @@ func TestJWTMiddleware(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(claims)
+		if err := json.NewEncoder(w).Encode(claims); err != nil {
+			t.Error(err)
+		}
 	})
 
 	// Оборачиваем в JWT middleware

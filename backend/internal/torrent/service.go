@@ -399,7 +399,7 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 	// Закрываем reader после завершения стриминга для предотвращения утечки файловых дескрипторов
 	// Используем обёртку с отложенным закрытием
 	closer := &readCloserWithClose{ReadSeekCloser: reader}
-	defer closer.Close()
+	defer func() { _ = closer.Close() }()
 
 	logger.Info("Torrent: начало стриминга",
 		"torrentID", torrentID,

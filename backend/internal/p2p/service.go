@@ -428,7 +428,10 @@ func (s *Service) RoomEventsHandler() http.HandlerFunc {
 		}
 
 		// Отправляем начальное событие
-		fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n")
+		if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n"); err != nil {
+			logger.Warn("P2P: ошибка отправки начального SSE события", "error", err)
+			return
+		}
 		flusher.Flush()
 
 		// Таймер для ping (каждые 30 секунд)
@@ -446,11 +449,17 @@ func (s *Service) RoomEventsHandler() http.HandlerFunc {
 					logger.Error("P2P: ошибка сериализации SSE события", "error", err)
 					continue
 				}
-				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
+				if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data)); err != nil {
+					logger.Warn("P2P: ошибка отправки SSE события", "error", err, "eventType", event.Type)
+					continue
+				}
 				flusher.Flush()
 
 			case <-pingTicker.C:
-				fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
+				if _, err := fmt.Fprintf(w, "event: ping\ndata: {}\n\n"); err != nil {
+					logger.Warn("P2P: ошибка отправки SSE ping", "error", err)
+					return
+				}
 				flusher.Flush()
 
 			case <-r.Context().Done():
@@ -502,10 +511,10 @@ func (s *Service) Close() error {
 	// Закрываем все подключения
 	for peerID, peer := range s.peers {
 		if peer.DataChannel != nil {
-			peer.DataChannel.Close()
+			_ = peer.DataChannel.Close()
 		}
 		if peer.Connection != nil {
-			peer.Connection.Close()
+			_ = peer.Connection.Close()
 		}
 		logger.Debug("P2P: закрыто подключение пира", "peerID", peerID)
 	}

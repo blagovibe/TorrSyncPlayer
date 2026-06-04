@@ -136,7 +136,7 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 	defer cancel()
 
 	// Отправляем начальное событие
-	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n")
+	_, _ = fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n")
 	flusher.Flush()
 
 	// Таймер для ping (каждые 30 секунд)
@@ -155,23 +155,23 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 			data, err := json.Marshal(event)
 			if err != nil {
 				logger.Error("Ошибка сериализации SSE события", "error", err, "eventType", event.Type)
-				fmt.Fprintf(w, "event: error\ndata: {\"message\":\"Ошибка обработки события\",\"type\":\"%s\"}\n\n", event.Type)
+				_, _ = fmt.Fprintf(w, "event: error\ndata: {\"message\":\"Ошибка обработки события\",\"type\":\"%s\"}\n\n", event.Type)
 				flusher.Flush()
 				continue
 			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
 			flusher.Flush()
 
 		case <-pingTicker.C:
 			// Отправляем ping для поддержания соединения
-			fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
+			_, _ = fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
 			flusher.Flush()
 
 		case <-ctx.Done():
 			// Таймаут соединения или отмена контекста
 			if ctx.Err() == context.DeadlineExceeded {
 				logger.Info("SSE соединение закрыто по таймауту", "path", logPath)
-				fmt.Fprintf(w, "event: timeout\ndata: {\"message\":\"Connection timeout\"}\n\n")
+				_, _ = fmt.Fprintf(w, "event: timeout\ndata: {\"message\":\"Connection timeout\"}\n\n")
 				flusher.Flush()
 			} else {
 				logger.Info("Клиент SSE закрыл соединение", "path", logPath)
@@ -981,7 +981,7 @@ func MetricsHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, m.FormatPrometheus())
+		_, _ = fmt.Fprint(w, m.FormatPrometheus())
 	}
 }
 

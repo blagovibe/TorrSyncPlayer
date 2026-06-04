@@ -71,7 +71,7 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 		BufferPercent:  bufferPercent,
 		BufferDuration: bufferDuration,
 		MaxBufferSize:  maxBufferSize,
-		PieceSize:      int64(pieceSize),
+		PieceSize:      pieceSize,
 		TotalPieces:    totalPieces,
 		LastUpdate:     time.Now(),
 	}
@@ -116,7 +116,7 @@ func (s *Service) UpdatePosition(torrentID string, position int64) {
 // updatePiecePriorities обновляет приоритеты кусков на основе текущей позиции
 func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
 	t := tb.File.Torrent()
-	pieceSize := int64(t.Info().PieceLength)
+	pieceSize := t.Info().PieceLength
 
 	// Вычисляем индексы кусков для буфера
 	startPiece := int(tb.BufferStart / pieceSize)
@@ -168,7 +168,7 @@ func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
 
 	// Подсчитываем загруженные байты в буфере
 	t := tb.File.Torrent()
-	pieceSize := int64(t.Info().PieceLength)
+	pieceSize := t.Info().PieceLength
 	startPiece := int(tb.BufferStart / pieceSize)
 	endPiece := int(tb.BufferEnd / pieceSize)
 

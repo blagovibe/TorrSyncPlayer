@@ -377,9 +377,9 @@ void MpvWidget::showEvent(QShowEvent *event)
 #endif
 }
 
-#ifdef HAS_MPV
 void MpvWidget::onMpvEvents()
 {
+#ifdef HAS_MPV
     if (!m_mpv) return;
     
     // Обрабатываем события внутри блокировки мьютекса
@@ -406,8 +406,12 @@ void MpvWidget::onMpvEvents()
     if (hasEvents) {
         emitBufferedEvents();
     }
+#else
+    qDebug() << "MpvWidget: onMpvEvents вызван без поддержки mpv";
+#endif
 }
 
+#ifdef HAS_MPV
 void MpvWidget::processMpvEvent(mpv_event *event)
 {
     switch (event->event_id) {

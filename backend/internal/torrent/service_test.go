@@ -37,7 +37,7 @@ func createTestService(t *testing.T) *Service {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		svc.Close()
+		func() { _ = svc.Close() }()
 	})
 
 	return svc

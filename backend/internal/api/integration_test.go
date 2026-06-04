@@ -1,4 +1,4 @@
-﻿// Package api предоставляет интеграционные тесты для HTTP API.
+// Package api предоставляет интеграционные тесты для HTTP API.
 // Тестирует полный цикл работы с API: регистрация, логин, торрент операции, комнаты.
 // Этот файл содержит только дополнительные интеграционные тесты, не дублирующие handlers_test.go.
 package api
@@ -97,7 +97,7 @@ func (m *integrationMockTorrentService) SelectFile(torrentID string, fileIndex i
 
 func (m *integrationMockTorrentService) ServeFile(w http.ResponseWriter, r *http.Request, torrentID string) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("test file content"))
+	_, _ = w.Write([]byte("test file content"))
 }
 
 func (m *integrationMockTorrentService) Close() error {
@@ -105,11 +105,11 @@ func (m *integrationMockTorrentService) Close() error {
 }
 
 func (m *integrationMockTorrentService) UpdateBufferPosition(torrentID string, position int64) {
-	//                            
+	//
 }
 
 func (m *integrationMockTorrentService) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
-	//                               
+	//
 	return &models.BufferInfo{
 		TorrentID:       torrentID,
 		FileIndex:       0,
@@ -207,7 +207,9 @@ func (m *integrationMockP2PService) RoomEventsHandler() http.HandlerFunc {
 			return
 		}
 
-		fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n")
+		if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n"); err != nil {
+			return
+		}
 		flusher.Flush()
 
 		// Отправляем тестовое событие
@@ -337,7 +339,7 @@ func getIntegrationTestCSRFToken(server *httptest.Server) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -371,7 +373,7 @@ func getIntegrationTestAuthToken(t *testing.T, server *httptest.Server) string {
 	if err != nil {
 		t.Fatalf("Failed to register: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("Expected status 201, got %d", resp.StatusCode)
@@ -463,7 +465,7 @@ func TestIntegrationAuthRegistration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to make request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != tt.wantCode {
 				t.Errorf("Expected status %d, got %d", tt.wantCode, resp.StatusCode)
@@ -499,7 +501,7 @@ func TestIntegrationAuthLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to register: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Получаем новый CSRF токен для login
 	csrfToken, err = getIntegrationTestCSRFToken(server)
@@ -539,7 +541,7 @@ func TestIntegrationAuthLogin(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to make request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != tt.wantCode {
 				t.Errorf("Expected status %d, got %d", tt.wantCode, resp.StatusCode)
@@ -575,7 +577,7 @@ func TestIntegrationProtectedEndpointsWithoutAuth(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to make request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("Expected status 401, got %d", resp.StatusCode)
@@ -599,7 +601,7 @@ func TestIntegrationProtectedEndpointsWithoutAuth(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to make request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			// POST без CSRF токена возвращает 403 Forbidden
 			if resp.StatusCode != http.StatusForbidden {
@@ -627,7 +629,7 @@ func TestIntegrationTorrentOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusCreated {
 			t.Errorf("Expected status 201, got %d", resp.StatusCode)
@@ -652,7 +654,7 @@ func TestIntegrationTorrentOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -687,7 +689,7 @@ func TestIntegrationTorrentOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -715,7 +717,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusCreated {
 			t.Errorf("Expected status 201, got %d", resp.StatusCode)
@@ -748,7 +750,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -766,7 +768,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -784,7 +786,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -808,7 +810,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -831,7 +833,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -858,7 +860,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -885,7 +887,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -902,7 +904,7 @@ func TestIntegrationSecurityHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	headers := []string{
 		"X-Content-Type-Options",
@@ -1011,5 +1013,3 @@ func decodeIntegrationJSON(t *testing.T, resp *http.Response, v interface{}) {
 		t.Fatalf("Failed to decode JSON: %v", err)
 	}
 }
-
-

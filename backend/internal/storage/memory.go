@@ -162,7 +162,7 @@ func (s *memoryStorage) OpenTorrent(ctx context.Context, info *metainfo.Info, in
 
 	provider, exists := s.providers[infoHash]
 	if !exists {
-		provider = newMemoryPieceProvider(infoHash, int64(info.PieceLength))
+		provider = newMemoryPieceProvider(infoHash, info.PieceLength)
 		s.providers[infoHash] = provider
 	}
 

@@ -23,7 +23,7 @@ func TestNewService(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	assert.NotNil(t, svc.rooms)
 	assert.NotNil(t, svc.peers)
@@ -35,7 +35,7 @@ func TestNewService(t *testing.T) {
 func TestCreateRoom(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	room, err := svc.CreateRoom("Test Room", "")
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestCreateRoom(t *testing.T) {
 func TestCreateRoom_WithPassword(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	room, err := svc.CreateRoom("Private Room", "secret123")
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestCreateRoom_WithPassword(t *testing.T) {
 func TestJoinRoom_NotFound(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	err = svc.JoinRoom("nonexistent", "")
 	assert.Error(t, err)
@@ -76,7 +76,7 @@ func TestJoinRoom_NotFound(t *testing.T) {
 func TestJoinRoom_WrongPassword(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	// Создаём комнату с паролем
 	room, err := svc.CreateRoom("Private Room", "correct_password")
@@ -92,7 +92,7 @@ func TestJoinRoom_WrongPassword(t *testing.T) {
 func TestJoinRoom_CorrectPassword(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	// Создаём комнату с паролем
 	room, err := svc.CreateRoom("Private Room", "secret123")
@@ -112,7 +112,7 @@ func TestJoinRoom_CorrectPassword(t *testing.T) {
 func TestJoinRoom_NoPassword(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	// Создаём комнату без пароля
 	room, err := svc.CreateRoom("Open Room", "")
@@ -127,7 +127,7 @@ func TestJoinRoom_NoPassword(t *testing.T) {
 func TestLeaveRoom_NotJoined(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	err = svc.LeaveRoom()
 	assert.Error(t, err)
@@ -138,7 +138,7 @@ func TestLeaveRoom_NotJoined(t *testing.T) {
 func TestSendSignal_NotJoined(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	err = svc.SendSignal([]byte("test"))
 	assert.Error(t, err)
@@ -149,7 +149,7 @@ func TestSendSignal_NotJoined(t *testing.T) {
 func TestGetEvents(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	events := svc.GetEvents()
 	assert.NotNil(t, events)
@@ -159,7 +159,7 @@ func TestGetEvents(t *testing.T) {
 func TestGetRoomInfo_NotJoined(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	_, err = svc.GetRoomInfo()
 	assert.Error(t, err)
@@ -180,7 +180,7 @@ func TestGenerateID(t *testing.T) {
 func TestCreateAndJoinRoom(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	// Создаём комнату
 	room, err := svc.CreateRoom("Test Room", "")
@@ -204,7 +204,7 @@ func TestCreateAndJoinRoom(t *testing.T) {
 func TestFullRoomLifecycle(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	// 1. Создаём комнату с паролем
 	room, err := svc.CreateRoom("Lifecycle Room", "pass123")
@@ -242,7 +242,7 @@ func TestFullRoomLifecycle(t *testing.T) {
 func TestCreateMultipleRooms(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	room1, err := svc.CreateRoom("Room 1", "")
 	require.NoError(t, err)
@@ -274,7 +274,7 @@ func TestClose_EmptiesState(t *testing.T) {
 func TestConcurrentRoomCreation(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	var wg sync.WaitGroup
 	numGoroutines := 50
@@ -294,7 +294,7 @@ func TestConcurrentRoomCreation(t *testing.T) {
 func TestConcurrentGetRoomInfo(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	room, err := svc.CreateRoom("Test Room", "")
 	require.NoError(t, err)
@@ -320,7 +320,7 @@ func TestConcurrentGetRoomInfo(t *testing.T) {
 func TestConcurrentSetLocalUserID(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	var wg sync.WaitGroup
 	numGoroutines := 50
@@ -340,7 +340,7 @@ func TestConcurrentSetLocalUserID(t *testing.T) {
 func TestConcurrentEventChannel(t *testing.T) {
 	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	events := svc.GetEvents()
 
