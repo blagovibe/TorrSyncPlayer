@@ -153,54 +153,40 @@ jobs:
 
       # ── Создание архива (Linux → AppImage) ────────────────────
       - name: Создание AppImage (Linux)
-        if: matrix.platform == 'linux'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
-          # Добавляем Qt в PATH для linuxdeployqt
-          export PATH="${Qt6_DIR}/bin:$PATH"
-
-          # Создаём директорию для AppDir
+          cd frontend
+          
+          # Создаём символическую ссылку на qmake чтобы linuxdeployqt нашёл его
+          sudo ln -sf ${{ env.Qt6_DIR }}/bin/qmake /usr/bin/qmake
+          
+          # Создаём AppDir структуру
           mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/lib
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-
+          
           # Копируем бинарники
-          cp backend/build/torrsyncplayer AppDir/usr/bin/
-          cp frontend/build/TorrSyncPlayer AppDir/usr/bin/
-
+          cp Release/TorrSyncPlayer AppDir/usr/bin/
+          cp ../bin/torrsyncplayer-backend AppDir/usr/bin/
+          
           # Копируем иконку
-          cp frontend/resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png 2>/dev/null || true
-
+          cp resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png
+          
           # Создаём .desktop файл
-          cat > AppDir/usr/share/applications/torrsyncplayer.desktop << 'EOF'
+          cat > AppDir/usr/share/applications/torrsyncplayer.desktop << EOF
           [Desktop Entry]
-          Type=Application
           Name=TorrSyncPlayer
           Exec=TorrSyncPlayer
           Icon=torrsyncplayer
-          Categories=AudioVideo;Video;Player;
-          Comment=Sync torrent streaming player
+          Type=Application
+          Categories=AudioVideo;
           EOF
-
-          # Создаём скрипт-обёртку для запуска
-          cat > AppDir/AppRun << 'EOF'
-          #!/bin/bash
-          APPDIR="$(dirname "$(readlink -f "$0")")"
-          export PATH="$APPDIR/usr/bin:$PATH"
-          export LD_LIBRARY_PATH="$APPDIR/usr/lib:$LD_LIBRARY_PATH"
-          exec "$APPDIR/usr/bin/TorrSyncPlayer" "$@"
-          EOF
-          chmod +x AppDir/AppRun
-
-          # Собираем AppImage
-          linuxdeployqt AppDir/usr/share/applications/torrsyncplayer.desktop \
-            -appimage \
-            -qmake=${Qt6_DIR}/bin/qmake \
-            -extra-plugins=iconengines,platformthemes/libqgtk3.so
-
+          
+          # Создаём AppImage
+          linuxdeployqt AppDir/usr/share/applications/torrsyncplayer.desktop -appimage
+          
           # Переименовываем результат
-          mv TorrSyncPlayer-*.AppImage TorrSyncPlayer-linux-x64.AppImage 2>/dev/null || \
-            mv *.AppImage TorrSyncPlayer-linux-x64.AppImage 2>/dev/null || true
+          mv *.AppImage torrSyncPlayer-linux-x64.AppImage
 
       # ── Создание архива (macOS → .dmg) ────────────────────────
       - name: Создание .dmg (macOS)
@@ -267,11 +253,11 @@ jobs:
 
       # ── Загрузка артефакта ────────────────────────────────────
       - name: Загрузка артефакта (Linux)
-        if: matrix.platform == 'linux'
+        if: matrix.os == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
-          path: TorrSyncPlayer-linux-x64.AppImage
+          path: frontend/torrSyncPlayer-linux-x64.AppImage
           if-no-files-found: warn
           retention-days: 30
 
