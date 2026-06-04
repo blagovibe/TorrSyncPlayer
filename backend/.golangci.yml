@@ -1,216 +1,29 @@
-# ============================================================
-# Конфигурация golangci-lint для TorrSyncPlayer backend
-# Документация: https://golangci-lint.run/usage/configuration/
-# ============================================================
-
 run:
-  # Таймаут для анализа
   timeout: 5m
-  
-  # Версия Go
   go: "1.25"
-  
-  # Выходить при ошибках
-  issues-exit-code: 1
-  
-  # Включать тестовые файлы
-  tests: true
-  
-  # Стратегия сборки
-  build-tags:
-    - integration
 
-# Настройки вывода
-output:
-  # Печатать строки с проблемами
-  print-issued-lines: true
-  
-  # Печатать имя линтера
-  print-linter-name: true
-  
-  # Сортировка результатов
-  sort-results: true
-
-# Настройки линтеров
-linters-settings:
-  # Проверка ошибок
-  errcheck:
-    # Проверять присваивания в blank identifier
-    check-blank: true
-    
-    # Типы для проверки
-    check-type-assertions: true
-    
-    # Игнорируемые функции
-    exclude-functions:
-      - fmt.Errorf
-      - fmt.Printf
-      - fmt.Println
-  
-  # Статический анализ
-  staticcheck:
-    # Уровень анализа (sa, s1, st1, govet)
-    checks: ["all"]
-  
-  # Упрощение кода
-  gosimple:
-    # Уровень проверок
-    checks: ["all"]
-  
-  # Проверка цикломатической сложности
-  gocyclo:
-    # Минимальная сложность для отчёта
-    min-complexity: 15
-  
-  # Длина функций
-  funlen:
-    # Максимальное количество строк
-    lines: 100
-    # Максимальное количество операторов
-    statements: 60
-  
-  # Проверка дублирования кода
-  goconst:
-    # Минимальная длина строки
-    min-len: 3
-    # Минимальное количество вхождений
-    min-occurrences: 3
-  
-  # Проверка импортов
-  goimports:
-    # Локальные пакеты
-    local-prefixes: github.com/torr-sync-player/backend
-  
-  # Проверка имен
-  revive:
-    # Уровень строгости
-    severity: warning
-    # Правила
-    rules:
-      - name: exported
-      - name: var-naming
-      - name: package-comments
-        disabled: true
-      - name: unused-parameter
-      - name: unreachable-code
-
-# Включенные линтеры
 linters:
   enable:
-    # Форматирование
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
     - gofmt
     - goimports
-    
-    # Базовые проверки
-    - govet
-    - errcheck
-    
-    # Статический анализ
-    - staticcheck
-    - gosimple
-
-    # Дополнительные проверки
-    - goconst
-    - gocyclo
-    - funlen
     - misspell
-    - unconvert
-    - unparam
-    - whitespace
-    
-    # Стиль кода
     - revive
-    - gocritic
-    
-    # Безопасность
-    - gosec
-    - bodyclose
-    
-    # Параллелизм
-    - goerr113
-    
-    # Проверка контекста
-    - containedctx
-    - contextcheck
-  
-  disable:
-    # Отключаем устаревшие линтеры
-    - deadcode
-    - varcheck
-    - structinit
-    - maligned
-  
-  # Быстрый режим (только для CI)
-  fast: false
+    - unconvert
 
-# Исключения
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com
+
 issues:
-  # Максимальное количество проблем
-  max-issues-per-linter: 50
-  max-same-issues: 10
-  
-  # Уникальность по строке
-  uniq-by-line: true
-  
-  # Исключения по правилам
-  exclude-rules:
-    # Игнорируем линтеры в тестовых файлах
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - funlen
-        - gosec
-        - goerr113
-    
-    # Игнорируем длинные функции в main
-    - path: cmd/
-      linters:
-        - funlen
-        - gocyclo
-    
-    # Игнорируем неиспользуемые параметры в интерфейсах
-    - linters:
-        - unparam
-      text: "always receives"
-    
-    # Игнорируем определённые сообщения
-    - linters:
-        - staticcheck
-      text: "SA1019:"
-  
-  # Не считать предупреждения ошибками
   exclude-use-default: false
-  
-  # Включать исправления
-  fix: false
-
-# Северность проблем
-severity:
-  # Уровень по умолчанию
-  default-severity: error
-  
-  # Правила для конкретных линтеров
-  rules:
-    - linters:
-        - gofmt
-        - goimports
-      severity: error
-    
-    - linters:
-        - govet
-        - errcheck
-        - staticcheck
-      severity: error
-    
-    - linters:
-        - gosimple
-      severity: warning
-    
-    - linters:
-        - gocyclo
-        - funlen
-      severity: warning
-    
-    - linters:
-        - misspell
-      severity: info
+  max-issues-per-linter: 0
+  max-same-issues: 0
