@@ -14,7 +14,9 @@ permissions:
   contents: write
 
 jobs:
+  # ────────────────────────────────────────────────────────────
   # Сборка всех компонентов на разных платформах
+  # ────────────────────────────────────────────────────────────
   build-all:
     name: Сборка (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -36,19 +38,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # ── Setup Go ──────────────────────────────────────────────
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.24"
           cache: true
           cache-dependency-path: backend/go.sum
 
+      # ── Сборка backend ────────────────────────────────────────
       - name: Сборка backend
         working-directory: ./backend
-        run: make build
+        run: |
+          go build -ldflags "-s -w" -o build/torrsyncplayer${{ matrix.platform == 'windows' && '.exe' || '' }} ./cmd/server
 
-      # Установка зависимостей для Linux
+      # ── Установка зависимостей (Linux) ────────────────────────
       - name: Установка зависимостей (Linux)
         if: matrix.platform == 'linux'
         run: |
@@ -62,11 +69,13 @@ jobs:
             libxkbcommon-dev \
             libxcb-xinerama0 \
             libxcb-xinput-dev \
-            libxcb-xfixes0-dev
+            libxcb-xfixes0-dev \
+            libfuse2
 
+      # ── Установка Qt ──────────────────────────────────────────
       - name: Установка Qt (Linux)
         if: matrix.platform == 'linux'
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.*"
           host: "linux"
@@ -75,10 +84,9 @@ jobs:
           modules: "qt5compat qtmultimedia"
           cache: true
 
-      # Установка зависимостей для Windows
       - name: Установка Qt (Windows)
         if: matrix.platform == 'windows'
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.*"
           host: "windows"
@@ -87,10 +95,9 @@ jobs:
           modules: "qt5compat qtmultimedia"
           cache: true
 
-      # Установка зависимостей для macOS
       - name: Установка Qt (macOS)
         if: matrix.platform == 'macos'
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.*"
           host: "mac"
@@ -99,71 +106,189 @@ jobs:
           modules: "qt5compat qtmultimedia"
           cache: true
 
-      # Сборка frontend
+      # ── Сборка frontend (Linux) ───────────────────────────────
       - name: Сборка frontend (Linux)
         if: matrix.platform == 'linux'
         run: |
           cd frontend
           mkdir -p build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           ninja
 
+      # ── Сборка frontend (Windows) ─────────────────────────────
       - name: Сборка frontend (Windows)
         if: matrix.platform == 'windows'
         shell: cmd
         run: |
           cd frontend
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%Qt6_DIR%" .
+          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=ON .
           cmake --build . --config Release
+          
+          mkdir ..\release\TorrSyncPlayer-windows-x64
+          copy Release\TorrSyncPlayer.exe ..\release\TorrSyncPlayer-windows-x64\
+          copy ..\bin\torrsyncplayer-backend.exe ..\release\TorrSyncPlayer-windows-x64\
+          
+          cd ..\release
+          powershell Compress-Archive -Path TorrSyncPlayer-windows-x64\* -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
 
+      # ── Сборка frontend (macOS) ───────────────────────────────
       - name: Сборка frontend (macOS)
         if: matrix.platform == 'macos'
         run: |
           cd frontend
           mkdir -p build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           ninja
 
-      # Создание архива
-      - name: Создание архива (Linux)
+      # ── Создание архива (Linux → AppImage) ────────────────────
+      - name: Создание AppImage (Linux)
         if: matrix.platform == 'linux'
         run: |
-          mkdir -p release
-          cp backend/bin/* release/ 2>/dev/null || cp backend/torrserver* release/ 2>/dev/null || true
-          cp frontend/build/TorrSyncPlayer* release/ 2>/dev/null || true
-          cd release
-          tar -czf ../TorrSyncPlayer-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+          # Создаём директорию для AppDir
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/lib
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 
-      - name: Создание архива (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path release
-          Copy-Item -Path "backend\bin\*" -Destination release -ErrorAction SilentlyContinue
-          Copy-Item -Path "backend\torrserver*" -Destination release -ErrorAction SilentlyContinue
-          Copy-Item -Path "frontend\build\TorrSyncPlayer*" -Destination release -ErrorAction SilentlyContinue
-          Compress-Archive -Path "release\*" -DestinationPath "TorrSyncPlayer-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
+          # Копируем бинарники
+          cp backend/build/torrsyncplayer AppDir/usr/bin/
+          cp frontend/build/TorrSyncPlayer AppDir/usr/bin/
 
-      - name: Создание архива (macOS)
+          # Копируем иконку
+          cp frontend/resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png 2>/dev/null || true
+
+          # Создаём .desktop файл
+          cat > AppDir/usr/share/applications/torrsyncplayer.desktop << 'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=TorrSyncPlayer
+          Exec=TorrSyncPlayer
+          Icon=torrsyncplayer
+          Categories=AudioVideo;Video;Player;
+          Comment=Sync torrent streaming player
+          EOF
+
+          # Создаём скрипт-обёртку для запуска
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          APPDIR="$(dirname "$(readlink -f "$0")")"
+          export PATH="$APPDIR/usr/bin:$PATH"
+          export LD_LIBRARY_PATH="$APPDIR/usr/lib:$LD_LIBRARY_PATH"
+          exec "$APPDIR/usr/bin/TorrSyncPlayer" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+          # Скачиваем linuxdeployqt
+          wget -q "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage" -O linuxdeployqt.AppImage
+          chmod +x linuxdeployqt.AppImage
+
+          # Собираем AppImage
+          ./linuxdeployqt.AppImage AppDir/usr/share/applications/torrsyncplayer.desktop \
+            -appimage \
+            -qmake=${Qt6_DIR}/bin/qmake \
+            -extra-plugins=iconengines,platformthemes/libqgtk3.so
+
+          # Переименовываем результат
+          mv TorrSyncPlayer-*.AppImage TorrSyncPlayer-linux-x64.AppImage 2>/dev/null || \
+            mv *.AppImage TorrSyncPlayer-linux-x64.AppImage 2>/dev/null || true
+
+      # ── Создание архива (macOS → .dmg) ────────────────────────
+      - name: Создание .dmg (macOS)
         if: matrix.platform == 'macos'
         run: |
-          mkdir -p release
-          cp backend/bin/* release/ 2>/dev/null || cp backend/torrserver* release/ 2>/dev/null || true
-          cp frontend/build/TorrSyncPlayer* release/ 2>/dev/null || true
-          cd release
-          tar -czf ../TorrSyncPlayer-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz .
+          # Создаём .app bundle
+          mkdir -p TorrSyncPlayer.app/Contents/MacOS
+          mkdir -p TorrSyncPlayer.app/Contents/Resources
+          mkdir -p TorrSyncPlayer.app/Contents/Frameworks
 
-      - name: Загрузка артефакта
+          # Копируем бинарники
+          cp backend/build/torrsyncplayer TorrSyncPlayer.app/Contents/MacOS/
+          cp frontend/build/TorrSyncPlayer TorrSyncPlayer.app/Contents/MacOS/
+
+          # Копируем иконку
+          cp frontend/resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
+
+          # Создаём Info.plist
+          cat > TorrSyncPlayer.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>TorrSyncPlayer</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.torrsyncplayer.app</string>
+            <key>CFBundleName</key>
+            <string>TorrSyncPlayer</string>
+            <key>CFBundleVersion</string>
+            <string>1.0.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+          </dict>
+          </plist>
+          EOF
+
+          # Запускаем macdeployqt для копирования зависимостей
+          ${Qt6_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg -verbose=1 2>/dev/null || \
+            echo "macdeployqt не удался, создаём DMG вручную"
+
+          # Если macdeployqt не создал DMG, создаём вручную
+          if [ ! -f TorrSyncPlayer.dmg ]; then
+            # Создаём временную директорию для DMG
+            mkdir -p dmg_temp
+            cp -R TorrSyncPlayer.app dmg_temp/
+
+            # Создаём символическую ссылку на Applications
+            ln -s /Applications dmg_temp/Applications
+
+            # Создаём DMG
+            hdiutil create -volname "TorrSyncPlayer" \
+              -srcfolder dmg_temp \
+              -ov -format UDZO \
+              TorrSyncPlayer.dmg
+
+            rm -rf dmg_temp
+          fi
+
+          # Переименовываем
+          mv TorrSyncPlayer.dmg TorrSyncPlayer-macos-arm64.dmg 2>/dev/null || true
+
+      # ── Загрузка артефакта ────────────────────────────────────
+      - name: Загрузка артефакта (Linux)
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}-${{ matrix.arch }}
-          path: TorrSyncPlayer-${{ matrix.platform }}-${{ matrix.arch }}.*
+          name: release-linux-x64
+          path: TorrSyncPlayer-linux-x64.AppImage
+          if-no-files-found: warn
           retention-days: 30
 
+      - name: Загрузка артефакта (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x64
+          path: TorrSyncPlayer-windows-x64.zip
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Загрузка артефакта (macOS)
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: TorrSyncPlayer-macos-arm64.dmg
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────
   # Создание GitHub Release
+  # ────────────────────────────────────────────────────────────
   create-release:
     name: Создание релиза
     needs: build-all
@@ -186,13 +311,13 @@ jobs:
         id: changelog
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          
+
           if [ -z "$PREV_TAG" ]; then
             CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges)
           else
             CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
           fi
-          
+
           echo "## Изменения в этом релизе" > changelog.md
           echo "" >> changelog.md
           echo "$CHANGES" >> changelog.md
@@ -201,14 +326,14 @@ jobs:
           echo "" >> changelog.md
           echo "| Платформа | Архив |" >> changelog.md
           echo "|-----------|-------|" >> changelog.md
-          echo "| Linux x64 | TorrSyncPlayer-linux-x64.tar.gz |" >> changelog.md
+          echo "| Linux x64 | TorrSyncPlayer-linux-x64.AppImage |" >> changelog.md
           echo "| Windows x64 | TorrSyncPlayer-windows-x64.zip |" >> changelog.md
-          echo "| macOS ARM64 | TorrSyncPlayer-macos-arm64.tar.gz |" >> changelog.md
-          
+          echo "| macOS ARM64 | TorrSyncPlayer-macos-arm64.dmg |" >> changelog.md
+
           cat changelog.md
 
       - name: Создание релиза
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           body_path: changelog.md
           files: artifacts/*

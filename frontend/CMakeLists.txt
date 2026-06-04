@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 project(TorrSyncPlayer VERSION 1.0 LANGUAGES CXX)
 
+# ── Опция статической сборки ───────────────────────────────────────────
+option(STATIC_BUILD "Build static executable" OFF)
+
+if(STATIC_BUILD AND WIN32)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+    set(BUILD_SHARED_LIBS OFF)
+    set(Qt6_STATIC ON)
+    
+    # Статические флаги линковки
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+endif()
+
 # ── Стандарт и автоматизация ──────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,6 +84,20 @@ if(WIN32)
         gdi32
         user32
     )
+    
+    # Статические зависимости для самостоятельного exe
+    if(STATIC_BUILD)
+        target_link_libraries(${PROJECT_NAME} PRIVATE
+            -static-libgcc
+            -static-libstdc++
+            -lws2_32
+            -lwinmm
+            -limm32
+            -lversion
+            -lsetupapi
+            -lcfgmgr32
+        )
+    endif()
 endif()
 
 # ── Установка RPATH для Linux/macOS ───────────────────────────────────
