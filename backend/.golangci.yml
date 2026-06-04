@@ -8,7 +8,7 @@ run:
   timeout: 5m
   
   # Версия Go
-  go: "1.24"
+  go: "1.25"
   
   # Выходить при ошибках
   issues-exit-code: 1
@@ -148,6 +148,9 @@ issues:
   # Максимальное количество проблем
   max-issues-per-linter: 50
   max-same-issues: 10
+  
+  # Уникальность по строке
+  uniq-by-line: true
   
   # Исключения по правилам
   exclude-rules:

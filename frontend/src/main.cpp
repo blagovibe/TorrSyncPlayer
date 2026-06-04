@@ -256,8 +256,8 @@ int main(int argc, char *argv[])
     // ── Настройка приложения ──────────────────────────────────────────
     
     // Включаем поддержку высокого DPI
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    // QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);  // deprecated in Qt 6
+    // QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);     // deprecated in Qt 6
     
     // Создаём приложение
     QApplication app(argc, argv);
