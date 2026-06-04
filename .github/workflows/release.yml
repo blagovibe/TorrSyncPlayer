@@ -157,7 +157,7 @@ jobs:
         run: |
           cd frontend
           
-          # Создаём символическую ссылку на qmake чтобы linuxdeployqt нашёл его
+          # Создаём символическую ссылку на qmake
           sudo ln -sf ${{ env.Qt6_DIR }}/bin/qmake /usr/bin/qmake
           
           # Создаём AppDir структуру
@@ -165,8 +165,8 @@ jobs:
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           
-          # Копируем бинарники
-          cp Release/TorrSyncPlayer AppDir/usr/bin/
+          # Копируем бинарники (на Linux бинарник в корне, не в Release/)
+          cp TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp build/TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp Release/TorrSyncPlayer AppDir/usr/bin/
           cp ../bin/torrsyncplayer-backend AppDir/usr/bin/
           
           # Копируем иконку
