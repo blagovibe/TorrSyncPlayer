@@ -155,6 +155,9 @@ jobs:
       - name: Создание AppImage (Linux)
         if: matrix.platform == 'linux'
         run: |
+          # Добавляем Qt в PATH для linuxdeployqt
+          export PATH="${Qt6_DIR}/bin:$PATH"
+
           # Создаём директорию для AppDir
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/lib
