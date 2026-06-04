@@ -84,16 +84,15 @@ jobs:
           modules: "qt5compat qtmultimedia"
           cache: true
 
-      - name: Установка Qt (Windows)
+      - name: Setup Qt (MinGW)
         if: matrix.platform == 'windows'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
-          host: "windows"
-          target: "desktop"
-          arch: "win64_msvc2019_64"
-          modules: "qt5compat qtmultimedia"
-          cache: true
+          version: '6.5.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw'
+          tools: 'tools_mingw,qt.tools.win64_mingw'
 
       - name: Установка Qt (macOS)
         if: matrix.platform == 'macos'
@@ -124,56 +123,37 @@ jobs:
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           ninja
 
-      # ── Сборка frontend (Windows, MSVC + Enigma Virtual Box) ─
-      - name: Сборка frontend (Windows)
-        if: matrix.platform == 'windows'
-        shell: cmd
-        run: |
-          cd frontend
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DCMAKE_BUILD_TYPE=Release .
-          cmake --build . --config Release
-
-          mkdir release
-          copy Release\TorrSyncPlayer.exe release\
-          copy ..\bin\torrsyncplayer-backend.exe release\
-          windeployqt --release --no-translations --no-compiler-runtime release\TorrSyncPlayer.exe
-
-      - name: Package portable exe (Windows)
+      # ── Сборка frontend (Windows, static MinGW) ──────────────
+      - name: Build frontend (Windows, static)
         if: matrix.platform == 'windows'
         shell: powershell
         run: |
-          cd frontend\release
-          
-          # Скачиваем Enigma Virtual Box
-          Invoke-WebRequest -Uri "https://enigmaprotector.com/assets/files/enigmavb.exe" -OutFile "enigmavb.exe"
-          
-          # Создаём скрипт для Enigma
-          $script = @"
-          [Main]
-          InputFile=TorrSyncPlayer.exe
-          OutputFile=TorrSyncPlayer-portable.exe
-          Compress=1
-          Uncompress=1
-          Files=*
-          Directories=*
-          Registry=0
-          Delete=1
-          "@
-          $script | Out-File -FilePath "enigma_script.ini" -Encoding ASCII
-          
-          # Запускаем Enigma Virtual Box
-          Start-Process -FilePath ".\enigmavb.exe" -ArgumentList "enigma_script.ini" -Wait
-          
-          # Проверяем результат
-          if (Test-Path "TorrSyncPlayer-portable.exe") {
-            Write-Host "Portable exe created successfully!"
-            $size = (Get-Item "TorrSyncPlayer-portable.exe").Length
-            Write-Host "Size: $size bytes"
-          } else {
-            Write-Host "ERROR: Portable exe not created"
-            exit 1
-          }
+          cd frontend
+
+          # Добавляем MinGW и Qt в PATH
+          $env:PATH = "$env:Qt6_DIR\bin;C:\Qt\Tools\mingw1310_64\bin;$env:PATH"
+
+          # Конфигурируем со статической линковкой
+          cmake -G "MinGW Makefiles" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
+            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" `
+            -DCMAKE_CXX_FLAGS="-static" `
+            .
+
+          # Собираем
+          cmake --build . --config Release -j4
+
+          # Копируем backend
+          Copy-Item ..\bin\torrsyncplayer-backend.exe -Destination Release\
+
+          # Переименовываем frontend exe
+          Rename-Item Release\TorrSyncPlayer.exe TorrSyncPlayer-portable.exe -Force
+
+          # Проверяем что exe самостоятельный (нет зависимостей от DLL)
+          Write-Host "Checking dependencies..."
+          $deps = & "C:\Qt\Tools\mingw1310_64\bin\objdump.exe" -p Release\TorrSyncPlayer-portable.exe | Select-String "DLL Name"
+          Write-Host $deps
 
       # ── Сборка frontend (macOS) ───────────────────────────────
       - name: Сборка frontend (macOS)
@@ -300,7 +280,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: frontend/release/TorrSyncPlayer-portable.exe
+          path: frontend/Release/TorrSyncPlayer-portable.exe
           if-no-files-found: error
           retention-days: 30
 
