@@ -17,8 +17,7 @@
 #include <QEventLoop>
 
 NetworkManager::NetworkManager(QObject *parent)
-    : QObject(parent)
-    , INetworkManager(parent)
+    : INetworkManager(parent)
     , m_network(new QNetworkAccessManager(this))
     , m_serverUrl("http://localhost:8889")
     , m_retryTimer(new QTimer(this))

@@ -96,14 +96,16 @@ if(BUILD_TESTS)
         Qt6::Test
     )
     
-    # Автоматическая регистрация moc
+    # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_torrentmodel PROPERTIES
         AUTOMOC ON
+        AUTOMOC_SOURCE_FILE_EXTENSIONS "cpp;h"
     )
     
-    # Добавляем директорию сборки в include-пути для поиска .moc файлов
+    # Добавляем директорию сборки и src в include-пути для поиска .moc файлов
     target_include_directories(test_torrentmodel PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     
     add_test(NAME TorrentModelTest COMMAND test_torrentmodel)
@@ -113,6 +115,7 @@ if(BUILD_TESTS)
         src/test_networkmanager.cpp
         src/networkmanager.cpp
         src/networkmanager.h
+        src/inetworkmanager.h
     )
     
     add_executable(test_networkmanager ${TEST_NETWORK_MANAGER_SOURCES})
@@ -122,13 +125,16 @@ if(BUILD_TESTS)
         Qt6::Test
     )
     
+    # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_networkmanager PROPERTIES
         AUTOMOC ON
+        AUTOMOC_SOURCE_FILE_EXTENSIONS "cpp;h"
     )
     
-    # Добавляем директорию сборки в include-пути для поиска .moc файлов
+    # Добавляем директорию сборки и src в include-пути для поиска .moc файлов
     target_include_directories(test_networkmanager PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     
     add_test(NAME NetworkManagerTest COMMAND test_networkmanager)

@@ -35,12 +35,12 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
-      # Устанавливаем golangci-lint через go-install для совместимости с Go 1.25+
+      # Устанавливаем golangci-lint через binary для совместимости с Go 1.25+
       - name: Установка golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          install-mode: go-install
+          install-mode: binary
           working-directory: backend
 
       # Запускаем golangci-lint

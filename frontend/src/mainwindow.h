@@ -31,6 +31,8 @@
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QProgressBar>
+#include <QSplitter>
+#include <QStatusBar>
 #include <QJsonArray>
 #include <QCloseEvent>
 #include <QThread>
