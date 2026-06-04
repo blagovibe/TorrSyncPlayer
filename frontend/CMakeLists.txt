@@ -81,6 +81,14 @@ if(UNIX AND NOT APPLE)
     )
 endif()
 
+# ── Coverage ────────────────────────────────────────────────────────────
+option(ENABLE_COVERAGE "Enable code coverage flags" OFF)
+
+if(ENABLE_COVERAGE)
+    target_compile_options(${PROJECT_NAME} PRIVATE --coverage)
+    target_link_options(${PROJECT_NAME} PRIVATE --coverage)
+endif()
+
 # ── Unit-тесты ─────────────────────────────────────────────────────────
 option(BUILD_TESTS "Build unit tests" ON)
 
@@ -100,6 +108,11 @@ if(BUILD_TESTS)
         Qt6::Core
         Qt6::Test
     )
+    
+    if(ENABLE_COVERAGE)
+        target_compile_options(test_torrentmodel PRIVATE --coverage)
+        target_link_options(test_torrentmodel PRIVATE --coverage)
+    endif()
     
     # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_torrentmodel PROPERTIES
@@ -130,13 +143,18 @@ if(BUILD_TESTS)
         Qt6::Test
     )
     
+    if(ENABLE_COVERAGE)
+        target_compile_options(test_networkmanager PRIVATE --coverage)
+        target_link_options(test_networkmanager PRIVATE --coverage)
+    endif()
+    
     # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_networkmanager PROPERTIES
         AUTOMOC ON
         AUTOMOC_SOURCE_FILE_EXTENSIONS "cpp;h"
     )
     
-    # Добавляем директорию сборки и src в include-пути для поиска .moc файлов
+    # Добавляем директорию сборки и src в include-пути для поиска .мок файлов
     target_include_directories(test_networkmanager PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src

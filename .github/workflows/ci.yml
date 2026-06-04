@@ -220,7 +220,7 @@ jobs:
           cd frontend
           mkdir -p build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
           ninja
 
       - name: Установка lcov
