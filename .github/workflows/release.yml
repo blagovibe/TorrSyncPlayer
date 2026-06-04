@@ -77,7 +77,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.11.1"
+          version: "6.8.2"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
@@ -88,7 +88,7 @@ jobs:
         if: matrix.platform == 'windows'
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.1'
+          version: '6.8.2'
           host: 'windows'
           target: 'desktop'
           arch: 'win64_mingw'
@@ -98,7 +98,7 @@ jobs:
         if: matrix.platform == 'macos'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.11.1"
+          version: "6.8.2"
           host: "mac"
           target: "desktop"
           arch: "clang_64"
@@ -130,8 +130,8 @@ jobs:
         run: |
           cd frontend
 
-          # Добавляем MinGW и Qt в PATH (Qt 6.11.1 использует MinGW 17.x)
-          $env:PATH = "$env:Qt6_DIR\bin;$env:Qt6_DIR\..\..\Tools\mingw1700_64\bin;$env:PATH"
+          # Добавляем MinGW и Qt в PATH (Qt 6.8.2 использует MinGW 13.x)
+          $env:PATH = "$env:Qt6_DIR\bin;$env:Qt6_DIR\..\..\Tools\mingw1310_64\bin;$env:PATH"
 
           # Конфигурируем со статической линковкой
           cmake -G "MinGW Makefiles" `
@@ -152,7 +152,7 @@ jobs:
 
           # Проверяем что exe самостоятельный (нет зависимостей от DLL)
           Write-Host "Checking dependencies..."
-          $deps = & "$env:Qt6_DIR\..\..\Tools\mingw1700_64\bin\objdump.exe" -p Release\TorrSyncPlayer-portable.exe | Select-String "DLL Name"
+          $deps = & "$env:Qt6_DIR\..\..\Tools\mingw1310_64\bin\objdump.exe" -p Release\TorrSyncPlayer-portable.exe | Select-String "DLL Name"
           Write-Host $deps
 
       # ── Сборка frontend (macOS) ───────────────────────────────
