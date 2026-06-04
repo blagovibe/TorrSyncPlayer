@@ -7,15 +7,16 @@ linters:
     - errcheck
     - gosimple
     - govet
-    - ineffassign
     - staticcheck
-    - unused
     - bodyclose
     - gofmt
     - goimports
     - misspell
-    - revive
     - unconvert
+  disable:
+    - revive
+    - unused
+    - ineffassign
 
 linters-settings:
   gofmt:

@@ -9,7 +9,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 # ── Поиск зависимостей ────────────────────────────────────────────────
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg OpenGL OpenGLWidgets Test)
 find_package(PkgConfig)
 if(PkgConfig_FOUND)
     pkg_check_modules(MPV QUIET mpv)
@@ -53,6 +53,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Svg
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
 )
 
 if(MPV_FOUND)
