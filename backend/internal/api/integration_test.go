@@ -320,11 +320,15 @@ func setupIntegrationTestServer() (*httptest.Server, *integrationTestServices) {
 		authStore:  auth.NewUserStore(),
 	}
 
+	// Создаём auth service для тестов
+	authService := auth.NewAuthService([]byte("test-secret-for-integration-tests-32bytes!"))
+
 	config := RouterConfig{
-		TorrentSvc: services.torrentSvc,
-		P2pSvc:     services.p2pSvc,
-		SyncSvc:    services.syncSvc,
-		AuthStore:  services.authStore,
+		TorrentSvc:  services.torrentSvc,
+		P2pSvc:      services.p2pSvc,
+		SyncSvc:     services.syncSvc,
+		AuthStore:   services.authStore,
+		AuthService: authService,
 	}
 
 	router := NewRouter(config)

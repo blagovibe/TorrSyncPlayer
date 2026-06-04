@@ -27,7 +27,13 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	bufferSvc := buffer.NewService(64 * 1024 * 1024) // 64 МБ для тестов
 
 	// Инициализация сервисов (всегда in-memory)
-	torrentSvc, err := torrent.NewService(bufferSvc)
+	// Используем ListenPort: 0 для динамического выбора свободного порта
+	torrentSvc, err := torrent.NewServiceWithOptions(bufferSvc, torrent.ServiceOptions{
+		NoDHT:      true,
+		DisableUTP: true,
+		DisableTCP: true,
+		ListenPort: 0,
+	})
 	require.NoError(t, err)
 
 	p2pSvc, err := p2p.NewService(auth.NewAuthService([]byte("test-secret-key-for-e2e-tests")))

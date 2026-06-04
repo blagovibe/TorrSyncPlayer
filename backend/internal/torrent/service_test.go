@@ -29,10 +29,13 @@ func createTestService(t *testing.T) *Service {
 
 	bufferSvc := buffer.NewService(64 * 1024 * 1024)
 
+	// Используем ListenPort: 0 для динамического выбора свободного порта
+	// Это предотвращает конфликты портов при параллельном запуске тестов
 	svc, err := NewServiceWithOptions(bufferSvc, ServiceOptions{
 		NoDHT:      true,
 		DisableUTP: true,
 		DisableTCP: true,
+		ListenPort: 0,
 	})
 	require.NoError(t, err)
 

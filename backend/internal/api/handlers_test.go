@@ -40,7 +40,13 @@ func initTorrentService() {
 	torrentOnce.Do(func() {
 		// Создаём сервис буферизации для тестов
 		bufferSvc := buffer.NewService(64 * 1024 * 1024) // 64 МБ для тестов
-		svc, err := torrent.NewService(bufferSvc)
+		// Используем ListenPort: 0 для динамического выбора свободного порта
+		svc, err := torrent.NewServiceWithOptions(bufferSvc, torrent.ServiceOptions{
+			NoDHT:      true,
+			DisableUTP: true,
+			DisableTCP: true,
+			ListenPort: 0,
+		})
 		if err != nil {
 			torrentInitErr = err
 			return
