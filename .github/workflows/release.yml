@@ -133,11 +133,11 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=ON .
           cmake --build . --config Release
-          
+
           mkdir ..\release\TorrSyncPlayer-windows-x64
           copy Release\TorrSyncPlayer.exe ..\release\TorrSyncPlayer-windows-x64\
           copy ..\bin\torrsyncplayer-backend.exe ..\release\TorrSyncPlayer-windows-x64\
-          
+
           cd ..\release
           powershell Compress-Archive -Path TorrSyncPlayer-windows-x64\* -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
 
@@ -156,22 +156,22 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           cd frontend
-          
+
           # Создаём символическую ссылку на qmake
           sudo ln -sf ${{ env.Qt6_DIR }}/bin/qmake /usr/bin/qmake
-          
+
           # Создаём AppDir структуру
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          
+
           # Копируем бинарники (на Linux бинарник в корне, не в Release/)
-          cp TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp build/TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp Release/TorrSyncPlayer AppDir/usr/bin/
-          cp ../bin/torrsyncplayer-backend AppDir/usr/bin/
-          
+          cp build/TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp Release/TorrSyncPlayer AppDir/usr/bin/
+          cp ../../backend/cmd/server/torrsyncplayer-backend AppDir/usr/bin/ 2>/dev/null || cp ../../bin/torrsyncplayer-backend AppDir/usr/bin/ 2>/dev/null || echo "Backend binary not found, skipping"
+
           # Копируем иконку
           cp resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png
-          
+
           # Создаём .desktop файл
           cat > AppDir/usr/share/applications/torrsyncplayer.desktop << EOF
           [Desktop Entry]
@@ -181,10 +181,10 @@ jobs:
           Type=Application
           Categories=AudioVideo;
           EOF
-          
+
           # Создаём AppImage
           linuxdeployqt AppDir/usr/share/applications/torrsyncplayer.desktop -appimage
-          
+
           # Переименовываем результат
           mv *.AppImage torrSyncPlayer-linux-x64.AppImage
 
@@ -216,7 +216,7 @@ jobs:
             <string>com.torrsyncplayer.app</string>
             <key>CFBundleName</key>
             <string>TorrSyncPlayer</string>
-            <key>CFBundleVersion</string>
+            <key>CFBundleVersion</key>
             <string>1.0.0</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
@@ -266,7 +266,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: TorrSyncPlayer-windows-x64.zip
+          path: frontend/release/TorrSyncPlayer-windows-x64.zip
           if-no-files-found: warn
           retention-days: 30
 
