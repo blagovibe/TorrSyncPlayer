@@ -36,12 +36,11 @@ type RouterConfig struct {
 func NewRouter(config RouterConfig) http.Handler {
 	r := chi.NewRouter()
 
-	// Подключаем глобальные middleware (порядок важен!)
+	// Подключаем базовые middleware (порядок важен!)
 	r.Use(SecurityHeadersMiddleware) // 1. Заголовки безопасности (первый слой)
 	r.Use(Recovery)                  // 2. Перехват паник
 	r.Use(CORS)                      // 3. CORS обработка
 	r.Use(Logger)                    // 4. Логирование
-	r.Use(CSRFMiddleware)            // 5. CSRF защита
 
 	// Swagger UI
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
@@ -73,23 +72,23 @@ func NewRouter(config RouterConfig) http.Handler {
 	// Создаём обработчик аутентификации
 	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)
 
-	// API v1
-	r.Route("/api/v1", func(r chi.Router) {
-		// Auth endpoints с более строгим лимитом (10/мин) и без аутентификации
-		r.Route("/auth", func(r chi.Router) {
-			r.Use(NewRateLimiter(rate.Limit(0.17), 5)) // ~10 запросов/минуту
-			r.Post("/register", authHandler.Register)
-			r.Post("/login", authHandler.Login)
-			r.Post("/logout", config.AuthService.LogoutHandler)
-		})
+	// Auth endpoints — без CSRF защиты (публичные endpoints)
+	// Rate limiting: 10 запросов/минуту
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Use(NewRateLimiter(rate.Limit(0.17), 5))
+		r.Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+		r.Post("/logout", config.AuthService.LogoutHandler)
+	})
 
-		// Защищённые endpoints
-		r.Group(func(r chi.Router) {
-			// Rate limiting: 60 запросов/минуту (1/сек, burst 10)
-			r.Use(NewRateLimiter(rate.Limit(1), 10))
-			// JWT аутентификация
-			r.Use(config.AuthService.JWTMiddleware)
+	// Защищённые endpoints — с CSRF, Rate limiting и JWT аутентификацией
+	r.Group(func(r chi.Router) {
+		r.Use(CSRFMiddleware)                    // 5. CSRF защита
+		r.Use(NewRateLimiter(rate.Limit(1), 10)) // 60 запросов/минуту
+		r.Use(config.AuthService.JWTMiddleware)  // JWT аутентификация
 
+		// API v1
+		r.Route("/api/v1", func(r chi.Router) {
 			// Torrent endpoints
 			r.Route("/torrents", func(r chi.Router) {
 				r.Get("/", ListTorrents(config.TorrentSvc))
@@ -122,6 +121,16 @@ func NewRouter(config RouterConfig) http.Handler {
 			// Detailed health check (требует JWT аутентификации)
 			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))
 		})
+
+		// Обработчик 404 для неизвестных маршрутов внутри защищённой группы
+		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+			WriteError(w, http.StatusNotFound, "Маршрут не найден")
+		})
+	})
+
+	// Обработчик 404 для всех остальных неизвестных маршрутов
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		WriteError(w, http.StatusNotFound, "Маршрут не найден")
 	})
 
 	logger.Info("HTTP роутер настроен")

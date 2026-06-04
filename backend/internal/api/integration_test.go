@@ -144,7 +144,7 @@ func (m *integrationMockP2PService) CreateRoom(name, password string) (*models.R
 	}
 
 	room := &models.RoomInfo{
-		ID:        "test-room-id-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:        "0123456789abcdef0123456789abcdef",
 		Name:      name,
 		HostID:    "test-host-id",
 		PeerCount: 1,

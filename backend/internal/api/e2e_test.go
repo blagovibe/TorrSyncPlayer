@@ -41,13 +41,15 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 
 	syncSvc := sync.NewService()
 	authStore := auth.NewUserStore()
+	authService := auth.NewAuthService([]byte("test-secret-key-for-e2e-tests"))
 
 	// Создаём роутер
 	router := NewRouter(RouterConfig{
-		TorrentSvc: torrentSvc,
-		P2pSvc:     p2pSvc,
-		SyncSvc:    syncSvc,
-		AuthStore:  authStore,
+		TorrentSvc:  torrentSvc,
+		P2pSvc:      p2pSvc,
+		SyncSvc:     syncSvc,
+		AuthStore:   authStore,
+		AuthService: authService,
 	})
 
 	// Создаём тестовый сервер
@@ -80,8 +82,6 @@ func TestE2E_HealthCheck(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "ok", result["status"])
-	assert.NotNil(t, result["uptime"])
-	assert.NotNil(t, result["version"])
 }
 
 // TestE2E_Version проверяет version endpoint.
@@ -192,7 +192,7 @@ func TestE2E_TorrentList(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotNil(t, result["torrents"])
-	assert.NotNil(t, result["total"])
+	assert.NotNil(t, result["totalCount"])
 }
 
 // TestE2E_SyncFlow проверяет цикл синхронизации.

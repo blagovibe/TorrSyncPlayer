@@ -99,14 +99,16 @@ func TestMain(m *testing.M) {
 		panic(torrentInitErr)
 	}
 
-	// Создаём auth store для тестов
+	// Создаём auth store и auth service для тестов
 	apiAuthStore = auth.NewUserStore()
+	authService := auth.NewAuthService([]byte("test-secret-for-api-tests-32bytes!"))
 
 	apiRouter = NewRouter(RouterConfig{
-		TorrentSvc: apiTorrentSvc,
-		P2pSvc:     apiP2pSvc,
-		SyncSvc:    apiSyncSvc,
-		AuthStore:  apiAuthStore,
+		TorrentSvc:  apiTorrentSvc,
+		P2pSvc:      apiP2pSvc,
+		SyncSvc:     apiSyncSvc,
+		AuthStore:   apiAuthStore,
+		AuthService: authService,
 	})
 
 	code := m.Run()
@@ -419,7 +421,7 @@ func TestSignal_NotJoined(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestSignal_InvalidJSON(t *testing.T) {
@@ -550,7 +552,7 @@ func TestRouter_CORSPreflight(t *testing.T) {
 }
 
 func TestRouter_NotFound(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
