@@ -25,9 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
-            arch: x64
+            artifact: linux-x64
           - os: windows-latest
             platform: windows
             arch: x64
@@ -106,6 +106,14 @@ jobs:
           modules: "qt5compat qtmultimedia"
           cache: true
 
+      # ── Установка linuxdeployqt ─────────────────────────────────
+      - name: Установка linuxdeployqt
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          wget -q "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage" -O linuxdeployqt
+          chmod +x linuxdeployqt
+          sudo mv linuxdeployqt /usr/local/bin/
+
       # ── Сборка frontend (Linux) ───────────────────────────────
       - name: Сборка frontend (Linux)
         if: matrix.platform == 'linux'
@@ -181,12 +189,8 @@ jobs:
           EOF
           chmod +x AppDir/AppRun
 
-          # Скачиваем linuxdeployqt
-          wget -q "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage" -O linuxdeployqt.AppImage
-          chmod +x linuxdeployqt.AppImage
-
           # Собираем AppImage
-          ./linuxdeployqt.AppImage AppDir/usr/share/applications/torrsyncplayer.desktop \
+          linuxdeployqt AppDir/usr/share/applications/torrsyncplayer.desktop \
             -appimage \
             -qmake=${Qt6_DIR}/bin/qmake \
             -extra-plugins=iconengines,platformthemes/libqgtk3.so
