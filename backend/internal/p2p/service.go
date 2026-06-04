@@ -16,8 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/webrtc/v4"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/pion/webrtc/v4"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"

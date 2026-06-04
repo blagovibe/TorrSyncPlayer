@@ -9,9 +9,10 @@ package api
 import (
 	"net/http"
 
+	"golang.org/x/time/rate"
+
 	"github.com/go-chi/chi/v5"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
-	"golang.org/x/time/rate"
 
 	_ "github.com/blagovibe/TorrSyncPlayer/backend/docs"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
