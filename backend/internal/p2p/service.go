@@ -16,13 +16,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/webrtc/v4"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
-	"github.com/pion/webrtc/v4"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Константы P2P сервиса

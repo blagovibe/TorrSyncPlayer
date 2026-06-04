@@ -14,10 +14,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 var (

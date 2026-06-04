@@ -13,9 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
-	"golang.org/x/time/rate"
 )
 
 // ── CSRF Protection ─────────────────────────────────────────────────────
