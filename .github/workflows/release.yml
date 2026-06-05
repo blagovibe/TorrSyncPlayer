@@ -81,8 +81,9 @@ jobs:
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
-          modules: "qt5compat qtmultimedia"
           cache: true
+          modules: "qtbase qtsvg qtimageformats"
+          set-env: true
 
       - name: Setup Qt (MinGW)
         if: matrix.platform == 'windows'
@@ -93,6 +94,8 @@ jobs:
           target: 'desktop'
           arch: 'win64_mingw'
           tools: 'tools_mingw'
+          modules: "qtbase qtsvg qtimageformats"
+          set-env: true
 
       - name: Установка Qt (macOS)
         if: matrix.platform == 'macos'
@@ -102,8 +105,9 @@ jobs:
           host: "mac"
           target: "desktop"
           arch: "clang_64"
-          modules: "qt5compat qtmultimedia"
           cache: true
+          modules: "qtbase qtsvg qtimageformats"
+          set-env: true
 
       # ── Установка linuxdeployqt ─────────────────────────────────
       - name: Установка linuxdeployqt
@@ -130,8 +134,18 @@ jobs:
         run: |
           cd frontend
 
-          # Добавляем MinGW и Qt в PATH (Qt 6.8.2 использует MinGW 13.x)
-          $env:PATH = "$env:Qt6_DIR\bin;$env:Qt6_DIR\..\..\Tools\mingw1310_64\bin;$env:PATH"
+          # Добавляем MinGW и Qt в PATH (Qt 6.8.2 использует MinGW 13.2)
+          $mingwPath = "$env:Qt6_DIR\..\..\Tools\mingw1320_64\bin"
+          if (-not (Test-Path $mingwPath)) {
+            # Fallback: ищем любую версию MinGW в Tools
+            $toolsDir = "$env:Qt6_DIR\..\..\Tools"
+            $mingwDirs = Get-ChildItem -Path $toolsDir -Directory -Filter "mingw*" -ErrorAction SilentlyContinue
+            if ($mingwDirs.Count -gt 0) {
+              $mingwPath = Join-Path $mingwDirs[0].FullName "bin"
+            }
+          }
+          $env:PATH = "$env:Qt6_DIR\bin;$mingwPath;$env:PATH"
+          Write-Host "Using MinGW from: $mingwPath"
 
           # Конфигурируем со статической линковкой
           cmake -G "MinGW Makefiles" `
@@ -144,16 +158,26 @@ jobs:
           # Собираем
           cmake --build . --config Release -j4
 
-          # Копируем backend
-          Copy-Item ..\bin\torrsyncplayer-backend.exe -Destination Release\
+          # Проверяем что backend существует
+          $backendPath = "..\backend\build\torrsyncplayer.exe"
+          if (Test-Path $backendPath) {
+            Copy-Item $backendPath -Destination Release\
+            Write-Host "Backend binary copied successfully"
+          } else {
+            Write-Error "Backend binary not found at $backendPath"
+            exit 1
+          }
 
           # Переименовываем frontend exe
           Rename-Item Release\TorrSyncPlayer.exe TorrSyncPlayer-portable.exe -Force
 
           # Проверяем что exe самостоятельный (нет зависимостей от DLL)
           Write-Host "Checking dependencies..."
-          $deps = & "$env:Qt6_DIR\..\..\Tools\mingw1310_64\bin\objdump.exe" -p Release\TorrSyncPlayer-portable.exe | Select-String "DLL Name"
-          Write-Host $deps
+          $objdumpPath = Join-Path $mingwPath "objdump.exe"
+          if (Test-Path $objdumpPath) {
+            $deps = & $objdumpPath -p Release\TorrSyncPlayer-portable.exe | Select-String "DLL Name"
+            Write-Host $deps
+          }
 
       # ── Сборка frontend (macOS) ───────────────────────────────
       - name: Сборка frontend (macOS)
@@ -179,9 +203,28 @@ jobs:
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 
-          # Копируем бинарники (на Linux бинарник в корне, не в Release/)
-          cp build/TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp TorrSyncPlayer AppDir/usr/bin/ 2>/dev/null || cp Release/TorrSyncPlayer AppDir/usr/bin/
-          cp ../../backend/cmd/server/torrsyncplayer-backend AppDir/usr/bin/ 2>/dev/null || cp ../../bin/torrsyncplayer-backend AppDir/usr/bin/ 2>/dev/null || echo "Backend binary not found, skipping"
+          # Копируем бинарники
+          # Frontend собирается в frontend/build/TorrSyncPlayer
+          # Backend собирается в backend/build/torrsyncplayer
+          # Текущая директория: frontend/
+          FRONTEND_BIN="build/TorrSyncPlayer"
+          BACKEND_BIN="../backend/build/torrsyncplayer"
+
+          if [ -f "$FRONTEND_BIN" ]; then
+            cp "$FRONTEND_BIN" AppDir/usr/bin/TorrSyncPlayer
+            echo "Frontend binary copied"
+          else
+            echo "ERROR: Frontend binary not found at $FRONTEND_BIN"
+            ls -la build/ 2>/dev/null || echo "build/ directory does not exist"
+            exit 1
+          fi
+
+          if [ -f "$BACKEND_BIN" ]; then
+            cp "$BACKEND_BIN" AppDir/usr/bin/torrsyncplayer
+            echo "Backend binary copied"
+          else
+            echo "WARNING: Backend binary not found at $BACKEND_BIN, skipping"
+          fi
 
           # Копируем иконку
           cp resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png
@@ -206,14 +249,30 @@ jobs:
       - name: Создание .dmg (macOS)
         if: matrix.platform == 'macos'
         run: |
+          # Проверяем что бинарники существуют
+          BACKEND_BIN="backend/build/torrsyncplayer"
+          FRONTEND_BIN="frontend/build/TorrSyncPlayer"
+
+          if [ ! -f "$BACKEND_BIN" ]; then
+            echo "ERROR: Backend binary not found at $BACKEND_BIN"
+            ls -la backend/build/ 2>/dev/null || echo "backend/build/ directory does not exist"
+            exit 1
+          fi
+
+          if [ ! -f "$FRONTEND_BIN" ]; then
+            echo "ERROR: Frontend binary not found at $FRONTEND_BIN"
+            ls -la frontend/build/ 2>/dev/null || echo "frontend/build/ directory does not exist"
+            exit 1
+          fi
+
           # Создаём .app bundle
           mkdir -p TorrSyncPlayer.app/Contents/MacOS
           mkdir -p TorrSyncPlayer.app/Contents/Resources
           mkdir -p TorrSyncPlayer.app/Contents/Frameworks
 
           # Копируем бинарники
-          cp backend/build/torrsyncplayer TorrSyncPlayer.app/Contents/MacOS/
-          cp frontend/build/TorrSyncPlayer TorrSyncPlayer.app/Contents/MacOS/
+          cp "$BACKEND_BIN" TorrSyncPlayer.app/Contents/MacOS/torrsyncplayer
+          cp "$FRONTEND_BIN" TorrSyncPlayer.app/Contents/MacOS/TorrSyncPlayer
 
           # Копируем иконку
           cp frontend/resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
@@ -241,7 +300,7 @@ jobs:
           EOF
 
           # Запускаем macdeployqt для копирования зависимостей
-          ${Qt6_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg -verbose=1 2>/dev/null || \
+          ${{ env.Qt6_DIR }}/bin/macdeployqt TorrSyncPlayer.app -dmg -verbose=1 2>/dev/null || \
             echo "macdeployqt не удался, создаём DMG вручную"
 
           # Если macdeployqt не создал DMG, создаём вручную
