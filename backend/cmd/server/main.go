@@ -436,7 +436,14 @@ func setupPprof() {
 		// Важно: слушаем только на 127.0.0.1, не на 0.0.0.0
 		pprofAddr := "127.0.0.1:6060"
 		logger.Info("pprof сервер запущен (только localhost)", "addr", pprofAddr)
-		if err := http.ListenAndServe(pprofAddr, pprofMux); err != nil {
+		pprofServer := &http.Server{
+			Addr:         pprofAddr,
+			Handler:      pprofMux,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+		if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Ошибка pprof сервера", "error", err)
 		}
 	}()

@@ -1,0 +1,28 @@
+{
+	"Golang errors": {},
+	"Issues": [
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "676",
+				"url": "https://cwe.mitre.org/data/definitions/676.html"
+			},
+			"rule_id": "G114",
+			"details": "Use of net/http serve function that has no support for setting timeouts",
+			"file": "C:\\Users\\fullc\\Desktop\\Projects\\TorrSyncPlayer\\backend\\cmd\\server\\main.go",
+			"code": "438: \t\tlogger.Info(\"pprof сервер запущен (только localhost)\", \"addr\", pprofAddr)\n439: \t\tif err := http.ListenAndServe(pprofAddr, pprofMux); err != nil {\n440: \t\t\tlogger.Error(\"Ошибка pprof сервера\", \"error\", err)\n",
+			"line": "439",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		}
+	],
+	"Stats": {
+		"files": 26,
+		"lines": 7251,
+		"nosec": 0,
+		"found": 1
+	},
+	"GosecVersion": "dev"
+}
