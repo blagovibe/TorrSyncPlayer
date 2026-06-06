@@ -68,16 +68,7 @@ jobs:
       - name: Запуск gosec
         working-directory: backend
         run: |
-          gosec -fmt sarif -out gosec-results.sarif -severity medium -confidence medium ./...
-        continue-on-error: false
-
-      # Загрузка результатов в GitHub Security tab
-      - name: Загрузка результатов gosec
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: backend/gosec-results.sarif
-          category: gosec
+          gosec -fmt text -severity medium -confidence medium ./...
 
   # --------------------------------------------------------
   # Dependency vulnerability check
