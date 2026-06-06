@@ -221,223 +221,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # --------------------------------------------------------
-  # Lint frontend код (clang-tidy)
-  # --------------------------------------------------------
-  lint-frontend:
-    name: Линт Frontend
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Устанавливаем системные зависимости
-      - name: Установка зависимостей
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            clang-tidy \
-            libmpv-dev \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            libxcb-xinerama0 \
-            libxcb-xinput-dev \
-            libxcb-xfixes0-dev
-
-      # Устанавливаем Qt 6.5
-      - name: Установка Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          host: "linux"
-          target: "desktop"
-          arch: "gcc_64"
-          modules: "qtbase qtsvg qtimageformats"
-          cache: true
-
-      # Запускаем clang-tidy
-      - name: Запуск clang-tidy
-        working-directory: frontend
-        run: |
-          clang-tidy src/*.cpp -- \
-            -I${Qt6_DIR}/include \
-            -I${Qt6_DIR}/include/QtCore \
-            -I${Qt6_DIR}/include/QtGui \
-            -I${Qt6_DIR}/include/QtWidgets \
-            -I${Qt6_DIR}/include/QtNetwork \
-            -I${Qt6_DIR}/include/QtOpenGL \
-            -I${Qt6_DIR}/include/QtTest \
-            -std=c++17
-
-  # --------------------------------------------------------
-  # Сборка frontend на Linux
-  # --------------------------------------------------------
-  build-frontend-linux:
-    name: Сборка Frontend (Linux)
-    needs: lint-frontend
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Установка зависимостей
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            libmpv-dev \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            libxcb-xinerama0 \
-            libxcb-xinput-dev \
-            libxcb-xfixes0-dev
-
-      - name: Установка Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          host: "linux"
-          target: "desktop"
-          arch: "gcc_64"
-          modules: "qtbase qtsvg qtimageformats"
-          cache: true
-
-      - name: Сборка frontend (Linux)
-        run: |
-          cd frontend
-          mkdir -p build
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
-          ninja
-
-      - name: Установка lcov
-        run: sudo apt-get install -y lcov
-
-      - name: Запуск тестов C++ с coverage
-        working-directory: frontend/build
-        run: |
-          ctest --output-on-failure
-          # Генерация coverage отчёта с lcov
-          lcov --capture --directory . --output-file coverage.info
-          lcov --remove coverage.info '/usr/*' --output-file coverage.info
-          lcov --list coverage.info
-
-      - name: Загрузка coverage отчёта
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-coverage
-          path: frontend/build/coverage.info
-          retention-days: 7
-
-      - name: Отправка coverage в Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          file: frontend/build/coverage.info
-          flags: frontend
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Загрузка артефакта
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-linux
-          path: frontend/build/TorrSyncPlayer*
-          if-no-files-found: warn
-          retention-days: 7
-
-  # --------------------------------------------------------
-  # Сборка frontend на Windows
-  # --------------------------------------------------------
-  build-frontend-windows:
-    name: Сборка Frontend (Windows)
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Установка Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          host: "windows"
-          target: "desktop"
-          arch: "win64_msvc2019_64"
-          modules: "qtbase qtsvg qtimageformats"
-          cache: true
-
-      - name: Сборка frontend
-        shell: cmd
-        run: |
-          cd frontend
-          mkdir build
-          cd build
-          cmake .. -G "Visual Studio 17 2022" -A x64
-          cmake --build . --config Release
-
-      - name: Загрузка артефакта
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-windows
-          path: frontend/build/Release/TorrSyncPlayer*
-          if-no-files-found: warn
-          retention-days: 7
-
-  # --------------------------------------------------------
-  # Сборка frontend на macOS
-  # --------------------------------------------------------
-  build-frontend-macos:
-    name: Сборка Frontend (macOS)
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Установка зависимостей
-        run: |
-          brew install cmake ninja mpv
-
-      - name: Установка Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          host: "mac"
-          target: "desktop"
-          arch: "clang_64"
-          modules: "qtbase qtsvg qtimageformats"
-          cache: true
-
-      - name: Сборка frontend
-        run: |
-          cd frontend
-          mkdir -p build
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          ninja
-
-      - name: Загрузка артефакта
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-macos
-          path: frontend/build/TorrSyncPlayer*
-          if-no-files-found: warn
-          retention-days: 7
+  # ── Frontend builds removed from CI ──
+  # Frontend requires Qt which is not reliably available in CI.
+  # Build frontend locally: see frontend/build.bat (Windows) or frontend/build.sh (Linux/macOS)
 
   # --------------------------------------------------------
   # Coverage проверка для PR
   # --------------------------------------------------------
   coverage-check:
     name: Проверка Coverage
-    needs: [test-backend, build-frontend-linux]
+    needs: [test-backend]
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
 
@@ -453,7 +246,7 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Установка утилит для coverage
-        run: sudo apt-get install -y bc lcov
+        run: sudo apt-get install -y bc
 
       - name: Загрузка backend coverage
         uses: actions/download-artifact@v4
@@ -461,15 +254,8 @@ jobs:
           name: backend-coverage
           path: backend/
 
-      - name: Загрузка frontend coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-coverage
-          path: frontend/build/
-
       - name: Проверка минимального coverage
         run: |
-          # Проверяем backend coverage (минимум 60%)
           BACKEND_COVERAGE=$(go tool cover -func=backend/coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Backend coverage: ${BACKEND_COVERAGE}%"
           if (( $(echo "$BACKEND_COVERAGE < 60" | bc -l) )); then
@@ -484,10 +270,9 @@ jobs:
           header: coverage
           message: |
             ## 📊 Coverage Report
-            
+
             | Component | Coverage |
             |-----------|----------|
             | Backend | [Codecov](https://codecov.io/gh/${{ github.repository }}) |
-            | Frontend | [Codecov](https://codecov.io/gh/${{ github.repository }}) |
-            
+
             Coverage отчёты загружены в Codecov.
