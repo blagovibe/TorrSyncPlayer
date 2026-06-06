@@ -118,8 +118,8 @@ jobs:
       - name: Установка golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
-          install-mode: binary
+          version: "v1.64.8"
+          install-mode: "goinstall"
           working-directory: backend
 
       # Запускаем golangci-lint
