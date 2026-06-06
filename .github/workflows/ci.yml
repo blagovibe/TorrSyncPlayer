@@ -11,6 +11,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+  security-events: write
+
 # Отменяем предыдущие запуски для той же ветки
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
