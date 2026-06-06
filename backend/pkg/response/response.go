@@ -21,7 +21,9 @@ func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	w.Write(jsonData)
+	if _, err := w.Write(jsonData); err != nil {
+		return
+	}
 }
 
 // WriteError записывает структурированную ошибку в формате JSON.

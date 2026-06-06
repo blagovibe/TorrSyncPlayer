@@ -35,12 +35,11 @@ type TorrentBuffer struct {
 }
 
 type Service struct {
-	mu               sync.RWMutex
-	torrentBuffers   map[string]*TorrentBuffer
-	maxCacheSize     int64
-	currentCacheSize int64
-	cancelFunc       context.CancelFunc
-	wg               sync.WaitGroup
+	mu             sync.RWMutex
+	torrentBuffers map[string]*TorrentBuffer
+	maxCacheSize   int64
+	cancelFunc     context.CancelFunc
+	wg             sync.WaitGroup
 }
 
 func NewService(maxCacheSize int64) *Service {
@@ -207,8 +206,8 @@ func (s *Service) StartPeriodicUpdate(interval time.Duration) {
 					s.updatePiecePriorities(tb)
 				}
 				s.mu.Unlock()
-		case <-ctx.Done():
-			return
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()

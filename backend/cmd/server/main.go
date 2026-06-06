@@ -292,8 +292,8 @@ func parseFlags() Config {
 			}
 			config.TLSCert = cert
 			config.TLSKey = key
-			defer os.Remove(cert)
-			defer os.Remove(key)
+			defer func() { _ = os.Remove(cert) }()
+		defer func() { _ = os.Remove(key) }()
 		}
 	}
 
@@ -316,8 +316,8 @@ func configureTLS(config Config) (*tls.Config, error) {
 		}
 		config.TLSCert = cert
 		config.TLSKey = key
-		defer os.Remove(cert)
-		defer os.Remove(key)
+		defer func() { _ = os.Remove(cert) }()
+		defer func() { _ = os.Remove(key) }()
 	}
 
 	// Загружаем сертификат

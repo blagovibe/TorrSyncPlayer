@@ -182,24 +182,7 @@ func (s *csrfTokenStore) validateToken(token string, sessionID string) bool {
 	return true
 }
 
-// consumeToken использует токен (одноразовый для мутирующих операций)
-func (s *csrfTokenStore) consumeToken(token string, sessionID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	info, exists := s.tokens[token]
-	if !exists || time.Now().After(info.Expiry) {
-		return false
-	}
-
-	// Проверяем привязку к сессии
-	if sessionID != "" && info.SessionID != "" && info.SessionID != sessionID {
-		return false
-	}
-
-	delete(s.tokens, token)
-	return true
-}
 
 // Глобальное хранилище CSRF токенов
 // Экспортировано для тестирования

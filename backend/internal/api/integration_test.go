@@ -979,44 +979,4 @@ func TestIntegrationPaginationParams(t *testing.T) {
 	}
 }
 
-// Вспомогательные функции для тестов
 
-// makeIntegrationRequest выполняет HTTP запрос с аутентификацией
-func makeIntegrationRequest(t *testing.T, server *httptest.Server, method, path, token, body string) *http.Response {
-	t.Helper()
-
-	var req *http.Request
-	var err error
-
-	if body != "" {
-		req, err = http.NewRequest(method, server.URL+path, bytes.NewBufferString(body))
-	} else {
-		req, err = http.NewRequest(method, server.URL+path, nil)
-	}
-
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
-	}
-
-	return resp
-}
-
-// decodeIntegrationJSON декодирует JSON ответ
-func decodeIntegrationJSON(t *testing.T, resp *http.Response, v interface{}) {
-	t.Helper()
-
-	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
-		t.Fatalf("Failed to decode JSON: %v", err)
-	}
-}

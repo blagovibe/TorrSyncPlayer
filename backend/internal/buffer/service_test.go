@@ -81,7 +81,7 @@ func TestService_ConcurrentAccess(t *testing.T) {
 		close(done)
 	}()
 	go func() {
-		s.GetBufferInfo("test")
+		_, _ = s.GetBufferInfo("test")
 	}()
 	<-done
 	require.NotNil(t, s)

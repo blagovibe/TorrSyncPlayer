@@ -11,12 +11,6 @@ import (
 	"github.com/anacrolix/torrent/storage"
 )
 
-// pieceKey уникальный идентификатор куска торрента.
-type pieceKey struct {
-	infoHash metainfo.Hash
-	index    int
-}
-
 // memoryPieceImpl реализует storage.PieceImpl для хранения данных куска в RAM.
 type memoryPieceImpl struct {
 	mu             sync.RWMutex

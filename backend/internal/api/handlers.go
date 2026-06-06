@@ -52,9 +52,6 @@ const (
 
 	// ssePingInterval интервал отправки ping для поддержания SSE соединения
 	ssePingInterval = constants.SSEPingInterval
-
-	// sseEventBufferSize размер буфера событий для каждого SSE клиента
-	sseEventBufferSize = 100
 )
 
 // sseConnectionManager управляет активными SSE соединениями по комнатам
@@ -106,70 +103,6 @@ func (m *sseConnectionManager) Count() int {
 
 // sseManager глобальный менеджер SSE соединений
 var sseManager = newSSEConnectionManager(maxSSEConnections)
-
-// sseClient представляет подключённого SSE клиента с буфером событий
-type sseClient struct {
-	roomID string
-	events chan models.P2PEvent
-}
-
-// sseEventBuffer буферизованный канал событий для SSE клиентов
-type sseEventBuffer struct {
-	mu         sync.RWMutex
-	clients    map[string]map[*sseClient]bool // roomID -> clients
-	bufferSize int
-}
-
-// newSSEEventBuffer создаёт буфер событий SSE
-func newSSEEventBuffer(bufferSize int) *sseEventBuffer {
-	return &sseEventBuffer{
-		clients:    make(map[string]map[*sseClient]bool),
-		bufferSize: bufferSize,
-	}
-}
-
-// subscribe подписывает клиента на события комнаты
-func (b *sseEventBuffer) subscribe(client *sseClient) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.clients[client.roomID] == nil {
-		b.clients[client.roomID] = make(map[*sseClient]bool)
-	}
-	b.clients[client.roomID][client] = true
-}
-
-// unsubscribe отписывает клиента от событий
-func (b *sseEventBuffer) unsubscribe(client *sseClient) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if clients, ok := b.clients[client.roomID]; ok {
-		delete(clients, client)
-		if len(clients) == 0 {
-			delete(b.clients, client.roomID)
-		}
-	}
-	close(client.events)
-}
-
-// broadcast отправляет событие всем клиентам в комнате
-func (b *sseEventBuffer) broadcast(roomID string, event models.P2PEvent) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if clients, ok := b.clients[roomID]; ok {
-		for client := range clients {
-			select {
-			case client.events <- event:
-				// Событие отправлено
-			default:
-				// Буфер клиента полное, пропускаем
-				logger.Warn("SSE: буфер клиента полный, событие пропущено", "roomID", roomID)
-			}
-		}
-	}
-}
-
-// globalSSEBuffer глобальный буфер событий SSE
-var globalSSEBuffer = newSSEEventBuffer(sseEventBufferSize)
 
 // SSEEventHandler общая функция для обработки SSE событий.
 // Используется для устранения дублирования логики SSE в разных обработчиках.

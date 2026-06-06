@@ -98,7 +98,7 @@ func (s *UserStore) Authenticate(username, password string) (*models.User, error
 	s.mu.RUnlock()
 
 	if !exists {
-		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return nil, ErrInvalidCredentials
 	}
 

@@ -31,10 +31,10 @@ type Metrics struct {
 
 	syncOperations int64
 
-	cacheMu       sync.Mutex
-	cachedOutput  string
-	cacheTime     time.Time
-	cacheTTL      time.Duration
+	cacheMu      sync.Mutex
+	cachedOutput string
+	cacheTime    time.Time
+	cacheTTL     time.Duration
 }
 
 var (
