@@ -407,7 +407,6 @@ jobs:
     name: Создание релиза
     needs: smoke-test
     runs-on: ubuntu-latest
-    environment: production
 
     steps:
       - name: Checkout
