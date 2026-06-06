@@ -1,41 +1,41 @@
 module github.com/blagovibe/TorrSyncPlayer/backend
 
-go 1.24
+go 1.24.0
 
 require (
-	github.com/anacrolix/torrent v1.58.1
+	github.com/anacrolix/torrent v1.61.0
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pion/webrtc/v4 v4.0.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.4
-	golang.org/x/crypto v0.32.0
-	golang.org/x/time v0.11.0
+	golang.org/x/crypto v0.44.0
+	golang.org/x/time v0.14.0
 )
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
-	github.com/ajwerner/btree v0.0.0-20211221152037-f427b3e689c0 // indirect
 	github.com/alecthomas/atomic v0.1.0-alpha2 // indirect
-	github.com/anacrolix/chansync v0.4.1-0.20240627045151-1aa1ac392fe8 // indirect
-	github.com/anacrolix/dht/v2 v2.19.2-0.20221121215055-066ad8494444 // indirect
-	github.com/anacrolix/envpprof v1.3.0 // indirect
-	github.com/anacrolix/generics v0.0.3-0.20240902042256-7fb2702ef0ca // indirect
+	github.com/anacrolix/btree v0.0.0-20251201064447-d86c3fa41bd8 // indirect
+	github.com/anacrolix/chansync v0.7.0 // indirect
+	github.com/anacrolix/dht/v2 v2.23.0 // indirect
+	github.com/anacrolix/envpprof v1.4.0 // indirect
+	github.com/anacrolix/generics v0.1.1-0.20251125230353-15d98d46693b // indirect
 	github.com/anacrolix/go-libutp v1.3.2 // indirect
-	github.com/anacrolix/log v0.15.3-0.20240627045001-cd912c641d83 // indirect
+	github.com/anacrolix/log v0.17.1-0.20251118025802-918f1157b7bb // indirect
 	github.com/anacrolix/missinggo v1.3.0 // indirect
 	github.com/anacrolix/missinggo/perf v1.0.0 // indirect
-	github.com/anacrolix/missinggo/v2 v2.7.4 // indirect
+	github.com/anacrolix/missinggo/v2 v2.10.0 // indirect
 	github.com/anacrolix/mmsg v1.0.1 // indirect
 	github.com/anacrolix/multiless v0.4.0 // indirect
-	github.com/anacrolix/stm v0.4.0 // indirect
-	github.com/anacrolix/sync v0.5.1 // indirect
+	github.com/anacrolix/stm v0.5.0 // indirect
+	github.com/anacrolix/sync v0.5.5-0.20251119100342-d78dd1f686f1 // indirect
 	github.com/anacrolix/upnp v0.1.4 // indirect
 	github.com/anacrolix/utp v0.1.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/benbjohnson/immutable v0.3.0 // indirect
+	github.com/benbjohnson/immutable v0.4.1-0.20221220213129-8932b999621d // indirect
 	github.com/bits-and-blooms/bitset v1.2.2 // indirect
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
@@ -43,14 +43,15 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/go-llsqlite/adapter v0.0.0-20230927005056-7f5ce7f0c916 // indirect
-	github.com/go-llsqlite/crawshaw v0.5.2-0.20240425034140-f30eb7704568 // indirect
-	github.com/go-logr/logr v1.2.3 // indirect
+	github.com/go-llsqlite/crawshaw v0.5.6-0.20250312230104-194977a03421 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/spec v0.20.6 // indirect
 	github.com/go-openapi/swag v0.19.15 // indirect
 	github.com/google/btree v1.1.2 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
@@ -67,12 +68,12 @@ require (
 	github.com/pion/datachannel v1.5.9 // indirect
 	github.com/pion/dtls/v3 v3.0.3 // indirect
 	github.com/pion/ice/v4 v4.0.2 // indirect
-	github.com/pion/interceptor v0.1.37 // indirect
-	github.com/pion/logging v0.2.2 // indirect
+	github.com/pion/interceptor v0.1.40 // indirect
+	github.com/pion/logging v0.2.3 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/rtcp v1.2.14 // indirect
-	github.com/pion/rtp v1.8.9 // indirect
+	github.com/pion/rtcp v1.2.15 // indirect
+	github.com/pion/rtp v1.8.18 // indirect
 	github.com/pion/sctp v1.8.33 // indirect
 	github.com/pion/sdp/v3 v3.0.9 // indirect
 	github.com/pion/srtp/v3 v3.0.4 // indirect
@@ -86,16 +87,19 @@ require (
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/swaggo/files/v2 v2.0.0 // indirect
-	github.com/tidwall/btree v1.6.0 // indirect
+	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
 	go.etcd.io/bbolt v1.3.11 // indirect
-	go.opentelemetry.io/otel v1.11.1 // indirect
-	go.opentelemetry.io/otel/trace v1.11.1 // indirect
-	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
-	golang.org/x/net v0.29.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/tools v0.24.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/otel v1.38.0 // indirect
+	go.opentelemetry.io/otel/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/trace v1.38.0 // indirect
+	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/tools v0.39.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.1.6 // indirect
