@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // dummyHash is a real bcrypt hash used for timing attack mitigation
