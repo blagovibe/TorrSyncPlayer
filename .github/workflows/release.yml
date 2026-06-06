@@ -8,7 +8,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 permissions:
   contents: write
@@ -310,30 +310,30 @@ jobs:
            </plist>
            EOF
 
-          # Запускаем macdeployqt для копирования зависимостей
-          ${{ env.Qt6_DIR }}/bin/macdeployqt TorrSyncPlayer.app -dmg -verbose=1 2>/dev/null || \
-            echo "macdeployqt не удался, создаём DMG вручную"
+            # Запускаем macdeployqt для копирования зависимостей
+            ${{ env.Qt6_DIR }}/bin/macdeployqt TorrSyncPlayer.app -dmg -verbose=1 2>/dev/null || \
+              echo "macdeployqt не удался, создаём DMG вручную"
 
-          # Если macdeployqt не создал DMG, создаём вручную
-          if [ ! -f TorrSyncPlayer.dmg ]; then
-            # Создаём временную директорию для DMG
-            mkdir -p dmg_temp
-            cp -R TorrSyncPlayer.app dmg_temp/
+            # Если macdeployqt не создал DMG, создаём вручную
+            if [ ! -f TorrSyncPlayer.dmg ]; then
+              # Создаём временную директорию для DMG
+              mkdir -p dmg_temp
+              cp -R TorrSyncPlayer.app dmg_temp/
 
-            # Создаём символическую ссылку на Applications
-            ln -s /Applications dmg_temp/Applications
+              # Создаём символическую ссылку на Applications
+              ln -s /Applications dmg_temp/Applications
 
-            # Создаём DMG
-            hdiutil create -volname "TorrSyncPlayer" \
-              -srcfolder dmg_temp \
-              -ov -format UDZO \
-              TorrSyncPlayer.dmg
+              # Создаём DMG
+              hdiutil create -volname "TorrSyncPlayer" \
+                -srcfolder dmg_temp \
+                -ov -format UDZO \
+                TorrSyncPlayer.dmg
 
-            rm -rf dmg_temp
-          fi
+              rm -rf dmg_temp
+            fi
 
-          # Переименовываем
-          mv TorrSyncPlayer.dmg TorrSyncPlayer-macos-arm64.dmg 2>/dev/null || true
+            # Переименовываем
+            mv TorrSyncPlayer.dmg TorrSyncPlayer-macos-arm64.dmg 2>/dev/null || true
 
       # ── Загрузка артефакта ────────────────────────────────────
       - name: Загрузка артефакта (Linux)
