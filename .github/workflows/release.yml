@@ -75,7 +75,7 @@ jobs:
             libxcb-xfixes0-dev \
             libfuse2
 
-      # ── Установка Qt ──────────────────────────────────────────
+      # ── Установка Qt (опционально, для frontend) ──────────
       - name: Установка Qt (Linux)
         if: matrix.platform == 'linux'
         continue-on-error: true
@@ -89,33 +89,7 @@ jobs:
           modules: "qtbase qtsvg qtimageformats"
           set-env: true
 
-      - name: Setup Qt (MinGW)
-        if: matrix.platform == 'windows'
-        continue-on-error: true
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.2'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_mingw'
-          tools: 'tools_mingw'
-          modules: "qtbase qtsvg qtimageformats"
-          set-env: true
-
-      - name: Установка Qt (macOS)
-        if: matrix.platform == 'macos'
-        continue-on-error: true
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          host: "mac"
-          target: "desktop"
-          arch: "clang_64"
-          cache: true
-          modules: "qtbase qtsvg qtimageformats"
-          set-env: true
-
-      - name: Setup Qt (MinGW)
+      - name: Установка Qt (Windows)
         if: matrix.platform == 'windows'
         continue-on-error: true
         uses: jurplel/install-qt-action@v4
