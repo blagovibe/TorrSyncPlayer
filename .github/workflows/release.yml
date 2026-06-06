@@ -80,7 +80,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
+          version: "6.8.2"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
@@ -92,7 +92,7 @@ jobs:
         if: matrix.platform == 'windows'
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.5.*'
+          version: '6.8.2'
           host: 'windows'
           target: 'desktop'
           arch: 'win64_mingw'
@@ -100,11 +100,23 @@ jobs:
           modules: "qtbase qtsvg qtimageformats"
           set-env: true
 
-      - name: Установка Qt (macOS)
-        if: matrix.platform == 'macos'
+      - name: Установка Qt (macOS ARM)
+        if: matrix.platform == 'macos' && matrix.arch == 'arm64'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
+          version: "6.8.2"
+          host: "mac"
+          target: "desktop"
+          arch: "arm64"
+          cache: true
+          modules: "qtbase qtsvg qtimageformats"
+          set-env: true
+
+      - name: Установка Qt (macOS Intel)
+        if: matrix.platform == 'macos' && matrix.arch == 'x64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.2"
           host: "mac"
           target: "desktop"
           arch: "clang_64"

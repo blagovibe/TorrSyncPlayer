@@ -252,7 +252,7 @@ jobs:
       - name: Установка Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
+          version: "6.8.2"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
@@ -302,7 +302,7 @@ jobs:
       - name: Установка Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
+          version: "6.8.2"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
@@ -367,7 +367,7 @@ jobs:
       - name: Установка Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
+          version: "6.8.2"
           host: "windows"
           target: "desktop"
           arch: "win64_msvc2019_64"
@@ -409,10 +409,10 @@ jobs:
       - name: Установка Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.*"
+          version: "6.8.2"
           host: "mac"
           target: "desktop"
-          arch: "clang_64"
+          arch: "arm64"
           modules: "qtbase qtsvg qtimageformats"
           cache: true
 
