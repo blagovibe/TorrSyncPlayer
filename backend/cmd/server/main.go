@@ -293,7 +293,7 @@ func parseFlags() Config {
 			config.TLSCert = cert
 			config.TLSKey = key
 			defer func() { _ = os.Remove(cert) }()
-		defer func() { _ = os.Remove(key) }()
+			defer func() { _ = os.Remove(key) }()
 		}
 	}
 

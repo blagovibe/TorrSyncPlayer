@@ -182,8 +182,6 @@ func (s *csrfTokenStore) validateToken(token string, sessionID string) bool {
 	return true
 }
 
-
-
 // Глобальное хранилище CSRF токенов
 // Экспортировано для тестирования
 var CSRFStore = newCSRFTokenStore()

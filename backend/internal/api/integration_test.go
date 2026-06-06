@@ -977,5 +977,3 @@ func TestIntegrationPaginationParams(t *testing.T) {
 		})
 	}
 }
-
-
