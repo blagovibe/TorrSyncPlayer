@@ -61,16 +61,15 @@ func (s *AuthService) JWTMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Проверяем, не отозван ли токен
-		jti, err := s.ExtractJTI(tokenString)
-		if err == nil && revocationStore.IsRevoked(jti) {
+		if claims.JTI != "" && s.revocationStore.IsRevoked(claims.JTI) {
 			writeAuthError(w, http.StatusUnauthorized, "Токен отозван")
 			return
 		}
 
 		// Добавляем claims и JTI в контекст запроса
 		ctx := context.WithValue(r.Context(), ClaimsKey, claims)
-		if err == nil {
-			ctx = context.WithValue(ctx, JTIKey, jti)
+		if claims.JTI != "" {
+			ctx = context.WithValue(ctx, JTIKey, claims.JTI)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -121,8 +120,7 @@ func (s *AuthService) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	if jti == "" {
 		// Пробуем извлечь JTI из токена напрямую
 		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-			tokenString = strings.TrimPrefix(tokenString, "bearer ")
+			tokenString := strings.TrimSpace(authHeader[len("bearer "):])
 			if tokenString == "" {
 				response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Пустой токен"})
 				return
@@ -136,10 +134,10 @@ func (s *AuthService) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Отзываем токен
+	// Отзываем токен (используем store из AuthService)
 	// Устанавливаем время истечения как текущее время + 24 часа
 	// (на случай если токен ещё не истёк)
-	revocationStore.Revoke(jti, time.Now().Add(constants.RevocationStoreTTL))
+	s.revocationStore.Revoke(jti, time.Now().Add(constants.RevocationStoreTTL))
 
 	response.WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Токен успешно отозван"})
 }

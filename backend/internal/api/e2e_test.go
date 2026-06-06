@@ -36,12 +36,15 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	})
 	require.NoError(t, err)
 
-	p2pSvc, err := p2p.NewService(auth.NewAuthService([]byte("test-secret-key-for-e2e-tests")))
+	authService, err := auth.NewAuthService([]byte("test-secret-key-for-e2e-tests"))
+	require.NoError(t, err)
+	p2pSvc, err := p2p.NewService(authService)
 	require.NoError(t, err)
 
 	syncSvc := sync.NewService()
 	authStore := auth.NewUserStore()
-	authService := auth.NewAuthService([]byte("test-secret-key-for-e2e-tests"))
+	authService, err = auth.NewAuthService([]byte("test-secret-key-for-e2e-tests"))
+	require.NoError(t, err)
 
 	// Создаём роутер
 	router := NewRouter(RouterConfig{

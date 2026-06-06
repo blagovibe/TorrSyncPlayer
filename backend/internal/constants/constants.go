@@ -25,12 +25,6 @@ const (
 
 	// ServerIdleTimeout таймаут простоя HTTP соединения
 	ServerIdleTimeout = 120 * time.Second
-
-	// PprofPort порт для pprof сервера
-	PprofPort = ":6060"
-
-	// SelfSignedCertValidity срок действия self-signed сертификата
-	SelfSignedCertValidity = 365 * 24 * time.Hour // 1 год
 )
 
 // ── CSRF Constants ────────────────────────────────────────────────────────
@@ -123,6 +117,10 @@ const (
 
 	// P2PDefaultRoomAuth требовать аутентификацию по умолчанию
 	P2PDefaultRoomAuth = true
+
+	// MaxSignalSize максимальный размер WebRTC сигнала в байтах (64 KB)
+	// Типичный SDP offer/answer редко превышает 8 KB, ICE candidates ещё меньше
+	MaxSignalSize = 64 * 1024
 )
 
 // ── Torrent Constants ─────────────────────────────────────────────────────
@@ -151,8 +149,8 @@ const (
 	// MaxSSEConnections максимальное количество одновременных SSE соединений на комнату
 	MaxSSEConnections = 100
 
-	// SSETimout таймаут для SSE соединения
-	SSETimout = 30 * time.Minute
+	// SSETimeout таймаут для SSE соединения
+	SSETimeout = 30 * time.Minute
 
 	// SSEPingInterval интервал отправки ping для поддержания SSE соединения
 	SSEPingInterval = 30 * time.Second
@@ -178,13 +176,6 @@ const (
 	TorrentIDLength = 40
 )
 
-// ── TLS Constants ─────────────────────────────────────────────────────────
-
-const (
-	// TLSMinVersion минимальная версия TLS
-	TLSMinVersion = 0x0303 // TLS 1.2
-)
-
 // ── Buffer Constants ──────────────────────────────────────────────────────
 
 const (
@@ -197,24 +188,15 @@ const (
 	// DefaultMaxBufferSize максимальный размер буфера (512 МБ)
 	DefaultMaxBufferSize = 512 * 1024 * 1024
 
-	// DefaultPreBufferPercent процент предварительной буферизации перед стартом
-	DefaultPreBufferPercent = 5
-
 	// BufferUpdateInterval интервал обновления приоритетов
 	BufferUpdateInterval = 1 * time.Second
 
-	// PiecePriorityNow немедленная загрузка
-	PiecePriorityNow = 4
+	// BufferNowPieces количество кусков для немедленной загрузки
+	BufferNowPieces = 10
 
-	// PiecePriorityHigh высокий приоритет
-	PiecePriorityHigh = 3
+	// BufferHighPieces количество кусков для высокого приоритета
+	BufferHighPieces = 50
 
-	// PiecePriorityNormal обычный приоритет
-	PiecePriorityNormal = 2
-
-	// PiecePriorityReadahead предзагрузка
-	PiecePriorityReadahead = 1
-
-	// PiecePriorityNone не загружать
-	PiecePriorityNone = 0
+	// MaxRoomPasswordLength максимальная длина пароля комнаты (bcrypt truncates at 72)
+	MaxRoomPasswordLength = 72
 )

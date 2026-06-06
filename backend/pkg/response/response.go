@@ -8,21 +8,20 @@ package response
 import (
 	"encoding/json"
 	"net/http"
-
-	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // WriteJSON записывает JSON ответ с указанным статусом.
 // Устанавливает Content-Type: application/json.
 // Логирует ошибку кодирования и возвращает 500 Internal Server Error при сбое.
 func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		logger.Error("Ошибка кодирования JSON ответа", "error", err, "status", status)
-		// Пытаемся отправить ошибку клиенту (если заголовки ещё не отправлены)
-		http.Error(w, `{"error":"Внутренняя ошибка сервера"}`, http.StatusInternalServerError)
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, `{"error":"JSON marshal error"}`, http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	w.Write(jsonData)
 }
 
 // WriteError записывает структурированную ошибку в формате JSON.

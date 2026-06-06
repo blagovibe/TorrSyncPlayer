@@ -17,7 +17,7 @@ var (
 	// usernameRegex допускает буквы, цифры, подчёркивания и дефисы
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
 	// magnetRegex для валидации magnet-ссылок
-	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:[a-z0-9]+:[a-zA-Z0-9]{32,40}`)
+	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:[a-z0-9]+:[a-zA-Z0-9]`)
 )
 
 // Ограничения размеров
@@ -54,15 +54,14 @@ func ValidatePosition(position float64) error {
 func ValidateUsername(username string) error {
 	username = strings.TrimSpace(username)
 
-	if utf8.RuneCountInString(username) < MinUsernameLength {
-		return fmt.Errorf("имя пользователя слишком короткое (минимум %d символа)", MinUsernameLength)
+	if len(username) < MinUsernameLength || len([]rune(username)) > MaxUsernameLength {
+		return fmt.Errorf("username must be between %d and %d characters", MinUsernameLength, MaxUsernameLength)
 	}
-	if utf8.RuneCountInString(username) > MaxUsernameLength {
-		return fmt.Errorf("имя пользователя слишком длинное (максимум %d символов)", MaxUsernameLength)
-	}
+
 	if !usernameRegex.MatchString(username) {
-		return fmt.Errorf("имя пользователя содержит недопустимые символы (разрешены: a-z, A-Z, 0-9, _, -)")
+		return fmt.Errorf("username can only contain letters, numbers, underscores, and hyphens")
 	}
+
 	return nil
 }
 

@@ -16,9 +16,9 @@ SystemTray::SystemTray(MainWindow *mainWindow, QObject *parent)
     , m_mainWindow(mainWindow)
     , m_trayIcon(new QSystemTrayIcon(this))
     , m_menu(new QMenu())
-    , m_showAction(nullptr)
-    , m_hideAction(nullptr)
-    , m_quitAction(nullptr)
+    , m_showAction(nullptr)   // Инициализация указателей
+    , m_hideAction(nullptr)   // Инициализация указателей
+    , m_quitAction(nullptr)   // Инициализация указателей
 {
     qDebug() << "SystemTray: создан";
 }

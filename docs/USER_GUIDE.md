@@ -1,204 +1,198 @@
-﻿# Руководство пользователя TorrSyncPlayer
+﻿# TorrSyncPlayer User Guide
 
-## Содержание
+## Contents
 
-1. [Введение](#введение)
-2. [Начало работы](#начало-работы)
-3. [Основные функции](#основные-функции)
-4. [Управление торрентами](#управление-торрентами)
-5. [P2P комнаты](#p2p-комнаты)
-6. [Синхронизация воспроизведения](#синхронизация-воспроизведения)
-7. [Настройки](#настройки)
-8. [Устранение неполадок](#устранение-неполадок)
+1. [Introduction](#introduction)
+2. [Getting Started](#getting-started)
+3. [Core Features](#core-features)
+4. [Torrent Management](#torrent-management)
+5. [P2P Rooms](#p2p-rooms)
+6. [Playback Synchronization](#playback-synchronization)
+7. [Settings](#settings)
+8. [Troubleshooting](#troubleshooting)
 
-## Введение
+## Introduction
 
-TorrSyncPlayer — это приложение для потокового воспроизведения медиаконтента через торренты с возможностью синхронного просмотра с другими пользователями.
+TorrSyncPlayer is an application for streaming media content via torrents with the ability to synchronize playback with other users.
 
-### Возможности
+### Features
 
-- **Потоковое воспроизведение** — мгновенный старт просмотра без полной загрузки
-- **P2P комнаты** — синхронный просмотр с друзьями
-- **WebRTC** — прямое соединение между пирами без серверной передачи видео
-- **JWT аутентификация** — безопасный доступ к комнатам
-- **Защита приватности** — пароль на комнаты, приватные сессии
-- **Буферизация** — умная предзагрузка с приоритетами
+- **Streaming playback** — instant viewing without full download
+- **P2P rooms** — synchronized viewing with friends
+- **WebRTC** — direct peer-to-peer connection without server-side video relay
+- **JWT authentication** — secure room access
+- **Privacy** — room passwords, private sessions
+- **Buffering** — smart preloading with priorities
 
-## Начало работы
+## Getting Started
 
-### Требования
+### Requirements
 
-- **Backend:** Go 1.24+
+- **Backend:** Go 1.25+
 - **Frontend:** Qt 6.5+, libmpv
-- **ОС:** Windows, Linux, macOS
+- **OS:** Windows, Linux, macOS
 
-### Запуск
+### Running
 
-1. **Запуск backend сервера:**
+1. **Start the backend server:**
    ```bash
    cd backend
    make run
    ```
-   Сервер запустится на порту 8889.
+   The server will start on port 8889.
 
-2. **Запуск frontend приложения:**
+2. **Start the frontend application:**
    ```bash
    cd frontend
    ./build.sh  # Linux/macOS
    build.bat   # Windows
    ```
 
-### Быстрый старт
+### Quick Start
 
-1. Запустите backend сервер
-2. Запустите frontend приложение
-3. Введите magnet-ссылку в поле ввода
-4. Нажмите "Добавить"
-5. Выберите файл из списка
-6. Нажмите "Воспроизвести"
+1. Start the backend server
+2. Start the frontend application
+3. Enter a magnet link in the input field
+4. Click "Add"
+5. Select a file from the list
+6. Click "Play"
 
-## Основные функции
+## Core Features
 
-### Интерфейс
+### Interface
 
-- **Левая панель:** список торрентов, список файлов, поле ввода magnet-ссылки
-- **Правая панель:** видеоплеер, контролы воспроизведения, кнопки комнат
-- **Статусная строка:** информация о состоянии подключения
+- **Left panel:** torrent list, file list, magnet link input field
+- **Right panel:** video player, playback controls, room buttons
+- **Status bar:** connection state information
 
-### Горячие клавиши
+### Keyboard Shortcuts
 
-| Клавиша | Действие |
-|---------|----------|
-| `Space` | Пауза/Воспроизведение |
-| `←/→` | Перемотка на 5 секунд |
-| `↑/↓` | Громкость |
-| `F` | Полноэкранный режим |
-| `M` | Отключить звук |
-| `Ctrl+O` | Открыть magnet-ссылку |
-| `Ctrl+R` | Создать комнату |
+| Key | Action |
+|-----|--------|
+| `Space` | Pause/Play |
+| `←/→` | Seek 5 seconds |
+| `↑/↓` | Volume |
+| `F` | Fullscreen |
+| `M` | Mute |
+| `Ctrl+O` | Open magnet link |
+| `Ctrl+R` | Create room |
 
-## Управление торрентами
+## Torrent Management
 
-### Добавление торрента
+### Adding a Torrent
 
-1. Скопируйте magnet-ссылку
-2. Вставьте в поле ввода внизу левой панели
-3. Нажмите кнопку "Добавить" или Enter
-4. Дождитесь загрузки метаданных
+1. Copy a magnet link
+2. Paste it into the input field at the bottom of the left panel
+3. Click the "Add" button or press Enter
+4. Wait for metadata to load
 
-### Выбор файла
+### Selecting a File
 
-1. Выберите торрент в списке
-2. В списке файлов выберите нужный видеофайл
-3. Нажмите "Выбрать для воспроизведения"
+1. Select a torrent in the list
+2. In the file list, choose the desired video file
+3. Click "Select for playback"
 
-### Удаление торрента
+### Removing a Torrent
 
-1. Выберите торрент в списке
-2. Нажмите кнопку "Удалить" или клавишу Delete
+1. Select a torrent in the list
+2. Click the "Delete" button or press the Delete key
 
-### Поддерживаемые форматы
+### Supported Formats
 
-- **Видео:** mp4, mkv, avi, webm, mov, wmv, flv
-- **Аудио:** mp3, aac, wav, ogg, flac
-- **Субтитры:** srt, ass, ssa
+- **Video:** mp4, mkv, avi, webm, mov, wmv, flv
+- **Audio:** mp3, aac, wav, ogg, flac
+- **Subtitles:** srt, ass, ssa
 
-## P2P комнаты
+## P2P Rooms
 
-### Создание комнаты
+### Creating a Room
 
-1. Нажмите кнопку "Создать комнату"
-2. Введите название комнаты
-3. (Опционально) Установите пароль
-4. Нажмите "Создать"
+1. Click the "Create Room" button
+2. Enter a room name
+3. (Optional) Set a password
+4. Click "Create"
 
-Вы станете хостом комнаты. Другие пользователи могут присоединиться по ID комнаты.
+You become the room host. Other users can join by room ID.
 
-### Присоединение к комнате
+### Joining a Room
 
-1. Нажмите кнопку "Присоединиться к комнате"
-2. Введите ID комнаты
-3. Введите пароль (если установлен)
-4. Нажмите "Присоединиться"
+1. Click the "Join Room" button
+2. Enter the room ID
+3. Enter the password (if set)
+4. Click "Join"
 
-### Управление комнатой
+### Room Management
 
-- **Хост** может:
-  - Устанавливать пароль
-  - Удалять пиров
-  - Передавать права хоста
+- **Host** can:
+  - Set password
+  - Remove peers
+  - Transfer host privileges
 
-- **Пир** может:
-  - Покинуть комнату
-  - Синхронизировать воспроизведение
+- **Peer** can:
+  - Leave the room
+  - Synchronize playback
 
-## Синхронизация воспроизведения
+## Playback Synchronization
 
-### Принцип работы
+### How It Works
 
-Когда вы подключены к комнате, все действия синхронизируются:
+When you are connected to a room, all actions are synchronized:
 
-- **Play/Pause** — воспроизведение синхронно для всех
-- **Seek** — перемотка синхронна
-- **Скорость** — единая скорость воспроизведения
+- **Play/Pause** — playback is synchronous for everyone
+- **Seek** — seeking is synchronous
+- **Speed** — uniform playback speed
 
-### Компенсация задержки
+### Latency Compensation
 
-Приложение автоматически компенсирует задержку сети для синхронного просмотра. Алгоритм использует плавную подстройку позиции с коэффициентом 0.3 и максимальным прыжком 2 секунды.
+The application automatically compensates for network latency for synchronized viewing. The algorithm uses smooth position adjustment with a coefficient of 0.3 and a maximum jump of 2 seconds.
 
-## Настройки
+## Settings
 
-### Backend настройки
+### Backend Settings
 
-| Параметр | По умолчанию | Описание |
-|----------|--------------|----------|
-| `--port` | 8889 | Порт HTTP сервера |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--port` | 8889 | HTTP server port |
+| `--jwt-secret` | (empty) | JWT token secret |
+| `--tls` | false | Enable TLS |
+| `--auto-tls` | false | Generate self-signed certificate |
+| `--enable-profiling` | false | Enable pprof on port 6060 |
 
-| `--jwt-secret` | (пусто) | Секрет для JWT токенов |
-| `--tls` | false | Включить TLS |
-| `--auto-tls` | false | Генерировать self-signed сертификат |
-| `--enable-profiling` | false | Включить pprof на порту 6060 |
+### Frontend Settings
 
-### Frontend настройки
+Settings are available in the "Settings" menu:
 
-Настройки доступны в меню "Настройки":
+- **Server URL** — backend server address
 
-- **URL сервера** — адрес backend сервера
-- **Качество видео** — предпочтительное качество
-- **Буфер** — размер буфера предзагрузки
-- **Язык интерфейса** — русский/английский
+## Troubleshooting
 
-## Устранение неполадок
+### Connection Issues
 
-### Проблемы с подключением
+**Server unavailable:**
+- Check if the backend server is running
+- Check the port (default 8889)
+- Check the firewall
 
-**Сервер недоступен:**
-- Проверьте, запущен ли backend сервер
-- Проверьте порт (по умолчанию 8889)
-- Проверьте файрвол
+**No video:**
+- Check if a file is selected for playback
+- Wait for sufficient data to load
+- Check mpv format support
 
-**Нет видео:**
-- Проверьте, выбран ли файл для воспроизведения
-- Дождитесь загрузки достаточного количества данных
-- Проверьте поддержку формата в mpv
+### P2P Issues
 
-### Проблемы с P2P
+**Cannot connect to room:**
+- Check the room ID
+- Check the password
+- Make sure the host is online
 
-**Не удаётся подключиться к комнате:**
-- Проверьте ID комнаты
-- Проверьте пароль
-- Убедитесь, что хост онлайн
+**Desynchronization:**
+- Check internet connection stability
+- Try reconnecting to the room
 
-**Рассинхронизация:**
-- Проверьте стабильность интернет-соединения
-- Попробуйте переподключиться к комнате
+### Logs
 
-### Логи
+Backend server logs are written to stdout/stderr (configurable via `LOG_FORMAT` env var).
 
-Логи backend сервера можно найти в:
-- **Linux/macOS:** `/var/log/torrplayer/`
-- **Windows:** `%APPDATA%\TorrPlayer\logs\`
+### Support
 
-### Поддержка
-
-Если проблема не решена, создайте issue на GitHub с описанием проблемы и логами.
+If the issue is not resolved, create an issue on GitHub with a problem description.

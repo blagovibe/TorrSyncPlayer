@@ -4,37 +4,37 @@
 [![Release](https://github.com/blagovibe/TorrSyncPlayer/actions/workflows/release.yml/badge.svg)](https://github.com/blagovibe/TorrSyncPlayer/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Десктопный торрент-плеер с P2P синхронизацией воспроизведения.
+Desktop torrent player with P2P playback synchronization.
 
-## Возможности
+## Features
 
-- **Потоковое воспроизведение** — мгновенный старт просмотра без полной загрузки
-- **P2P комнаты** — синхронный просмотр с друзьями через WebRTC
-- **Безопасность** — JWT аутентификация (HS256), CSRF защита, rate limiting, bcrypt пароли
-- **Метрики** — Prometheus метрики для мониторинга
-- **Буферизация** — LRU кэш с приоритетами загрузки pieces
-- **Docker** — готовая multi-stage Docker конфигурация
-- **CI/CD** — GitHub Actions с golangci-lint, clang-tidy, tests, coverage ≥60%
-- **Swagger** — интерактивная документация API на `/swagger/`
+- **Streaming playback** — instant viewing without full download
+- **P2P rooms** — synchronized viewing with friends via WebRTC
+- **Security** — JWT authentication (HS256), CSRF protection, rate limiting, bcrypt passwords
+- **Metrics** — Prometheus metrics for monitoring
+- **Buffering** — LRU cache with piece download priorities
+- **Docker** — ready-to-use multi-stage Docker configuration
+- **CI/CD** — GitHub Actions with golangci-lint, clang-tidy, tests, coverage ≥60%
+- **Swagger** — interactive API documentation at `/swagger/`
 
-## Стек
+## Tech Stack
 
-- **Backend:** Go 1.24+, anacrolix/torrent v1.58.1, pion/webrtc v4, go-chi/chi/v5, golang-jwt/jwt/v5
+- **Backend:** Go 1.25+, anacrolix/torrent v1.58.1, pion/webrtc v4, go-chi/chi/v5, golang-jwt/jwt/v5
 - **Frontend:** C++17, Qt 6.5+, libmpv, CMake 3.16+
 - **Build:** Make (backend), CMake (frontend)
 - **CI/CD:** GitHub Actions
 - **Docker:** multi-stage build (golang:1.25-alpine → alpine:3.19)
 
-## Документация
+## Documentation
 
-- [API документация](docs/API.md) — полное описание REST API (22 маршрута)
-- [Архитектура](docs/ARCHITECTURE.md) — описание архитектуры backend и frontend
-- [Руководство пользователя](docs/USER_GUIDE.md) — инструкция по использованию
-- [Руководство по установке](docs/INSTALL.md) — установка и настройка
-- [Changelog](CHANGELOG.md) — история изменений
-- [Swagger UI](http://localhost:8889/swagger/) — интерактивная API документация (при запущенном сервере)
+- [API documentation](docs/API.md) — complete REST API reference (22 routes)
+- [Architecture](docs/ARCHITECTURE.md) — backend and frontend architecture overview
+- [User Guide](docs/USER_GUIDE.md) — usage instructions
+- [Installation Guide](docs/INSTALL.md) — installation and configuration
+- [Changelog](CHANGELOG.md) — version history
+- [Swagger UI](http://localhost:8889/swagger/) — interactive API docs (when server is running)
 
-## Быстрый старт
+## Quick Start
 
 ### Backend
 
@@ -44,7 +44,7 @@ make build
 make run
 ```
 
-Сервер запустится на порту 8889.
+The server will start on port 8889.
 
 ### Frontend
 
@@ -60,43 +60,43 @@ build.bat   # Windows
 docker-compose up -d
 ```
 
-## Запуск
+## Running
 
 ```bash
-# Терминал 1
+# Terminal 1
 cd backend && make run
 
-# Терминал 2
+# Terminal 2
 cd frontend/build && ./TorrSyncPlayer
 ```
 
-## Структура проекта
+## Project Structure
 
 ```
 TorrSyncPlayer/
 ├── backend/           # Go backend (HTTP API + P2P + Torrent)
-│   ├── cmd/server/    # Точка входа (main.go, 408 строк)
+│   ├── cmd/server/    # Entry point (main.go, 408 lines)
 │   ├── internal/
 │   │   ├── api/       # HTTP API (router, handlers, middleware, tests)
-│   │   ├── auth/      # JWT аутентификация (HS256, bcrypt, token revocation)
-│   │   ├── buffer/    # LRU кэш, приоритеты pieces
-│   │   ├── constants/ # Все магические числа вынесены в константы
+│   │   ├── auth/      # JWT authentication (HS256, bcrypt, token revocation)
+│   │   ├── buffer/    # LRU cache, piece priorities
+│   │   ├── constants/ # All magic numbers extracted to constants
 │   │   ├── errors/    # AppError, ErrorType
-│   │   ├── metrics/   # Prometheus метрики
-│   │   ├── models/    # Модели данных
-│   │   ├── p2p/       # WebRTC P2P сервис, комнаты
-│   │   ├── storage/   # In-memory хранилище
-│   │   ├── sync/      # Синхронизация воспроизведения с компенсацией задержки
-│   │   ├── torrent/   # Управление торрентами + HTTP streaming
-│   │   ├── validation/# Валидация входных данных
-│   │   └── version/   # Информация о версии
-│   ├── pkg/logger/    # slog-based логгер
-│   ├── docs/          # Swagger спецификация (swagger.yaml, swagger.json, docs.go)
+│   │   ├── metrics/   # Prometheus metrics
+│   │   ├── models/    # Data models
+│   │   ├── p2p/       # WebRTC P2P service, rooms
+│   │   ├── storage/   # In-memory storage
+│   │   ├── sync/      # Playback sync with latency compensation
+│   │   ├── torrent/   # Torrent management + HTTP streaming
+│   │   ├── validation/# Input validation
+│   │   └── version/   # Version info
+│   ├── pkg/logger/    # slog-based logger
+│   ├── docs/          # Swagger spec (swagger.yaml, swagger.json, docs.go)
 │   ├── Makefile
 │   └── go.mod
 │
 ├── frontend/          # Qt/C++ frontend
-│   ├── src/           # Исходный код
+│   ├── src/           # Source files
 │   │   ├── main.cpp
 │   │   ├── mainwindow.h/.cpp
 │   │   ├── mpvwidget.h/.cpp
@@ -110,88 +110,92 @@ TorrSyncPlayer/
 │   │   ├── inetworkmanager.h
 │   │   ├── test_torrentmodel.cpp
 │   │   └── test_networkmanager.cpp
-│   ├── resources/     # Ресурсы (иконки и т.д.)
+│   ├── resources/     # Resources (icons, etc.)
 │   ├── CMakeLists.txt
 │   └── build.sh / build.bat
 │
-├── docs/              # Документация
-│   ├── API.md         # API документация
-│   ├── ARCHITECTURE.md # Архитектура
-│   ├── INSTALL.md     # Руководство по установке
-│   └── USER_GUIDE.md  # Руководство пользователя
+├── docs/              # Documentation
+│   ├── API.md         # API documentation
+│   ├── ARCHITECTURE.md # Architecture overview
+│   ├── ARCHITECTURE_BACKEND.md # Backend architecture details
+│   ├── ARCHITECTURE_FRONTEND.md # Frontend architecture details
+│   ├── ARCHITECTURE_P2P.md # P2P/WebRTC architecture
+│   ├── INSTALL.md     # Installation guide
+│   ├── USER_GUIDE.md  # User guide
+│   └── METRICS.md     # Prometheus metrics reference
 │
 ├── .github/           # GitHub Actions workflows
 │   └── workflows/
 │       ├── ci.yml     # CI pipeline (lint, test, build, coverage)
 │       └── release.yml # Release pipeline
 │
-├── Dockerfile         # Multi-stage Docker образ
-├── docker-compose.yml # Docker Compose конфигурация (backend + Prometheus + Grafana)
-├── Makefile           # Корневой Makefile
-├── CHANGELOG.md       # История изменений
-├── CONTRIBUTING.md    # Руководство для контрибьюторов
-├── AGENTS.md          # Руководство для AI-агентов
-└── LICENSE            # MIT лицензия
+├── Dockerfile         # Multi-stage Docker image
+├── docker-compose.yml # Docker Compose config (backend + Prometheus + Grafana)
+├── Makefile           # Root Makefile
+├── CHANGELOG.md       # Version history
+├── CONTRIBUTING.md    # Contributor guide
+├── AGENTS.md          # AI agent guide
+└── LICENSE            # MIT license
 ```
 
 ## API
 
-### Основные endpoints
+### Main Endpoints
 
-| Метод | Путь | Описание | Аутентификация |
-|-------|------|----------|----------------|
-| GET | `/health` | Health check | Нет |
-| GET | `/api/v1/version` | Версия сервера | Нет |
-| GET | `/metrics` | Prometheus метрики | Нет |
-| GET | `/api/v1/csrf-token` | Получить CSRF токен | Нет |
-| POST | `/api/v1/auth/register` | Регистрация | Нет |
-| POST | `/api/v1/auth/login` | Вход | Нет |
-| POST | `/api/v1/auth/logout` | Выход | Нет |
-| GET | `/api/v1/torrents` | Список торрентов | JWT |
-| POST | `/api/v1/torrents` | Добавить торрент | JWT |
-| DELETE | `/api/v1/torrents/{id}` | Удалить торрент | JWT |
-| GET | `/api/v1/torrents/{id}/files` | Список файлов | JWT |
-| POST | `/api/v1/torrents/{id}/select` | Выбрать файл | JWT |
-| GET | `/api/v1/torrents/{id}/stream` | Стриминг файла | JWT |
-| POST | `/api/v1/torrents/{id}/buffer/position` | Установить позицию буфера | JWT |
-| GET | `/api/v1/torrents/{id}/buffer/info` | Информация о буфере | JWT |
-| POST | `/api/v1/rooms` | Создать комнату | JWT |
-| POST | `/api/v1/rooms/join` | Присоединиться | JWT |
-| POST | `/api/v1/rooms/leave` | Покинуть комнату | JWT |
-| POST | `/api/v1/rooms/signal` | WebRTC сигнал | JWT |
-| GET | `/api/v1/rooms/{roomID}/events` | SSE события | JWT |
-| POST | `/api/v1/sync/play` | Синхр. play | JWT |
-| POST | `/api/v1/sync/pause` | Синхр. pause | JWT |
-| POST | `/api/v1/sync/seek` | Синхр. seek | JWT |
-| GET | `/api/v1/sync/status` | Статус синхр. | JWT |
-| GET | `/api/v1/health/detailed` | Детальный health check | JWT |
+| Method | Path | Description | Authentication |
+|--------|------|-------------|----------------|
+| GET | `/health` | Health check | No |
+| GET | `/api/v1/version` | Server version | No |
+| GET | `/metrics` | Prometheus metrics | No |
+| GET | `/api/v1/csrf-token` | Get CSRF token | No |
+| POST | `/api/v1/auth/register` | Register | No |
+| POST | `/api/v1/auth/login` | Login | No |
+| POST | `/api/v1/auth/logout` | Logout | No |
+| GET | `/api/v1/torrents` | List torrents | JWT |
+| POST | `/api/v1/torrents` | Add torrent | JWT |
+| DELETE | `/api/v1/torrents/{id}` | Remove torrent | JWT |
+| GET | `/api/v1/torrents/{id}/files` | List files | JWT |
+| POST | `/api/v1/torrents/{id}/select` | Select file | JWT |
+| GET | `/api/v1/torrents/{id}/stream` | Stream file | JWT |
+| POST | `/api/v1/torrents/{id}/buffer/position` | Set buffer position | JWT |
+| GET | `/api/v1/torrents/{id}/buffer/info` | Buffer info | JWT |
+| POST | `/api/v1/rooms` | Create room | JWT |
+| POST | `/api/v1/rooms/join` | Join room | JWT |
+| POST | `/api/v1/rooms/leave` | Leave room | JWT |
+| POST | `/api/v1/rooms/signal` | WebRTC signal | JWT |
+| GET | `/api/v1/rooms/{roomID}/events` | SSE events | JWT |
+| POST | `/api/v1/sync/play` | Sync play | JWT |
+| POST | `/api/v1/sync/pause` | Sync pause | JWT |
+| POST | `/api/v1/sync/seek` | Sync seek | JWT |
+| GET | `/api/v1/sync/status` | Sync status | JWT |
+| GET | `/api/v1/health/detailed` | Detailed health check | JWT |
 
-Полная документация API доступна в [docs/API.md](docs/API.md) и в Swagger UI на `/swagger/`.
+Full API documentation is available in [docs/API.md](docs/API.md) and in Swagger UI at `/swagger/`.
 
-## Тестирование
+## Testing
 
 ```bash
-# Backend тесты
+# Backend tests
 cd backend
 make test
 
-# Backend тесты с coverage
+# Backend tests with coverage
 go test -cover ./...
 
-# Frontend тесты
+# Frontend tests
 cd frontend/build
 ctest --output-on-failure
 ```
 
-## Известные ограничения
+## Known Limitations
 
-1. **In-memory хранилище** — UserStore и TokenRevocationStore не имеют персистентности (данные теряются при перезапуске)
-2. **Нет интеграции с БД** — для production требуется подключение базы данных
-3. **Buffer Service** — не имеет unit-тестов
-4. **Frontend тесты** — MainWindow и MpvWidget не имеют unit-тестов
-5. **SSL в NetworkManager** — в debug-режиме SSL ошибки игнорируются, production-поведение не реализовано
-6. **--server-url флаг** — при запуске frontend с `--server-url` URL парсится, но не передаётся в NetworkManager
+1. **In-memory storage** — UserStore and TokenRevocationStore are not persistent (data is lost on restart)
+2. **No database integration** — a production deployment requires a database
+3. **Buffer Service** — lacks unit tests
+4. **Frontend tests** — MainWindow and MpvWidget do not have unit tests
+5. **SSL in NetworkManager** — SSL errors are ignored in debug mode; production behavior is not implemented
+6. **--server-url flag** — when launching frontend with `--server-url`, the URL is parsed but not passed to NetworkManager
 
-## Лицензия
+## License
 
 [MIT](LICENSE)

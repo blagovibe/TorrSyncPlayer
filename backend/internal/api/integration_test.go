@@ -59,7 +59,7 @@ func (m *integrationMockTorrentService) AddMagnet(ctx context.Context, magnetURI
 	return info, nil
 }
 
-func (m *integrationMockTorrentService) RemoveTorrent(id string) error {
+func (m *integrationMockTorrentService) RemoveTorrent(ctx context.Context, id string) error {
 	if _, exists := m.torrents[id]; !exists {
 		return fmt.Errorf("torrent not found: %s", id)
 	}
@@ -321,7 +321,10 @@ func setupIntegrationTestServer() (*httptest.Server, *integrationTestServices) {
 	}
 
 	// Создаём auth service для тестов
-	authService := auth.NewAuthService([]byte("test-secret-for-integration-tests-32bytes!"))
+	authService, err := auth.NewAuthService([]byte("test-secret-for-integration-tests-32bytes!"))
+	if err != nil {
+		panic(err)
+	}
 
 	config := RouterConfig{
 		TorrentSvc:  services.torrentSvc,

@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,8 +30,9 @@ import (
 
 // Константы сервиса торрентов
 const (
-	// gracefulShutdownTimeout таймаут для корректной остановки сервиса
 	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
+	maxTorrents             = 100
+	maxStreamFileSize       = 100 * 1024 * 1024 * 1024 // 100 GB
 )
 
 // Service сервис управления торрентами.
@@ -167,6 +170,12 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 	torrentID := t.InfoHash().HexString()
 
 	s.mu.Lock()
+	if len(s.torrents) >= maxTorrents {
+		s.mu.Unlock()
+		t.Drop()
+		logger.Warn("Torrent: превышен лимит торрентов", "torrentID", torrentID, "max", maxTorrents)
+		return nil, errors.New(errors.ErrUnavailable, "превышен максимальный количество торрентов")
+	}
 	s.torrents[torrentID] = t
 	s.mu.Unlock()
 
@@ -196,7 +205,7 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 // RemoveTorrent удаляет торрент по ID.
 // Останавливает загрузку и удаляет торрент из клиента.
 // Возвращает ошибку если торрент не найден.
-func (s *Service) RemoveTorrent(id string) error {
+func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -361,9 +370,10 @@ func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
 // Поддерживает Range запросы для перемотки через http.ServeContent.
 // Автоматически определяет Content-Type по расширению файла.
 // Возвращает 400 если файл не выбран, 404 если торрент не найден.
+//
+// Использует одну RLock для обеих проверок (существование торрента и выбор файла),
+// чтобы предотвратить race condition когда торрент может быть удалён между двумя RLock.
 func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID string) {
-	// Одна блокировка для обеих операций - предотвращает гонку данных
-	// когда другой поток может удалить торрент между двумя RLock
 	s.mu.RLock()
 	t, exists := s.torrents[torrentID]
 	if !exists {
@@ -380,10 +390,11 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 		http.Error(w, "Файл не выбран для стриминга", http.StatusBadRequest)
 		return
 	}
-	s.mu.RUnlock()
 
+	// Получаем список файлов пока блокировка активна
 	files := t.Files()
 	if fileIndex >= len(files) {
+		s.mu.RUnlock()
 		logger.Warn("Torrent: неверный индекс файла при стриминге",
 			"torrentID", torrentID,
 			"fileIndex", fileIndex,
@@ -394,23 +405,34 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 	}
 
 	file := files[fileIndex]
-	reader := file.NewReader()
 
-	// Закрываем reader после завершения стриминга для предотвращения утечки файловых дескрипторов
-	// Используем обёртку с отложенным закрытием
+	if file.Length() > maxStreamFileSize {
+		s.mu.RUnlock()
+		logger.Warn("Torrent: файл превышает максимальный размер для стриминга",
+			"torrentID", torrentID,
+			"fileSize", file.Length(),
+			"maxSize", maxStreamFileSize,
+		)
+		http.Error(w, "Файл слишком большой для стриминга", http.StatusBadRequest)
+		return
+	}
+
+	reader := file.NewReader()
+	s.mu.RUnlock()
+
 	closer := &readCloserWithClose{ReadSeekCloser: reader}
 	defer func() { _ = closer.Close() }()
+
+	safeName := sanitizeFilename(file.DisplayPath())
 
 	logger.Info("Torrent: начало стриминга",
 		"torrentID", torrentID,
 		"fileIndex", fileIndex,
-		"fileName", file.DisplayPath(),
+		"fileName", safeName,
 		"fileSize", file.Length(),
 	)
 
-	// Используем http.ServeContent для полной поддержки RFC 7233
-	// Автоматически обрабатывает Range запросы, Content-Range, If-Range и т.д.
-	http.ServeContent(w, r, file.DisplayPath(), time.Now(), closer)
+	http.ServeContent(w, r, safeName, time.Now(), closer)
 }
 
 // Close закрывает сервис торрентов с graceful shutdown.
@@ -453,8 +475,6 @@ func (s *Service) Close() error {
 	return nil
 }
 
-// torrentToInfo конвертирует torrent.Torrent в TorrentInfo.
-// Извлекает информацию о торренте: ID, имя, размер, прогресс, статус.
 func (s *Service) torrentToInfo(t *torrent.Torrent) *models.TorrentInfo {
 	info := &models.TorrentInfo{
 		ID:     t.InfoHash().HexString(),
@@ -478,4 +498,17 @@ func (s *Service) torrentToInfo(t *torrent.Torrent) *models.TorrentInfo {
 	}
 
 	return info
+}
+
+// sanitizeFilename очищает имя файла от потенциально опасных символов и путей.
+// Предотвращает path traversal и CRLF-инъекции.
+func sanitizeFilename(name string) string {
+	name = path.Base(name)
+	name = strings.ReplaceAll(name, "\r", "")
+	name = strings.ReplaceAll(name, "\n", "")
+	name = strings.ReplaceAll(name, "\x00", "")
+	if name == "" || name == "." || name == ".." {
+		return "file"
+	}
+	return name
 }

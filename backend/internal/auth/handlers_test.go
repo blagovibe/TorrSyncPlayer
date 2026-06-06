@@ -14,7 +14,10 @@ import (
 
 func setupTestHandler() *AuthHandler {
 	store := NewUserStore()
-	authService := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	authService, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	if err != nil {
+		panic(err)
+	}
 	return NewAuthHandler(store, authService)
 }
 
@@ -48,7 +51,7 @@ func TestRegisterHandler(t *testing.T) {
 				Username: "testuser",
 				Password: "password123",
 			},
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusConflict,
 		},
 		{
 			name: "Пустое имя пользователя",
@@ -186,7 +189,8 @@ func TestLoginHandler(t *testing.T) {
 
 func TestJWTMiddleware(t *testing.T) {
 	// Создаём AuthService с фиксированным секретом для тестов
-	authService := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	authService, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	require.NoError(t, err)
 
 	// Создаём тестовый handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -266,11 +270,9 @@ func TestGetClaims(t *testing.T) {
 }
 
 func TestLogoutHandler(t *testing.T) {
-	// Создаём новый revocation store для изоляции тестов
-	testStore := NewTokenRevocationStore()
-	SetRevocationStore(testStore)
-
-	authService := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	// Создаём auth service (revocation store теперь внутри)
+	authService, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	require.NoError(t, err)
 
 	user := &models.User{
 		ID:       "user123",

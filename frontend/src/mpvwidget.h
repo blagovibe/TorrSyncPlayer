@@ -176,13 +176,6 @@ private:
      */
     bool initializeMpv();
 
-    /**
-     * @brief Безопасная отправка команд mpv
-     * Отправляет команду асинхронно без ожидания ответа
-     * @param args Массив аргументов (заканчивается nullptr)
-     */
-    void commandAsync(const char **args);
-
 #ifdef HAS_MPV
     /**
      * @brief Обработка событий от mpv
@@ -213,6 +206,7 @@ private:
     double m_duration = 0.0;            ///< Длительность медиа
     bool m_paused = false;              ///< Флаг паузы
     QTimer *m_seekDebounceTimer = nullptr;   ///< Таймер debounce для перемотки
+    QTimer *m_eventTimer = nullptr;          ///< Таймер для обработки событий mpv
     double m_pendingSeekPosition = 0.0;      ///< Ожидающая позиция перемотки
     
     // Буфер для событий, ожидающих эмиссии сигналов (защищён m_mutex)

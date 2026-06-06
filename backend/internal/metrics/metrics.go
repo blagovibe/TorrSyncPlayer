@@ -12,30 +12,29 @@ import (
 	"time"
 )
 
-// Metrics структура для хранения метрик сервера
 type Metrics struct {
 	mu sync.RWMutex
 
-	// Время запуска сервера
 	startTime time.Time
 
-	// Счётчики запросов
 	requestsTotal   int64
 	requestsSuccess int64
 	requestsError   int64
 
-	// Метрики торрентов
 	torrentsAdded   int64
 	torrentsRemoved int64
 	torrentsActive  int64
 
-	// Метрики комнат
 	roomsCreated int64
 	roomsActive  int64
 	peersTotal   int64
 
-	// Метрики синхронизации
 	syncOperations int64
+
+	cacheMu       sync.Mutex
+	cachedOutput  string
+	cacheTime     time.Time
+	cacheTTL      time.Duration
 }
 
 var (
@@ -48,6 +47,7 @@ func GetInstance() *Metrics {
 	once.Do(func() {
 		instance = &Metrics{
 			startTime: time.Now(),
+			cacheTTL:  5 * time.Second,
 		}
 	})
 	return instance
@@ -208,11 +208,33 @@ func (m *Metrics) getMemoryStatsUnsafe() map[string]uint64 {
 
 // FormatPrometheus форматирует метрики в формате Prometheus
 func (m *Metrics) FormatPrometheus() string {
+	m.cacheMu.Lock()
+	if time.Since(m.cacheTime) < m.cacheTTL && m.cachedOutput != "" {
+		cached := m.cachedOutput
+		m.cacheMu.Unlock()
+		return cached
+	}
+	m.cacheMu.Unlock()
+
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	memStats := m.getMemoryStatsUnsafe()
+	result := m.formatPrometheusUnsafe(memStats)
+	m.mu.RUnlock()
 
+	m.cacheMu.Lock()
+	if time.Since(m.cacheTime) < m.cacheTTL && m.cachedOutput != "" {
+		cached := m.cachedOutput
+		m.cacheMu.Unlock()
+		return cached
+	}
+	m.cachedOutput = result
+	m.cacheTime = time.Now()
+	m.cacheMu.Unlock()
+
+	return result
+}
+
+func (m *Metrics) formatPrometheusUnsafe(memStats map[string]uint64) string {
 	var result string
 
 	// Время работы

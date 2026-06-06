@@ -3,7 +3,7 @@
 # ============================================================
 
 # ── Stage 1: Build ──────────────────────────────────────────
-FROM golang:1.25-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Устанавливаем зависимости для сборки
 RUN apk add --no-cache git make
@@ -57,7 +57,7 @@ ENV LOG_FORMAT=json
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8889/health || exit 1
+    CMD wget -q -O /dev/null http://localhost:8889/health || exit 1
 
 # Запуск сервера
 ENTRYPOINT ["/app/bin/server"]

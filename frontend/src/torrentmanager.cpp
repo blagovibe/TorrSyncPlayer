@@ -99,11 +99,7 @@ void TorrentManager::selectFile(const QString &torrentId, int fileIndex)
     }
     
     m_network->selectFile(torrentId, fileIndex);
-    
-    // Формируем URL потока
-    QString url = streamUrl(torrentId);
-    emit fileSelected(torrentId, fileIndex, url);
-    
+
     qDebug() << "TorrentManager: выбран файл" << fileIndex << "для" << torrentId;
 }
 

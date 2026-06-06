@@ -247,11 +247,11 @@ func TestCSRFMiddleware_GeneratesTokenForGET(t *testing.T) {
 	handler := CSRFMiddleware(testHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Origin", "http://localhost:8889")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	// Проверяем что CSRF токен установлен в заголовке
 	csrfToken := rr.Header().Get("X-CSRF-Token")
 	assert.NotEmpty(t, csrfToken)
 }
@@ -278,15 +278,14 @@ func TestCSRFMiddleware_AcceptsValidToken(t *testing.T) {
 
 	handler := CSRFMiddleware(testHandler)
 
-	// Сначала получаем токен через GET
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Origin", "http://localhost:8889")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	csrfToken := rr.Header().Get("X-CSRF-Token")
 	require.NotEmpty(t, csrfToken)
 
-	// Теперь используем токен для POST
 	req = httptest.NewRequest(http.MethodPost, "/test", nil)
 	req.Header.Set("X-CSRF-Token", csrfToken)
 	rr = httptest.NewRecorder()

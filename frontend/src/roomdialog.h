@@ -95,12 +95,6 @@ private slots:
      * @param index Индекс выбранной вкладки
      */
     void onTabChanged(int index);
-    
-    /**
-     * @brief Переключение видимости пароля
-     * @param checked true для показа пароля
-     */
-    void onTogglePassword(bool checked);
 
 private:
     /**

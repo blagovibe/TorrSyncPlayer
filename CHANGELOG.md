@@ -1,121 +1,103 @@
 ﻿# Changelog
 
-Все значимые изменения в проекте документируются в этом файле.
+All significant changes to the project are documented in this file.
 
-Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
-и этот проект следует [Semantic Versioning](https://semver.org/lang/ru/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Не выпущено]
+## [Unreleased]
 
-### Добавлено
+### Added
 
-- Добавлен `.editorconfig` с настройками для Go, C++, CMake, Makefile, JSON, YAML
-- Добавлен code coverage в CI pipeline (Go + C++ с Codecov интеграцией)
-- Добавлена проверка coverage для PR (минимум 60%)
-- Добавлены константы для магических чисел в torrent, p2p и sync сервисах
-- Добавлен заголовок лицензии MIT во все исходные файлы (.go, .cpp, .h)
-- Создано руководство пользователя (`docs/USER_GUIDE.md`)
-- Создано руководство по установке (`docs/INSTALL.md`)
-- Создана документация по архитектуре (`docs/ARCHITECTURE.md`)
-- Создано руководство для контрибьюторов (`CONTRIBUTING.md`)
-- Добавлена валидация roomID в API endpoints
-- Добавлены тесты для валидации (`internal/validation/validation_test.go`)
-- Добавлены тесты для auth handlers (`internal/auth/handlers_test.go`)
-- Добавлены тесты для API handlers (`internal/api/handlers_test.go`)
-- Добавлены тесты для torrent service (`internal/torrent/service_test.go`)
-- Добавлены тесты для p2p service (`internal/p2p/service_test.go`)
-- Добавлены тесты для sync service (`internal/sync/service_test.go`)
-- Добавлен пакет `buffer` — LRU кэш с приоритетами загрузки pieces
-- Добавлен пакет `storage` — in-memory хранилище
-- Добавлен пакет `errors` — AppError, ErrorType
-- Добавлен пакет `constants` — все магические числа вынесены в константы
-- Добавлена CSRF защита (token store с TTL 1h)
-- Добавлен rate limiting (10 req/min для auth, 60 req/min для API)
-- Добавлена JWT аутентификация (HS256, 24h TTL, JTI для revocation)
-- Добавлен bcrypt (cost=12) для хеширования паролей
-- Добавлен in-memory UserStore и TokenRevocationStore
-- Добавлены Prometheus метрики
-- Добавлен Swagger UI на `/swagger/`
-- Добавлена поддержка TLS 1.2+
-- Добавлен pprof на порту 6060 (опционально)
-- Добавлен graceful shutdown (30s timeout)
-- Добавлен retry logic в NetworkManager (exponential backoff, max 3)
-- Добавлен seek debounce в MpvWidget
-- Добавлены SSE для real-time событий комнаты
-- Добавлена интеграция с Docker Compose (Prometheus + Grafana profiles)
+- Documentation improvements: translated README.md, CONTRIBUTING.md, USER_GUIDE.md, INSTALL.md to English
+- Split ARCHITECTURE.md into modular sub-docs (ARCHITECTURE_BACKEND.md, ARCHITECTURE_FRONTEND.md, ARCHITECTURE_P2P.md)
+- Added docs/METRICS.md documenting all Prometheus metrics
+- Added API versioning policy and authentication flow documentation to docs/API.md
+- Added branching strategy and rollback procedure to CONTRIBUTING.md
+- Added Grafana password rotation docs to INSTALL.md
+- Added QSignalSpy tests for TorrentModel signal emissions
+- Added expanded NetworkManager tests (error handling, retry exhaustion, SSE, JSON edge cases)
+- Added Utils tests (formatBytes, formatDuration, formatDurationSeconds, formatSpeed)
+- Added `check` target to backend Makefile
+- Enabled disabled linters (revive, unused, ineffassign) in .golangci.yml
 
-### Изменено
+### Fixed
 
-- Улучшена документация README.md с полным списком endpoints и ссылками
-- Обновлён CI pipeline с поддержкой coverage отчётов
-- Обновлён CHANGELOG с последними изменениями
-- Обновлена версия Go до 1.24 в go.mod
-- Обновлены зависимости до актуальных версий
-
-### Исправлено
-
-- Вынесены магические числа в именованные константы:
-  - `torrent/service.go`: `gracefulShutdownTimeout`, `dataDirPermissions`
-  - `p2p/service.go`: `eventChannelSize`, `sseTimeout`, `ssePingInterval`, `peerIDLength`
-  - `sync/service.go`: `maxPositionJump`, `smoothAdjustmentRatio`, `msPerSecond`
-- Исправлен баг с RoomEvents роутом: изменён путь с `/api/v1/rooms/events` на `/api/v1/rooms/{roomID}/events`
-- Исправлен Signal handler: добавлена правильная обработка WebRTC сигналов
-- Исправлен LogoutHandler: добавлена корректная обработка выхода из системы
-
-### Безопасность
-
-- JWT аутентификация с отзывом токенов
-- bcrypt хеширование паролей (cost=12)
-- CSRF токены с TTL 1h
-- Rate limiting (10 req/min для auth, 60 req/min для API)
-- Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
-- CORS политики
-- Валидация всех входных данных
-- TLS 1.2+ поддержка
-
-### Известные проблемы
-
-1. `frontend/src/main.cpp:336` — при запуске с `--server-url` URL парсится, но не передаётся в NetworkManager
-2. `frontend/src/networkmanager.cpp:301` — SSL ошибки игнорируются в debug-режиме, production-поведение не реализовано
-3. In-memory UserStore/TokenRevocationStore — без персистентности
-4. Нет интеграции с базой данных
-5. Buffer Service не имеет unit-тестов
-6. Frontend MainWindow/MpvWidget не имеют unit-тестов
+- Fixed USER_GUIDE.md: replaced non-existent log path references with stdout/stderr
+- Fixed USER_GUIDE.md: removed references to unimplemented frontend settings
+- Fixed INSTALL.md: replaced non-existent service file references with manual creation instructions
+- Fixed CHANGELOG.md: cleaned up unreleased section by moving old entries to v1.0.0
+- Fixed root Makefile: removed references to Go 1.25
 
 ## [1.0.0] - 2025-06-01
 
-### Добавлено
+### Added
 
-- Базовая функциональность торрент-клиента на базе anacrolix/torrent
-- HTTP REST API сервер на Go с chi router
-- P2P соединения через WebRTC (pion/webrtc v4)
-- Синхронизация воспроизведения с компенсацией задержки
-- JWT аутентификация для пользователей и пиров
-- Парольная защита комнат с bcrypt хешированием
-- SSE (Server-Sent Events) для событий комнаты в реальном времени
-- Qt/C++ frontend с libmpv видеоплеером
-- Системный трей интеграция
-- Graceful shutdown для всех сервисов
-- Структурированное логирование
-- CSRF защита
-- Rate limiting для API
-- CORS поддержка
+- Basic torrent client functionality based on anacrolix/torrent
+- HTTP REST API server in Go with chi router
+- P2P connections via WebRTC (pion/webrtc v4)
+- Playback synchronization with latency compensation
+- JWT authentication for users and peers
+- Password-protected rooms with bcrypt hashing
+- SSE (Server-Sent Events) for real-time room events
+- Qt/C++ frontend with libmpv video player
+- System tray integration
+- Graceful shutdown for all services
+- Structured logging
+- CSRF protection
+- Rate limiting for API
+- CORS support
 - Health check endpoints
-- Prometheus метрики
+- Prometheus metrics
+- Swagger UI at `/swagger/`
+- LRU cache with piece download priorities
+- In-memory storage (UserStore, TokenRevocationStore)
+- AppError and ErrorType structured error handling
+- Constants package (all magic numbers extracted)
+- TLS 1.2+ support
+- pprof on port 6060 (optional)
+- Retry logic in NetworkManager (exponential backoff, max 3)
+- Seek debounce in MpvWidget
+- Docker Compose integration (Prometheus + Grafana profiles)
+- `.editorconfig` for Go, C++, CMake, Makefile, JSON, YAML
+- Code coverage in CI pipeline (Go + C++ with Codecov integration)
+- Coverage check for PRs (minimum 60%)
+- MIT license headers in all source files
+- User guide (docs/USER_GUIDE.md)
+- Installation guide (docs/INSTALL.md)
+- Architecture documentation (docs/ARCHITECTURE.md)
+- Contributor guide (CONTRIBUTING.md)
+- RoomID validation in API endpoints
+- Validation tests (internal/validation/validation_test.go)
+- Auth handler tests (internal/auth/handlers_test.go)
+- API handler tests (internal/api/handlers_test.go)
+- Torrent service tests (internal/torrent/service_test.go)
+- P2P service tests (internal/p2p/service_test.go)
+- Sync service tests (internal/sync/service_test.go)
 
-### Безопасность
+### Security
 
-- JWT аутентификация
-- bcrypt хеширование паролей
-- CSRF токены
-- Rate limiting
-- Security headers
-- CORS политики
-- Валидация входных данных
+- JWT authentication with token revocation
+- bcrypt password hashing (cost=12)
+- CSRF tokens with TTL 1h
+- Rate limiting (10 req/min for auth, 60 req/min for API)
+- Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
+- CORS policies
+- All input data validation
+- TLS 1.2+ support
 
-### Архитектура
+### Architecture
 
-- Микросервисная архитектура с независимыми сервисами
-- Потокобезопасность через sync.RWMutex
-- Graceful shutdown с таймаутами
-- Контекст-ориентированное управление
+- Microservice architecture with independent services
+- Thread safety via sync.RWMutex
+- Graceful shutdown with timeouts
+- Context-oriented operation management
+
+### Known Issues
+
+1. `frontend/src/main.cpp:336` — when launched with `--server-url`, the URL is parsed but not passed to NetworkManager
+2. `frontend/src/networkmanager.cpp:301` — SSL errors are ignored in debug mode; production behavior is not implemented
+3. In-memory UserStore/TokenRevocationStore — no persistence
+4. No database integration
+5. Buffer Service lacks unit tests
+6. Frontend MainWindow/MpvWidget do not have unit tests

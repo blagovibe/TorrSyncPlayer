@@ -1,22 +1,39 @@
 # TorrSyncPlayer API Documentation
 
-## Обзор
+## API Versioning Policy
 
-TorrSyncPlayer предоставляет HTTP REST API для управления торрентами, P2P комнатами и синхронизацией воспроизведения.
+- Current version: v1
+- API version is URL-based: `/api/v1/...`
+- Breaking changes require a new major version (v2, v3, etc.)
+- Non-breaking additions are added to the current version
+- Deprecated endpoints return a `Deprecation` header
+- Minimum support: current version + 1 previous version
 
-- **Базовый URL:** `http://localhost:8889`
-- **Версия API:** v1
-- **Формат:** JSON
-- **Аутентификация:** JWT токен (для защищённых endpoints)
+## Overview
+
+TorrSyncPlayer provides an HTTP REST API for managing torrents, P2P rooms, and playback synchronization.
+
+- **Base URL:** `http://localhost:8889`
+- **API Version:** v1
+- **Format:** JSON
+- **Authentication:** JWT token (for protected endpoints)
 - **Swagger UI:** `http://localhost:8889/swagger/`
 
-## Аутентификация
+## Authentication Flow
+
+1. Register: `POST /api/v1/auth/register` `{username, password}`
+2. Login: `POST /api/v1/auth/login` `{username, password}` → returns JWT
+3. Use JWT: Include `Authorization: Bearer <token>` in requests
+4. Logout: `POST /api/v1/auth/logout` (revokes token)
+5. CSRF: For non-JWT requests, obtain token from `GET` response `X-CSRF-Token` header
+
+## Authentication
 
 ### POST /api/v1/auth/register
 
-Регистрация нового пользователя.
+Register a new user.
 
-**Запрос:**
+**Request:**
 ```json
 {
   "username": "user123",
@@ -24,7 +41,7 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 }
 ```
 
-**Ответ (201):**
+**Response (201):**
 ```json
 {
   "token": "jwt_token_here",
@@ -38,9 +55,9 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 
 ### POST /api/v1/auth/login
 
-Вход в систему.
+Log in.
 
-**Запрос:**
+**Request:**
 ```json
 {
   "username": "user123",
@@ -48,7 +65,7 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 }
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "token": "jwt_token_here",
@@ -62,42 +79,42 @@ TorrSyncPlayer предоставляет HTTP REST API для управлен�
 
 ### POST /api/v1/auth/logout
 
-Выход из системы (отзывает JWT токен).
+Log out (revokes JWT token).
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Вы вышли из системы"
+  "message": "Logged out"
 }
 ```
 
-## CSRF защита
+## CSRF Protection
 
 ### GET /api/v1/csrf-token
 
-Получить CSRF токен для защиты от межсайтовой подделки.
+Get a CSRF token for cross-site request forgery protection.
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "csrfToken": "csrf_token_here"
 }
 ```
 
-Заголовок ответа: `X-CSRF-Token: csrf_token_here`
+Response header: `X-CSRF-Token: csrf_token_here`
 
 ## Health Check
 
 ### GET /health
 
-Базовая проверка здоровья сервера (не требует аутентификации).
+Basic health check (no authentication required).
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "status": "ok",
@@ -113,14 +130,14 @@ Authorization: Bearer <jwt_token>
 
 ### GET /api/v1/health/detailed
 
-Расширенная проверка здоровья с проверкой состояния сервисов (требует JWT).
+Extended health check with service status (requires JWT).
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "status": "ok",
@@ -133,7 +150,7 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ответ (503) при проблемах:**
+**Response (503) on issues:**
 ```json
 {
   "status": "degraded",
@@ -150,9 +167,9 @@ Authorization: Bearer <jwt_token>
 
 ### GET /api/v1/version
 
-Получить версию сервера (не требует аутентификации).
+Get server version (no authentication required).
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "version": "1.0.0",
@@ -165,9 +182,9 @@ Authorization: Bearer <jwt_token>
 
 ### GET /metrics
 
-Prometheus метрики (не требует аутентификации).
+Prometheus metrics (no authentication required).
 
-**Ответ (200):**
+**Response (200):**
 ```
 # HELP http_requests_total Total number of HTTP requests
 # TYPE http_requests_total counter
@@ -179,18 +196,18 @@ http_requests_total{method="GET",path="/health"} 42
 
 ### GET /api/v1/torrents
 
-Получить список всех торрентов.
+Get list of all torrents.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Параметры запроса:**
-- `limit` (int, optional) - Количество элементов (по умолчанию 20, максимум 100)
-- `offset` (int, optional) - Смещение (по умолчанию 0)
+**Query parameters:**
+- `limit` (int, optional) — number of items (default 20, max 100)
+- `offset` (int, optional) — offset (default 0)
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "torrents": [
@@ -211,21 +228,21 @@ Authorization: Bearer <jwt_token>
 
 ### POST /api/v1/torrents
 
-Добавить торрент по magnet-ссылке.
+Add a torrent by magnet link.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "magnetUri": "magnet:?xt=urn:btih:..."
 }
 ```
 
-**Ответ (201):**
+**Response (201):**
 ```json
 {
   "id": "info_hash",
@@ -236,44 +253,44 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ошибки:**
-- `400` - Неверный формат magnet URI
-- `500` - Внутренняя ошибка сервера
+**Errors:**
+- `400` — Invalid magnet URI format
+- `500` — Internal server error
 
 ### DELETE /api/v1/torrents/{id}
 
-Удалить торрент.
+Remove a torrent.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Торрент удалён"
+  "message": "Torrent removed"
 }
 ```
 
-**Ошибки:**
-- `400` - Неверный ID торрента
-- `404` - Торрент не найден
+**Errors:**
+- `400` — Invalid torrent ID
+- `404` — Torrent not found
 
 ### GET /api/v1/torrents/{id}/files
 
-Получить список файлов торрента.
+Get list of files in a torrent.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Параметры запроса:**
-- `limit` (int, optional) - Количество элементов (по умолчанию 20, максимум 100)
-- `offset` (int, optional) - Смещение (по умолчанию 0)
+**Query parameters:**
+- `limit` (int, optional) — number of items (default 20, max 100)
+- `offset` (int, optional) — offset (default 0)
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "files": [
@@ -290,92 +307,92 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ошибки:**
-- `400` - Неверный ID торрента
-- `404` - Торрент не найден
+**Errors:**
+- `400` — Invalid torrent ID
+- `404` — Torrent not found
 
 ### POST /api/v1/torrents/{id}/select
 
-Выбрать файл для стриминга.
+Select a file for streaming.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "fileIndex": 0
 }
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Файл выбран"
+  "message": "File selected"
 }
 ```
 
-**Ошибки:**
-- `400` - Неверный индекс файла или ID торрента
-- `404` - Торрент не найден
+**Errors:**
+- `400` — Invalid file index or torrent ID
+- `404` — Torrent not found
 
 ### GET /api/v1/torrents/{id}/stream
 
-Стриминг выбранного файла.
+Stream the selected file.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Заголовки ответа:**
-- `Content-Type`: MIME тип файла
-- `Accept-Ranges: bytes` - Поддержка Range запросов
+**Response headers:**
+- `Content-Type`: file MIME type
+- `Accept-Ranges: bytes` — Range request support
 
-**Поддерживаемые форматы:**
-- Видео: mp4, mkv, avi, webm, mov, wmv, flv
-- Аудио: mp3, aac, wav, ogg, flac
-- Субтитры: srt, ass, ssa
+**Supported formats:**
+- Video: mp4, mkv, avi, webm, mov, wmv, flv
+- Audio: mp3, aac, wav, ogg, flac
+- Subtitles: srt, ass, ssa
 
-**Ошибки:**
-- `400` - Файл не выбран или неверный ID
-- `404` - Торрент не найден
+**Errors:**
+- `400` — File not selected or invalid ID
+- `404` — Torrent not found
 
 ### POST /api/v1/torrents/{id}/buffer/position
 
-Установить позицию буфера для приоритетной загрузки.
+Set buffer position for priority downloading.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "position": 120.5
 }
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Позиция буфера обновлена"
+  "message": "Buffer position updated"
 }
 ```
 
 ### GET /api/v1/torrents/{id}/buffer/info
 
-Получить информацию о состоянии буфера.
+Get buffer status information.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "position": 120.5,
@@ -388,14 +405,14 @@ Authorization: Bearer <jwt_token>
 
 ### POST /api/v1/rooms
 
-Создать новую комнату.
+Create a new room.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "name": "My Room",
@@ -403,7 +420,7 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ответ (201):**
+**Response (201):**
 ```json
 {
   "id": "room_id",
@@ -413,19 +430,19 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ошибки:**
-- `400` - Некорректное название комнаты
+**Errors:**
+- `400` — Invalid room name
 
 ### POST /api/v1/rooms/join
 
-Присоединиться к комнате.
+Join a room.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "roomId": "room_id",
@@ -433,47 +450,47 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Присоединились к комнате"
+  "message": "Joined room"
 }
 ```
 
-**Ошибки:**
-- `400` - Неверный ID комнаты
-- `401` - Неверный пароль
-- `404` - Комната не найдена
+**Errors:**
+- `400` — Invalid room ID
+- `401` — Wrong password
+- `404` — Room not found
 
 ### POST /api/v1/rooms/leave
 
-Покинуть комнату.
+Leave a room.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Вышли из комнаты"
+  "message": "Left room"
 }
 ```
 
-**Ошибки:**
-- `400` - Не подключены к комнате
+**Errors:**
+- `400` — Not in a room
 
 ### POST /api/v1/rooms/signal
 
-Отправить WebRTC сигнал.
+Send a WebRTC signal.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "roomId": "room_id",
@@ -481,38 +498,38 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
-  "message": "Сигнал отправлен"
+  "message": "Signal sent"
 }
 ```
 
-**Ошибки:**
-- `400` - Не в комнате или неверный ID
+**Errors:**
+- `400` — Not in room or invalid ID
 
 ### GET /api/v1/rooms/{roomID}/events
 
-Подключиться к SSE потоку событий комнаты.
+Connect to the room's SSE event stream.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Заголовки ответа:**
+**Response headers:**
 - `Content-Type: text/event-stream`
 - `Cache-Control: no-cache`
 
-**События:**
-- `connected` - Подключение установлено
-- `peer_joined` - Пир присоединился
-- `peer_left` - Пир покинул комнату
-- `signal` - WebRTC сигнал
-- `ping` - Ping для поддержания соединения
-- `timeout` - Таймаут соединения
+**Events:**
+- `connected` — Connection established
+- `peer_joined` — Peer joined
+- `peer_left` — Peer left
+- `signal` — WebRTC signal
+- `ping` — Keep-alive ping
+- `timeout` — Connection timeout
 
-**Пример события:**
+**Example event:**
 ```
 event: peer_joined
 data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
@@ -522,14 +539,14 @@ data: {"type": "peer_joined", "peerId": "peer_id", "roomId": "room_id"}
 
 ### POST /api/v1/sync/play
 
-Запустить синхронизированное воспроизведение.
+Start synchronized playback.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "isPlaying": true,
@@ -541,14 +558,14 @@ Authorization: Bearer <jwt_token>
 
 ### POST /api/v1/sync/pause
 
-Приостановить воспроизведение.
+Pause playback.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "isPlaying": false,
@@ -560,21 +577,21 @@ Authorization: Bearer <jwt_token>
 
 ### POST /api/v1/sync/seek
 
-Синхронизировать перемотку.
+Synchronize seeking.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Запрос:**
+**Request:**
 ```json
 {
   "position": 300.0
 }
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "isPlaying": true,
@@ -584,19 +601,19 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-**Ошибки:**
-- `400` - Некорректная позиция
+**Errors:**
+- `400` — Invalid position
 
 ### GET /api/v1/sync/status
 
-Получить текущий статус синхронизации.
+Get current sync status.
 
-**Заголовки:**
+**Headers:**
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-**Ответ (200):**
+**Response (200):**
 ```json
 {
   "isPlaying": true,
@@ -606,60 +623,60 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
-## Коды ошибок
+## Error Codes
 
-| Код | Описание |
-|-----|----------|
-| 400 | Неверный запрос (Bad Request) |
-| 401 | Не авторизован (Unauthorized) |
-| 403 | Доступ запрещён (Forbidden) |
-| 404 | Ресурс не найден (Not Found) |
-| 408 | Таймаут запроса (Request Timeout) |
-| 409 | Конфликт (Conflict) |
-| 429 | Слишком много запросов (Too Many Requests) |
-| 500 | Внутренняя ошибка сервера (Internal Server Error) |
-| 503 | Сервис недоступен (Service Unavailable) |
+| Code | Description |
+|------|-------------|
+| 400 | Bad Request |
+| 401 | Unauthorized |
+| 403 | Forbidden |
+| 404 | Not Found |
+| 408 | Request Timeout |
+| 409 | Conflict |
+| 429 | Too Many Requests |
+| 500 | Internal Server Error |
+| 503 | Service Unavailable |
 
-## Формат ошибок
+## Error Format
 
-Все ошибки возвращаются в формате JSON:
+All errors are returned in JSON format:
 
 ```json
 {
   "code": 404,
-  "message": "Торрент не найден"
+  "message": "Torrent not found"
 }
 ```
 
 ## Rate Limiting
 
-- **Auth endpoints:** 10 запросов/минуту (burst 5)
-- **API endpoints:** 60 запросов/минуту (burst 10)
+- **Auth endpoints:** 10 requests/minute (burst 5)
+- **API endpoints:** 60 requests/minute (burst 10)
 
-Заголовки ответа:
-- `X-RateLimit-Limit` - Лимит запросов
-- `X-RateLimit-Remaining` - Оставшиеся запросы
-- `X-RateLimit-Reset` - Время сброса лимита
+Response headers:
+- `X-RateLimit-Limit` — Request limit
+- `X-RateLimit-Remaining` — Remaining requests
+- `X-RateLimit-Reset` — Limit reset time
 
 ## CORS
 
-API поддерживает CORS для следующих источников:
-- `http://localhost:*` (разработка)
-- Настраивается через переменную окружения `CORS_ORIGINS`
+API supports CORS for the following origins:
+- `http://localhost:*` (development)
+- Configurable via `CORS_ORIGINS` environment variable
 
-Разрешённые методы: `GET, POST, PUT, DELETE, OPTIONS`
-Разрешённые заголовки: `Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID`
+Allowed methods: `GET, POST, PUT, DELETE, OPTIONS`
+Allowed headers: `Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID`
 
 ## SSE (Server-Sent Events)
 
-Для получения событий в реальном времени используйте SSE:
+For real-time events, use SSE:
 
 ```javascript
 const eventSource = new EventSource('/api/v1/rooms/{roomID}/events');
 
 eventSource.addEventListener('peer_joined', (e) => {
   const data = JSON.parse(e.data);
-  console.log('Пир присоединился:', data.peerId);
+  console.log('Peer joined:', data.peerId);
 });
 
 eventSource.addEventListener('signal', (e) => {
@@ -668,13 +685,13 @@ eventSource.addEventListener('signal', (e) => {
 });
 ```
 
-## Безопасность
+## Security
 
-- JWT аутентификация (HS256, 24h TTL, JTI для revocation)
-- bcrypt хеширование паролей (cost=12)
-- CSRF защита (token store с TTL 1h)
+- JWT authentication (HS256, 24h TTL, JTI for revocation)
+- bcrypt password hashing (cost=12)
+- CSRF protection (token store with TTL 1h)
 - Rate limiting
 - Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
-- CORS политики
-- Валидация входных данных
-- TLS 1.2+ поддержка
+- CORS policies
+- Input data validation
+- TLS 1.2+ support

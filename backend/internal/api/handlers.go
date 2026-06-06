@@ -10,14 +10,17 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	apperrors "github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
@@ -45,10 +48,13 @@ const (
 	maxSSEConnections = constants.MaxSSEConnections
 
 	// sseTimeout таймаут для SSE соединения
-	sseTimeout = constants.SSETimout
+	sseTimeout = constants.SSETimeout
 
 	// ssePingInterval интервал отправки ping для поддержания SSE соединения
 	ssePingInterval = constants.SSEPingInterval
+
+	// sseEventBufferSize размер буфера событий для каждого SSE клиента
+	sseEventBufferSize = 100
 )
 
 // sseConnectionManager управляет активными SSE соединениями по комнатам
@@ -101,6 +107,70 @@ func (m *sseConnectionManager) Count() int {
 // sseManager глобальный менеджер SSE соединений
 var sseManager = newSSEConnectionManager(maxSSEConnections)
 
+// sseClient представляет подключённого SSE клиента с буфером событий
+type sseClient struct {
+	roomID string
+	events chan models.P2PEvent
+}
+
+// sseEventBuffer буферизованный канал событий для SSE клиентов
+type sseEventBuffer struct {
+	mu         sync.RWMutex
+	clients    map[string]map[*sseClient]bool // roomID -> clients
+	bufferSize int
+}
+
+// newSSEEventBuffer создаёт буфер событий SSE
+func newSSEEventBuffer(bufferSize int) *sseEventBuffer {
+	return &sseEventBuffer{
+		clients:    make(map[string]map[*sseClient]bool),
+		bufferSize: bufferSize,
+	}
+}
+
+// subscribe подписывает клиента на события комнаты
+func (b *sseEventBuffer) subscribe(client *sseClient) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.clients[client.roomID] == nil {
+		b.clients[client.roomID] = make(map[*sseClient]bool)
+	}
+	b.clients[client.roomID][client] = true
+}
+
+// unsubscribe отписывает клиента от событий
+func (b *sseEventBuffer) unsubscribe(client *sseClient) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if clients, ok := b.clients[client.roomID]; ok {
+		delete(clients, client)
+		if len(clients) == 0 {
+			delete(b.clients, client.roomID)
+		}
+	}
+	close(client.events)
+}
+
+// broadcast отправляет событие всем клиентам в комнате
+func (b *sseEventBuffer) broadcast(roomID string, event models.P2PEvent) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if clients, ok := b.clients[roomID]; ok {
+		for client := range clients {
+			select {
+			case client.events <- event:
+				// Событие отправлено
+			default:
+				// Буфер клиента полное, пропускаем
+				logger.Warn("SSE: буфер клиента полный, событие пропущено", "roomID", roomID)
+			}
+		}
+	}
+}
+
+// globalSSEBuffer глобальный буфер событий SSE
+var globalSSEBuffer = newSSEEventBuffer(sseEventBufferSize)
+
 // SSEEventHandler общая функция для обработки SSE событий.
 // Используется для устранения дублирования логики SSE в разных обработчиках.
 // Параметры:
@@ -110,7 +180,6 @@ var sseManager = newSSEConnectionManager(maxSSEConnections)
 //   - roomID: ID комнаты для ограничения соединений (пустая строка = без ограничений)
 //   - logPath: путь для логирования
 func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan models.P2PEvent, roomID string, logPath string) {
-	// Проверяем лимит соединений если указан roomID
 	if roomID != "" {
 		if !sseManager.tryAcquire(roomID) {
 			logger.Warn("SSE: превышен лимит соединений для комнаты", "roomID", roomID, "max", maxSSEConnections)
@@ -120,7 +189,6 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 		defer sseManager.release(roomID)
 	}
 
-	// Устанавливаем заголовки для SSE
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -131,15 +199,15 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 		return
 	}
 
-	// Создаём контекст с таймаутом для SSE соединения
 	ctx, cancel := context.WithTimeout(r.Context(), sseTimeout)
 	defer cancel()
 
-	// Отправляем начальное событие
-	_, _ = fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n")
+	if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n"); err != nil {
+		logger.Warn("SSE: ошибка отправки начального события", "error", err, "path", logPath)
+		return
+	}
 	flusher.Flush()
 
-	// Таймер для ping (каждые 30 секунд)
 	pingTicker := time.NewTicker(ssePingInterval)
 	defer pingTicker.Stop()
 
@@ -147,7 +215,6 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 		select {
 		case event, ok := <-events:
 			if !ok {
-				// Канал событий закрыт
 				logger.Info("Канал SSE событий закрыт", "path", logPath)
 				return
 			}
@@ -155,23 +222,32 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 			data, err := json.Marshal(event)
 			if err != nil {
 				logger.Error("Ошибка сериализации SSE события", "error", err, "eventType", event.Type)
-				_, _ = fmt.Fprintf(w, "event: error\ndata: {\"message\":\"Ошибка обработки события\",\"type\":\"%s\"}\n\n", event.Type)
+				if _, writeErr := fmt.Fprintf(w, "event: error\ndata: {\"message\":\"Ошибка обработки события\",\"type\":\"%s\"}\n\n", event.Type); writeErr != nil {
+					logger.Warn("SSE: ошибка записи", "error", writeErr, "path", logPath)
+					return
+				}
 				flusher.Flush()
 				continue
 			}
-			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data)); err != nil {
+				logger.Warn("SSE: ошибка записи", "error", err, "path", logPath)
+				return
+			}
 			flusher.Flush()
 
 		case <-pingTicker.C:
-			// Отправляем ping для поддержания соединения
-			_, _ = fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
+			if _, err := fmt.Fprintf(w, "event: ping\ndata: {}\n\n"); err != nil {
+				logger.Warn("SSE: ошибка записи ping", "error", err, "path", logPath)
+				return
+			}
 			flusher.Flush()
 
 		case <-ctx.Done():
-			// Таймаут соединения или отмена контекста
 			if ctx.Err() == context.DeadlineExceeded {
 				logger.Info("SSE соединение закрыто по таймауту", "path", logPath)
-				_, _ = fmt.Fprintf(w, "event: timeout\ndata: {\"message\":\"Connection timeout\"}\n\n")
+				if _, err := fmt.Fprintf(w, "event: timeout\ndata: {\"message\":\"Connection timeout\"}\n\n"); err != nil {
+					return
+				}
 				flusher.Flush()
 			} else {
 				logger.Info("Клиент SSE закрыл соединение", "path", logPath)
@@ -183,63 +259,22 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 
 // ============ Error Handling ============
 
-// APIError структурированная ошибка API.
-// Используется для возврата ошибок в формате JSON.
-type APIError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-// ErrorType тип ошибки для внутренней обработки
-type ErrorType int
-
-const (
-	ErrorTypeInternal ErrorType = iota
-	ErrorTypeNotFound
-	ErrorTypeBadRequest
-	ErrorTypeUnauthorized
-	ErrorTypeForbidden
-	ErrorTypeConflict
-)
-
-// AppError внутренняя структура ошибки приложения
-type AppError struct {
-	Type    ErrorType
-	Message string
-	Err     error
-}
-
-func (e *AppError) Error() string {
-	if e.Err != nil {
-		return fmt.Sprintf("%s: %v", e.Message, e.Err)
-	}
-	return e.Message
-}
-
-// NewAppError создаёт новую ошибку приложения
-func NewAppError(errType ErrorType, message string, err error) *AppError {
-	return &AppError{
-		Type:    errType,
-		Message: message,
-		Err:     err,
-	}
-}
-
 // handleError обрабатывает ошибки и возвращает безопасный ответ клиенту.
+// Использует errors.AppError из пакета errors для консистентной обработки.
 // Логирует полную ошибку на сервере, но клиенту возвращает только безопасное сообщение.
 func handleError(w http.ResponseWriter, r *http.Request, err error, operation string) {
-	var appErr *AppError
+	var appErr *apperrors.AppError
 
-	// Определяем тип ошибки
-	switch e := err.(type) {
-	case *AppError:
-		appErr = e
-	default:
-		// Внутренняя ошибка - не раскрываем детали
-		appErr = &AppError{
-			Type:    ErrorTypeInternal,
-			Message: "Внутренняя ошибка сервера",
-			Err:     err,
+	// Определяем тип ошибки - используем errors.As для поиска *AppError в цепочке ошибок
+	if errors.As(err, &appErr) {
+		// appErr теперь указывает на найденный *apperrors.AppError в цепочке
+	} else {
+		// Попытка определить ошибку валидации позиции по содержимому сообщения
+		if strings.Contains(err.Error(), "invalid position") || strings.Contains(err.Error(), "позиция") {
+			appErr = apperrors.InvalidInput(err.Error())
+		} else {
+			// Внутренняя ошибка - не раскрываем детали
+			appErr = apperrors.Internal(err.Error(), err)
 		}
 	}
 
@@ -258,19 +293,19 @@ func handleError(w http.ResponseWriter, r *http.Request, err error, operation st
 	var clientMessage string
 
 	switch appErr.Type {
-	case ErrorTypeNotFound:
+	case apperrors.ErrNotFound:
 		statusCode = http.StatusNotFound
 		clientMessage = "Ресурс не найден"
-	case ErrorTypeBadRequest:
+	case apperrors.ErrInvalidInput:
 		statusCode = http.StatusBadRequest
 		clientMessage = appErr.Message // Безопасно показать клиенту
-	case ErrorTypeUnauthorized:
+	case apperrors.ErrUnauthorized:
 		statusCode = http.StatusUnauthorized
 		clientMessage = "Требуется аутентификация"
-	case ErrorTypeForbidden:
+	case apperrors.ErrForbidden:
 		statusCode = http.StatusForbidden
 		clientMessage = "Доступ запрещён"
-	case ErrorTypeConflict:
+	case apperrors.ErrAlreadyExists:
 		statusCode = http.StatusConflict
 		clientMessage = appErr.Message
 	default:
@@ -356,7 +391,6 @@ func paginateFiles(files []models.FileInfo, limit, offset int) []models.FileInfo
 // @Router       /api/v1/torrents [post]
 func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ограничиваем размер тела запроса для защиты от DoS
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.AddTorrentRequest
@@ -391,8 +425,8 @@ func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Produce      json
 // @Param        id   path      string  true  "Torrent ID"
 // @Success      200  {object}  models.SuccessResponse
-// @Failure      400  {object}  APIError
-// @Failure      404  {object}  APIError
+// @Failure      400      {object}  APIError
+// @Failure      404      {object}  APIError
 // @Router       /api/v1/torrents/{id} [delete]
 func RemoveTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -407,8 +441,9 @@ func RemoveTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := torrentSvc.RemoveTorrent(torrentID); err != nil {
-			handleError(w, r, NewAppError(ErrorTypeNotFound, "Торрент не найден", err), "удаление торрента")
+		// Используем context из запроса для возможности отмены
+		if err := torrentSvc.RemoveTorrent(r.Context(), torrentID); err != nil {
+			handleError(w, r, err, "удаление торрента")
 			return
 		}
 
@@ -476,7 +511,7 @@ func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 
 		allFiles, err := torrentSvc.GetFiles(torrentID)
 		if err != nil {
-			handleError(w, r, NewAppError(ErrorTypeNotFound, "Торрент не найден", err), "получение файлов")
+			handleError(w, r, err, "получение файлов")
 			return
 		}
 
@@ -517,7 +552,6 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		// Ограничиваем размер тела запроса для защиты от DoS
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.SelectFileRequest
@@ -526,8 +560,14 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
+		// Валидация fileIndex - проверяем отрицательные значения
+		if req.FileIndex < 0 {
+			WriteError(w, http.StatusBadRequest, "Индекс файла не может быть отрицательным")
+			return
+		}
+
 		if err := torrentSvc.SelectFile(torrentID, req.FileIndex); err != nil {
-			handleError(w, r, NewAppError(ErrorTypeBadRequest, "Ошибка выбора файла", err), "выбор файла")
+			handleError(w, r, err, "выбор файла")
 			return
 		}
 
@@ -594,7 +634,6 @@ func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		// Ограничиваем размер тела запроса для защиты от DoS
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.SetBufferPositionRequest
@@ -625,7 +664,7 @@ func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Param        id   path      string  true  "Torrent ID"
 // @Success      200  {object}  models.BufferInfo
 // @Failure      400  {object}  APIError
-// @Failure      404  {object}  APIError
+// @Failure      404      {object}  APIError
 // @Router       /api/v1/torrents/{id}/buffer/info [get]
 func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -642,7 +681,7 @@ func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
 
 		info, err := torrentSvc.GetBufferInfo(torrentID)
 		if err != nil {
-			handleError(w, r, NewAppError(ErrorTypeNotFound, "Информация о буфере не найдена", err), "получение информации о буфере")
+			handleError(w, r, err, "получение информации о буфере")
 			return
 		}
 
@@ -667,7 +706,6 @@ func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Router       /api/v1/rooms [post]
 func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ограничиваем размер тела запроса для защиты от DoS
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.CreateRoomRequest
@@ -679,6 +717,11 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 		// Валидация названия комнаты
 		if err := validation.ValidateRoomName(req.Name); err != nil {
 			WriteError(w, http.StatusBadRequest, fmt.Sprintf("Некорректное название комнаты: %s", err.Error()))
+			return
+		}
+
+		if req.Password != "" && len(req.Password) > constants.MaxRoomPasswordLength {
+			WriteError(w, http.StatusBadRequest, "Пароль комнаты не может превышать 72 символа")
 			return
 		}
 
@@ -695,6 +738,7 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // JoinRoom обработчик присоединения к P2P комнате.
 // Принимает JSON с полями roomID и password.
 // Возвращает ошибку если комната не найдена или неверный пароль.
+// НЕ логирует пароль комнаты.
 //
 // @Summary      Присоединиться к комнате
 // @Description  Присоединяет пользователя к существующей P2P комнате
@@ -707,7 +751,6 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Router       /api/v1/rooms/join [post]
 func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ограничиваем размер тела запроса для защиты от DoS
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.JoinRoomRequest
@@ -727,8 +770,10 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
+		// НЕ логируем req.Password — пароль не должен попадать в логи
 		if err := p2pSvc.JoinRoom(req.RoomID, req.Password); err != nil {
-			handleError(w, r, NewAppError(ErrorTypeBadRequest, "Ошибка присоединения к комнате", err), "присоединение к комнате")
+			logger.Warn("P2P: не удалось присоединиться к комнате", "roomID", req.RoomID, "error", err)
+			handleError(w, r, err, "присоединение к комнате")
 			return
 		}
 
@@ -744,12 +789,12 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Tags         rooms
 // @Produce      json
 // @Success      200  {object}  models.SuccessResponse
-// @Failure      400  {object}  APIError
+// @Failure      400      {object}  APIError
 // @Router       /api/v1/rooms/leave [post]
 func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := p2pSvc.LeaveRoom(); err != nil {
-			handleError(w, r, NewAppError(ErrorTypeBadRequest, "Ошибка выхода из комнаты", err), "выход из комнаты")
+			handleError(w, r, err, "выход из комнаты")
 			return
 		}
 
@@ -773,7 +818,9 @@ func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Ограничиваем размер тела запроса для защиты от DoS
-		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
+		// Используем MaxSignalSize (64KB) вместо MaxRequestSize (1MB)
+		// так как WebRTC сигналы обычно не превышают 8KB
+		r.Body = http.MaxBytesReader(w, r.Body, constants.MaxSignalSize)
 
 		var req models.SignalRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -781,8 +828,14 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
+		// Валидируем размер сигнала
+		if len(req.Signal) > constants.MaxSignalSize {
+			WriteError(w, http.StatusBadRequest, "Сигнал превышает максимально допустимый размер")
+			return
+		}
+
 		if err := p2pSvc.SendSignal(req.Signal); err != nil {
-			handleError(w, r, NewAppError(ErrorTypeBadRequest, "Ошибка отправки сигнала", err), "отправка сигнала")
+			handleError(w, r, err, "отправка сигнала")
 			return
 		}
 
@@ -793,6 +846,7 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 // RoomEvents обработчик SSE для получения событий комнаты в реальном времени.
 // Использует Server-Sent Events для доставки событий.
 // Поддерживает таймаут соединения, ping/pong и ограничение количества соединений.
+// Проверяет членство пользователя в комнате перед подпиской.
 //
 // @Summary      События комнаты (SSE)
 // @Description  Подписка на события P2P комнаты в реальном времени через Server-Sent Events
@@ -804,6 +858,21 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		roomID := chi.URLParam(r, "roomID")
+
+		// Валидация формата roomID
+		if err := validation.ValidateRoomID(roomID); err != nil {
+			WriteError(w, http.StatusBadRequest, fmt.Sprintf("Некорректный ID комнаты: %s", err.Error()))
+			return
+		}
+
+		// Проверяем членство в комнате перед подпиской на SSE
+		roomInfo, err := p2pSvc.GetRoomInfo()
+		if err != nil || roomInfo == nil || roomInfo.ID != roomID {
+			logger.Warn("SSE: попытка подписки на чужую комнату", "roomID", roomID, "error", err)
+			WriteError(w, http.StatusForbidden, "Вы не являетесь членом этой комнаты")
+			return
+		}
+
 		events := p2pSvc.GetEvents()
 		SSEEventHandler(w, r, events, roomID, r.URL.Path)
 	}
@@ -858,7 +927,6 @@ func SyncPause(syncSvc internal.SyncService) http.HandlerFunc {
 // @Router       /api/v1/sync/seek [post]
 func SyncSeek(syncSvc internal.SyncService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ограничиваем размер тела запроса для защиты от DoS
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.SeekRequest
@@ -867,9 +935,15 @@ func SyncSeek(syncSvc internal.SyncService) http.HandlerFunc {
 			return
 		}
 
+		// Валидация позиции через централизованную функцию
+		if err := validation.ValidatePosition(req.Position); err != nil {
+			WriteError(w, http.StatusBadRequest, fmt.Sprintf("Некорректная позиция: %s", err.Error()))
+			return
+		}
+
 		status, err := syncSvc.Seek(req.Position)
 		if err != nil {
-			handleError(w, r, NewAppError(ErrorTypeBadRequest, "Ошибка перемотки", err), "перемотка")
+			handleError(w, r, err, "перемотка")
 			return
 		}
 
@@ -907,8 +981,10 @@ func SyncStatus(syncSvc internal.SyncService) http.HandlerFunc {
 // @Router       /api/v1/health [get]
 func HealthCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		response := map[string]string{
-			"status": "ok",
+		response := map[string]interface{}{
+			"status":    "ok",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"version":   version.Info(),
 		}
 
 		WriteJSON(w, http.StatusOK, response)
@@ -925,8 +1001,6 @@ func HealthCheck() http.HandlerFunc {
 //
 // Возвращает 503 если один из сервисов недоступен.
 func DetailedHealthCheck(torrentSvc internal.TorrentService, p2pSvc internal.P2PService, syncSvc internal.SyncService) http.HandlerFunc {
-	startTime := time.Now()
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		services := make(map[string]string)
 		allHealthy := true
@@ -966,7 +1040,7 @@ func DetailedHealthCheck(torrentSvc internal.TorrentService, p2pSvc internal.P2P
 			"status":   status,
 			"services": services,
 			"version":  version.Info(),
-			"uptime":   time.Since(startTime).Seconds(),
+			"uptime":   metrics.GetInstance().GetUptime(),
 		}
 
 		WriteJSON(w, httpStatus, response)

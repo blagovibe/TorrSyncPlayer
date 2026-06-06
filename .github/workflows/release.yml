@@ -34,6 +34,9 @@ jobs:
           - os: macos-latest
             platform: macos
             arch: arm64
+          - os: macos-13
+            platform: macos
+            arch: x64
 
     steps:
       - name: Checkout
@@ -77,7 +80,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.2"
+          version: "6.5.*"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
@@ -89,7 +92,7 @@ jobs:
         if: matrix.platform == 'windows'
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.2'
+          version: '6.5.*'
           host: 'windows'
           target: 'desktop'
           arch: 'win64_mingw'
@@ -101,7 +104,7 @@ jobs:
         if: matrix.platform == 'macos'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.2"
+          version: "6.5.*"
           host: "mac"
           target: "desktop"
           arch: "clang_64"
@@ -134,10 +137,9 @@ jobs:
         run: |
           cd frontend
 
-          # Добавляем MinGW и Qt в PATH (Qt 6.8.2 использует MinGW 13.2)
+          # Добавляем MinGW и Qt в PATH
           $mingwPath = "$env:Qt6_DIR\..\..\Tools\mingw1320_64\bin"
           if (-not (Test-Path $mingwPath)) {
-            # Fallback: ищем любую версию MinGW в Tools
             $toolsDir = "$env:Qt6_DIR\..\..\Tools"
             $mingwDirs = Get-ChildItem -Path $toolsDir -Directory -Filter "mingw*" -ErrorAction SilentlyContinue
             if ($mingwDirs.Count -gt 0) {
@@ -153,15 +155,16 @@ jobs:
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
             -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" `
             -DCMAKE_CXX_FLAGS="-static" `
+            -DBUILD_TESTS=OFF `
             .
 
           # Собираем
-          cmake --build . --config Release -j4
+          cmake --build . -j4
 
           # Проверяем что backend существует
           $backendPath = "..\backend\build\torrsyncplayer.exe"
           if (Test-Path $backendPath) {
-            Copy-Item $backendPath -Destination Release\
+            Copy-Item $backendPath -Destination .
             Write-Host "Backend binary copied successfully"
           } else {
             Write-Error "Backend binary not found at $backendPath"
@@ -169,14 +172,11 @@ jobs:
           }
 
           # Переименовываем frontend exe
-          Rename-Item Release\TorrSyncPlayer.exe TorrSyncPlayer-portable.exe -Force
-
-          # Проверяем что exe самостоятельный (нет зависимостей от DLL)
-          Write-Host "Checking dependencies..."
-          $objdumpPath = Join-Path $mingwPath "objdump.exe"
-          if (Test-Path $objdumpPath) {
-            $deps = & $objdumpPath -p Release\TorrSyncPlayer-portable.exe | Select-String "DLL Name"
-            Write-Host $deps
+          if (Test-Path TorrSyncPlayer.exe) {
+            Rename-Item TorrSyncPlayer.exe TorrSyncPlayer-portable.exe -Force
+          } else {
+            Write-Error "Frontend binary not found"
+            exit 1
           }
 
       # ── Сборка frontend (macOS) ───────────────────────────────
@@ -246,58 +246,61 @@ jobs:
           mv *.AppImage torrSyncPlayer-linux-x64.AppImage
 
       # ── Создание архива (macOS → .dmg) ────────────────────────
-      - name: Создание .dmg (macOS)
-        if: matrix.platform == 'macos'
-        run: |
-          # Проверяем что бинарники существуют
-          BACKEND_BIN="backend/build/torrsyncplayer"
-          FRONTEND_BIN="frontend/build/TorrSyncPlayer"
+       - name: Создание .dmg (macOS)
+         if: matrix.platform == 'macos'
+         run: |
+           # Проверяем что бинарники существуют
+           BACKEND_BIN="backend/build/torrsyncplayer"
+           FRONTEND_BIN="frontend/build/TorrSyncPlayer"
 
-          if [ ! -f "$BACKEND_BIN" ]; then
-            echo "ERROR: Backend binary not found at $BACKEND_BIN"
-            ls -la backend/build/ 2>/dev/null || echo "backend/build/ directory does not exist"
-            exit 1
-          fi
+           if [ ! -f "$BACKEND_BIN" ]; then
+             echo "ERROR: Backend binary not found at $BACKEND_BIN"
+             ls -la backend/build/ 2>/dev/null || echo "backend/build/ directory does not exist"
+             exit 1
+           fi
 
-          if [ ! -f "$FRONTEND_BIN" ]; then
-            echo "ERROR: Frontend binary not found at $FRONTEND_BIN"
-            ls -la frontend/build/ 2>/dev/null || echo "frontend/build/ directory does not exist"
-            exit 1
-          fi
+           if [ ! -f "$FRONTEND_BIN" ]; then
+             echo "ERROR: Frontend binary not found at $FRONTEND_BIN"
+             ls -la frontend/build/ 2>/dev/null || echo "frontend/build/ directory does not exist"
+             exit 1
+           fi
 
-          # Создаём .app bundle
-          mkdir -p TorrSyncPlayer.app/Contents/MacOS
-          mkdir -p TorrSyncPlayer.app/Contents/Resources
-          mkdir -p TorrSyncPlayer.app/Contents/Frameworks
+           # Extract version from git tag
+           VERSION=${GITHUB_REF_NAME#v}
 
-          # Копируем бинарники
-          cp "$BACKEND_BIN" TorrSyncPlayer.app/Contents/MacOS/torrsyncplayer
-          cp "$FRONTEND_BIN" TorrSyncPlayer.app/Contents/MacOS/TorrSyncPlayer
+           # Создаём .app bundle
+           mkdir -p TorrSyncPlayer.app/Contents/MacOS
+           mkdir -p TorrSyncPlayer.app/Contents/Resources
+           mkdir -p TorrSyncPlayer.app/Contents/Frameworks
 
-          # Копируем иконку
-          cp frontend/resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
+           # Копируем бинарники
+           cp "$BACKEND_BIN" TorrSyncPlayer.app/Contents/MacOS/torrsyncplayer
+           cp "$FRONTEND_BIN" TorrSyncPlayer.app/Contents/MacOS/TorrSyncPlayer
 
-          # Создаём Info.plist
-          cat > TorrSyncPlayer.app/Contents/Info.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleExecutable</key>
-            <string>TorrSyncPlayer</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.torrsyncplayer.app</string>
-            <key>CFBundleName</key>
-            <string>TorrSyncPlayer</string>
-            <key>CFBundleVersion</key>
-            <string>1.0.0</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>11.0</string>
-          </dict>
-          </plist>
-          EOF
+           # Копируем иконку
+           cp frontend/resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
+
+           # Создаём Info.plist with dynamic version
+           cat > TorrSyncPlayer.app/Contents/Info.plist << EOF
+           <?xml version="1.0" encoding="UTF-8"?>
+           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+           <plist version="1.0">
+           <dict>
+             <key>CFBundleExecutable</key>
+             <string>TorrSyncPlayer</string>
+             <key>CFBundleIdentifier</key>
+             <string>com.torrsyncplayer.app</string>
+             <key>CFBundleName</key>
+             <string>TorrSyncPlayer</string>
+             <key>CFBundleVersion</key>
+             <string>${VERSION}</string>
+             <key>CFBundlePackageType</key>
+             <string>APPL</string>
+             <key>LSMinimumSystemVersion</key>
+             <string>11.0</string>
+           </dict>
+           </plist>
+           EOF
 
           # Запускаем macdeployqt для копирования зависимостей
           ${{ env.Qt6_DIR }}/bin/macdeployqt TorrSyncPlayer.app -dmg -verbose=1 2>/dev/null || \
@@ -339,7 +342,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: frontend/Release/TorrSyncPlayer-portable.exe
+          path: frontend/TorrSyncPlayer-portable.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -353,12 +356,47 @@ jobs:
           retention-days: 30
 
   # ────────────────────────────────────────────────────────────
+  # Smoke test before release
+  # ────────────────────────────────────────────────────────────
+  smoke-test:
+    name: Smoke Test
+    needs: build-all
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Verify artifacts exist
+        run: |
+          ls -la artifacts/
+          test -f artifacts/torrSyncPlayer-linux-x64.AppImage || echo "WARNING: Linux artifact missing"
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-checksums
+          path: artifacts/SHA256SUMS
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────
   # Создание GitHub Release
   # ────────────────────────────────────────────────────────────
   create-release:
     name: Создание релиза
-    needs: build-all
+    needs: smoke-test
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout
@@ -403,7 +441,7 @@ jobs:
         with:
           body_path: changelog.md
           files: artifacts/*
-          draft: false
+          draft: true
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

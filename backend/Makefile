@@ -1,4 +1,4 @@
-.PHONY: build run clean test lint help check-version test-race
+.PHONY: build run clean test lint help check-version test-race check vet
 
 # Переменные
 BINARY_NAME=torrsyncplayer
@@ -22,7 +22,7 @@ all: check-version build
 check-version:
 	@echo "Проверка версии Go..."
 	@go version
-	@go version | grep -q "go1.2[0-9]" || echo "Warning: Go 1.20+ required"
+	@go version | grep -q "go1\." || echo "Warning: Go 1.20+ required"
 
 ## build: Собрать проект
 build:
@@ -82,6 +82,14 @@ clean:
 	@rm -rf $(BUILD_DIR)
 	@rm -f coverage.out coverage.html
 	@echo "Очистка завершена"
+
+## check: Run vet, tests, and race detection
+check: vet test test-race
+
+## vet: Run go vet
+vet:
+	@echo "Running go vet..."
+	go vet ./...
 
 ## lint: Запустить линтер
 lint:

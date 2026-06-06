@@ -18,10 +18,31 @@ concurrency:
 
 jobs:
   # --------------------------------------------------------
-  # Lint backend код
+  # SAST — сканирование безопасности
   # --------------------------------------------------------
-  lint-backend:
-    name: Линт Backend
+  sast-security:
+    name: SAST Безопасность
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # нужен полный история для gitleaks
+
+      # ── gitleaks: поиск секретов в коде ────────────────────
+      - name: Сканирование секретов (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: true
+        continue-on-error: false
+
+  # --------------------------------------------------------
+  # SAST — сканирование Go кода (gosec)
+  # --------------------------------------------------------
+  sast-gosec:
+    name: SAST Go (gosec)
     runs-on: ubuntu-latest
 
     steps:
@@ -31,7 +52,69 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      # Устанавливаем gosec
+      - name: Установка gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      # Запускаем gocsec для сканирования уязвимостей
+      - name: Запуск gosec
+        working-directory: backend
+        run: |
+          gosec -fmt sarif -out gosec-results.sarif -severity medium -confidence medium ./...
+        continue-on-error: false
+
+      # Загрузка результатов в GitHub Security tab
+      - name: Загрузка результатов gosec
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: backend/gosec-results.sarif
+          category: gosec
+
+  # --------------------------------------------------------
+  # Dependency vulnerability check
+  # --------------------------------------------------------
+  vuln-check:
+    name: Проверка уязвимостей зависимостей
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Проверка уязвимостей зависимостей
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # --------------------------------------------------------
+  # Lint backend код
+  # --------------------------------------------------------
+  lint-backend:
+    name: Линт Backend
+    needs: [sast-security, sast-gosec, vuln-check]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
           cache: true
           cache-dependency-path: backend/go.sum
 
@@ -48,6 +131,17 @@ jobs:
         working-directory: backend
         run: golangci-lint run --timeout=5m ./...
 
+      - name: Проверка форматирования кода
+        working-directory: backend
+        run: |
+          test -z "$(gofmt -l .)" || { echo "Код не отформатирован. Запустите: gofmt -w ."; exit 1; }
+
+      - name: Проверка go.mod tidy
+        working-directory: backend
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
   # --------------------------------------------------------
   # Тесты backend с coverage
   # --------------------------------------------------------
@@ -63,7 +157,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.24"
           cache: true
           cache-dependency-path: backend/go.sum
 
@@ -109,7 +203,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.24"
           cache: true
           cache-dependency-path: backend/go.sum
 
@@ -156,13 +250,13 @@ jobs:
 
       # Устанавливаем Qt 6.5
       - name: Установка Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.*"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
-          modules: "qt5compat qtmultimedia"
+          modules: "qtbase qtsvg qtimageformats"
           cache: true
 
       # Запускаем clang-tidy
@@ -206,16 +300,16 @@ jobs:
             libxcb-xfixes0-dev
 
       - name: Установка Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.*"
           host: "linux"
           target: "desktop"
           arch: "gcc_64"
-          modules: "qt5compat qtmultimedia"
+          modules: "qtbase qtsvg qtimageformats"
           cache: true
 
-      - name: Сборка frontend с coverage
+      - name: Сборка frontend (Linux)
         run: |
           cd frontend
           mkdir -p build
@@ -271,13 +365,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Установка Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.*"
           host: "windows"
           target: "desktop"
           arch: "win64_msvc2019_64"
-          modules: "qt5compat qtmultimedia"
+          modules: "qtbase qtsvg qtimageformats"
           cache: true
 
       - name: Сборка frontend
@@ -298,6 +392,47 @@ jobs:
           retention-days: 7
 
   # --------------------------------------------------------
+  # Сборка frontend на macOS
+  # --------------------------------------------------------
+  build-frontend-macos:
+    name: Сборка Frontend (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Установка зависимостей
+        run: |
+          brew install cmake ninja mpv
+
+      - name: Установка Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.5.*"
+          host: "mac"
+          target: "desktop"
+          arch: "clang_64"
+          modules: "qtbase qtsvg qtimageformats"
+          cache: true
+
+      - name: Сборка frontend
+        run: |
+          cd frontend
+          mkdir -p build
+          cd build
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          ninja
+
+      - name: Загрузка артефакта
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-macos
+          path: frontend/build/TorrSyncPlayer*
+          if-no-files-found: warn
+          retention-days: 7
+
+  # --------------------------------------------------------
   # Coverage проверка для PR
   # --------------------------------------------------------
   coverage-check:
@@ -313,7 +448,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.24"
           cache: true
           cache-dependency-path: backend/go.sum
 

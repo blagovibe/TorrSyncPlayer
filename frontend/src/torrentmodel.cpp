@@ -8,6 +8,7 @@
 
 #include <QDebug>
 #include <QJsonArray>
+#include <QLocale>
 
 TorrentModel::TorrentModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -69,14 +70,14 @@ QVariant TorrentModel::data(const QModelIndex &index, int role) const
         // Формируем отображаемый текст
         return QString("%1 (%2%)")
             .arg(torrent.name)
-            .arg(torrent.progress * 100, 0, 'f', 1);
+            .arg(QLocale::c().toString(torrent.progress * 100, 'f', 1));
 
     case Qt::ToolTipRole:
         // Подробная информация при наведении
         return QString("ID: %1\nИмя: %2\nПрогресс: %3%\nСтатус: %4\nРазмер: %5")
             .arg(torrent.id)
             .arg(torrent.name)
-            .arg(torrent.progress * 100, 0, 'f', 1)
+            .arg(QLocale::c().toString(torrent.progress * 100, 'f', 1))
             .arg(torrent.status)
             .arg(Utils::formatBytes(torrent.size));
 

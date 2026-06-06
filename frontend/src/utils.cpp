@@ -24,10 +24,8 @@ QString formatBytes(qint64 bytes)
     }
 }
 
-QString formatFileSize(qint64 bytes)
-{
-    return formatBytes(bytes);
-}
+// formatFileSize удалён как дубликат formatBytes
+// Используйте formatBytes вместо formatFileSize
 
 QString formatDuration(qint64 ms)
 {
@@ -42,15 +40,26 @@ QString formatDuration(qint64 ms)
     qint64 seconds = totalSeconds % 60;
     
     if (milliseconds > 0) {
-        return QString("%1:%2:%3.%4")
-            .arg(hours, 2, 10, QChar('0'))
+        if (hours > 0) {
+            return QString("%1:%2:%3.%4")
+                .arg(hours, 2, 10, QChar('0'))
+                .arg(minutes, 2, 10, QChar('0'))
+                .arg(seconds, 2, 10, QChar('0'))
+                .arg(milliseconds, 3, 10, QChar('0'));
+        }
+        return QString("%1:%2.%3")
             .arg(minutes, 2, 10, QChar('0'))
             .arg(seconds, 2, 10, QChar('0'))
             .arg(milliseconds, 3, 10, QChar('0'));
     }
-    
-    return QString("%1:%2:%3")
-        .arg(hours, 2, 10, QChar('0'))
+
+    if (hours > 0) {
+        return QString("%1:%2:%3")
+            .arg(hours, 2, 10, QChar('0'))
+            .arg(minutes, 2, 10, QChar('0'))
+            .arg(seconds, 2, 10, QChar('0'));
+    }
+    return QString("%1:%2")
         .arg(minutes, 2, 10, QChar('0'))
         .arg(seconds, 2, 10, QChar('0'));
 }

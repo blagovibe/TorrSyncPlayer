@@ -1,0 +1,31 @@
+# ============================================================
+# Prometheus конфигурация для TorrSyncPlayer
+# ============================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Правила алертинга (опционально)
+# rule_files:
+#   - "alert_rules.yml"
+
+# Цели для сбора метрик
+scrape_configs:
+  # ── TorrSyncPlayer Backend ─────────────────────────────────
+  - job_name: "torrsyncplayer-backend"
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: "/metrics"
+    scheme: "http"
+    static_configs:
+      - targets: ["backend:8889"]
+        labels:
+          service: "torrsyncplayer"
+          component: "backend"
+
+  # ── Prometheus self-monitoring ──────────────────────────────
+  - job_name: "prometheus"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -19,7 +19,9 @@ func init() {
 
 // TestNewService проверяет инициализацию P2P сервиса
 func TestNewService(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -33,7 +35,9 @@ func TestNewService(t *testing.T) {
 
 // TestCreateRoom проверяет создание комнаты без пароля
 func TestCreateRoom(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -49,7 +53,9 @@ func TestCreateRoom(t *testing.T) {
 
 // TestCreateRoom_WithPassword проверяет создание комнаты с паролем
 func TestCreateRoom_WithPassword(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -63,7 +69,9 @@ func TestCreateRoom_WithPassword(t *testing.T) {
 
 // TestJoinRoom_NotFound проверяет присоединение к несуществующей комнате
 func TestJoinRoom_NotFound(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -74,7 +82,9 @@ func TestJoinRoom_NotFound(t *testing.T) {
 
 // TestJoinRoom_WrongPassword проверяет присоединение с неверным паролем
 func TestJoinRoom_WrongPassword(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -90,7 +100,9 @@ func TestJoinRoom_WrongPassword(t *testing.T) {
 
 // TestJoinRoom_CorrectPassword проверяет присоединение с верным паролем
 func TestJoinRoom_CorrectPassword(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -110,7 +122,9 @@ func TestJoinRoom_CorrectPassword(t *testing.T) {
 
 // TestJoinRoom_NoPassword проверяет присоединение к комнате без пароля
 func TestJoinRoom_NoPassword(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -125,7 +139,9 @@ func TestJoinRoom_NoPassword(t *testing.T) {
 
 // TestLeaveRoom_NotJoined проверяет выход из комнаты когда не подключены
 func TestLeaveRoom_NotJoined(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -136,7 +152,9 @@ func TestLeaveRoom_NotJoined(t *testing.T) {
 
 // TestSendSignal_NotJoined проверяет отправку сигнала без подключения к комнате
 func TestSendSignal_NotJoined(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -147,7 +165,9 @@ func TestSendSignal_NotJoined(t *testing.T) {
 
 // TestGetEvents проверяет получение канала событий
 func TestGetEvents(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -157,7 +177,9 @@ func TestGetEvents(t *testing.T) {
 
 // TestGetRoomInfo_NotJoined проверяет получение информации о комнате без подключения
 func TestGetRoomInfo_NotJoined(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -168,8 +190,10 @@ func TestGetRoomInfo_NotJoined(t *testing.T) {
 
 // TestGenerateID проверяет генерацию уникальных идентификаторов
 func TestGenerateID(t *testing.T) {
-	id1 := generateID()
-	id2 := generateID()
+	id1, err := generateID()
+	require.NoError(t, err)
+	id2, err := generateID()
+	require.NoError(t, err)
 
 	assert.NotEmpty(t, id1)
 	assert.NotEmpty(t, id2)
@@ -178,7 +202,9 @@ func TestGenerateID(t *testing.T) {
 
 // TestCreateAndJoinRoom проверяет полный цикл: создание и присоединение к комнате
 func TestCreateAndJoinRoom(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -202,7 +228,9 @@ func TestCreateAndJoinRoom(t *testing.T) {
 
 // TestFullRoomLifecycle проверяет полный жизненный цикл комнаты с паролем
 func TestFullRoomLifecycle(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -240,7 +268,9 @@ func TestFullRoomLifecycle(t *testing.T) {
 
 // TestCreateMultipleRooms проверяет создание нескольких комнат
 func TestCreateMultipleRooms(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -258,7 +288,9 @@ func TestCreateMultipleRooms(t *testing.T) {
 
 // TestClose_EmptiesState проверяет что Close очищает состояние сервиса
 func TestClose_EmptiesState(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 
 	// Создаём комнату
@@ -272,7 +304,9 @@ func TestClose_EmptiesState(t *testing.T) {
 
 // TestConcurrentRoomCreation проверяет потокобезопасность создания комнат
 func TestConcurrentRoomCreation(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -292,7 +326,9 @@ func TestConcurrentRoomCreation(t *testing.T) {
 
 // TestConcurrentGetRoomInfo проверяет потокобезопасность чтения информации о комнате
 func TestConcurrentGetRoomInfo(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -318,7 +354,9 @@ func TestConcurrentGetRoomInfo(t *testing.T) {
 
 // TestConcurrentSetLocalUserID проверяет потокобезопасность SetLocalUserID
 func TestConcurrentSetLocalUserID(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
@@ -338,7 +376,9 @@ func TestConcurrentSetLocalUserID(t *testing.T) {
 
 // TestConcurrentEventChannel проверяет потокобезопасность работы с каналом событий
 func TestConcurrentEventChannel(t *testing.T) {
-	svc, err := NewService(auth.NewAuthService([]byte("test-secret")))
+	authSvc, err := auth.NewAuthService([]byte("test-secret"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 

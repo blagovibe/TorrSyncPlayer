@@ -1,0 +1,14 @@
+# Global owners
+* @blagovibe
+
+# Backend code
+/backend/ @blagovibe
+
+# Frontend code
+/frontend/ @blagovibe
+
+# CI/CD
+/.github/ @blagovibe
+
+# Documentation
+/docs/ @blagovibe

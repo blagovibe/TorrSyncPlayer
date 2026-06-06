@@ -3,6 +3,7 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -132,7 +133,8 @@ func Unavailable(service string) *AppError {
 
 // IsNotFound проверяет, является ли ошибка типом NOT_FOUND
 func IsNotFound(err error) bool {
-	if appErr, ok := err.(*AppError); ok {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
 		return appErr.Type == ErrNotFound
 	}
 	return false
@@ -140,7 +142,8 @@ func IsNotFound(err error) bool {
 
 // IsAlreadyExists проверяет, является ли ошибка типом ALREADY_EXISTS
 func IsAlreadyExists(err error) bool {
-	if appErr, ok := err.(*AppError); ok {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
 		return appErr.Type == ErrAlreadyExists
 	}
 	return false
@@ -148,7 +151,8 @@ func IsAlreadyExists(err error) bool {
 
 // IsInvalidInput проверяет, является ли ошибка типом INVALID_INPUT
 func IsInvalidInput(err error) bool {
-	if appErr, ok := err.(*AppError); ok {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
 		return appErr.Type == ErrInvalidInput
 	}
 	return false
@@ -156,7 +160,8 @@ func IsInvalidInput(err error) bool {
 
 // IsUnauthorized проверяет, является ли ошибка типом UNAUTHORIZED
 func IsUnauthorized(err error) bool {
-	if appErr, ok := err.(*AppError); ok {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
 		return appErr.Type == ErrUnauthorized
 	}
 	return false
@@ -164,8 +169,36 @@ func IsUnauthorized(err error) bool {
 
 // IsTimeout проверяет, является ли ошибка типом TIMEOUT
 func IsTimeout(err error) bool {
-	if appErr, ok := err.(*AppError); ok {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
 		return appErr.Type == ErrTimeout
+	}
+	return false
+}
+
+// IsForbidden проверяет, является ли ошибка типом FORBIDDEN
+func IsForbidden(err error) bool {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		return appErr.Type == ErrForbidden
+	}
+	return false
+}
+
+// IsInternal проверяет, является ли ошибка типом INTERNAL
+func IsInternal(err error) bool {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		return appErr.Type == ErrInternal
+	}
+	return false
+}
+
+// IsUnavailable проверяет, является ли ошибка типом UNAVAILABLE
+func IsUnavailable(err error) bool {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		return appErr.Type == ErrUnavailable
 	}
 	return false
 }

@@ -1,61 +1,63 @@
-# Руководство для контрибьюторов TorrSyncPlayer
+# TorrSyncPlayer Contributor Guide
 
-Спасибо за интерес к проекту TorrSyncPlayer! Это руководство поможет вам начать работу с кодовой базой и внести свой вклад.
+Thank you for your interest in the TorrSyncPlayer project! This guide will help you get started with the codebase and contribute.
 
-## Содержание
+## Contents
 
-1. [Требования к окружению](#требования-к-окружению)
-2. [Настройка рабочей среды](#настройка-рабочей-среды)
-3. [Процесс сборки](#процесс-сборки)
-4. [Стиль кода](#стиль-кода)
-5. [Запуск тестов](#запуск-тестов)
-6. [Процесс создания Pull Request](#процесс-создания-pull-request)
-7. [Соглашения по коммитам](#соглашения-по-коммитам)
-8. [Структура проекта](#структура-проекта)
+1. [Environment Requirements](#environment-requirements)
+2. [Setting Up the Workspace](#setting-up-the-workspace)
+3. [Build Process](#build-process)
+4. [Code Style](#code-style)
+5. [Running Tests](#running-tests)
+6. [Pull Request Process](#pull-request-process)
+7. [Commit Conventions](#commit-conventions)
+8. [Project Structure](#project-structure)
+9. [Branching Strategy](#branching-strategy)
+10. [Rollback Procedure](#rollback-procedure)
 
 ---
 
-## Требования к окружению
+## Environment Requirements
 
 ### Backend (Go)
 
-| Компонент | Минимальная версия | Рекомендуемая |
-|-----------|-------------------|---------------|
-| Go        | 1.24+             | Последняя stable |
-| Make      | 4.0+              | Последняя      |
+| Component | Minimum Version | Recommended |
+|-----------|----------------|-------------|
+| Go        | 1.25+          | Latest stable |
+| Make      | 4.0+           | Latest       |
 
 ### Frontend (C++/Qt)
 
-| Компонент | Минимальная версия | Рекомендуемая |
-|-----------|-------------------|---------------|
-| C++       | C++17             | C++20         |
-| Qt        | 6.5+              | Последняя LTS |
-| CMake     | 3.16+             | Последняя      |
-| libmpv    | 0.35+             | Последняя      |
+| Component | Minimum Version | Recommended |
+|-----------|----------------|-------------|
+| C++       | C++17          | C++20        |
+| Qt        | 6.5+           | Latest LTS   |
+| CMake     | 3.16+          | Latest       |
+| libmpv    | 0.35+          | Latest       |
 
-### Операционные системы
+### Operating Systems
 
-- **Windows:** Windows 10+ с MSVC 2022 или MinGW
+- **Windows:** Windows 10+ with MSVC 2022 or MinGW
 - **Linux:** Ubuntu 20.04+ / Fedora 35+ / Arch Linux
-- **macOS:** macOS 12+ с Xcode Command Line Tools
+- **macOS:** macOS 12+ with Xcode Command Line Tools
 
 ---
 
-## Настройка рабочей среды
+## Setting Up the Workspace
 
-### 1. Клонирование репозитория
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/blagovibe/TorrSyncPlayer.git
 cd TorrSyncPlayer
 ```
 
-### 2. Установка Go (Backend)
+### 2. Install Go (Backend)
 
 **Ubuntu/Debian:**
 ```bash
-wget https://go.dev/dl/go1.24.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.24.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.25.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 ```
 
@@ -65,9 +67,9 @@ brew install go@1.24
 ```
 
 **Windows:**
-Скачайте и установите с [официального сайта](https://go.dev/dl/).
+Download and install from the [official site](https://go.dev/dl/).
 
-### 3. Установка Qt и libmpv (Frontend)
+### 3. Install Qt and libmpv (Frontend)
 
 **Ubuntu/Debian:**
 ```bash
@@ -88,10 +90,10 @@ brew install qt@6 mpv cmake ninja
 ```
 
 **Windows:**
-1. Установите Qt 6.5+ с [официального сайта](https://www.qt.io/download)
-2. Установите libmpv через vcpkg или скачайте бинарники
+1. Install Qt 6.5+ from the [official site](https://www.qt.io/download)
+2. Install libmpv via vcpkg or download binaries
 
-### 4. Проверка установки
+### 4. Verify installation
 
 ```bash
 # Go
@@ -100,24 +102,24 @@ go version
 # CMake
 cmake --version
 
-# Qt (проверка через qmake)
+# Qt (check via qmake)
 qmake --version
 ```
 
 ---
 
-## Процесс сборки
+## Build Process
 
-### Сборка Backend
+### Build Backend
 
 ```bash
 cd backend
 make build
 ```
 
-Исполняемый файл будет в `backend/build/` или `backend/bin/`.
+The executable will be in `backend/build/` or `backend/bin/`.
 
-### Сборка Frontend
+### Build Frontend
 
 **Linux/macOS:**
 ```bash
@@ -137,14 +139,14 @@ cmake .. -G "Visual Studio 17 2022" -A x64
 cmake --build . --config Release
 ```
 
-### Сборка всего проекта
+### Build Everything
 
 ```bash
-# Из корня проекта
+# From project root
 make all
 ```
 
-### Очистка
+### Clean
 
 ```bash
 # Backend
@@ -155,64 +157,64 @@ make clean
 cd frontend/build
 ninja clean
 
-# Всё
+# Everything
 make clean
 ```
 
 ---
 
-## Стиль кода
+## Code Style
 
 ### Go (Backend)
 
-#### Форматирование
+#### Formatting
 
-- Используйте `gofmt` для форматирования кода
-- Используйте `go vet` для статического анализа
-- Настройки редактора в [`.editorconfig`](../.editorconfig)
+- Use `gofmt` for code formatting
+- Use `go vet` for static analysis
+- Editor settings in [`.editorconfig`](../.editorconfig)
 
 ```bash
-# Форматирование
+# Format
 gofmt -w .
 
-# Проверка
+# Check
 go vet ./...
 ```
 
-#### Соглашения
+#### Conventions
 
-1. **Именование:**
-   - CamelCase для экспортируемых функций и типов
-   - camelCase для неэкспортируемых
-   - Аббревиатуры в верхнем регистре: `HTTPClient`, `URLParser`
+1. **Naming:**
+   - CamelCase for exported functions and types
+   - camelCase for unexported
+   - Acronyms in uppercase: `HTTPClient`, `URLParser`
 
-2. **Обработка ошибок:**
+2. **Error handling:**
    ```go
-   // Всегда оборачивайте ошибки
+   // Always wrap errors
    if err != nil {
-       return fmt.Errorf("описание контекста: %w", err)
+       return fmt.Errorf("context description: %w", err)
    }
    ```
 
-3. **Логирование:**
+3. **Logging:**
    ```go
-   // Используйте структурированный логгер
-   logger.Info("Операция выполнена", "key1", value1, "key2", value2)
-   logger.Error("Ошибка", "error", err)
+   // Use structured logger
+   logger.Info("Operation completed", "key1", value1, "key2", value2)
+   logger.Error("Error", "error", err)
    ```
 
-4. **Комментарии:**
-   - Комментарии к коду на русском языке
-   - Экспортируемые функции должны иметь godoc-комментарии
+4. **Comments:**
+   - Code comments in English
+   - Exported functions must have godoc comments
    ```go
-   // AddMagnet добавляет торрент по magnet-ссылке.
-   // Параметр ctx - контекст для отмены операции.
-   // Возвращает информацию о торренте или ошибку.
+   // AddMagnet adds a torrent by magnet link.
+   // Parameter ctx is the context for operation cancellation.
+   // Returns torrent info or an error.
    func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.TorrentInfo, error) {
    ```
 
-5. **Константы:**
-   - Выносите магические числа в именованные константы в пакет `constants`
+5. **Constants:**
+   - Extract magic numbers to named constants in the `constants` package
    ```go
    const (
        gracefulShutdownTimeout = 30 * time.Second
@@ -222,23 +224,23 @@ go vet ./...
 
 ### C++ (Frontend)
 
-#### Форматирование
+#### Formatting
 
-- Настройки редактора в [`.editorconfig`](../.editorconfig)
-- Используйте clang-format для автоматического форматирования
+- Editor settings in [`.editorconfig`](../.editorconfig)
+- Use clang-format for automatic formatting
 
-#### Соглашения
+#### Conventions
 
-1. **Именование (Qt стиль):**
-   - camelCase для методов: `addTorrent()`, `onPlayPause()`
-   - camelCase для переменных: `m_torrentList`, `m_network`
-   - PascalCase для классов: `MainWindow`, `NetworkManager`
+1. **Naming (Qt style):**
+   - camelCase for methods: `addTorrent()`, `onPlayPause()`
+   - camelCase for variables: `m_torrentList`, `m_network`
+   - PascalCase for classes: `MainWindow`, `NetworkManager`
 
-2. **Макросы Qt:**
+2. **Qt macros:**
    ```cpp
    class MainWindow : public QMainWindow
    {
-       Q_OBJECT  // Всегда в начале класса с сигналами/слотами
+       Q_OBJECT  // Always at the top of classes with signals/slots
    public:
        // ...
    signals:
@@ -248,37 +250,37 @@ go vet ./...
    };
    ```
 
-3. **Комментарии:**
-   - Комментарии к коду на русском языке
-   - Используйте Doxygen-стиль для документации классов
+3. **Comments:**
+   - Code comments in English
+   - Use Doxygen style for class documentation
    ```cpp
    /**
-    * @brief Добавить торрент по magnet-ссылке
-    * @param magnetUri Magnet-ссылка на торрент
+    * @brief Add a torrent by magnet link
+    * @param magnetUri Magnet link for the torrent
     */
    void addTorrent(const QString &magnetUri);
    ```
 
-4. **Управление памятью:**
-   - Используйте родительские объекты Qt для автоматического удаления
-   - Для не-Qt объектов используйте `std::unique_ptr` или `std::shared_ptr`
+4. **Memory management:**
+   - Use Qt parent objects for automatic deletion
+   - For non-Qt objects use `std::unique_ptr` or `std::shared_ptr`
 
 ---
 
-## Запуск тестов
+## Running Tests
 
-### Backend тесты
+### Backend Tests
 
 ```bash
 cd backend
 
-# Запуск всех тестов
+# Run all tests
 make test
 
-# Запуск тестов с покрытием
+# Run tests with coverage
 go test -cover ./...
 
-# Запуск тестов конкретного пакета
+# Run tests for a specific package
 go test ./internal/torrent/...
 go test ./internal/p2p/...
 go test ./internal/sync/...
@@ -286,151 +288,151 @@ go test ./internal/auth/...
 go test ./internal/validation/...
 go test ./internal/api/...
 
-# Запуск с подробным выводом
+# Run with verbose output
 go test -v ./...
 
-# Генерация отчёта о покрытии
+# Generate coverage report
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
-### Frontend тесты
+### Frontend Tests
 
 ```bash
 cd frontend/build
 
-# Запуск тестов через CTest
+# Run tests via CTest
 ctest --output-on-failure
 
-# Или напрямую
+# Or directly
 ./test_networkmanager
 ./test_torrentmodel
 ```
 
-### Интеграционные тесты
+### Integration Tests
 
 ```bash
 cd backend
 
-# Запуск интеграционных тестов
+# Run integration tests
 go test -tags=integration ./internal/api/...
 ```
 
 ---
 
-## Процесс создания Pull Request
+## Pull Request Process
 
-### 1. Создание ветки
+### 1. Create a branch
 
 ```bash
-# Создайте ветку от main
+# Create a branch from develop
 git checkout -b feature/your-feature-name
-# или
+# or
 git checkout -b fix/your-bug-fix
 ```
 
-### 2. Внесение изменений
+### 2. Make changes
 
-- Пишите чистый, читаемый код
-- Следуйте соглашениям по стилю кода
-- Добавляйте тесты для новой функциональности
-- Обновляйте документацию при необходимости
+- Write clean, readable code
+- Follow code style conventions
+- Add tests for new functionality
+- Update documentation as needed
 
-### 3. Перед отправкой
+### 3. Before submitting
 
 ```bash
-# Убедитесь, что все тесты проходят
+# Make sure all tests pass
 make test
 
-# Проверьте форматирование
+# Check formatting
 gofmt -l .
 go vet ./...
 
-# Проверьте, что сборка проходит
+# Verify the build
 make all
 ```
 
-### 4. Создание Pull Request
+### 4. Create a Pull Request
 
-1. Запушите ветку:
+1. Push the branch:
    ```bash
    git push origin feature/your-feature-name
    ```
 
-2. Создайте Pull Request на GitHub
+2. Create a Pull Request on GitHub
 
-3. Заполните шаблон PR:
-   - **Описание:** Что было изменено и почему
-   - **Тип изменения:** Feature / Bug fix / Documentation / Refactor
-   - **Тестирование:** Как были протестированы изменения
-   - **Связанные issues:** Ссылки на связанные задачи
+3. Fill in the PR template:
+   - **Description:** What was changed and why
+   - **Type of change:** Feature / Bug fix / Documentation / Refactor
+   - **Testing:** How the changes were tested
+   - **Related issues:** Links to related tasks
 
 ### 5. Code Review
 
-- Ожидайте ревью от мейнтейнеров
-- Вносите исправления по комментариям
-- Убедитесь, что CI проходит
+- Wait for review from maintainers
+- Make corrections based on comments
+- Make sure CI passes
 
 ---
 
-## Соглашения по коммитам
+## Commit Conventions
 
-Используем формат [Conventional Commits](https://www.conventionalcommits.org/ru/):
+We use the [Conventional Commits](https://www.conventionalcommits.org/) format:
 
-### Формат
-
-```
-<тип>(<область>): <краткое описание>
-
-<подробное описание (опционально)>
-
-<footer (опционально)>
-```
-
-### Типы коммитов
-
-| Тип | Описание |
-|-----|----------|
-| `feat` | Новая функциональность |
-| `fix` | Исправление бага |
-| `docs` | Изменения в документации |
-| `style` | Форматирование (не влияет на код) |
-| `refactor` | Рефакторинг кода |
-| `test` | Добавление/изменение тестов |
-| `chore` | Вспомогательные изменения |
-| `perf` | Улучшение производительности |
-| `ci` | Изменения в CI/CD |
-
-### Примеры
+### Format
 
 ```
-feat(torrent): добавлена поддержка magnet-ссылок
+<type>(<scope>): <short description>
 
-- Реализована валидация формата magnet URI
-- Добавлена обработка таймаута получения метаданных
-- Добавлены тесты для новых функций
+<detailed description (optional)>
+
+<footer (optional)>
+```
+
+### Commit Types
+
+| Type | Description |
+|------|-------------|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation changes |
+| `style` | Formatting (does not affect code) |
+| `refactor` | Code refactoring |
+| `test` | Adding/changing tests |
+| `chore` | Maintenance changes |
+| `perf` | Performance improvements |
+| `ci` | CI/CD changes |
+
+### Examples
+
+```
+feat(torrent): add magnet link support
+
+- Implemented magnet URI format validation
+- Added metadata fetch timeout handling
+- Added tests for new functions
 
 Closes #123
 ```
 
 ```
-fix(p2p): исправлен баг с закрытием DataChannel
+fix(p2p): fix DataChannel close bug
 
-DataChannel не закрывался корректно при выходе из комнаты,
-что приводило к утечке ресурсов.
+DataChannel was not closed correctly when leaving a room,
+which caused resource leaks.
 
 Fixes #456
 ```
 
 ```
-docs(readme): обновлено руководство по установке
+docs(readme): update installation guide
 
-- Добавлены инструкции для Windows
-- Исправлены ссылки на документацию
+- Added Windows instructions
+- Fixed documentation links
 ```
 
 ```
-refactor(sync): вынесены магические числа в константы
+refactor(sync): extract magic numbers to constants
 
 - maxPositionJump = 2.0
 - smoothAdjustmentRatio = 0.3
@@ -439,30 +441,30 @@ refactor(sync): вынесены магические числа в конста
 
 ---
 
-## Структура проекта
+## Project Structure
 
 ```
 TorrSyncPlayer/
 ├── backend/                    # Go backend
-│   ├── cmd/server/             # Точка входа
+│   ├── cmd/server/             # Entry point
 │   │   └── main.go
-│   ├── internal/               # Внутренние пакеты
+│   ├── internal/               # Internal packages
 │   │   ├── api/                # HTTP API (router, handlers, middleware, tests)
-│   │   ├── auth/               # JWT аутентификация (HS256, bcrypt, revocation)
-│   │   ├── buffer/             # LRU кэш, приоритеты pieces
-│   │   ├── constants/          # Константы (магические числа)
+│   │   ├── auth/               # JWT authentication (HS256, bcrypt, revocation)
+│   │   ├── buffer/             # LRU cache, piece priorities
+│   │   ├── constants/          # Constants (magic numbers)
 │   │   ├── errors/             # AppError, ErrorType
-│   │   ├── metrics/            # Prometheus метрики
-│   │   ├── models/             # Модели данных
-│   │   ├── p2p/                # WebRTC P2P сервис
-│   │   ├── storage/            # In-memory хранилище
-│   │   ├── sync/               # Синхронизация воспроизведения
-│   │   ├── torrent/            # Торрент сервис
-│   │   ├── validation/         # Валидация
-│   │   ├── version/            # Версия
-│   │   └── interfaces.go       # Интерфейсы сервисов
-│   ├── pkg/logger/             # slog-based логгер
-│   ├── docs/                   # Swagger спецификация
+│   │   ├── metrics/            # Prometheus metrics
+│   │   ├── models/             # Data models
+│   │   ├── p2p/                # WebRTC P2P service
+│   │   ├── storage/            # In-memory storage
+│   │   ├── sync/               # Playback synchronization
+│   │   ├── torrent/            # Torrent service
+│   │   ├── validation/         # Validation
+│   │   ├── version/            # Version
+│   │   └── interfaces.go       # Service interfaces
+│   ├── pkg/logger/             # slog-based logger
+│   ├── docs/                   # Swagger spec
 │   │   ├── docs.go
 │   │   ├── swagger.json
 │   │   └── swagger.yaml
@@ -470,7 +472,7 @@ TorrSyncPlayer/
 │   └── go.mod
 │
 ├── frontend/                   # Qt/C++ frontend
-│   ├── src/                    # Исходный код
+│   ├── src/                    # Source files
 │   │   ├── main.cpp
 │   │   ├── mainwindow.h/.cpp
 │   │   ├── mpvwidget.h/.cpp
@@ -484,22 +486,26 @@ TorrSyncPlayer/
 │   │   ├── inetworkmanager.h
 │   │   ├── test_torrentmodel.cpp
 │   │   └── test_networkmanager.cpp
-│   ├── resources/              # Ресурсы
+│   ├── resources/              # Resources
 │   ├── CMakeLists.txt
 │   └── build.sh / build.bat
 │
-├── docs/                       # Документация
-│   ├── API.md                  # API документация
-│   ├── ARCHITECTURE.md         # Архитектура
-│   ├── INSTALL.md              # Руководство по установке
-│   └── USER_GUIDE.md           # Руководство пользователя
+├── docs/                       # Documentation
+│   ├── API.md                  # API documentation
+│   ├── ARCHITECTURE.md         # Architecture overview
+│   ├── ARCHITECTURE_BACKEND.md # Backend architecture
+│   ├── ARCHITECTURE_FRONTEND.md # Frontend architecture
+│   ├── ARCHITECTURE_P2P.md     # P2P/WebRTC architecture
+│   ├── INSTALL.md              # Installation guide
+│   ├── USER_GUIDE.md           # User guide
+│   └── METRICS.md              # Metrics reference
 │
 ├── .github/                    # GitHub Actions
 │   └── workflows/
 │       ├── ci.yml              # CI pipeline
 │       └── release.yml         # Release pipeline
 │
-├── .editorconfig               # Настройки редактора
+├── .editorconfig               # Editor settings
 ├── .gitignore
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -512,16 +518,41 @@ TorrSyncPlayer/
 
 ---
 
-## Полезные ссылки
+## Branching Strategy
 
-- [Документация по архитектуре](docs/ARCHITECTURE.md)
-- [API документация](docs/API.md)
-- [Руководство пользователя](docs/USER_GUIDE.md)
-- [Руководство по установке](docs/INSTALL.md)
-- [История изменений](CHANGELOG.md)
+- `main` — stable release branch
+- `develop` — integration branch for features
+- `feature/*` — feature branches (branched from `develop`)
+- `hotfix/*` — hotfix branches (branched from `main`)
+
+### Code Review Process
+1. Create a feature branch from `develop`
+2. Open a PR to `develop` when ready
+3. At least 1 approval is required to merge
+4. All CI checks must pass
+5. Squash merge to keep history clean
 
 ---
 
-## Контакты
+## Rollback Procedure
 
-Если у вас есть вопросы, создайте [Issue](https://github.com/blagovibe/TorrSyncPlayer/issues) на GitHub.
+1. Identify the problematic release tag
+2. Revert the merge commit on `main`: `git revert -m 1 <merge-commit>`
+3. Create a hotfix branch if needed
+4. Tag a new release after verification
+
+---
+
+## Useful Links
+
+- [Architecture documentation](docs/ARCHITECTURE.md)
+- [API documentation](docs/API.md)
+- [User guide](docs/USER_GUIDE.md)
+- [Installation guide](docs/INSTALL.md)
+- [Changelog](CHANGELOG.md)
+
+---
+
+## Contact
+
+If you have questions, create an [Issue](https://github.com/blagovibe/TorrSyncPlayer/issues) on GitHub.

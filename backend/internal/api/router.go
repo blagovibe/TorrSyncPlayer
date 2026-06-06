@@ -30,7 +30,7 @@ type RouterConfig struct {
 }
 
 // NewRouter создаёт и настраивает HTTP роутер.
-// Подключает middleware (SecurityHeaders, Recovery, CORS, CSRF, Logger, RateLimit, Auth) и регистрирует маршруты.
+// Подключает middleware (SecurityHeaders, Recovery, CORS, ContentType, CSRF, Logger, RateLimit, Auth) и регистрирует маршруты.
 // Параметр config - конфигурация роутера с сервисами и хранилищем.
 // Возвращает настроенный http.Handler.
 func NewRouter(config RouterConfig) http.Handler {
@@ -40,23 +40,23 @@ func NewRouter(config RouterConfig) http.Handler {
 	r.Use(SecurityHeadersMiddleware) // 1. Заголовки безопасности (первый слой)
 	r.Use(Recovery)                  // 2. Перехват паник
 	r.Use(CORS)                      // 3. CORS обработка
-	r.Use(Logger)                    // 4. Логирование
+	r.Use(ContentTypeMiddleware)     // 4. Content-Type валидация
+	r.Use(Logger)                    // 5. Логирование
 
-	// Swagger UI
+	// Swagger UI (без rate limiting для удобства разработки)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
-	// Health check (без rate limiting и аутентификации для мониторинга)
+	// Health check (без CSRF и JWT аутентификации для мониторинга)
 	r.Get(APIPathHealth, HealthCheck())
 
 	// Version endpoint
 	r.Get(APIPathVersion, VersionHandler())
 
-	// Prometheus metrics endpoint
+	// Prometheus metrics endpoint (без CSRF/JWT)
 	r.Get(APIPathMetrics, MetricsHandler())
 
-	// CSRF token endpoint для получения токена
-	r.Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
-		// Извлекаем session ID из запроса
+	// CSRF token endpoint для получения токена (per-IP rate limited)
+	r.With(PerIPRateLimiter).Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
 		sessionID := extractSessionID(r)
 		token, err := csrfStore.generateToken(sessionID)
 		if err != nil {
@@ -73,7 +73,7 @@ func NewRouter(config RouterConfig) http.Handler {
 	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)
 
 	// Auth endpoints — без CSRF защиты (публичные endpoints)
-	// Rate limiting: 10 запросов/минуту
+	// Rate limiting: 10 запросов/минуту (per-IP через NewRateLimiter)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Use(NewRateLimiter(rate.Limit(0.17), 5))
 		r.Post("/register", authHandler.Register)
@@ -83,8 +83,8 @@ func NewRouter(config RouterConfig) http.Handler {
 
 	// Защищённые endpoints — с CSRF, Rate limiting и JWT аутентификацией
 	r.Group(func(r chi.Router) {
-		r.Use(CSRFMiddleware)                    // 5. CSRF защита
-		r.Use(NewRateLimiter(rate.Limit(1), 10)) // 60 запросов/минуту
+		r.Use(CSRFMiddleware)                    // 6. CSRF защита
+		r.Use(NewRateLimiter(rate.Limit(1), 10)) // 60 запросов/минуту (per-IP)
 		r.Use(config.AuthService.JWTMiddleware)  // JWT аутентификация
 
 		// API v1

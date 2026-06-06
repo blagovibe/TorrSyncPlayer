@@ -13,7 +13,11 @@ import (
 
 // testAuthService создаёт AuthService с фиксированным секретом для тестов
 func testAuthService() *AuthService {
-	return NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	svc, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	if err != nil {
+		panic(err)
+	}
+	return svc
 }
 
 func TestHashPassword(t *testing.T) {
@@ -224,9 +228,8 @@ func TestExtractJTI(t *testing.T) {
 func TestTokenRevocation(t *testing.T) {
 	authService := testAuthService()
 
-	// Создаём новый store для тестов
-	store := NewTokenRevocationStore()
-	SetRevocationStore(store)
+	// Получаем revocation store из auth service
+	store := authService.GetRevocationStore()
 
 	user := &models.User{
 		ID:       "user123",
@@ -274,7 +277,8 @@ func TestTokenRevocationStoreCleanup(t *testing.T) {
 
 func TestValidateTokenWrongSecret(t *testing.T) {
 	// Создаём первый сервис
-	authService1 := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	authService1, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
+	require.NoError(t, err)
 
 	user := &models.User{
 		ID:       "user123",
@@ -285,7 +289,8 @@ func TestValidateTokenWrongSecret(t *testing.T) {
 	require.NoError(t, err)
 
 	// Создаём второй сервис с другим секретом
-	authService2 := NewAuthService([]byte("different-secret-key-for-testing!"))
+	authService2, err := NewAuthService([]byte("different-secret-key-for-testing!"))
+	require.NoError(t, err)
 
 	// Токен не должен пройти валидацию с другим секретом
 	_, err = authService2.ValidateToken(token)

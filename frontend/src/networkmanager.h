@@ -8,6 +8,7 @@
  * - Синхронизация воспроизведения
  * - SSE подписка на события комнаты
  * - Retry logic с экспоненциальным backoff
+ * - Автоматическое переподключение SSE
  */
 
 #ifndef NETWORKMANAGER_H
@@ -22,6 +23,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTimer>
+#include <QPointer>
+#include <QAtomicInt>
+#include <QMutex>
+#include <QDebug>
 
 /**
  * @struct RetryRequest
@@ -171,7 +176,14 @@ public:
      * @brief Установить базовый URL сервера
      * @param url Новый URL
      */
-    void setServerUrl(const QUrl &url) { m_serverUrl = url; }
+    void setServerUrl(const QUrl &url) {
+        if (!url.isEmpty() && url.scheme() != "https" && url.scheme() != "http") {
+            qWarning() << "NetworkManager: unsupported URL scheme, defaulting to HTTPS";
+            m_serverUrl = QUrl("https://" + url.host() + ":" + QString::number(url.port(443)));
+        } else {
+            m_serverUrl = url;
+        }
+    }
     
     /**
      * @brief Проверить, подключен ли к комнате
@@ -189,7 +201,7 @@ public:
      * @brief Проверить доступность сервера
      * @return true если сервер доступен
      */
-    bool isServerAvailable() const { return m_serverAvailable; }
+    bool isServerAvailable() const { return m_serverAvailable.loadRelaxed(); }
     
     /**
      * @brief Получить максимальное количество попыток
@@ -352,6 +364,12 @@ private slots:
      * Вызывается таймером для retry с экспоненциальным backoff
      */
     void retryRequest();
+    
+    /**
+     * @brief Переподключение SSE
+     * Вызывается таймером для автоматического переподключения SSE
+     */
+    void onSSEReconnect();
 
 private:
     /**
@@ -410,16 +428,22 @@ private:
 
     QNetworkAccessManager *m_network;       ///< Менеджер сетевых запросов
     QUrl m_serverUrl;                       ///< Базовый URL сервера
-    QNetworkReply *m_sseReply = nullptr;    ///< Текущий SSE ответ
+    QPointer<QNetworkReply> m_sseReply;     ///< Текущий SSE ответ (QPointer для безопасности от nullptr)
+    mutable QMutex m_roomIdMutex;
     QString m_currentRoomId;                ///< ID текущей комнаты
     QMap<QNetworkReply*, QString> m_replyMap; ///< Карта запросов для идентификации
+    mutable QMutex m_replyMutex;            ///< Мьютекс для потокобезопасного доступа к m_replyMap
     
     // ── Retry logic ───────────────────────────────────────────────────
     int m_maxRetries = 3;                   ///< Максимальное количество попыток
     int m_retryBaseDelay = 1000;            ///< Базовая задержка retry (мс)
     QTimer *m_retryTimer = nullptr;         ///< Таймер для retry
     RetryRequest m_pendingRetry;            ///< Ожидающий retry запрос
-    bool m_serverAvailable = true;          ///< Флаг доступности сервера
+    QAtomicInt m_serverAvailable{1};        ///< Флаг доступности сервера (потокобезопасный)
+    
+    // ── SSE Reconnect ─────────────────────────────────────────────────
+    QTimer *m_sseReconnectTimer = nullptr;  ///< Таймер для SSE переподключения
+    QAtomicInt m_sseReconnectAttempts{0};   ///< Счётчик попыток SSE переподключения
 };
 
 #endif // NETWORKMANAGER_H

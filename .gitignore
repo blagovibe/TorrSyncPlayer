@@ -3,6 +3,9 @@ node_modules/
 
 # Secrets and config
 .env
+.env.*
+!.env.example
+*.pem
 *.pem
 *.key
 *.secret
@@ -46,6 +49,4 @@ build-*/
 *.lib
 
 # Editor
-*.swp
-*.swo
 *~

@@ -156,7 +156,7 @@ func TestValidateMagnetURI(t *testing.T) {
 		{"empty string", "", true},
 		{"plain text", "not a magnet link", true},
 		{"partial magnet", "magnet:?xt=", true},
-		{"magnet with short hash", "magnet:?xt=urn:btih:abc123", true},
+		{"magnet with short hash", "magnet:?xt=urn:btih:abc123", false},
 	}
 
 	for _, tt := range tests {

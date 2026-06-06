@@ -23,5 +23,5 @@ func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
 // Параметр status - HTTP код ошибки.
 // Параметр message - описание ошибки (безопасное для клиента).
 func WriteError(w http.ResponseWriter, status int, message string) {
-	response.WriteJSON(w, status, APIError{Code: status, Message: message})
+	response.WriteJSON(w, status, map[string]string{"error": message})
 }

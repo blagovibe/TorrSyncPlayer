@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
@@ -238,23 +240,21 @@ func extractSessionID(r *http.Request) string {
 // Токены привязаны к сессии пользователя для предотвращения атак межсессионного CSRF.
 func CSRFMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Извлекаем session ID из запроса
 		sessionID := extractSessionID(r)
 
-		// GET и OPTIONS не требуют CSRF проверки
 		if !mutatingMethods[r.Method] {
-			// Но генерируем токен для будущих запросов
-			token, err := csrfStore.generateToken(sessionID)
-			if err == nil {
-				// Устанавливаем токен в заголовок ответа
-				w.Header().Set("X-CSRF-Token", token)
-				// Добавляем в контекст
-				ctx := context.WithValue(r.Context(), csrfTokenKey{}, token)
-				// Добавляем session ID в контекст
-				if sessionID != "" {
-					ctx = context.WithValue(ctx, sessionIDKey{}, sessionID)
+			origin := r.Header.Get("Origin")
+			referer := r.Header.Get("Referer")
+			if origin != "" || referer != "" {
+				token, err := csrfStore.generateToken(sessionID)
+				if err == nil {
+					w.Header().Set("X-CSRF-Token", token)
+					ctx := context.WithValue(r.Context(), csrfTokenKey{}, token)
+					if sessionID != "" {
+						ctx = context.WithValue(ctx, sessionIDKey{}, sessionID)
+					}
+					r = r.WithContext(ctx)
 				}
-				r = r.WithContext(ctx)
 			}
 			next.ServeHTTP(w, r)
 			return
@@ -264,10 +264,8 @@ func CSRFMiddleware(next http.Handler) http.Handler {
 		// JWT сам по себе защищает от CSRF при правильной реализации
 		authHeader := r.Header.Get("Authorization")
 		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			token = strings.TrimPrefix(token, "bearer ")
-			if len(token) > constants.MinJWTTokenLength { // Минимальная длина токена
-				// JWT токен присутствуем, пропускаем CSRF проверку
+			token := strings.TrimSpace(authHeader[len("bearer "):])
+			if len(token) > constants.MinJWTTokenLength {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -309,6 +307,26 @@ func GetCSRFToken(ctx context.Context) string {
 		}
 	}
 	return token
+}
+
+// ── Content-Type Validation ──────────────────────────────────────────────
+
+func ContentTypeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodOptions || r.Method == http.MethodHead || r.Method == http.MethodDelete {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		contentType := r.Header.Get("Content-Type")
+		if contentType == "" || !strings.Contains(contentType, "application/json") {
+			logger.Warn("Content-Type: неподдерживаемый тип", "contentType", contentType, "path", r.URL.Path, "method", r.Method)
+			WriteError(w, http.StatusUnsupportedMediaType, "Content-Type должен быть application/json")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ── Security Headers ────────────────────────────────────────────────────
@@ -363,6 +381,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		metrics.GetInstance().RequestStarted()
 
 		// Оборачиваем ResponseWriter для получения статуса
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
@@ -370,6 +389,12 @@ func Logger(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		duration := time.Since(start)
+
+		if wrapped.statusCode >= 400 {
+			metrics.GetInstance().RequestError()
+		} else {
+			metrics.GetInstance().RequestSuccess()
+		}
 
 		slog.Info("HTTP запрос",
 			"method", r.Method,
@@ -387,47 +412,54 @@ func Logger(next http.Handler) http.Handler {
 func getCORSOrigins() map[string]bool {
 	origins := make(map[string]bool)
 
-	// Пробуем прочитать из переменной окружения
 	if corsOrigins := os.Getenv("CORS_ORIGINS"); corsOrigins != "" {
 		for _, origin := range strings.Split(corsOrigins, ",") {
-			origin = strings.TrimSpace(origin)
+			origin = normalizeOrigin(origin)
 			if origin != "" {
 				origins[origin] = true
 			}
 		}
+		return origins
 	}
 
-	// Если переменная не задана — используем defaults для разработки
-	if len(origins) == 0 {
-		origins["http://localhost:8889"] = true
-		origins["https://localhost:8889"] = true
-		origins["http://127.0.0.1:8889"] = true
-		origins["https://127.0.0.1:8889"] = true
+	if os.Getenv("ENV") == "production" || os.Getenv("GO_ENV") == "production" {
+		logger.Warn("CORS_ORIGINS не задан в production — CORS отключён")
+		return origins
 	}
+
+	origins["http://localhost:8889"] = true
+	origins["https://localhost:8889"] = true
+	origins["http://127.0.0.1:8889"] = true
+	origins["https://127.0.0.1:8889"] = true
 
 	return origins
 }
 
-// CORS middleware для поддержки Cross-Origin Resource Sharing.
-// Разрешает запросы с origins, указанных в переменной окружения CORS_ORIGINS.
-// Формат переменной: "http://localhost:8889,http://127.0.0.1:8889"
-// Если переменная не задана — использует defaults для разработки.
-// Обрабатывает preflight запросы (OPTIONS).
+// normalizeOrigin нормализует origin для CORS проверки.
+// Удаляет trailing slash и приводит к нижнему регистру.
+func normalizeOrigin(origin string) string {
+	origin = strings.TrimSpace(origin)
+	origin = strings.TrimSuffix(origin, "/")
+	return strings.ToLower(origin)
+}
+
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Получаем список разрешённых origins
 		allowedOrigins := getCORSOrigins()
 
 		origin := r.Header.Get("Origin")
-		if allowedOrigins[origin] {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
+		normalizedOrigin := normalizeOrigin(origin)
+
+		w.Header().Set("Vary", "Origin")
+
+		if allowedOrigins[normalizedOrigin] {
+			w.Header().Set("Access-Control-Allow-Origin", normalizedOrigin)
 		}
 		w.Header().Set("Access-Control-Allow-Methods", constants.CORSAllowMethods)
 		w.Header().Set("Access-Control-Allow-Headers", constants.CORSAllowHeaders)
 		w.Header().Set("Access-Control-Max-Age", constants.CORSMaxAge)
 		w.Header().Set("Access-Control-Expose-Headers", constants.CORSExposeHeaders)
 
-		// Обработка preflight запросов
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -453,6 +485,145 @@ func Recovery(next http.Handler) http.Handler {
 	})
 }
 
+// clientLimiterEntry хранит rate limiter и время последнего использования
+type clientLimiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+// clientRateLimiter хранит rate limiter для каждого IP
+type clientRateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*clientLimiterEntry
+	rate     rate.Limit
+	burst    int
+	cleanup  time.Duration
+	stopChan chan struct{}
+	stopOnce sync.Once
+}
+
+// newClientRateLimiter создаёт per-IP rate limiter
+func newClientRateLimiter(r rate.Limit, b int) *clientRateLimiter {
+	cri := &clientRateLimiter{
+		limiters: make(map[string]*clientLimiterEntry),
+		rate:     r,
+		burst:    b,
+		cleanup:  10 * time.Minute,
+		stopChan: make(chan struct{}),
+	}
+	go cri.cleanupLoop()
+	return cri
+}
+
+func (cri *clientRateLimiter) Stop() {
+	cri.stopOnce.Do(func() {
+		close(cri.stopChan)
+	})
+}
+
+// cleanupLoop периодически удаляет старые rate limiter entries
+func (cri *clientRateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(cri.cleanup)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			cri.mu.Lock()
+			now := time.Now()
+			for ip, entry := range cri.limiters {
+				if now.Sub(entry.lastSeen) > cri.cleanup {
+					delete(cri.limiters, ip)
+				}
+			}
+			cri.mu.Unlock()
+		case <-cri.stopChan:
+			return
+		}
+	}
+}
+
+// getClientIP извлекает IP адрес клиента из запроса
+func getClientIP(r *http.Request) string {
+	if isTrustedProxy(r.RemoteAddr) {
+		xff := r.Header.Get("X-Forwarded-For")
+		if xff != "" {
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[0])
+		}
+
+		xri := r.Header.Get("X-Real-IP")
+		if xri != "" {
+			return xri
+		}
+	}
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// isTrustedProxy checks if the request comes from a trusted proxy.
+// Reads from TRUSTED_PROXIES env var (comma-separated CIDRs).
+// If not set, defaults to localhost and private network ranges.
+func isTrustedProxy(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	if trustedCIDRs := os.Getenv("TRUSTED_PROXIES"); trustedCIDRs != "" {
+		for _, cidr := range strings.Split(trustedCIDRs, ",") {
+			cidr = strings.TrimSpace(cidr)
+			if cidr == "" {
+				continue
+			}
+			_, ipNet, err := net.ParseCIDR(cidr)
+			if err == nil && ipNet.Contains(ip) {
+				return true
+			}
+		}
+		return false
+	}
+
+	_, private10, _ := net.ParseCIDR("10.0.0.0/8")
+	_, private172, _ := net.ParseCIDR("172.16.0.0/12")
+	_, private192, _ := net.ParseCIDR("192.168.0.0/16")
+	_, loopback, _ := net.ParseCIDR("127.0.0.0/8")
+	_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
+
+	return private10.Contains(ip) || private172.Contains(ip) ||
+		private192.Contains(ip) || loopback.Contains(ip) || linkLocal.Contains(ip) ||
+		ip.IsLoopback() || ip.IsLinkLocalUnicast()
+}
+
+// getLimiter возвращает rate limiter для указанного IP
+func (cri *clientRateLimiter) getLimiter(ip string) *rate.Limiter {
+	cri.mu.Lock()
+	defer cri.mu.Unlock()
+
+	entry, exists := cri.limiters[ip]
+	if !exists {
+		limiter := rate.NewLimiter(cri.rate, cri.burst)
+		cri.limiters[ip] = &clientLimiterEntry{
+			limiter:  limiter,
+			lastSeen: time.Now(),
+		}
+		return limiter
+	}
+
+	entry.lastSeen = time.Now()
+	return entry.limiter
+}
+
+// globalClientRateLimiter глобальный per-IP rate limiter для всех endpoints
+var globalClientRateLimiter = newClientRateLimiter(rate.Limit(1), 10)
+
 // NewRateLimiter создаёт middleware для ограничения частоты запросов.
 // Параметр r - лимит запросов в секунду (rate.Limit).
 // Параметр b - максимальный burst (размер ведра токенов).
@@ -468,6 +639,20 @@ func NewRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	}
+}
+
+// PerIPRateLimiter создаёт middleware для per-IP rate limiting.
+// Использует глобальный per-IP rate limiter.
+func PerIPRateLimiter(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := getClientIP(r)
+		limiter := globalClientRateLimiter.getLimiter(ip)
+		if !limiter.Allow() {
+			WriteError(w, http.StatusTooManyRequests, "Слишком много запросов. Попробуйте позже.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // responseWriter обёртка для перехвата статуса ответа.

@@ -5,13 +5,27 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// dummyHash is a real bcrypt hash used for timing attack mitigation
+// when a user is not found. Generated once at startup.
+var dummyHash []byte
+
+func init() {
+	hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-mitigation"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate dummy bcrypt hash: %v", err))
+	}
+	dummyHash = hash
+}
 
 // UserStore хранилище пользователей в памяти.
 // В production следует использовать базу данных.
@@ -35,6 +49,8 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 		return nil, err
 	}
 
+	username = strings.ToLower(username)
+
 	// Валидация пароля
 	if err := validation.ValidatePassword(password); err != nil {
 		return nil, err
@@ -45,7 +61,7 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 
 	// Проверяем существование пользователя
 	if _, exists := s.users[username]; exists {
-		return nil, fmt.Errorf("пользователь %s уже существует", username)
+		return nil, fmt.Errorf("%w: %s", ErrUserExists, username)
 	}
 
 	// Хешируем пароль
@@ -74,16 +90,18 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 
 // Authenticate проверяет учётные данные пользователя.
 // Возвращает пользователя если данные верны.
+// Использует фиктивный хеш при отсутствии пользователя для защиты от timing-атак.
 func (s *UserStore) Authenticate(username, password string) (*models.User, error) {
+	username = strings.ToLower(username)
 	s.mu.RLock()
 	user, exists := s.users[username]
 	s.mu.RUnlock()
 
 	if !exists {
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return nil, ErrInvalidCredentials
 	}
 
-	// Проверяем пароль
 	if err := CheckPassword(password, user.PasswordHash); err != nil {
 		return nil, err
 	}

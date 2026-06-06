@@ -29,40 +29,56 @@ var (
 	ErrExpiredToken = errors.New("токен истёк")
 	// ErrInvalidCredentials ошибка неверных учётных данных
 	ErrInvalidCredentials = errors.New("неверные учётные данные")
+	// ErrUserExists ошибка существующего пользователя
+	ErrUserExists = errors.New("пользователь уже существует")
 )
 
 // AuthService сервис аутентификации с JWT.
-// Хранит секретный ключ как поле структуры вместо глобальной переменной.
+// Хранит секретный ключ и revocation store как поля структуры.
 type AuthService struct {
-	jwtSecret []byte
+	jwtSecret       []byte
+	revocationStore *TokenRevocationStore
 }
 
 // NewAuthService создаёт новый сервис аутентификации.
 // Если secret пустой, проверяет переменную окружения JWT_SECRET,
 // затем генерирует случайный ключ.
-func NewAuthService(secret []byte) *AuthService {
-	svc := &AuthService{}
+// Создаёт внутренний TokenRevocationStore для управления отзывом токенов.
+// Возвращает ошибку если не удалось сгенерировать секретный ключ.
+func NewAuthService(secret []byte) (*AuthService, error) {
+	svc := &AuthService{
+		revocationStore: NewTokenRevocationStore(),
+	}
 
 	if len(secret) > 0 {
 		svc.jwtSecret = secret
-		return svc
+		return svc, nil
 	}
 
-	// Проверяем переменную окружения JWT_SECRET
 	if envSecret := os.Getenv("JWT_SECRET"); envSecret != "" {
 		svc.jwtSecret = []byte(envSecret)
-		return svc
+		return svc, nil
 	}
 
-	// Генерируем случайный ключ
 	svc.jwtSecret = make([]byte, constants.JWTSecretLength)
 	if _, err := rand.Read(svc.jwtSecret); err != nil {
-		// При ошибке генерации ключа паникуем
-		// так как безопасность критически важна
-		panic(fmt.Sprintf("не удалось сгенерировать безопасный JWT ключ: %v", err))
+		return nil, fmt.Errorf("failed to generate secure JWT key: %w", err)
 	}
 
-	return svc
+	return svc, nil
+}
+
+// GetRevocationStore возвращает хранилище отозванных токенов.
+func (s *AuthService) GetRevocationStore() *TokenRevocationStore {
+	return s.revocationStore
+}
+
+// Stop останавливает внутренние сервисы AuthService.
+// Вызывать при graceful shutdown.
+func (s *AuthService) Stop() {
+	if s.revocationStore != nil {
+		s.revocationStore.Stop()
+	}
 }
 
 // SetSecret устанавливает секретный ключ для JWT.
@@ -169,6 +185,9 @@ func (s *AuthService) ValidateToken(tokenString string) (*models.Claims, error) 
 	username, _ := claims["username"].(string)
 	// username может быть пустым, это не критично
 
+	// Извлекаем JTI для проверки отзыва токена
+	jti, _ := claims["jti"].(string)
+
 	// Извлекаем время истечения
 	var expiresAt int64
 	switch exp := claims["exp"].(type) {
@@ -184,6 +203,7 @@ func (s *AuthService) ValidateToken(tokenString string) (*models.Claims, error) 
 		UserID:    userID,
 		Username:  username,
 		ExpiresAt: expiresAt,
+		JTI:       jti,
 	}, nil
 }
 

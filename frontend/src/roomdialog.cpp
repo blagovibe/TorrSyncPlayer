@@ -224,12 +224,6 @@ void RoomDialog::onTabChanged(int index)
     }
 }
 
-void RoomDialog::onTogglePassword(bool checked)
-{
-    Q_UNUSED(checked)
-    // Обрабатывается через лямбды в createCreateTab/createJoinTab
-}
-
 // ── Валидация ─────────────────────────────────────────────────────────
 
 bool RoomDialog::validateInput()

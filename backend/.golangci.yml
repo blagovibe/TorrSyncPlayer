@@ -1,6 +1,6 @@
 run:
   timeout: 5m
-  go: "1.24"
+  go: "1.25"
 
 linters:
   enable:
@@ -13,10 +13,7 @@ linters:
     - goimports
     - misspell
     - unconvert
-  disable:
-    - revive
-    - unused
-    - ineffassign
+  disable: []
 
 linters-settings:
   gofmt:

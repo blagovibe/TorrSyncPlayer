@@ -24,14 +24,6 @@ namespace Utils {
 QString formatBytes(qint64 bytes);
 
 /**
- * @brief Форматирование размера файла в читаемый вид
- * @param bytes Размер в байтах
- * @return Строка вида "1.5 GB"
- * @note Алиас для formatBytes для удобства использования
- */
-QString formatFileSize(qint64 bytes);
-
-/**
  * @brief Форматирование длительности в миллисекундах
  * @param ms Длительность в миллисекундах
  * @return Строка вида "01:30:45" или "01:30:45.123" если есть миллисекунды

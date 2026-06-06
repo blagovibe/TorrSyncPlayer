@@ -1,18 +1,17 @@
-// Package buffer предоставляет сервис управления буферизацией для стриминга.
 package buffer
 
 import (
-	"container/list"
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/anacrolix/torrent"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// CacheEntry запись в LRU-кэше
 type CacheEntry struct {
 	PieceIndex int
 	Data       []byte
@@ -20,7 +19,6 @@ type CacheEntry struct {
 	AccessTime time.Time
 }
 
-// TorrentBuffer буфер для конкретного торрента
 type TorrentBuffer struct {
 	TorrentID       string
 	FileIndex       int
@@ -36,27 +34,22 @@ type TorrentBuffer struct {
 	LastUpdate      time.Time
 }
 
-// Service сервис управления буферизацией
 type Service struct {
 	mu               sync.RWMutex
 	torrentBuffers   map[string]*TorrentBuffer
 	maxCacheSize     int64
 	currentCacheSize int64
-	lruList          *list.List
-	lruMap           map[int]*list.Element
+	cancelFunc       context.CancelFunc
+	wg               sync.WaitGroup
 }
 
-// NewService создаёт новый сервис буферизации
 func NewService(maxCacheSize int64) *Service {
 	return &Service{
 		torrentBuffers: make(map[string]*TorrentBuffer),
 		maxCacheSize:   maxCacheSize,
-		lruList:        list.New(),
-		lruMap:         make(map[int]*list.Element),
 	}
 }
 
-// RegisterTorrent регистрирует торрент для буферизации
 func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPercent, bufferDuration int, maxBufferSize int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,11 +69,12 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 		LastUpdate:     time.Now(),
 	}
 
-	logger.Info("Registered torrent for buffering: %s, pieces: %d, piece size: %d",
-		torrentID, totalPieces, pieceSize)
+	logger.Info("Registered torrent for buffering",
+		"torrentID", torrentID,
+		"totalPieces", totalPieces,
+		"pieceSize", pieceSize)
 }
 
-// UpdatePosition обновляет текущую позицию воспроизведения
 func (s *Service) UpdatePosition(torrentID string, position int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,11 +87,9 @@ func (s *Service) UpdatePosition(torrentID string, position int64) {
 	tb.CurrentPosition = position
 	tb.LastUpdate = time.Now()
 
-	// Вычисляем границы буфера
 	fileSize := tb.File.Length()
 	bufferSize := int64(float64(fileSize) * float64(tb.BufferPercent) / 100.0)
 
-	// Ограничиваем максимальный размер буфера
 	if bufferSize > tb.MaxBufferSize {
 		bufferSize = tb.MaxBufferSize
 	}
@@ -109,54 +101,40 @@ func (s *Service) UpdatePosition(torrentID string, position int64) {
 		tb.BufferEnd = fileSize
 	}
 
-	// Обновляем приоритеты кусков
 	s.updatePiecePriorities(tb)
 }
 
-// updatePiecePriorities обновляет приоритеты кусков на основе текущей позиции
 func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
 	t := tb.File.Torrent()
 	pieceSize := t.Info().PieceLength
 
-	// Вычисляем индексы кусков для буфера
 	startPiece := int(tb.BufferStart / pieceSize)
 	endPiece := int(tb.BufferEnd / pieceSize)
 
-	// Вычисляем индексы кусков для немедленной загрузки (первые ~10 кусков)
-	nowEndPiece := startPiece + 10
-
-	// Вычисляем индексы кусков для высокого приоритета (~50 кусков)
-	highEndPiece := startPiece + 50
+	nowEndPiece := startPiece + constants.BufferNowPieces
+	highEndPiece := startPiece + constants.BufferHighPieces
 
 	for i := 0; i < tb.TotalPieces; i++ {
 		piece := t.Piece(i)
 
 		if i >= startPiece && i <= endPiece {
-			// В пределах буфера
 			if i <= nowEndPiece {
-				// Немедленная загрузка
 				piece.SetPriority(torrent.PiecePriorityNow)
 			} else if i <= highEndPiece {
-				// Высокий приоритет
 				piece.SetPriority(torrent.PiecePriorityHigh)
 			} else {
-				// Обычный приоритет
 				piece.SetPriority(torrent.PiecePriorityNormal)
 			}
 		} else if i > endPiece && i <= endPiece+20 {
-			// Предзагрузка (20 кусков за пределами буфера)
 			piece.SetPriority(torrent.PiecePriorityReadahead)
 		} else if i < startPiece {
-			// Уже проигранные куски - не загружать
 			piece.SetPriority(torrent.PiecePriorityNone)
 		} else {
-			// Далёкие куски - низкий приоритет
 			piece.SetPriority(torrent.PiecePriorityNone)
 		}
 	}
 }
 
-// GetBufferInfo возвращает информацию о состоянии буфера
 func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -166,7 +144,6 @@ func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
 		return nil, fmt.Errorf("torrent not found: %s", torrentID)
 	}
 
-	// Подсчитываем загруженные байты в буфере
 	t := tb.File.Torrent()
 	pieceSize := t.Info().PieceLength
 	startPiece := int(tb.BufferStart / pieceSize)
@@ -198,27 +175,58 @@ func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
 	}, nil
 }
 
-// UnregisterTorrent удаляет торрент из буферизации
 func (s *Service) UnregisterTorrent(torrentID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	delete(s.torrentBuffers, torrentID)
-	logger.Info("Unregistered torrent from buffering: %s", torrentID)
+	logger.Info("Unregistered torrent from buffering", "torrentID", torrentID)
 }
 
-// StartPeriodicUpdate запускает периодическое обновление приоритетов
 func (s *Service) StartPeriodicUpdate(interval time.Duration) {
+	s.mu.Lock()
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+		s.wg.Wait()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancelFunc = cancel
+	s.mu.Unlock()
+
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			s.mu.Lock()
-			for _, tb := range s.torrentBuffers {
-				s.updatePiecePriorities(tb)
+		for {
+			select {
+			case <-ticker.C:
+				s.mu.Lock()
+				for _, tb := range s.torrentBuffers {
+					s.updatePiecePriorities(tb)
+				}
+				s.mu.Unlock()
+		case <-ctx.Done():
+			return
 			}
-			s.mu.Unlock()
 		}
 	}()
+}
+
+func (s *Service) StopPeriodicUpdate() {
+	s.mu.Lock()
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+		s.cancelFunc = nil
+	}
+	s.mu.Unlock()
+	s.wg.Wait()
+}
+
+func (s *Service) Close() {
+	s.StopPeriodicUpdate()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.torrentBuffers = make(map[string]*TorrentBuffer)
 }

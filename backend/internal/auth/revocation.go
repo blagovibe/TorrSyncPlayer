@@ -13,15 +13,19 @@ import (
 
 // TokenRevocationStore хранит отозванные JWT токены.
 // Использует in-memory хранилище с TTL для автоматической очистки.
+// Потокобезопасен для одновременного доступа из нескольких горутин.
 type TokenRevocationStore struct {
 	mu            sync.RWMutex
 	revokedTokens map[string]time.Time // jti -> expiry time
 	ttl           time.Duration
 	stopChan      chan struct{}
 	stopOnce      sync.Once
+	wg            sync.WaitGroup // для ожидания завершения cleanup горутины
 }
 
 // NewTokenRevocationStore создаёт новое хранилище отозванных токенов.
+// Запускает фоновую горутину очистки истёкших записей.
+// Для корректного завершения вызовите Stop() после использования.
 func NewTokenRevocationStore() *TokenRevocationStore {
 	store := &TokenRevocationStore{
 		revokedTokens: make(map[string]time.Time),
@@ -30,13 +34,16 @@ func NewTokenRevocationStore() *TokenRevocationStore {
 	}
 
 	// Запускаем периодическую очистку
+	store.wg.Add(1)
 	go store.cleanup()
 
 	return store
 }
 
 // cleanup периодически удаляет истёкшие записи об отзыве.
+// Завершается при вызове Stop() или при закрытии stopChan.
 func (s *TokenRevocationStore) cleanup() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(constants.CSRFCleanupInterval)
 	defer ticker.Stop()
 
@@ -66,20 +73,18 @@ func (s *TokenRevocationStore) Revoke(jti string, expiry time.Time) {
 }
 
 // IsRevoked проверяет, отозван ли токен.
+// Если токен истёк, удаляет запись и возвращает false.
 func (s *TokenRevocationStore) IsRevoked(jti string) bool {
-	s.mu.RLock()
-	expiry, exists := s.revokedTokens[jti]
-	s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
+	expiry, exists := s.revokedTokens[jti]
 	if !exists {
 		return false
 	}
 
-	// Если токен уже истёк, удаляем запись
 	if time.Now().After(expiry) {
-		s.mu.Lock()
 		delete(s.revokedTokens, jti)
-		s.mu.Unlock()
 		return false
 	}
 
@@ -93,24 +98,11 @@ func (s *TokenRevocationStore) Count() int {
 	return len(s.revokedTokens)
 }
 
-// Stop останавливает горутину очистки.
+// Stop останавливает горутину очистки и ждёт её завершения.
 // Безопасно вызывать несколько раз.
 func (s *TokenRevocationStore) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.stopChan)
 	})
-}
-
-// Глобальное хранилище отозванных токенов
-var revocationStore = NewTokenRevocationStore()
-
-// GetRevocationStore возвращает глобальное хранилище отозванных токенов.
-func GetRevocationStore() *TokenRevocationStore {
-	return revocationStore
-}
-
-// SetRevocationStore устанавливает хранилище отозванных токенов.
-// Используется для тестирования.
-func SetRevocationStore(store *TokenRevocationStore) {
-	revocationStore = store
+	s.wg.Wait()
 }

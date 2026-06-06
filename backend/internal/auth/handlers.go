@@ -3,6 +3,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
@@ -38,8 +39,11 @@ func NewAuthHandler(store *UserStore, authService *AuthService) *AuthHandler {
 // @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	// Ограничиваем размер тела запроса
-	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxRequestSize) // 1MB
+	if r.ContentLength > constants.MaxRequestSize {
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Тело запроса превышает допустимый размер"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxRequestSize)
 
 	var req models.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -50,7 +54,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Создаём пользователя
 	user, err := h.store.Create(req.Username, req.Password)
 	if err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		if errors.Is(err, ErrUserExists) {
+			response.WriteJSON(w, http.StatusConflict, models.ErrorResponse{Error: "Пользователь с таким именем уже существует"})
+		} else if errors.Is(err, ErrInvalidCredentials) {
+			response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		} else {
+			response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		}
 		return
 	}
 
@@ -82,7 +92,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 // @Failure      401      {object}  models.ErrorResponse
 // @Router       /api/v1/auth/login [post]
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	// Ограничиваем размер тела запроса
+	if r.ContentLength > constants.MaxRequestSize {
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Тело запроса превышает допустимый размер"})
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxRequestSize)
 
 	var req models.LoginRequest

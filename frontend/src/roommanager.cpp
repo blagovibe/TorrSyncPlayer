@@ -99,8 +99,9 @@ void RoomManager::syncSeek(double position)
 void RoomManager::onRoomEvent(const QJsonObject &event)
 {
     QString type = event["type"].toString();
+    if (type.isEmpty()) return;
     qDebug() << "RoomManager: событие комнаты" << type;
-    
+
     if (type == "peer_joined") {
         QString peerId = event["peerId"].toString();
         emit peerJoined(peerId);
@@ -108,7 +109,7 @@ void RoomManager::onRoomEvent(const QJsonObject &event)
         QString peerId = event["peerId"].toString();
         emit peerLeft(peerId);
     }
-    
+
     emit roomEvent(event);
 }
 

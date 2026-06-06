@@ -1,53 +1,36 @@
-# ============================================================
-# Docker ignore для TorrSyncPlayer
-# ============================================================
-
 # Git
 .git
 .gitignore
 
+# Documentation
+*.md
+docs/
+
+# Frontend (not needed for backend Docker build)
+frontend/
+
+# Monitoring configs (mounted as volumes)
+monitoring/
+
 # IDE
-.vscode
-.idea
+.vscode/
+.idea/
 *.swp
 *.swo
 
-# Документация
-docs/
-*.md
-LICENSE
+# OS
+.DS_Store
+Thumbs.db
 
-# Frontend (не нужен для backend контейнера)
-frontend/
-
-# Тесты
-*_test.go
-tests/
-
-# Логи
-*.log
-logs/
-
-# Временные файлы
-tmp/
-temp/
-*.tmp
-
-# Данные
-data/
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
 
 # CI
 .github/
 
-# Docker
-docker-compose*.yml
-Dockerfile*
-
-# Make
-Makefile
-
-# Прочее
-.env
-.env.*
-*.pem
-*.key
+# Temporary files
+tmp/
+temp/
+*.tmp

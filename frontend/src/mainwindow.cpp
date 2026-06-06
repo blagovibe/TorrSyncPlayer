@@ -1,10 +1,10 @@
 /**
  * @file mainwindow.cpp
  * @brief Реализация главного окна приложения TorrPlayer
- * 
+ *
  * Рефакторинг: логика управления торрентами вынесена в TorrentManager,
  * логика управления комнатами вынесена в RoomManager.
- * Размер файла сокращён до ~280 строк.
+ * Длинные лямбды вынесены в отдельные слоты.
  */
 
 #include "mainwindow.h"
@@ -29,6 +29,7 @@
 #include <QCloseEvent>
 #include <QApplication>
 #include <QThread>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -40,14 +41,14 @@ MainWindow::MainWindow(QWidget *parent)
     // Устанавливаем заголовок и размер окна
     setWindowTitle(tr("TorrPlayer - Видеоплеер с торрентами"));
     resize(1200, 700);
-    
+
     // Инициализация UI
     setupUI();
     setupConnections();
-    
+
     // Загружаем список торрентов при запуске
     m_torrentManager->listTorrents();
-    
+
     updateStatus(tr("Готово к работе"));
     qDebug() << "MainWindow: инициализировано";
 }
@@ -55,6 +56,18 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     qDebug() << "MainWindow: уничтожено";
+}
+
+void MainWindow::setServerUrl(const QUrl &url)
+{
+    if (m_network) {
+        if (!url.isValid() || url.isEmpty()) {
+            qWarning() << "MainWindow: невалидный URL сервера:" << url.toString();
+            return;
+        }
+        m_network->setServerUrl(url);
+        qDebug() << "MainWindow: установлен URL сервера:" << url.toString();
+    }
 }
 
 // ── Инициализация UI ────────────────────────────────────────────────────
@@ -66,21 +79,21 @@ void MainWindow::setupUI()
     QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
     mainLayout->setContentsMargins(5, 5, 5, 5);
     mainLayout->setSpacing(5);
-    
+
     // Сплиттер для разделения панелей
     QSplitter *splitter = new QSplitter(Qt::Horizontal, this);
     splitter->addWidget(createLeftPanel());
     splitter->addWidget(createRightPanel());
     splitter->setStretchFactor(0, 1);  // Левая панель
     splitter->setStretchFactor(1, 3);  // Правая панель
-    
+
     mainLayout->addWidget(splitter);
     setCentralWidget(centralWidget);
-    
+
     // Статусная строка
     m_statusLabel = new QLabel(tr("Готово"), this);
     statusBar()->addPermanentWidget(m_statusLabel, 1);
-    
+
     // Меню
     QMenu *fileMenu = menuBar()->addMenu(tr("&Файл"));
     QAction *addTorrentAction = fileMenu->addAction(tr("Добавить торрент..."));
@@ -90,7 +103,7 @@ void MainWindow::setupUI()
     QAction *quitAction = fileMenu->addAction(tr("Выход"));
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
-    
+
     QMenu *roomMenu = menuBar()->addMenu(tr("&Комната"));
     QAction *createRoomAction = roomMenu->addAction(tr("Создать комнату..."));
     connect(createRoomAction, &QAction::triggered, this, &MainWindow::onCreateRoom);
@@ -104,20 +117,20 @@ QWidget* MainWindow::createLeftPanel()
 {
     QGroupBox *groupBox = new QGroupBox(tr("Торренты"), this);
     QVBoxLayout *layout = new QVBoxLayout(groupBox);
-    
+
     // Поле ввода magnet-ссылки
     QHBoxLayout *inputLayout = new QHBoxLayout();
     m_magnetInput = new QLineEdit(this);
     m_magnetInput->setPlaceholderText(tr("Вставьте magnet-ссылку..."));
     m_magnetInput->setClearButtonEnabled(true);
     inputLayout->addWidget(m_magnetInput);
-    
+
     m_addButton = new QPushButton(tr("+"), this);
     m_addButton->setToolTip(tr("Добавить торрент"));
     m_addButton->setFixedWidth(40);
     inputLayout->addWidget(m_addButton);
     layout->addLayout(inputLayout);
-    
+
     // Список торрентов
     m_torrentList = new QListView(this);
     m_torrentList->setModel(m_torrentModel);
@@ -125,23 +138,23 @@ QWidget* MainWindow::createLeftPanel()
     m_torrentList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_torrentList->setAlternatingRowColors(true);
     layout->addWidget(m_torrentList);
-    
+
     // Кнопка удаления
     m_removeTorrentButton = new QPushButton(tr("Удалить торрент"), this);
     m_removeTorrentButton->setEnabled(false);
     layout->addWidget(m_removeTorrentButton);
-    
+
     // Список файлов
     QLabel *filesLabel = new QLabel(tr("Файлы торрента:"), this);
     layout->addWidget(filesLabel);
-    
+
     m_fileList = new QListView(this);
     m_fileList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_fileList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_fileList->setAlternatingRowColors(true);
     m_fileList->setMaximumHeight(200);
     layout->addWidget(m_fileList);
-    
+
     return groupBox;
 }
 
@@ -149,18 +162,18 @@ QWidget* MainWindow::createRightPanel()
 {
     QGroupBox *groupBox = new QGroupBox(tr("Воспроизведение"), this);
     QVBoxLayout *layout = new QVBoxLayout(groupBox);
-    
+
     // MPV виджет
     m_mpvWidget = new MpvWidget(this);
     m_mpvWidget->setMinimumHeight(400);
     layout->addWidget(m_mpvWidget, 1);
-    
+
     // Панель управления
     layout->addWidget(createControlsPanel());
-    
+
     // Панель комнат
     layout->addWidget(createRoomPanel());
-    
+
     return groupBox;
 }
 
@@ -169,19 +182,19 @@ QWidget* MainWindow::createControlsPanel()
     QWidget *panel = new QWidget(this);
     QVBoxLayout *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(0, 0, 0, 0);
-    
+
     // Слайдер перемотки
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_seekSlider->setRange(0, 1000);
     m_seekSlider->setValue(0);
     m_seekSlider->setEnabled(false);
     layout->addWidget(m_seekSlider);
-    
+
     // Метка времени
     m_timeLabel = new QLabel("00:00:00 / 00:00:00", this);
     m_timeLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_timeLabel);
-    
+
     // Кнопки управления
     QHBoxLayout *buttonsLayout = new QHBoxLayout();
     m_playPauseButton = new QPushButton(tr("▶ Play"), this);
@@ -189,7 +202,7 @@ QWidget* MainWindow::createControlsPanel()
     m_playPauseButton->setMinimumWidth(100);
     buttonsLayout->addWidget(m_playPauseButton);
     buttonsLayout->addStretch();
-    
+
     // Прогресс буферизации
     m_bufferProgress = new QProgressBar(this);
     m_bufferProgress->setRange(0, 100);
@@ -198,7 +211,7 @@ QWidget* MainWindow::createControlsPanel()
     m_bufferProgress->setMaximumHeight(5);
     layout->addWidget(m_bufferProgress);
     layout->addLayout(buttonsLayout);
-    
+
     return panel;
 }
 
@@ -206,20 +219,20 @@ QWidget* MainWindow::createRoomPanel()
 {
     QGroupBox *roomGroup = new QGroupBox(tr("Синхронизация"), this);
     QHBoxLayout *roomLayout = new QHBoxLayout(roomGroup);
-    
+
     m_createRoomButton = new QPushButton(tr("Создать комнату"), this);
     roomLayout->addWidget(m_createRoomButton);
-    
+
     m_joinRoomButton = new QPushButton(tr("Присоединиться"), this);
     roomLayout->addWidget(m_joinRoomButton);
-    
+
     m_leaveRoomButton = new QPushButton(tr("Покинуть"), this);
     m_leaveRoomButton->setEnabled(false);
     roomLayout->addWidget(m_leaveRoomButton);
-    
+
     m_roomStatusLabel = new QLabel(tr("Не в комнате"), this);
     roomLayout->addWidget(m_roomStatusLabel, 1);
-    
+
     return roomGroup;
 }
 
@@ -230,70 +243,31 @@ void MainWindow::setupConnections()
     // UI элементы
     connect(m_addButton, &QPushButton::clicked, this, &MainWindow::onAddTorrent);
     connect(m_magnetInput, &QLineEdit::returnPressed, this, &MainWindow::onAddTorrent);
-    connect(m_torrentList, &QListView::clicked, this, &MainWindow::onTorrentSelected);
     connect(m_torrentList, &QListView::doubleClicked, this, &MainWindow::onTorrentSelected);
     connect(m_fileList, &QListView::doubleClicked, this, &MainWindow::onFileSelected);
-    connect(m_removeTorrentButton, &QPushButton::clicked, this, [this]() {
-        QModelIndex index = m_torrentList->currentIndex();
-        if (index.isValid()) {
-            m_torrentManager->removeTorrent(index.data(TorrentModel::IdRole).toString());
-        }
-    });
+    connect(m_removeTorrentButton, &QPushButton::clicked, this, &MainWindow::onRemoveTorrent);
     connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPause);
     connect(m_seekSlider, &QSlider::sliderMoved, this, &MainWindow::onSeek);
-    connect(m_seekSlider, &QSlider::sliderPressed, this, [this]() { m_isSeeking = true; });
-    connect(m_seekSlider, &QSlider::sliderReleased, this, [this]() {
-        m_isSeeking = false;
-        onSeek(m_seekSlider->value());
-    });
+    connect(m_seekSlider, &QSlider::sliderPressed, this, &MainWindow::onSeekSliderPressed);
+    connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekSliderReleased);
     connect(m_createRoomButton, &QPushButton::clicked, this, &MainWindow::onCreateRoom);
     connect(m_joinRoomButton, &QPushButton::clicked, this, &MainWindow::onJoinRoom);
     connect(m_leaveRoomButton, &QPushButton::clicked, this, &MainWindow::onLeaveRoom);
-    
+
     // TorrentManager
     connect(m_torrentManager, &TorrentManager::filesReceived, this, &MainWindow::onFilesReceived);
-    connect(m_torrentManager, &TorrentManager::fileSelected, this, [this](const QString &, int, const QString &url) {
-        m_mpvWidget->play(url);
-        m_isPlaying = true;
-        m_playPauseButton->setText(tr("⏸ Pause"));
-        m_playPauseButton->setEnabled(true);
-    });
+    connect(m_torrentManager, &TorrentManager::fileSelected, this, &MainWindow::onFileSelectedByManager);
     connect(m_torrentManager, &TorrentManager::error, this, &MainWindow::onNetworkError);
-    
+
     // RoomManager
-    connect(m_roomManager, &RoomManager::roomCreated, this, [this](const QString &roomId) {
-        updateRoomUI(roomId, true);
-        updateStatus(tr("Комната создана: %1").arg(roomId));
-    });
-    connect(m_roomManager, &RoomManager::roomJoined, this, [this](const QString &roomId) {
-        updateRoomUI(roomId, false);
-        updateStatus(tr("Присоединились к комнате: %1").arg(roomId));
-    });
-    connect(m_roomManager, &RoomManager::roomLeft, this, [this]() {
-        clearRoomUI();
-        updateStatus(tr("Покинули комнату"));
-    });
-    connect(m_roomManager, &RoomManager::syncAction, this, [this](const QString &action, double position) {
-        if (action == "play") {
-            m_mpvWidget->resume();
-            m_isPlaying = true;
-            m_playPauseButton->setText(tr("⏸ Pause"));
-        } else if (action == "pause") {
-            m_mpvWidget->pause();
-            m_isPlaying = false;
-            m_playPauseButton->setText(tr("▶ Play"));
-        } else if (action == "seek") {
-            m_mpvWidget->seek(position);
-        }
-    });
-    connect(m_roomManager, &RoomManager::peerJoined, this, [this](const QString &peerId) {
-        updateStatus(tr("Пир присоединился: %1").arg(peerId));
-    });
-    connect(m_roomManager, &RoomManager::peerLeft, this, [this](const QString &peerId) {
-        updateStatus(tr("Пир покинул комнату: %1").arg(peerId));
-    });
+    connect(m_roomManager, &RoomManager::roomCreated, this, &MainWindow::onRoomCreated);
+    connect(m_roomManager, &RoomManager::roomJoined, this, &MainWindow::onRoomJoined);
+    connect(m_roomManager, &RoomManager::roomLeft, this, &MainWindow::onRoomLeft);
+    connect(m_roomManager, &RoomManager::syncAction, this, &MainWindow::onSyncAction);
+    connect(m_roomManager, &RoomManager::peerJoined, this, &MainWindow::onPeerJoined);
+    connect(m_roomManager, &RoomManager::peerLeft, this, &MainWindow::onPeerLeft);
     connect(m_roomManager, &RoomManager::error, this, &MainWindow::onNetworkError);
-    
+
     // NetworkManager
     connect(m_network, &NetworkManager::torrentAdded, m_torrentModel, &TorrentModel::addTorrentFromJson);
     connect(m_network, &NetworkManager::torrentRemoved, m_torrentModel, &TorrentModel::removeTorrent);
@@ -302,11 +276,11 @@ void MainWindow::setupConnections()
     connect(m_network, &NetworkManager::roomEvent, m_roomManager, &RoomManager::onRoomEvent);
     connect(m_network, &NetworkManager::signalReceived, m_roomManager, &RoomManager::onSignalReceived);
     connect(m_network, &NetworkManager::error, this, &MainWindow::onNetworkError);
-    
+
     // Graceful degradation - обработка состояния сервера
     connect(m_network, &NetworkManager::serverUnavailable, this, &MainWindow::onServerUnavailable);
     connect(m_network, &NetworkManager::serverAvailable, this, &MainWindow::onServerAvailable);
-    
+
     // MpvWidget
     connect(m_mpvWidget, &MpvWidget::positionChanged, this, &MainWindow::onPositionChanged);
     connect(m_mpvWidget, &MpvWidget::durationChanged, this, &MainWindow::onDurationChanged);
@@ -331,50 +305,70 @@ void MainWindow::onAddTorrent()
 void MainWindow::onTorrentSelected(const QModelIndex &index)
 {
     if (!index.isValid()) return;
-    
+
     QString torrentId = index.data(TorrentModel::IdRole).toString();
     m_torrentManager->setCurrentTorrentId(torrentId);
     m_removeTorrentButton->setEnabled(true);
     m_torrentManager->getFiles(torrentId);
-    
+
     updateStatus(tr("Выбран торрент: %1").arg(index.data(TorrentModel::NameRole).toString()));
 }
 
 void MainWindow::onFileSelected(const QModelIndex &index)
 {
     if (!index.isValid() || m_torrentManager->currentTorrentId().isEmpty()) return;
-    
+
     int fileIndex = index.row();
     m_torrentManager->selectFile(m_torrentManager->currentTorrentId(), fileIndex);
     updateStatus(tr("Воспроизведение: %1").arg(index.data().toString()));
 }
 
+void MainWindow::onRemoveTorrent()
+{
+    QModelIndex index = m_torrentList->currentIndex();
+    if (index.isValid()) {
+        m_torrentManager->removeTorrent(index.data(TorrentModel::IdRole).toString());
+    }
+}
+
 void MainWindow::onFilesReceived(const QString &torrentId, const QJsonArray &files)
 {
     Q_UNUSED(torrentId)
-    
+
     // Создаём модель для списка файлов с parent для автоматического удаления
     QStandardItemModel *model = new QStandardItemModel(this);
-    
+
     for (int i = 0; i < files.size(); ++i) {
         QJsonObject file = files[i].toObject();
         QString name = file["name"].toString();
         qint64 size = file["size"].toVariant().toLongLong();
-        
+
         QString displayText = QString("%1 (%2)").arg(name).arg(Utils::formatBytes(size));
         QStandardItem *item = new QStandardItem(displayText);
         item->setData(i, Qt::UserRole);
         model->appendRow(item);
     }
-    
+
     // Безопасное удаление старой модели с проверкой на nullptr
     QAbstractItemModel *oldModel = m_fileList->model();
     m_fileList->setModel(model);
     if (oldModel != nullptr) {
         oldModel->deleteLater();
     }
-    
+
     updateStatus(tr("Файлов в торренте: %1").arg(files.size()));
+}
+
+// ── Слоты TorrentManager ────────────────────────────────────────────────
+
+void MainWindow::onFileSelectedByManager(const QString &torrentId, int fileIndex, const QString &url)
+{
+    Q_UNUSED(torrentId)
+    Q_UNUSED(fileIndex)
+    m_mpvWidget->play(url);
+    m_isPlaying = true;
+    m_playPauseButton->setText(tr("⏸ Pause"));
+    m_playPauseButton->setEnabled(true);
 }
 
 // ── Слоты управления комнатами ──────────────────────────────────────────
@@ -386,7 +380,7 @@ void MainWindow::onCreateRoom()
                                             tr("Имя комнаты:"),
                                             QLineEdit::Normal, "", &ok);
     if (!ok || roomName.isEmpty()) return;
-    
+
     QString password = QInputDialog::getText(this, tr("Пароль комнаты"),
                                             tr("Пароль (необязательно):"),
                                             QLineEdit::Password, "", &ok);
@@ -401,7 +395,7 @@ void MainWindow::onJoinRoom()
                                           tr("ID комнаты:"),
                                           QLineEdit::Normal, "", &ok);
     if (!ok || roomId.isEmpty()) return;
-    
+
     QString password = QInputDialog::getText(this, tr("Пароль комнаты"),
                                             tr("Пароль (если есть):"),
                                             QLineEdit::Password, "", &ok);
@@ -412,6 +406,51 @@ void MainWindow::onJoinRoom()
 void MainWindow::onLeaveRoom()
 {
     m_roomManager->leaveRoom();
+}
+
+// ── Слоты RoomManager ───────────────────────────────────────────────────
+
+void MainWindow::onRoomCreated(const QString &roomId)
+{
+    updateRoomUI(roomId, true);
+    updateStatus(tr("Комната создана: %1").arg(roomId));
+}
+
+void MainWindow::onRoomJoined(const QString &roomId)
+{
+    updateRoomUI(roomId, false);
+    updateStatus(tr("Присоединились к комнате: %1").arg(roomId));
+}
+
+void MainWindow::onRoomLeft()
+{
+    clearRoomUI();
+    updateStatus(tr("Покинули комнату"));
+}
+
+void MainWindow::onSyncAction(const QString &action, double position)
+{
+    if (action == "play") {
+        m_mpvWidget->resume();
+        m_isPlaying = true;
+        m_playPauseButton->setText(tr("⏸ Pause"));
+    } else if (action == "pause") {
+        m_mpvWidget->pause();
+        m_isPlaying = false;
+        m_playPauseButton->setText(tr("▶ Play"));
+    } else if (action == "seek") {
+        m_mpvWidget->seek(position);
+    }
+}
+
+void MainWindow::onPeerJoined(const QString &peerId)
+{
+    updateStatus(tr("Пир присоединился: %1").arg(peerId));
+}
+
+void MainWindow::onPeerLeft(const QString &peerId)
+{
+    updateStatus(tr("Пир покинул комнату: %1").arg(peerId));
 }
 
 // ── Слоты управления воспроизведением ───────────────────────────────────
@@ -437,6 +476,17 @@ void MainWindow::onSeek(int value)
     double position = (value / 1000.0) * m_duration;
     m_mpvWidget->seek(position);
     if (!m_isSeeking && m_roomManager->isInRoom()) m_roomManager->syncSeek(position);
+}
+
+void MainWindow::onSeekSliderPressed()
+{
+    m_isSeeking = true;
+}
+
+void MainWindow::onSeekSliderReleased()
+{
+    m_isSeeking = false;
+    onSeek(m_seekSlider->value());
 }
 
 void MainWindow::onPositionChanged(double position)
@@ -522,16 +572,16 @@ void MainWindow::onServerUnavailable()
 {
     m_serverConnected = false;
     qWarning() << "MainWindow: сервер недоступен, переключение в offline режим";
-    
+
     // Показываем уведомление пользователю
     updateStatus(tr("⚠ Сервер недоступен - работа в offline режиме"));
-    
+
     // Отключаем кнопки, требующие связи с сервером
     m_addButton->setEnabled(false);
     m_removeTorrentButton->setEnabled(false);
     m_createRoomButton->setEnabled(false);
     m_joinRoomButton->setEnabled(false);
-    
+
     // Показываем кэшированные данные если есть
     if (!m_cachedTorrents.isEmpty()) {
         qDebug() << "MainWindow: используем кэшированные данных торрентов";
@@ -542,15 +592,15 @@ void MainWindow::onServerAvailable()
 {
     m_serverConnected = true;
     qWarning() << "MainWindow: сервер доступен, восстановление работы";
-    
+
     // Восстанавливаем кнопки
     m_addButton->setEnabled(true);
     m_createRoomButton->setEnabled(true);
     m_joinRoomButton->setEnabled(true);
-    
+
     // Обновляем данные с сервера
     m_torrentManager->listTorrents();
-    
+
     updateStatus(tr("✓ Подключение восстановлено"));
 }
 
@@ -559,22 +609,17 @@ void MainWindow::onServerAvailable()
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     qDebug() << "MainWindow: начало graceful shutdown";
-    
-    // Если пользователь в комнате - выходим из неё
+
     if (m_roomManager->isInRoom()) {
         qDebug() << "MainWindow: выход из комнаты перед закрытием";
         m_roomManager->leaveRoom();
     }
-    
-    // Останавливаем воспроизведение и освобождаем ресурсы MpvWidget
+
     if (m_mpvWidget) {
         qDebug() << "MainWindow: остановка MpvWidget";
         m_mpvWidget->pause();
     }
-    
-    // Даём время для завершения сетевых запросов (100мс)
-    QThread::msleep(100);
-    
+
     qDebug() << "MainWindow: graceful shutdown завершён";
     event->accept();
 }

@@ -143,9 +143,9 @@ if(BUILD_TESTS)
     # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_torrentmodel PROPERTIES
         AUTOMOC ON
-        AUTOMOC_SOURCE_FILE_EXTENSIONS "cpp;h"
+        AUTOMOC_SOURCE_FILE_EXTENSIONS "h"
     )
-    
+
     # Добавляем директорию сборки и src в include-пути для поиска .moc файлов
     target_include_directories(test_torrentmodel PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
@@ -177,9 +177,9 @@ if(BUILD_TESTS)
     # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_networkmanager PROPERTIES
         AUTOMOC ON
-        AUTOMOC_SOURCE_FILE_EXTENSIONS "cpp;h"
+        AUTOMOC_SOURCE_FILE_EXTENSIONS "h"
     )
-    
+
     # Добавляем директорию сборки и src в include-пути для поиска .мок файлов
     target_include_directories(test_networkmanager PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}

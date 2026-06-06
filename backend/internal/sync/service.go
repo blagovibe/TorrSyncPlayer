@@ -20,21 +20,6 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// Константы сервиса синхронизации
-const (
-	// maxPositionJump максимальный прыжок позиции в секундах для плавной подстройки
-	maxPositionJump = constants.MaxPositionJump
-
-	// smoothAdjustmentRatio коэффициент плавной подстройки позиции
-	smoothAdjustmentRatio = constants.SmoothAdjustmentRatio
-
-	// msPerSecond количество миллисекунд в одной секунде
-	msPerSecond = constants.MsPerSecond
-)
-
-// Service сервис синхронизации воспроизведения.
-// Управляет состоянием воспроизведения (play/pause/seek) и позицией.
-// Потокобезопасен благодаря использованию sync.RWMutex.
 type Service struct {
 	mu        sync.RWMutex
 	status    models.SyncStatus
@@ -170,12 +155,12 @@ func (s *Service) SyncWithLatency(peerStatus models.SyncStatus, latencyMs int) m
 	}
 
 	// Компенсация задержки
-	latencySeconds := float64(latencyMs) / msPerSecond
+	latencySeconds := float64(latencyMs) / constants.MsPerSecond
 
 	// Рассчитываем ожидаемую позицию пира с учётом задержки
 	expectedPosition := peerStatus.Position
 	if peerStatus.IsPlaying {
-		elapsed := float64(time.Now().UnixMilli()-peerStatus.Timestamp) / msPerSecond
+		elapsed := float64(time.Now().UnixMilli()-peerStatus.Timestamp) / constants.MsPerSecond
 		expectedPosition = peerStatus.Position + elapsed - latencySeconds
 	}
 
@@ -192,9 +177,9 @@ func (s *Service) SyncWithLatency(peerStatus models.SyncStatus, latencyMs int) m
 	// Плавная подстройка позиции (не резкий скачок)
 	positionDiff := expectedPosition - s.status.Position
 
-	if math.Abs(positionDiff) > maxPositionJump {
+	if math.Abs(positionDiff) > constants.MaxPositionJump {
 		// Плавная подстройка
-		s.status.Position += positionDiff * smoothAdjustmentRatio
+		s.status.Position += positionDiff * constants.SmoothAdjustmentRatio
 	} else {
 		// Небольшое расхождение - подстраиваемся полностью
 		s.status.Position = expectedPosition

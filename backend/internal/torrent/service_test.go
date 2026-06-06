@@ -86,7 +86,7 @@ func TestListTorrents_Empty(t *testing.T) {
 // TestRemoveTorrent_NotFound проверяет удаление несуществующего торрента
 func TestRemoveTorrent_NotFound(t *testing.T) {
 	svc := createTestService(t)
-	err := svc.RemoveTorrent("nonexistent")
+	err := svc.RemoveTorrent(context.Background(), "nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "не найден")
 }
@@ -188,7 +188,7 @@ func TestServiceWithTimeout(t *testing.T) {
 		assert.NotNil(t, torrents)
 
 		// Проверяем RemoveTorrent с несуществующим ID
-		err := svc.RemoveTorrent("nonexistent-id-for-timeout-test")
+		err := svc.RemoveTorrent(context.Background(), "nonexistent-id-for-timeout-test")
 		assert.Error(t, err)
 	}()
 

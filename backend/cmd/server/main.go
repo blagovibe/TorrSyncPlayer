@@ -17,10 +17,12 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -80,13 +82,16 @@ type Config struct {
 }
 
 func main() {
-	// Парсим флаги командной строки
 	config := parseFlags()
 
-	// Инициализация логгера
 	logLevel := getEnv("LOG_LEVEL", "info")
 	logFormat := getEnv("LOG_FORMAT", "text")
 	logger.Init(logLevel, logFormat)
+
+	if err := validateConfig(config); err != nil {
+		logger.Error("Ошибка конфигурации", "error", err)
+		os.Exit(1)
+	}
 
 	logger.Info("Запуск TorrServer",
 		"version", Version,
@@ -95,7 +100,11 @@ func main() {
 	)
 
 	// Создаём сервис аутентификации
-	authService := auth.NewAuthService([]byte(config.JWTSecret))
+	authService, err := auth.NewAuthService([]byte(config.JWTSecret))
+	if err != nil {
+		logger.Error("Ошибка создания auth service", "error", err)
+		os.Exit(1)
+	}
 
 	// Инициализация сервиса буферизации
 	bufferSvc := buffer.NewService(constants.DefaultMaxBufferSize)
@@ -112,7 +121,6 @@ func main() {
 		logger.Error("Ошибка инициализации торрент-сервиса", "error", err)
 		os.Exit(1)
 	}
-	defer func() { _ = torrentSvc.Close() }()
 
 	logger.Info("Торрент-сервис инициализирован",
 		"memory_capacity", config.MemoryStorageCapacity,
@@ -123,10 +131,8 @@ func main() {
 		logger.Error("Ошибка инициализации P2P-сервиса", "error", err)
 		os.Exit(1)
 	}
-	defer func() { _ = p2pSvc.Close() }()
 
 	syncSvc := sync.NewService()
-	defer syncSvc.Close()
 
 	// Создаём хранилище пользователей
 	authStore := auth.NewUserStore()
@@ -202,10 +208,55 @@ func main() {
 	}
 	logger.Info("HTTP сервер остановлен")
 
+	// Останавливаем sync сервис
+	syncSvc.Close()
+
+	// Останавливаем P2P сервис
+	if err := p2pSvc.Close(); err != nil {
+		logger.Error("Ошибка при остановке P2P-сервиса", "error", err)
+	}
+
+	// Останавливаем торрент-сервис
+	if err := torrentSvc.Close(); err != nil {
+		logger.Error("Ошибка при остановке торрент-сервиса", "error", err)
+	}
+
+	// Останавливаем буферный сервис
+	bufferSvc.Close()
+
+	// Останавливаем auth service (включая revocation store cleanup)
+	authService.Stop()
+
 	// Останавливаем CSRF cleanup горутину
 	api.CSRFStore.Stop()
 
 	logger.Info("Сервер остановлен")
+}
+
+// validateConfig проверяет корректность конфигурации сервера.
+// Возвращает ошибка если конфигурация некорректна.
+func validateConfig(config Config) error {
+	if config.JWTSecret == "" {
+		return fmt.Errorf("JWT_SECRET не задан — установите переменную окружения или флаг -jwt-secret (минимум 32 символа)")
+	}
+	if len(config.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET слишком короткий (получено %d символов, минимум 32)", len(config.JWTSecret))
+	}
+
+	port, err := strconv.Atoi(config.Port)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("некорректный порт: %s (должен быть 1-65535)", config.Port)
+	}
+
+	if config.MemoryStorageCapacity < 0 {
+		return fmt.Errorf("memory-capacity не может быть отрицательным: %d", config.MemoryStorageCapacity)
+	}
+
+	if !config.UseTLS {
+		logger.Warn("Запуск без TLS — все данные передаются в открытом виде. Не используйте в production!")
+	}
+
+	return nil
 }
 
 // parseFlags парсит флаги командной строки
@@ -213,7 +264,14 @@ func parseFlags() Config {
 	var config Config
 
 	flag.StringVar(&config.Port, "port", getEnv("PORT", defaultPort), "Порт сервера")
-	flag.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", getEnvInt64("MEMORY_CAPACITY", constants.DefaultMaxBufferSize), "Максимальный размер in-memory хранилища в байтах")
+	flag.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", func() int64 {
+		if v := os.Getenv("MEMORY_CAPACITY"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				return n
+			}
+		}
+		return constants.DefaultMaxBufferSize
+	}(), "Максимальный размер in-memory хранилища в байтах")
 	flag.StringVar(&config.TLSCert, "tls-cert", getEnv("TLS_CERT", ""), "Путь к TLS сертификату")
 	flag.StringVar(&config.TLSKey, "tls-key", getEnv("TLS_KEY", ""), "Путь к TLS ключу")
 	flag.BoolVar(&config.UseTLS, "tls", false, "Включить TLS")
@@ -234,6 +292,8 @@ func parseFlags() Config {
 			}
 			config.TLSCert = cert
 			config.TLSKey = key
+			defer os.Remove(cert)
+			defer os.Remove(key)
 		}
 	}
 
@@ -256,6 +316,8 @@ func configureTLS(config Config) (*tls.Config, error) {
 		}
 		config.TLSCert = cert
 		config.TLSKey = key
+		defer os.Remove(cert)
+		defer os.Remove(key)
 	}
 
 	// Загружаем сертификат
@@ -286,9 +348,14 @@ func generateSelfSignedCert() (certPath, keyPath string, err error) {
 		return "", "", fmt.Errorf("ошибка генерации ключа: %w", err)
 	}
 
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", fmt.Errorf("ошибка генерации serial number: %w", err)
+	}
+
 	// Создаём шаблон сертификата
 	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Organization: []string{"TorrSyncPlayer"},
 			CommonName:   "localhost",
@@ -298,7 +365,7 @@ func generateSelfSignedCert() (certPath, keyPath string, err error) {
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		IPAddresses:           nil, // Можно добавить net.ParseIP("127.0.0.1")
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
 		DNSNames:              []string{"localhost"},
 	}
 
@@ -313,13 +380,11 @@ func generateSelfSignedCert() (certPath, keyPath string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("ошибка создания файла сертификата: %w", err)
 	}
-	defer func() { _ = certFile.Close() }()
 
 	keyFile, err := os.CreateTemp("", "key-*.pem")
 	if err != nil {
 		return "", "", fmt.Errorf("ошибка создания файла ключа: %w", err)
 	}
-	defer func() { _ = keyFile.Close() }()
 
 	// Записываем сертификат
 	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
@@ -338,11 +403,20 @@ func generateSelfSignedCert() (certPath, keyPath string, err error) {
 	certPath = certFile.Name()
 	keyPath = keyFile.Name()
 
+	if err := certFile.Close(); err != nil {
+		logger.Error("Ошибка закрытия файла сертификата", "error", err)
+	}
+	if err := keyFile.Close(); err != nil {
+		logger.Error("Ошибка закрытия файла ключа", "error", err)
+	}
+
 	logger.Info("Сгенерирован self-signed сертификат", "cert", certPath, "key", keyPath)
 	return certPath, keyPath, nil
 }
 
 // setupPprof настраивает pprof маршруты для профилирования
+// ВНИМАНИЕ: pprof слушает ТОЛЬКО на 127.0.0.1:6060 для безопасности
+// Не выставляйте pprof в публичную сеть без аутентификации!
 func setupPprof() {
 	// Создаём отдельный мультиплексор для pprof
 	pprofMux := http.NewServeMux()
@@ -352,15 +426,16 @@ func setupPprof() {
 	pprofMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	pprofMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-	// Запускаем pprof сервер на отдельном порту
+	// Запускаем pprof сервер ТОЛЬКО на localhost для безопасности
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				logger.Error("pprof: горутина завершилась с паникой", "error", r)
 			}
 		}()
-		pprofAddr := ":6060"
-		logger.Info("pprof сервер запущен", "addr", pprofAddr)
+		// Важно: слушаем только на 127.0.0.1, не на 0.0.0.0
+		pprofAddr := "127.0.0.1:6060"
+		logger.Info("pprof сервер запущен (только localhost)", "addr", pprofAddr)
 		if err := http.ListenAndServe(pprofAddr, pprofMux); err != nil {
 			logger.Error("Ошибка pprof сервера", "error", err)
 		}
@@ -371,25 +446,6 @@ func setupPprof() {
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
-	}
-	return defaultValue
-}
-
-// getEnvBool возвращает булево значение переменной окружения или значение по умолчанию
-func getEnvBool(key string, defaultValue bool) bool {
-	if value, exists := os.LookupEnv(key); exists {
-		return value == "true" || value == "1" || value == "yes"
-	}
-	return defaultValue
-}
-
-// getEnvInt64 возвращает целочисленное значение переменной окружения или значение по умолчанию
-func getEnvInt64(key string, defaultValue int64) int64 {
-	if value, exists := os.LookupEnv(key); exists {
-		var result int64
-		if _, err := fmt.Sscanf(value, "%d", &result); err == nil {
-			return result
-		}
 	}
 	return defaultValue
 }

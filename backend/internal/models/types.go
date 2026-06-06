@@ -115,6 +115,7 @@ type Claims struct {
 	UserID    string `json:"userId"`
 	Username  string `json:"username"`
 	ExpiresAt int64  `json:"expiresAt"`
+	JTI       string `json:"jti"`
 }
 
 // ============ Pagination Models ============
