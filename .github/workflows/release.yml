@@ -125,7 +125,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item Release\TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
-          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe --release --no-translations --no-compiler-runtime
+          $qtBin = "$env:QT_ROOT_DIR\bin"
+          $qtPlugins = "$env:QT_ROOT_DIR\plugins"
+          Get-ChildItem "$qtBin\Qt6*.dll" | Copy-Item -Destination $dest\
+          New-Item -ItemType Directory -Force -Path "$dest\platforms"
+          Copy-Item "$qtPlugins\platforms\qwindows.dll" "$dest\platforms\"
+          New-Item -ItemType Directory -Force -Path "$dest\imageformats"
+          Get-ChildItem "$qtPlugins\imageformats\q*.dll" | Copy-Item -Destination "$dest\imageformats\"
+          New-Item -ItemType Directory -Force -Path "$dest\iconengines"
+          Copy-Item "$qtPlugins\iconengines\qsvgicon.dll" "$dest\iconengines\" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\styles"
+          Copy-Item "$qtPlugins\styles\q*.dll" "$dest\styles\" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\tls"
+          Copy-Item "$qtPlugins\tls\*.dll" "$dest\tls\" -ErrorAction SilentlyContinue
           Get-ChildItem $dest -Recurse | Select-Object FullName, Length
 
       - name: Upload
