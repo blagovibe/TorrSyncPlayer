@@ -140,30 +140,21 @@ jobs:
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
           $qtBin = "$env:QT_ROOT_DIR\bin"
           $qtPlugins = "$env:QT_ROOT_DIR\plugins"
-          Copy-Item "$qtBin\Qt6Core.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6Gui.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6Widgets.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6Network.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6Svg.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6OpenGL.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6OpenGLWidgets.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\Qt6DBus.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\libgcc_s_seh-1.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\libstdc++-6.dll" $dest\ -ErrorAction SilentlyContinue
-          Copy-Item "$qtBin\libwinpthread-1.dll" $dest\ -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtBin\Qt6*.dll" | Copy-Item -Destination $dest\
+          Get-ChildItem "$qtBin\libgcc*.dll" | Copy-Item -Destination $dest\
+          Get-ChildItem "$qtBin\libstdc*.dll" | Copy-Item -Destination $dest\
+          Get-ChildItem "$qtBin\libwinpthread*.dll" | Copy-Item -Destination $dest\
           New-Item -ItemType Directory -Force -Path "$dest\platforms"
-          Copy-Item "$qtPlugins\platforms\qwindows.dll" "$dest\platforms\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtPlugins\platforms\*.dll" | Copy-Item -Destination "$dest\platforms\"
           New-Item -ItemType Directory -Force -Path "$dest\imageformats"
-          Copy-Item "$qtPlugins\imageformats\qjpeg.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
-          Copy-Item "$qtPlugins\imageformats\qsvg.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
-          Copy-Item "$qtPlugins\imageformats\qgif.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
-          Copy-Item "$qtPlugins\imageformats\qico.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtPlugins\imageformats\*.dll" | Copy-Item -Destination "$dest\imageformats\"
           New-Item -ItemType Directory -Force -Path "$dest\iconengines"
-          Copy-Item "$qtPlugins\iconengines\qsvgicon.dll" "$dest\iconengines\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtPlugins\iconengines\*.dll" | Copy-Item -Destination "$dest\iconengines\"
           New-Item -ItemType Directory -Force -Path "$dest\styles"
-          Copy-Item "$qtPlugins\styles\qwindowsvistastyle.dll" "$dest\styles\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtPlugins\styles\*.dll" | Copy-Item -Destination "$dest\styles\"
           New-Item -ItemType Directory -Force -Path "$dest\tls"
-          Copy-Item "$qtPlugins\tls\*.dll" "$dest\tls\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtPlugins\tls\*.dll" | Copy-Item -Destination "$dest\tls\"
+          Get-ChildItem "$qtPlugins\networkinformation\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\networkinformation\" -ErrorAction SilentlyContinue
 
       - name: Upload
         uses: actions/upload-artifact@v4
