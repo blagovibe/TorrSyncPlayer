@@ -79,10 +79,11 @@ jobs:
            ls -la ../../TorrSyncPlayer-linux-x64.AppImage
 
       - name: Upload
+        working-directory: frontend
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
-          path: frontend/TorrSyncPlayer-linux-x64.AppImage
+          path: TorrSyncPlayer-linux-x64.AppImage
           retention-days: 7
           if-no-files-found: error
 
@@ -146,10 +147,11 @@ jobs:
           Get-ChildItem $dest -Recurse | Select-Object FullName, Length
 
       - name: Upload
+        working-directory: frontend
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: frontend/TorrSyncPlayer-windows-x64/
+          path: TorrSyncPlayer-windows-x64/
           retention-days: 7
 
   build-macos:
@@ -221,11 +223,13 @@ jobs:
           ls -la ../../TorrSyncPlayer-macos-arm64.dmg
 
       - name: Upload
+        working-directory: frontend
         uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
-          path: frontend/TorrSyncPlayer-macos-arm64.dmg
+          path: TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
+          if-no-files-found: error
 
   create-release:
     name: Create Release
