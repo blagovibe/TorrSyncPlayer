@@ -122,7 +122,7 @@ jobs:
         shell: msys2 {0}
         run: |
           export PATH="/mingw64/bin:$PATH"
-          QT_PREFIX=$(cygpath -u "$Qt6_DIR")
+          QT_PREFIX=$(cygpath -u "D:\a\TorrSyncPlayer\Qt\6.7.3\mingw_64")
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$QT_PREFIX" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
           cmake --build build
 
