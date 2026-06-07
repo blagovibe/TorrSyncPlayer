@@ -129,11 +129,16 @@ jobs:
       - name: Deploy and package
         working-directory: frontend/build
         run: |
+          if (-not (Test-Path TorrSyncPlayer.exe)) {
+            Write-Error "TorrSyncPlayer.exe not found in $(Get-Location)"
+            Get-ChildItem -Recurse -Filter "*.exe" | Select-Object FullName
+            exit 1
+          }
           $dest = "..\..\..\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
-          & "$env:Qt6_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
 
       - name: Upload
         uses: actions/upload-artifact@v4
