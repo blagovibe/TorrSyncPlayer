@@ -74,9 +74,7 @@ jobs:
           EOF
           export QMAKE=$(which qmake6 || which qmake)
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
-          ls -la *.AppImage
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
-          ls -la ../../TorrSyncPlayer-linux-x64.AppImage
 
       - name: Upload
         working-directory: frontend
@@ -85,7 +83,6 @@ jobs:
           name: release-linux-x64
           path: TorrSyncPlayer-linux-x64.AppImage
           retention-days: 7
-          if-no-files-found: error
 
   build-windows:
     name: Build (Windows)
@@ -218,9 +215,7 @@ jobs:
           </plist>
           EOF
           ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
-          ls -la *.dmg
           mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
-          ls -la ../../TorrSyncPlayer-macos-arm64.dmg
 
       - name: Upload
         working-directory: frontend
@@ -229,7 +224,6 @@ jobs:
           name: release-macos-arm64
           path: TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
-          if-no-files-found: error
 
   create-release:
     name: Create Release
