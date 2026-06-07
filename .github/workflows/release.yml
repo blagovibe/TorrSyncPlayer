@@ -77,7 +77,7 @@ jobs:
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: release-linux-x64
           path: ${{ github.workspace }}/frontend/TorrSyncPlayer-linux-x64.AppImage
@@ -140,7 +140,7 @@ jobs:
           Copy-Item "$qtPlugins\tls\*.dll" "$dest\tls\" -ErrorAction SilentlyContinue
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: release-windows-x64
           path: ${{ github.workspace }}/frontend/TorrSyncPlayer-windows-x64/
@@ -213,7 +213,7 @@ jobs:
           mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: release-macos-arm64
           path: ${{ github.workspace }}/frontend/TorrSyncPlayer-macos-arm64.dmg
