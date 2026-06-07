@@ -125,7 +125,13 @@ jobs:
           $dest = "..\..\..\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe $dest\
-          Copy-Item ..\..\..\backend\build\torrsyncplayer.exe $dest\
+          $backendExe = "..\..\..\backend\build\torrsyncplayer.exe"
+          if (Test-Path $backendExe) {
+            Copy-Item $backendExe $dest\
+          } else {
+            Write-Warning "Backend exe not found at $backendExe, searching..."
+            Get-ChildItem -Path "..\..\..\backend" -Recurse -Filter "*.exe" | ForEach-Object { Copy-Item $_.FullName $dest\ }
+          }
           & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
 
       - name: Upload
