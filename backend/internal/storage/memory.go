@@ -187,9 +187,6 @@ func (s *memoryStorage) OpenTorrent(ctx context.Context, info *metainfo.Info, in
 		Close: func() error {
 			return provider.Close()
 		},
-		Flush: func() error {
-			return nil
-		},
 	}, nil
 }
 

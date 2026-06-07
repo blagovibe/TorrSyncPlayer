@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  QT_VERSION: '6.8.6'
+  QT_VERSION: '6.8.3'
   GO_VERSION: '1.26'
 
 jobs:
@@ -100,7 +100,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           host: 'windows'
           target: 'desktop'
-          arch: 'win64_mingw'
+          arch: 'win64_msvc2022_64'
           cache: true
 
       - name: Build backend
@@ -109,46 +109,24 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        shell: cmd
         run: |
-          set PATH=%Qt6_DIR%\bin;%PATH%
-          cmake -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="%Qt6_DIR%"
-          cmake --build build
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTS=OFF
+          cmake --build build --config Release
 
       - name: Deploy and package
-        working-directory: frontend/build
-        shell: cmd
+        working-directory: frontend/build/Release
         run: |
-          if not exist TorrSyncPlayer.exe (
-            echo ERROR: TorrSyncPlayer.exe not found
-            dir /s /b *.exe
+          if (-not (Test-Path TorrSyncPlayer.exe)) {
+            Write-Error "TorrSyncPlayer.exe not found"
+            Get-ChildItem -Recurse | Select-Object FullName
             exit 1
-          )
-          mkdir ..\TorrSyncPlayer-windows-x64 2>nul
-          copy TorrSyncPlayer.exe ..\TorrSyncPlayer-windows-x64\
-          copy ..\..\backend\build\torrsyncplayer.exe ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\Qt6Core.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\Qt6Gui.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\Qt6Widgets.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\Qt6Network.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\Qt6Svg.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\Qt6OpenGL.dll" ..\TorrSyncPlayer-windows-x64\ 2>nul
-          copy "%Qt6_DIR%\bin\Qt6OpenGLWidgets.dll" ..\TorrSyncPlayer-windows-x64\ 2>nul
-          copy "%Qt6_DIR%\bin\Qt6DBus.dll" ..\TorrSyncPlayer-windows-x64\ 2>nul
-          copy "%Qt6_DIR%\bin\libgcc_s_seh-1.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\libstdc++-6.dll" ..\TorrSyncPlayer-windows-x64\
-          copy "%Qt6_DIR%\bin\libwinpthread-1.dll" ..\TorrSyncPlayer-windows-x64\
-          mkdir ..\TorrSyncPlayer-windows-x64\platforms 2>nul
-          copy "%Qt6_DIR%\plugins\platforms\qwindows.dll" ..\TorrSyncPlayer-windows-x64\platforms\
-          mkdir ..\TorrSyncPlayer-windows-x64\imageformats 2>nul
-          copy "%Qt6_DIR%\plugins\imageformats\*.dll" ..\TorrSyncPlayer-windows-x64\imageformats\
-          mkdir ..\TorrSyncPlayer-windows-x64\iconengines 2>nul
-          copy "%Qt6_DIR%\plugins\iconengines\*.dll" ..\TorrSyncPlayer-windows-x64\iconengines\
-          mkdir ..\TorrSyncPlayer-windows-x64\styles 2>nul
-          copy "%Qt6_DIR%\plugins\styles\*.dll" ..\TorrSyncPlayer-windows-x64\styles\
-          mkdir ..\TorrSyncPlayer-windows-x64\tls 2>nul
-          copy "%Qt6_DIR%\plugins\tls\*.dll" ..\TorrSyncPlayer-windows-x64\tls\
-          dir /s /b ..\TorrSyncPlayer-windows-x64\
+          }
+          $dest = "..\..\..\TorrSyncPlayer-windows-x64"
+          New-Item -ItemType Directory -Force -Path $dest
+          Copy-Item TorrSyncPlayer.exe $dest\
+          Copy-Item ..\..\..\backend\build\torrsyncplayer.exe $dest\
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
+          Get-ChildItem $dest -Recurse | Select-Object FullName, Length
 
       - name: Upload
         uses: actions/upload-artifact@v4
