@@ -121,7 +121,7 @@ jobs:
             Get-ChildItem -Recurse | Select-Object FullName
             exit 1
           }
-          $dest = "..\..\TorrSyncPlayer-windows-x64"
+          $dest = "$env:GITHUB_WORKSPACE\frontend\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item Release\TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
