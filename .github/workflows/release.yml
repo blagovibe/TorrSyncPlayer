@@ -76,11 +76,11 @@ jobs:
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
-      - name: Upload
+      - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
-          path: frontend/TorrSyncPlayer-linux-x64.AppImage
+          path: TorrSyncPlayer-linux-x64.AppImage
           retention-days: 7
 
   build-windows:
@@ -139,11 +139,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$dest\tls"
           Copy-Item "$qtPlugins\tls\*.dll" "$dest\tls\" -ErrorAction SilentlyContinue
 
-      - name: Upload
+      - name: Package Windows build
+        working-directory: frontend
+        run: Compress-Archive -Path TorrSyncPlayer-windows-x64 -DestinationPath TorrSyncPlayer-windows-x64.zip
+
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: frontend/TorrSyncPlayer-windows-x64/
+          path: frontend/TorrSyncPlayer-windows-x64.zip
           retention-days: 7
 
   build-macos:
@@ -212,11 +216,11 @@ jobs:
           ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
           mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
 
-      - name: Upload
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
-          path: frontend/TorrSyncPlayer-macos-arm64.dmg
+          path: TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
 
   create-release:
@@ -241,7 +245,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -type f -exec sha256sum {} \; > SHA256SUMS
+          find . -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.dmg' \) | sort | xargs sha256sum > SHA256SUMS
           cat SHA256SUMS
 
       - name: Generate changelog
@@ -261,14 +265,18 @@ jobs:
           echo "| Platform | File |" >> changelog.md
           echo "|----------|------|" >> changelog.md
           echo "| Linux x64 | TorrSyncPlayer-linux-x64.AppImage |" >> changelog.md
-          echo "| Windows x64 | TorrSyncPlayer-windows-x64/ (portable) |" >> changelog.md
+          echo "| Windows x64 | TorrSyncPlayer-windows-x64.zip |" >> changelog.md
           echo "| macOS ARM64 | TorrSyncPlayer-macos-arm64.dmg |" >> changelog.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body_path: changelog.md
-          files: artifacts/**/*
+          files: |
+            artifacts/*.AppImage
+            artifacts/*.zip
+            artifacts/*.dmg
+            artifacts/SHA256SUMS
           draft: true
           prerelease: false
         env:
