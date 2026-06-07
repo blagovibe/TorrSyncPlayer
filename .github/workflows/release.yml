@@ -160,11 +160,10 @@ jobs:
           Get-ChildItem $dest -Recurse | Select-Object FullName, Length
 
       - name: Upload
-        working-directory: frontend
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: TorrSyncPlayer-windows-x64/
+          path: ${{ github.workspace }}/frontend/TorrSyncPlayer-windows-x64/
           retention-days: 7
 
   build-macos:
