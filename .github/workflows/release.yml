@@ -9,7 +9,8 @@ permissions:
   contents: write
 
 env:
-  QT_VERSION: '6.7.3'
+  QT_VERSION: '6.8.6'
+  GO_VERSION: '1.26'
 
 jobs:
   build-linux:
@@ -20,7 +21,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
 
@@ -73,14 +74,13 @@ jobs:
           EOF
           export QMAKE=$(which qmake6 || which qmake)
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
-          rm -f TorrSyncPlayer-linux-x64.AppImage
-          mv TorrSyncPlayer-x86_64.AppImage TorrSyncPlayer-linux-x64.AppImage
+          mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
-          path: frontend/build/TorrSyncPlayer-linux-x64.AppImage
+          path: frontend/TorrSyncPlayer-linux-x64.AppImage
           retention-days: 7
 
   build-windows:
@@ -91,19 +91,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
-
-      - name: Install MinGW
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-pkg-config
 
       - uses: jurplel/install-qt-action@v4
         with:
@@ -119,51 +109,52 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        shell: msys2 {0}
+        shell: cmd
         run: |
-          export PATH="/mingw64/bin:$PATH"
-          QT_PREFIX=$(cygpath -u "D:\a\TorrSyncPlayer\Qt\6.7.3\mingw_64")
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$QT_PREFIX" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          set PATH=%Qt6_DIR%\bin;%PATH%
+          cmake -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="%Qt6_DIR%"
           cmake --build build
 
       - name: Deploy and package
         working-directory: frontend/build
+        shell: cmd
         run: |
-          if (-not (Test-Path TorrSyncPlayer.exe)) {
-            Write-Error "TorrSyncPlayer.exe not found in $(Get-Location)"
-            Get-ChildItem -Recurse -Filter "*.exe" | Select-Object FullName
+          if not exist TorrSyncPlayer.exe (
+            echo ERROR: TorrSyncPlayer.exe not found
+            dir /s /b *.exe
             exit 1
-          }
-          $dest = "..\TorrSyncPlayer-windows-x64"
-          New-Item -ItemType Directory -Force -Path $dest
-          Copy-Item TorrSyncPlayer.exe $dest\
-          Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
-          $qtBin = "$env:QT_ROOT_DIR\bin"
-          $qtPlugins = "$env:QT_ROOT_DIR\plugins"
-          Write-Host "QT_ROOT_DIR: $env:QT_ROOT_DIR"
-          Write-Host "Qt6 DLLs found: $(Get-ChildItem "$qtBin\Qt6*.dll" -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count)"
-          Get-ChildItem "$qtBin\Qt6*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
-          Get-ChildItem "$qtBin\libgcc*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
-          Get-ChildItem "$qtBin\libstdc*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
-          Get-ChildItem "$qtBin\libwinpthread*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
-          New-Item -ItemType Directory -Force -Path "$dest\platforms"
-          Get-ChildItem "$qtPlugins\platforms\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\platforms\"
-          New-Item -ItemType Directory -Force -Path "$dest\imageformats"
-          Get-ChildItem "$qtPlugins\imageformats\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\imageformats\"
-          New-Item -ItemType Directory -Force -Path "$dest\iconengines"
-          Get-ChildItem "$qtPlugins\iconengines\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\iconengines\"
-          New-Item -ItemType Directory -Force -Path "$dest\styles"
-          Get-ChildItem "$qtPlugins\styles\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\styles\"
-          New-Item -ItemType Directory -Force -Path "$dest\tls"
-          Get-ChildItem "$qtPlugins\tls\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\tls\"
-          Write-Host "Files in $dest :"
-          Get-ChildItem $dest -Recurse | Select-Object FullName, Length
+          )
+          mkdir ..\TorrSyncPlayer-windows-x64 2>nul
+          copy TorrSyncPlayer.exe ..\TorrSyncPlayer-windows-x64\
+          copy ..\..\backend\build\torrsyncplayer.exe ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\Qt6Core.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\Qt6Gui.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\Qt6Widgets.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\Qt6Network.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\Qt6Svg.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\Qt6OpenGL.dll" ..\TorrSyncPlayer-windows-x64\ 2>nul
+          copy "%Qt6_DIR%\bin\Qt6OpenGLWidgets.dll" ..\TorrSyncPlayer-windows-x64\ 2>nul
+          copy "%Qt6_DIR%\bin\Qt6DBus.dll" ..\TorrSyncPlayer-windows-x64\ 2>nul
+          copy "%Qt6_DIR%\bin\libgcc_s_seh-1.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\libstdc++-6.dll" ..\TorrSyncPlayer-windows-x64\
+          copy "%Qt6_DIR%\bin\libwinpthread-1.dll" ..\TorrSyncPlayer-windows-x64\
+          mkdir ..\TorrSyncPlayer-windows-x64\platforms 2>nul
+          copy "%Qt6_DIR%\plugins\platforms\qwindows.dll" ..\TorrSyncPlayer-windows-x64\platforms\
+          mkdir ..\TorrSyncPlayer-windows-x64\imageformats 2>nul
+          copy "%Qt6_DIR%\plugins\imageformats\*.dll" ..\TorrSyncPlayer-windows-x64\imageformats\
+          mkdir ..\TorrSyncPlayer-windows-x64\iconengines 2>nul
+          copy "%Qt6_DIR%\plugins\iconengines\*.dll" ..\TorrSyncPlayer-windows-x64\iconengines\
+          mkdir ..\TorrSyncPlayer-windows-x64\styles 2>nul
+          copy "%Qt6_DIR%\plugins\styles\*.dll" ..\TorrSyncPlayer-windows-x64\styles\
+          mkdir ..\TorrSyncPlayer-windows-x64\tls 2>nul
+          copy "%Qt6_DIR%\plugins\tls\*.dll" ..\TorrSyncPlayer-windows-x64\tls\
+          dir /s /b ..\TorrSyncPlayer-windows-x64\
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: ${{ github.workspace }}/frontend/TorrSyncPlayer-windows-x64/
+          path: frontend/TorrSyncPlayer-windows-x64/
           retention-days: 7
 
   build-macos:
@@ -174,7 +165,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
 
@@ -229,14 +220,14 @@ jobs:
           </dict>
           </plist>
           EOF
-           ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
-           mv TorrSyncPlayer.dmg TorrSyncPlayer-macos-arm64.dmg
+          ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
+          mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
-          path: frontend/build/TorrSyncPlayer-macos-arm64.dmg
+          path: frontend/TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
 
   create-release:

@@ -1,15 +1,15 @@
 module github.com/blagovibe/TorrSyncPlayer/backend
 
-go 1.25
+go 1.26
 
 require (
-	github.com/anacrolix/torrent v1.58.1
-	github.com/go-chi/chi/v5 v5.2.2
+	github.com/anacrolix/torrent v1.61.0
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pion/webrtc/v4 v4.2.15
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
-	github.com/swaggo/swag v1.16.4
+	github.com/swaggo/swag v1.16.6
 	golang.org/x/crypto v0.48.0
 	golang.org/x/time v0.14.0
 )
