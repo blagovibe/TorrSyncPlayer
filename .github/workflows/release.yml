@@ -138,7 +138,32 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
-          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
+          $qtBin = "$env:QT_ROOT_DIR\bin"
+          $qtPlugins = "$env:QT_ROOT_DIR\plugins"
+          Copy-Item "$qtBin\Qt6Core.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6Gui.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6Widgets.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6Network.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6Svg.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6OpenGL.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6OpenGLWidgets.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\Qt6DBus.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\libgcc_s_seh-1.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\libstdc++-6.dll" $dest\ -ErrorAction SilentlyContinue
+          Copy-Item "$qtBin\libwinpthread-1.dll" $dest\ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\platforms"
+          Copy-Item "$qtPlugins\platforms\qwindows.dll" "$dest\platforms\" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\imageformats"
+          Copy-Item "$qtPlugins\imageformats\qjpeg.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
+          Copy-Item "$qtPlugins\imageformats\qsvg.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
+          Copy-Item "$qtPlugins\imageformats\qgif.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
+          Copy-Item "$qtPlugins\imageformats\qico.dll" "$dest\imageformats\" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\iconengines"
+          Copy-Item "$qtPlugins\iconengines\qsvgicon.dll" "$dest\iconengines\" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\styles"
+          Copy-Item "$qtPlugins\styles\qwindowsvistastyle.dll" "$dest\styles\" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$dest\tls"
+          Copy-Item "$qtPlugins\tls\*.dll" "$dest\tls\" -ErrorAction SilentlyContinue
 
       - name: Upload
         uses: actions/upload-artifact@v4
