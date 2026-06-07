@@ -80,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
-          path: ${{ github.workspace }}/frontend/TorrSyncPlayer-linux-x64.AppImage
+          path: frontend/TorrSyncPlayer-linux-x64.AppImage
           retention-days: 7
 
   build-windows:
@@ -116,16 +116,15 @@ jobs:
       - name: Deploy and package
         working-directory: frontend/build
         run: |
-          Write-Host "Current location: $(Get-Location)"
-          Write-Host "Dest: ..\..\TorrSyncPlayer-windows-x64"
           if (-not (Test-Path Release\TorrSyncPlayer.exe)) {
             Write-Error "TorrSyncPlayer.exe not found"
             Get-ChildItem -Recurse | Select-Object FullName
             exit 1
           }
-          $dest = "..\..\TorrSyncPlayer-windows-x64"
-          Write-Host "Full dest path: $(Resolve-Path $dest -ErrorAction SilentlyContinue)"
+          $dest = "$env:GITHUB_WORKSPACE\frontend\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
+          Copy-Item Release\TorrSyncPlayer.exe $dest\
+          Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
           Copy-Item Release\TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
           $qtBin = "$env:QT_ROOT_DIR\bin"
@@ -147,7 +146,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64
-          path: ${{ github.workspace }}/frontend/TorrSyncPlayer-windows-x64/
+          path: frontend/TorrSyncPlayer-windows-x64/
           retention-days: 7
 
   build-macos:
@@ -220,7 +219,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
-          path: ${{ github.workspace }}/frontend/TorrSyncPlayer-macos-arm64.dmg
+          path: frontend/TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
 
   create-release:
