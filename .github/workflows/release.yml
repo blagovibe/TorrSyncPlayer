@@ -109,30 +109,22 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_PREFIX_PATH="%QT_ROOT_DIR%"
-          cmake --build build
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTS=OFF
+          cmake --build build --config Release
 
       - name: Deploy and package
-        working-directory: frontend/build
+        working-directory: frontend/build/Release
         run: |
           if (-not (Test-Path TorrSyncPlayer.exe)) {
-            Write-Error "TorrSyncPlayer.exe not found in $(Get-Location)"
-            Get-ChildItem -Recurse -Filter "*.exe" | Select-Object FullName
+            Write-Error "TorrSyncPlayer.exe not found"
+            Get-ChildItem -Recurse | Select-Object FullName
             exit 1
           }
           $dest = "..\..\..\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe $dest\
-          $backendExe = "..\..\..\backend\build\torrsyncplayer.exe"
-          if (Test-Path $backendExe) {
-            Copy-Item $backendExe $dest\
-          } else {
-            Write-Warning "Backend exe not found at $backendExe, searching..."
-            Get-ChildItem -Path "..\..\..\backend" -Recurse -Filter "*.exe" | ForEach-Object { Copy-Item $_.FullName $dest\ }
-          }
+          Copy-Item ..\..\..\backend\build\torrsyncplayer.exe $dest\
           & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
 
       - name: Upload
