@@ -79,7 +79,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
-          path: frontend/TorrSyncPlayer-linux-x64.AppImage
+          path: frontend/build/TorrSyncPlayer-linux-x64.AppImage
           retention-days: 7
 
   build-windows:
@@ -119,7 +119,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\..\backend\build\torrsyncplayer.exe $dest\
-          & "$env:Qt6_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -198,7 +198,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
-          path: frontend/TorrSyncPlayer-macos-arm64.dmg
+          path: frontend/build/TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
 
   create-release:
