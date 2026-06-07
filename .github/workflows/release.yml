@@ -77,7 +77,6 @@ jobs:
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
       - name: Upload
-      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: release-linux-x64
@@ -122,10 +121,8 @@ jobs:
             Get-ChildItem -Recurse | Select-Object FullName
             exit 1
           }
-          $dest = "$env:GITHUB_WORKSPACE\frontend\TorrSyncPlayer-windows-x64"
+          $dest = "..\..\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
-          Copy-Item Release\TorrSyncPlayer.exe $dest\
-          Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
           Copy-Item Release\TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
           $qtBin = "$env:QT_ROOT_DIR\bin"
@@ -141,9 +138,7 @@ jobs:
           Copy-Item "$qtPlugins\styles\q*.dll" "$dest\styles\" -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path "$dest\tls"
           Copy-Item "$qtPlugins\tls\*.dll" "$dest\tls\" -ErrorAction SilentlyContinue
-          Get-ChildItem $dest -Recurse | Select-Object FullName, Length
 
-      - name: Upload
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
@@ -217,7 +212,6 @@ jobs:
           ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
           mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
 
-      - name: Upload
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
