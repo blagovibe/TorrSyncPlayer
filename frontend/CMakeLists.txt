@@ -195,3 +195,6 @@ endif()
 message(STATUS "TorrSyncPlayer ${PROJECT_VERSION}")
 message(STATUS "Qt6 найден: ${Qt6Core_VERSION}")
 message(STATUS "libmpv найден: ${MPV_VERSION}")
+
+# ── Установка ──────────────────────────────────────────────────────────
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
