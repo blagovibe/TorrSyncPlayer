@@ -99,8 +99,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           host: 'windows'
           target: 'desktop'
-          arch: 'win64_mingw'
-          tools: 'tools_mingw'
+          arch: 'win64_msvc2019_64'
           cache: true
 
       - name: Build backend
@@ -110,17 +109,16 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: |
-          $env:PATH = "$env:Qt6_DIR\bin;$env:Qt6_DIR\..\..\Tools\mingw1320_64\bin;$env:PATH"
-          cmake -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          cmake --build build
+          cmake -B build -G "Visual Studio 16 2019" -A x64 -DBUILD_TESTS=OFF
+          cmake --build build --config Release
 
       - name: Deploy and package
-        working-directory: frontend/build
+        working-directory: frontend/build/Release
         run: |
-          $dest = "..\..\TorrSyncPlayer-windows-x64"
+          $dest = "..\..\..\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe $dest\
-          Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
+          Copy-Item ..\..\..\backend\build\torrsyncplayer.exe $dest\
           & "$env:Qt6_DIR\bin\windeployqt.exe" $dest\TorrSyncPlayer.exe
 
       - name: Upload
@@ -160,7 +158,7 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS="-L/opt/homebrew/lib"
           cmake --build build
 
       - name: Create .app bundle and DMG
