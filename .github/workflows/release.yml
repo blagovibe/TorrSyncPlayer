@@ -140,21 +140,24 @@ jobs:
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
           $qtBin = "$env:QT_ROOT_DIR\bin"
           $qtPlugins = "$env:QT_ROOT_DIR\plugins"
-          Get-ChildItem "$qtBin\Qt6*.dll" | Copy-Item -Destination $dest\
-          Get-ChildItem "$qtBin\libgcc*.dll" | Copy-Item -Destination $dest\
-          Get-ChildItem "$qtBin\libstdc*.dll" | Copy-Item -Destination $dest\
-          Get-ChildItem "$qtBin\libwinpthread*.dll" | Copy-Item -Destination $dest\
+          Write-Host "QT_ROOT_DIR: $env:QT_ROOT_DIR"
+          Write-Host "Qt6 DLLs found: $(Get-ChildItem "$qtBin\Qt6*.dll" -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count)"
+          Get-ChildItem "$qtBin\Qt6*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
+          Get-ChildItem "$qtBin\libgcc*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
+          Get-ChildItem "$qtBin\libstdc*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
+          Get-ChildItem "$qtBin\libwinpthread*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $dest\
           New-Item -ItemType Directory -Force -Path "$dest\platforms"
-          Get-ChildItem "$qtPlugins\platforms\*.dll" | Copy-Item -Destination "$dest\platforms\"
+          Get-ChildItem "$qtPlugins\platforms\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\platforms\"
           New-Item -ItemType Directory -Force -Path "$dest\imageformats"
-          Get-ChildItem "$qtPlugins\imageformats\*.dll" | Copy-Item -Destination "$dest\imageformats\"
+          Get-ChildItem "$qtPlugins\imageformats\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\imageformats\"
           New-Item -ItemType Directory -Force -Path "$dest\iconengines"
-          Get-ChildItem "$qtPlugins\iconengines\*.dll" | Copy-Item -Destination "$dest\iconengines\"
+          Get-ChildItem "$qtPlugins\iconengines\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\iconengines\"
           New-Item -ItemType Directory -Force -Path "$dest\styles"
-          Get-ChildItem "$qtPlugins\styles\*.dll" | Copy-Item -Destination "$dest\styles\"
+          Get-ChildItem "$qtPlugins\styles\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\styles\"
           New-Item -ItemType Directory -Force -Path "$dest\tls"
-          Get-ChildItem "$qtPlugins\tls\*.dll" | Copy-Item -Destination "$dest\tls\"
-          Get-ChildItem "$qtPlugins\networkinformation\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\networkinformation\" -ErrorAction SilentlyContinue
+          Get-ChildItem "$qtPlugins\tls\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination "$dest\tls\"
+          Write-Host "Files in $dest :"
+          Get-ChildItem $dest -Recurse | Select-Object FullName, Length
 
       - name: Upload
         uses: actions/upload-artifact@v4
