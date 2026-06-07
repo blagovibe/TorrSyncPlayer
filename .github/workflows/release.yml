@@ -116,12 +116,15 @@ jobs:
       - name: Deploy and package
         working-directory: frontend/build
         run: |
+          Write-Host "Current location: $(Get-Location)"
+          Write-Host "Dest: ..\..\TorrSyncPlayer-windows-x64"
           if (-not (Test-Path Release\TorrSyncPlayer.exe)) {
             Write-Error "TorrSyncPlayer.exe not found"
             Get-ChildItem -Recurse | Select-Object FullName
             exit 1
           }
           $dest = "..\..\TorrSyncPlayer-windows-x64"
+          Write-Host "Full dest path: $(Resolve-Path $dest -ErrorAction SilentlyContinue)"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item Release\TorrSyncPlayer.exe $dest\
           Copy-Item ..\..\backend\build\torrsyncplayer.exe $dest\
