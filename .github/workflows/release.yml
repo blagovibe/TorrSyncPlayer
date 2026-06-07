@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-backend:
-    name: Build (${{ matrix.runner }})
+    name: Backend (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -25,8 +25,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -39,59 +37,241 @@ jobs:
         run: |
           go build -ldflags "-s -w" -o build/torrsyncplayer${{ matrix.platform == 'windows' && '.exe' || '' }} ./cmd/server
 
-      - name: Upload backend artifact
+      - name: Upload backend
         uses: actions/upload-artifact@v4
         with:
           name: backend-${{ matrix.platform }}
           path: backend/build/torrsyncplayer*
           retention-days: 7
 
-  smoke-test:
-    name: Smoke Test
+  build-frontend-linux:
+    name: Frontend (Linux)
+    runs-on: ubuntu-22.04
     needs: build-backend
-    runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libmpv-dev libgl1-mesa-dev \
+            libxkbcommon-dev libxcb-xinerama0 libxcb-xinput-dev libxcb-xfixes0-dev \
+            libxcb-cursor0 libfuse2
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          modules: 'qtbase qtsvg qtimageformats'
+          cache: true
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build
+
+      - name: Download backend
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          pattern: backend-*
-          merge-multiple: true
+          name: backend-linux
+          path: frontend/build/
 
-      - name: Verify artifacts
+      - name: Create AppImage
         run: |
-          ls -la artifacts/
-          test -f artifacts/torrsyncplayer || echo "WARNING: Linux binary missing"
-          test -f artifacts/torrsyncplayer.exe || echo "WARNING: Windows binary missing"
+          cd frontend/build
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          cp TorrSyncPlayer AppDir/usr/bin/
+          cp torrsyncplayer AppDir/usr/bin/
+          cp ../resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png
+          cat > AppDir/usr/share/applications/torrsyncplayer.desktop << 'EOF'
+          [Desktop Entry]
+          Name=TorrSyncPlayer
+          Exec=TorrSyncPlayer
+          Icon=torrsyncplayer
+          Type=Application
+          Categories=AudioVideo;
+          EOF
+          export QMAKE=$(which qmake6 || which qmake)
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
+          mv *.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          sha256sum * > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Upload checksums
+      - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: release-checksums
-          path: artifacts/SHA256SUMS
+          name: release-linux-x64
+          path: frontend/TorrSyncPlayer-linux-x64.AppImage
+          retention-days: 7
+
+  build-frontend-windows:
+    name: Frontend (Windows)
+    runs-on: windows-latest
+    needs: build-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtbase qtsvg qtimageformats'
+          cache: true
+
+      - name: Install mpv
+        run: |
+          winget install --id mpv.mpv --accept-source-agreements --accept-package-agreements
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+          cmake --build build --config Release
+
+      - name: Download backend
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-windows
+          path: frontend/build/Release/
+
+      - name: Deploy Qt and create portable package
+        working-directory: frontend/build/Release
+        run: |
+          & "$env:Qt6_DIR\bin\windeployqt.exe" TorrSyncPlayer.exe
+          $dest = "..\..\TorrSyncPlayer-windows-x64"
+          New-Item -ItemType Directory -Force -Path $dest
+          Copy-Item TorrSyncPlayer.exe $dest\
+          Copy-Item torrsyncplayer.exe $dest\ -ErrorAction SilentlyContinue
+          Get-ChildItem *.dll | Copy-Item -Destination $dest\ -ErrorAction SilentlyContinue
+          foreach ($dir in @("platforms","imageformats","iconengines","styles","tls","translations")) {
+            if (Test-Path $dir) { Copy-Item $dir $dest\ -Recurse -Force }
+          }
+          Copy-Item ..\..\resources\icons\app-icon.png $dest\ -ErrorAction SilentlyContinue
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x64
+          path: frontend/TorrSyncPlayer-windows-x64/
+          retention-days: 7
+
+  build-frontend-macos:
+    name: Frontend (macOS)
+    runs-on: macos-latest
+    needs: build-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install cmake ninja mpv pkg-config
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtbase qtsvg qtimageformats'
+          cache: true
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build
+
+      - name: Download backend
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-macos
+          path: frontend/build/
+
+      - name: Create .app bundle and DMG
+        run: |
+          cd frontend/build
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p TorrSyncPlayer.app/Contents/MacOS
+          mkdir -p TorrSyncPlayer.app/Contents/Resources
+          mkdir -p TorrSyncPlayer.app/Contents/Frameworks
+          cp TorrSyncPlayer TorrSyncPlayer.app/Contents/MacOS/
+          cp torrsyncplayer TorrSyncPlayer.app/Contents/MacOS/
+          cp ../resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
+          cat > TorrSyncPlayer.app/Contents/Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>TorrSyncPlayer</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.torrsyncplayer.app</string>
+            <key>CFBundleName</key>
+            <string>TorrSyncPlayer</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+          </dict>
+          </plist>
+          EOF
+          ${Qt6_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
+          mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: frontend/TorrSyncPlayer-macos-arm64.dmg
           retention-days: 7
 
   create-release:
     name: Create Release
-    needs: smoke-test
+    needs:
+      - build-backend
+      - build-frontend-linux
+      - build-frontend-windows
+      - build-frontend-macos
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Download backend artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: backend-*
           merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS 2>/dev/null || true
+          cat SHA256SUMS 2>/dev/null || echo "No files for checksums"
 
       - name: Generate changelog
         run: |
@@ -109,10 +289,10 @@ jobs:
           echo "" >> changelog.md
           echo "| Platform | File |" >> changelog.md
           echo "|----------|------|" >> changelog.md
-          echo "| Linux x64 | torrsyncplayer |" >> changelog.md
-          echo "| Windows x64 | torrsyncplayer.exe |" >> changelog.md
-          echo "| macOS ARM64 | torrsyncplayer |" >> changelog.md
-          cat changelog.md
+          echo "| Linux x64 | TorrSyncPlayer-linux-x64.AppImage |" >> changelog.md
+          echo "| Windows x64 | TorrSyncPlayer-windows-x64/ (portable) |" >> changelog.md
+          echo "| macOS ARM64 | TorrSyncPlayer-macos-arm64.dmg |" >> changelog.md
+          echo "| Backend only (all platforms) | torrsyncplayer binaries |" >> changelog.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
