@@ -209,7 +209,7 @@ jobs:
             -DBUILD_TESTS=OFF \
             -DSTATIC_BUILD=ON \
             -DEMBED_BACKEND=ON \
-            -DEMBED_BACKEND_PATH="$(cygpath -w "$GITHUB_WORKSPACE")/backend/build/torrsyncplayer.exe" \
+            -DEMBED_BACKEND_PATH="$(echo $GITHUB_WORKSPACE | sed 's/\\/\//g')/backend/build/torrsyncplayer.exe" \
             -DCMAKE_PREFIX_PATH="${{ env.QT_STATIC_DIR }}" \
             -DCMAKE_C_COMPILER="${{ env.MINGW_DIR }}/bin/gcc.exe" \
             -DCMAKE_CXX_COMPILER="${{ env.MINGW_DIR }}/bin/g++.exe" \
