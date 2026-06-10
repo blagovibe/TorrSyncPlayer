@@ -47,6 +47,18 @@ set(SOURCES
     resources/resources.qrc
 )
 
+# ── Встраивание backend exe ────────────────────────────────────────────
+option(EMBED_BACKEND "Embed torrsyncplayer.exe as Qt resource" OFF)
+set(EMBED_BACKEND_PATH "" CACHE PATH "Path to torrsyncplayer.exe for embedding")
+
+if(EMBED_BACKEND AND EMBED_BACKEND_PATH)
+    set(EMBED_QRC "${CMAKE_CURRENT_BINARY_DIR}/embedded.qrc")
+    file(WRITE "${EMBED_QRC}" "<!DOCTYPE RCC>\n<RCC version=\"1.0\">\n    <qresource prefix=\"/embedded\">\n        <file alias=\"torrsyncplayer.exe\">${EMBED_BACKEND_PATH}</file>\n    </qresource>\n</RCC>\n")
+    list(APPEND SOURCES "${EMBED_QRC}")
+    add_compile_definitions(HAS_EMBEDDED_BACKEND)
+    message(STATUS "Embedding backend: ${EMBED_BACKEND_PATH}")
+endif()
+
 set(HEADERS
     src/mainwindow.h
     src/mpvwidget.h

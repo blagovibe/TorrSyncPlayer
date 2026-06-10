@@ -24,6 +24,7 @@
 #include <QCommandLineParser>
 #include <QStyleFactory>
 #include <QFile>
+#include <QFileDevice>
 #include <QTextStream>
 #include <QTimer>
 #include <QPointer>
@@ -115,26 +116,54 @@ static void setupSignalHandlers()
  * @param parent Родительский объект для QProcess (обеспечивает автоматическое удаление)
  * @return true если сервер запущен успешно
  */
+bool extractEmbeddedBackend(const QString &targetPath)
+{
+    QFile resourceFile(":/embedded/torrsyncplayer.exe");
+    if (!resourceFile.exists()) {
+        return false;
+    }
+    if (QFile::exists(targetPath)) {
+        QFile::remove(targetPath);
+    }
+    if (!resourceFile.copy(targetPath)) {
+        qWarning() << "Не удалось извлечь embedded backend в:" << targetPath;
+        return false;
+    }
+    QFile::setPermissions(targetPath, QFileDevice::ExeOwner | QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    qDebug() << "Embedded backend извлечён:" << targetPath;
+    return true;
+}
+
 bool startGoServer(QObject *parent)
 {
-    QString appDir = QApplication::applicationDirPath();
-
-    QStringList candidatePaths;
-    candidatePaths << appDir + "/torrserver/torrserver.exe";
-    candidatePaths << appDir + "/../torrserver/torrserver.exe";
-    candidatePaths << appDir + "/torrsyncplayer.exe";
-    candidatePaths << appDir + "/torrserver.exe";
-
     QString serverPath;
-    for (const QString &path : candidatePaths) {
-        if (QFile::exists(path)) {
-            serverPath = path;
-            break;
+
+#ifdef HAS_EMBEDDED_BACKEND
+    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QString embeddedPath = tempDir + "/TorrSyncPlayer/torrsyncplayer.exe";
+    if (extractEmbeddedBackend(embeddedPath)) {
+        serverPath = embeddedPath;
+    }
+#endif
+
+    if (serverPath.isEmpty()) {
+        QString appDir = QApplication::applicationDirPath();
+        QStringList candidatePaths;
+        candidatePaths << appDir + "/torrserver/torrserver.exe";
+        candidatePaths << appDir + "/../torrserver/torrserver.exe";
+        candidatePaths << appDir + "/torrsyncplayer.exe";
+        candidatePaths << appDir + "/torrserver.exe";
+
+        for (const QString &path : candidatePaths) {
+            if (QFile::exists(path)) {
+                serverPath = path;
+                break;
+            }
         }
     }
 
     if (serverPath.isEmpty()) {
-        qWarning() << "Go backend не найден, проверенные пути:" << candidatePaths;
+        qWarning() << "Go backend не найден";
         return false;
     }
 

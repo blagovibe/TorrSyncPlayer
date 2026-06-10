@@ -190,7 +190,7 @@ jobs:
           CGO_ENABLED: 0
         run: go build -ldflags "-s -w" -o build/torrsyncplayer.exe ./cmd/server
 
-      - name: Build frontend (static)
+      - name: Build frontend (static, embedded backend)
         shell: msys2 {0}
         working-directory: frontend
         run: |
@@ -203,14 +203,16 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTS=OFF \
             -DSTATIC_BUILD=ON \
+            -DEMBED_BACKEND=ON \
+            -DEMBED_BACKEND_PATH="../../backend/build/torrsyncplayer.exe" \
             -DCMAKE_PREFIX_PATH="${{ env.QT_STATIC_DIR }}" \
             -DCMAKE_C_COMPILER="${{ env.MINGW_DIR }}/bin/gcc.exe" \
             -DCMAKE_CXX_COMPILER="${{ env.MINGW_DIR }}/bin/g++.exe" \
             -DCMAKE_MAKE_PROGRAM=ninja
 
-          cmake --build build --config Release
+          cmake --build build
 
-      - name: Package static executable
+      - name: Package single static exe
         working-directory: frontend/build
         run: |
           if (-not (Test-Path TorrSyncPlayer.exe)) {
@@ -221,7 +223,6 @@ jobs:
           $dest = "$env:GITHUB_WORKSPACE\TorrSyncPlayer-windows-x64"
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item TorrSyncPlayer.exe "$dest\TorrSyncPlayer.exe"
-          Copy-Item "$env:GITHUB_WORKSPACE\backend\build\torrsyncplayer.exe" "$dest\torrsyncplayer.exe"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -350,7 +351,7 @@ jobs:
           echo "| Platform | File |" >> changelog.md
           echo "|----------|------|" >> changelog.md
           echo "| Linux x64 | TorrSyncPlayer-linux-x64.AppImage |" >> changelog.md
-          echo "| Windows x64 | TorrSyncPlayer-windows-x64.zip (static portable) |" >> changelog.md
+          echo "| Windows x64 | TorrSyncPlayer-windows-x64.zip (single static exe) |" >> changelog.md
           echo "| macOS ARM64 | TorrSyncPlayer-macos-arm64.dmg |" >> changelog.md
 
       - name: Create release
