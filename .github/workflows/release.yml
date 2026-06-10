@@ -212,8 +212,6 @@ jobs:
             -DEMBED_BACKEND=ON \
             -DEMBED_BACKEND_PATH="$(echo $GITHUB_WORKSPACE | sed 's/\\/\//g')/backend/build/torrsyncplayer.exe" \
             -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
-            -DCMAKE_C_COMPILER=/mingw64/bin/gcc \
-            -DCMAKE_CXX_COMPILER=/mingw64/bin/g++ \
             -DCMAKE_MAKE_PROGRAM=ninja
 
           cmake --build build
