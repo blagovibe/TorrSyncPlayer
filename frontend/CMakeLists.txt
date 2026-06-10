@@ -4,15 +4,6 @@ project(TorrSyncPlayer VERSION 1.0 LANGUAGES CXX)
 # ── Опция статической сборки ───────────────────────────────────────────
 option(STATIC_BUILD "Build static executable" OFF)
 
-if(STATIC_BUILD AND WIN32)
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-    set(BUILD_SHARED_LIBS OFF)
-    set(Qt6_STATIC ON)
-    
-    # Статические флаги линковки
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
-endif()
-
 # ── Стандарт и автоматизация ──────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,8 +11,22 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# ── Статическая сборка ─────────────────────────────────────────────────
+if(STATIC_BUILD)
+    set(BUILD_SHARED_LIBS OFF)
+
+    if(WIN32)
+        set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib")
+        set(Qt6_STATIC ON)
+    endif()
+endif()
+
 # ── Поиск зависимостей ────────────────────────────────────────────────
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg OpenGL OpenGLWidgets Test)
+set(QT_REQUIRED_COMPONENTS Core Gui Widgets Network Svg OpenGL OpenGLWidgets)
+if(BUILD_TESTS AND NOT STATIC_BUILD)
+    list(APPEND QT_REQUIRED_COMPONENTS Test)
+endif()
+find_package(Qt6 REQUIRED COMPONENTS ${QT_REQUIRED_COMPONENTS})
 find_package(PkgConfig)
 if(PkgConfig_FOUND)
     pkg_check_modules(MPV QUIET mpv)
@@ -77,26 +82,43 @@ else()
     message(WARNING "libmpv not found, building without mpv support")
 endif()
 
-# ── Включение WinAPI для корректной работы mpv на Windows ────────────
+# ── Платформенные зависимости ──────────────────────────────────────────
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         opengl32
         gdi32
         user32
     )
-    
-    # Статические зависимости для самостоятельного exe
+
     if(STATIC_BUILD)
         target_link_libraries(${PROJECT_NAME} PRIVATE
-            -static-libgcc
-            -static-libstdc++
-            -lws2_32
-            -lwinmm
-            -limm32
-            -lversion
-            -lsetupapi
-            -lcfgmgr32
+            ws2_32
+            winmm
+            imm32
+            version
+            setupapi
+            cfgmgr32
+            ole32
+            oleaut32
+            uuid
+            advapi32
+            shell32
+            d3d11
+            dxgi
+            dxguid
         )
+
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            target_link_options(${PROJECT_NAME} PRIVATE
+                -static
+                -static-libgcc
+                -static-libstdc++
+            )
+        elseif(MSVC)
+            set_target_properties(${PROJECT_NAME} PROPERTIES
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+            )
+        endif()
     endif()
 endif()
 
@@ -118,7 +140,7 @@ endif()
 # ── Unit-тесты ─────────────────────────────────────────────────────────
 option(BUILD_TESTS "Build unit tests" ON)
 
-if(BUILD_TESTS)
+if(BUILD_TESTS AND NOT STATIC_BUILD)
     enable_testing()
     
     # Тесты для TorrentModel

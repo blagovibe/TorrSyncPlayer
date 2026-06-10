@@ -117,18 +117,25 @@ static void setupSignalHandlers()
  */
 bool startGoServer(QObject *parent)
 {
-    // Путь к исполняемому файлу сервера
-    QString serverPath = QApplication::applicationDirPath() + "/torrserver/torrserver.exe";
+    QString appDir = QApplication::applicationDirPath();
 
-    // Проверяем существование файла
-    if (!QFile::exists(serverPath)) {
-        // Пробуем альтернативный путь
-        serverPath = QApplication::applicationDirPath() + "/../torrserver/torrserver.exe";
+    QStringList candidatePaths;
+    candidatePaths << appDir + "/torrserver/torrserver.exe";
+    candidatePaths << appDir + "/../torrserver/torrserver.exe";
+    candidatePaths << appDir + "/torrsyncplayer.exe";
+    candidatePaths << appDir + "/torrserver.exe";
 
-        if (!QFile::exists(serverPath)) {
-            qWarning() << "Go backend не найден:" << serverPath;
-            return false;
+    QString serverPath;
+    for (const QString &path : candidatePaths) {
+        if (QFile::exists(path)) {
+            serverPath = path;
+            break;
         }
+    }
+
+    if (serverPath.isEmpty()) {
+        qWarning() << "Go backend не найден, проверенные пути:" << candidatePaths;
+        return false;
     }
 
     qDebug() << "Запуск Go backend:" << serverPath;
