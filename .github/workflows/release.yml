@@ -129,26 +129,31 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.QT_STATIC_DIR }}
-          key: qt-static-${{ env.QT_VERSION }}-mingw64
+          key: qt-static-v2-${{ env.QT_VERSION }}-mingw64
 
-      - name: Download and build static Qt6
+      - name: Download Qt6 source
+        if: steps.cache-qt-static.outputs.cache-hit != 'true'
+        run: |
+          $qtVersion = "${{ env.QT_VERSION }}"
+          $url = "https://download.qt.io/official_releases/qt/6.8/$qtVersion/submodules/qtbase-everywhere-src-$qtVersion.zip"
+          $zip = "$env:TEMP\qtbase.zip"
+          $dest = "C:\qtbase-src"
+          Write-Host "Downloading qtbase $qtVersion..."
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Write-Host "Extracting..."
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Write-Host "Done: $dest"
+
+      - name: Build static Qt6
         if: steps.cache-qt-static.outputs.cache-hit != 'true'
         timeout-minutes: 120
         shell: msys2 {0}
         run: |
           set -e
-          QT_VERSION="${{ env.QT_VERSION }}"
-          QT_SRC_URL="https://download.qt.io/official_releases/qt/6.8/${QT_VERSION}/submodules/qtbase-everywhere-src-${QT_VERSION}.zip"
-          QT_SRC_DIR="/tmp/qtbase-src"
+          QT_SRC=$(ls -d /c/qtbase-src/qtbase-*)
           QT_BUILD_DIR="/tmp/qtbase-build"
-          QT_PREFIX="${{ env.QT_STATIC_DIR }}"
-
-          echo "Downloading qtbase ${QT_VERSION}..."
-          mkdir -p /tmp/qt-download
-          cd /tmp/qt-download
-          curl -L -o qtbase.zip "${QT_SRC_URL}"
-          unzip -q qtbase.zip -d "${QT_SRC_DIR}"
-          QT_SRC=$(ls -d ${QT_SRC_DIR}/qtbase-*)
+          QT_PREFIX="C:/Qt/6.8.3-static"
 
           echo "Configuring qtbase static..."
           mkdir -p "${QT_BUILD_DIR}"
@@ -204,7 +209,7 @@ jobs:
             -DBUILD_TESTS=OFF \
             -DSTATIC_BUILD=ON \
             -DEMBED_BACKEND=ON \
-            -DEMBED_BACKEND_PATH="../../backend/build/torrsyncplayer.exe" \
+            -DEMBED_BACKEND_PATH="$(cygpath -w "$GITHUB_WORKSPACE")/backend/build/torrsyncplayer.exe" \
             -DCMAKE_PREFIX_PATH="${{ env.QT_STATIC_DIR }}" \
             -DCMAKE_C_COMPILER="${{ env.MINGW_DIR }}/bin/gcc.exe" \
             -DCMAKE_CXX_COMPILER="${{ env.MINGW_DIR }}/bin/g++.exe" \
