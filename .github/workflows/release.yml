@@ -129,7 +129,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.QT_STATIC_DIR }}
-          key: qt-static-v2-${{ env.QT_VERSION }}-mingw64
+          key: qt-static-v3-${{ env.QT_VERSION }}-mingw64
 
       - name: Download Qt6 source
         if: steps.cache-qt-static.outputs.cache-hit != 'true'
@@ -188,6 +188,48 @@ jobs:
 
           echo "Installing qtbase..."
           cmake --install .
+      - name: Download Qt6 Svg source
+        if: steps.cache-qt-static.outputs.cache-hit != 'true'
+        run: |
+          $qtVersion = "${{ env.QT_VERSION }}"
+          $url = "https://download.qt.io/official_releases/qt/6.8/$qtVersion/submodules/qtsvg-everywhere-src-$qtVersion.zip"
+          $zip = "$env:TEMP\qtsvg.zip"
+          $dest = "C:\qtsvg-src"
+          Write-Host "Downloading qtsvg $qtVersion..."
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Write-Host "Extracting..."
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Write-Host "Done: $dest"
+
+      - name: Build static Qt6 Svg
+        if: steps.cache-qt-static.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        shell: msys2 {0}
+        run: |
+          set -e
+          QT_SRC=$(ls -d /c/qtsvg-src/qtsvg-*)
+          QT_BUILD_DIR="/tmp/qtsvg-build"
+          QT_PREFIX="C:/Qt/6.8.3-static"
+
+          echo "Configuring qtsvg static..."
+          mkdir -p "${QT_BUILD_DIR}"
+          cd "${QT_BUILD_DIR}"
+
+          cmake "${QT_SRC}" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${QT_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DQt6_DIR="${QT_PREFIX}/lib/cmake/Qt6"
+
+          echo "Building qtsvg..."
+          cmake --build . --parallel $(nproc)
+
+          echo "Installing qtsvg..."
+          cmake --install .
+
 
       - name: Build backend (static)
         working-directory: ./backend
@@ -371,3 +413,4 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
