@@ -261,7 +261,7 @@ jobs:
           echo "✅ Backend coverage достаточный: ${BACKEND_COVERAGE}%"
 
       - name: Комментарий с coverage в PR
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: coverage
           message: |
