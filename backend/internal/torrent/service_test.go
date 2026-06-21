@@ -126,7 +126,7 @@ func TestService_CreateWithNilBuffer(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 	assert.Nil(t, svc.bufferService)
-	svc.Close()
+	assert.NoError(t, svc.Close())
 }
 
 // TestMaxTorrentsConstant tests that the maxTorrents constant is within expected range
@@ -146,7 +146,7 @@ func TestSelectFile_InvalidIndex(t *testing.T) {
 func TestBufferInfo_NilBuffer(t *testing.T) {
 	svc, err := NewServiceWithOptions(nil, ServiceOptions{NoDHT: true, DisableUTP: true, DisableTCP: true, ListenPort: 0})
 	require.NoError(t, err)
-	defer svc.Close()
+	t.Cleanup(func() { _ = svc.Close() })
 
 	_, err = svc.GetBufferInfo(context.Background(), "test")
 	assert.Error(t, err)
@@ -157,7 +157,7 @@ func TestBufferInfo_NilBuffer(t *testing.T) {
 func TestUpdateBufferPosition_NilBuffer(t *testing.T) {
 	svc, err := NewServiceWithOptions(nil, ServiceOptions{NoDHT: true, DisableUTP: true, DisableTCP: true, ListenPort: 0})
 	require.NoError(t, err)
-	defer svc.Close()
+	t.Cleanup(func() { _ = svc.Close() })
 
 	// Should not panic
 	svc.UpdateBufferPosition(context.Background(), "test", 1000)
@@ -190,7 +190,7 @@ func TestNewService_WithCustomOptions(t *testing.T) {
 			svc, err := NewServiceWithOptions(nil, tt.opts)
 			require.NoError(t, err)
 			require.NotNil(t, svc)
-			svc.Close()
+			_ = svc.Close()
 		})
 	}
 }
