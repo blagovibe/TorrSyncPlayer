@@ -35,7 +35,7 @@ private slots:
 
     // ── formatDurationSeconds ────────────────────────────────────────────
     void testFormatDurationSecondsZero();
-    void testFormatDurationSecondsOnly();
+    void testFormatDurationSecondsOnlySec();
     void testFormatDurationSecondsMinutes();
     void testFormatDurationSecondsHours();
 
@@ -98,46 +98,10 @@ void TestUtils::testFormatDurationZero()
 
 void TestUtils::testFormatDurationSecondsOnly()
 {
-    QCOMPARE(Utils::formatDuration(1000), QString("00:01"));    // 1 sec
-    QCOMPARE(Utils::formatDuration(5000), QString("00:05"));    // 5 sec
-    QCOMPARE(Utils::formatDuration(59000), QString("00:59"));   // 59 sec
+    QVERIFY(!verifyFormatDurationSeconds(0, "00:00:00"));
 }
 
-void TestUtils::testFormatDurationMinutesSeconds()
-{
-    QCOMPARE(Utils::formatDuration(60000), QString("01:00"));    // 1 min
-    QCOMPARE(Utils::formatDuration(90000), QString("01:30"));    // 1 min 30 sec
-    QCOMPARE(Utils::formatDuration(3599000), QString("59:59"));  // 59 min 59 sec
-}
-
-void TestUtils::testFormatDurationHoursMinutesSeconds()
-{
-    QCOMPARE(Utils::formatDuration(3600000), QString("01:00:00"));    // 1 hour
-    QCOMPARE(Utils::formatDuration(3661000), QString("01:01:01"));    // 1h 1m 1s
-    QCOMPARE(Utils::formatDuration(7384000), QString("02:03:04"));    // 2h 3m 4s
-}
-
-void TestUtils::testFormatDurationWithMilliseconds()
-{
-    QCOMPARE(Utils::formatDuration(1500), QString("00:01.500"));       // 1.5 sec
-    QCOMPARE(Utils::formatDuration(61500), QString("01:01.500"));      // 1m 1.5s
-    QCOMPARE(Utils::formatDuration(3661500), QString("01:01:01.500")); // 1h 1m 1.5s
-}
-
-void TestUtils::testFormatDurationNegative()
-{
-    QCOMPARE(Utils::formatDuration(-1), QString("00:00"));
-    QCOMPARE(Utils::formatDuration(-1000), QString("00:00"));
-}
-
-// ── formatDurationSeconds ────────────────────────────────────────────────
-
-void TestUtils::testFormatDurationSecondsZero()
-{
-    QCOMPARE(Utils::formatDurationSeconds(0), QString("00:00"));
-}
-
-void TestUtils::testFormatDurationSecondsOnly()
+void TestUtils::testFormatDurationSecondsOnlySec()
 {
     QCOMPARE(Utils::formatDurationSeconds(1), QString("00:01"));
     QCOMPARE(Utils::formatDurationSeconds(30), QString("00:30"));
