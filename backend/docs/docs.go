@@ -26,7 +26,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/auth/login": {
             "post": {
-                "description": "Аутентифицирует пользователя и возвращает JWT токен",
+                "description": "Authenticates the user and returns a JWT token",
                 "consumes": [
                     "application/json"
                 ],
@@ -36,10 +36,10 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Вход",
+                "summary": "Login",
                 "parameters": [
                     {
-                        "description": "Данные для входа",
+                        "description": "Login data",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -71,14 +71,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Отзывает JWT токен (добавляет в список отозванных)",
+                "description": "Revokes the JWT token (adds to revoked list)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "auth"
                 ],
-                "summary": "Выход",
+                "summary": "Logout",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -97,7 +97,7 @@ const docTemplate = `{
         },
         "/api/v1/auth/register": {
             "post": {
-                "description": "Регистрирует нового пользователя и возвращает JWT токен",
+                "description": "Registers a new user and returns a JWT token",
                 "consumes": [
                     "application/json"
                 ],
@@ -107,10 +107,10 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Регистрация",
+                "summary": "Registration",
                 "parameters": [
                     {
-                        "description": "Данные для регистрации",
+                        "description": "Registration data",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -137,14 +137,14 @@ const docTemplate = `{
         },
         "/api/v1/health": {
             "get": {
-                "description": "Базовая проверка работоспособности сервера (не требует аутентификации)",
+                "description": "Basic server health check (does not require authentication)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "system"
                 ],
-                "summary": "Проверка здоровья",
+                "summary": "Health check",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -160,7 +160,7 @@ const docTemplate = `{
         },
         "/api/v1/rooms": {
             "post": {
-                "description": "Создаёт новую P2P комнату для синхронизации воспроизведения",
+                "description": "Creates a new P2P room for playback synchronization",
                 "consumes": [
                     "application/json"
                 ],
@@ -170,10 +170,10 @@ const docTemplate = `{
                 "tags": [
                     "rooms"
                 ],
-                "summary": "Создать комнату",
+                "summary": "Create room",
                 "parameters": [
                     {
-                        "description": "Данные комнаты",
+                        "description": "Room data",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -200,14 +200,14 @@ const docTemplate = `{
         },
         "/api/v1/rooms/events": {
             "get": {
-                "description": "Подписка на события P2P комнаты в реальном времени через Server-Sent Events",
+                "description": "Subscribe to P2P room events in real-time via Server-Sent Events",
                 "produces": [
                     "text/event-stream"
                 ],
                 "tags": [
                     "rooms"
                 ],
-                "summary": "События комнаты (SSE)",
+                "summary": "Room events (SSE)",
                 "parameters": [
                     {
                         "type": "string",
@@ -229,7 +229,7 @@ const docTemplate = `{
         },
         "/api/v1/rooms/join": {
             "post": {
-                "description": "Присоединяет пользователя к существующей P2P комнате",
+                "description": "Joins a user to an existing P2P room",
                 "consumes": [
                     "application/json"
                 ],
@@ -239,10 +239,10 @@ const docTemplate = `{
                 "tags": [
                     "rooms"
                 ],
-                "summary": "Присоединиться к комнате",
+                "summary": "Join room",
                 "parameters": [
                     {
-                        "description": "Данные для входа",
+                        "description": "Login data",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -269,14 +269,14 @@ const docTemplate = `{
         },
         "/api/v1/rooms/leave": {
             "post": {
-                "description": "Выходит из текущей P2P комнаты",
+                "description": "Leaves the current P2P room",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "rooms"
                 ],
-                "summary": "Покинуть комнату",
+                "summary": "Leave room",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -295,7 +295,7 @@ const docTemplate = `{
         },
         "/api/v1/rooms/signal": {
             "post": {
-                "description": "Отправляет WebRTC сигнал (SDP offer/answer, ICE candidate) через data channel",
+                "description": "Sends a WebRTC signal (SDP offer/answer, ICE candidate) via data channel",
                 "consumes": [
                     "application/json"
                 ],
@@ -305,10 +305,10 @@ const docTemplate = `{
                 "tags": [
                     "rooms"
                 ],
-                "summary": "Отправить WebRTC сигнал",
+                "summary": "Send WebRTC signal",
                 "parameters": [
                     {
-                        "description": "WebRTC сигнал",
+                        "description": "WebRTC signal",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -335,14 +335,14 @@ const docTemplate = `{
         },
         "/api/v1/sync/pause": {
             "post": {
-                "description": "Приостанавливает синхронизированное воспроизведение",
+                "description": "Pauses synchronized playback",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sync"
                 ],
-                "summary": "Приостановить воспроизведение",
+                "summary": "Pause playback",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -355,14 +355,14 @@ const docTemplate = `{
         },
         "/api/v1/sync/play": {
             "post": {
-                "description": "Запускает синхронизированное воспроизведение",
+                "description": "Starts synchronized playback",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sync"
                 ],
-                "summary": "Запустить воспроизведение",
+                "summary": "Start playback",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -375,7 +375,7 @@ const docTemplate = `{
         },
         "/api/v1/sync/seek": {
             "post": {
-                "description": "Выполняет синхронизированную перемотку на указанную позицию",
+                "description": "Performs synchronized seek to the specified position",
                 "consumes": [
                     "application/json"
                 ],
@@ -385,10 +385,10 @@ const docTemplate = `{
                 "tags": [
                     "sync"
                 ],
-                "summary": "Перемотка",
+                "summary": "Seek",
                 "parameters": [
                     {
-                        "description": "Позиция перемотки",
+                        "description": "Seek position",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -415,14 +415,14 @@ const docTemplate = `{
         },
         "/api/v1/sync/status": {
             "get": {
-                "description": "Возвращает текущий статус синхронизации воспроизведения",
+                "description": "Returns the current synchronization status",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sync"
                 ],
-                "summary": "Статус синхронизации",
+                "summary": "Sync status",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -435,27 +435,27 @@ const docTemplate = `{
         },
         "/api/v1/torrents": {
             "get": {
-                "description": "Возвращает список всех торрентов с пагинацией",
+                "description": "Returns a list of all torrents with pagination",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "torrents"
                 ],
-                "summary": "Список торрентов",
+                "summary": "List torrents",
                 "parameters": [
                     {
                         "maximum": 100,
                         "type": "integer",
                         "default": 20,
-                        "description": "Лимит записей",
+                        "description": "Record limit",
                         "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "integer",
                         "default": 0,
-                        "description": "Смещение",
+                        "description": "Offset",
                         "name": "offset",
                         "in": "query"
                     }
@@ -470,7 +470,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Добавляет торрент по magnet-ссылке и возвращает информацию о нём",
+                "description": "Adds a torrent via magnet link and returns its information",
                 "consumes": [
                     "application/json"
                 ],
@@ -480,7 +480,7 @@ const docTemplate = `{
                 "tags": [
                     "torrents"
                 ],
-                "summary": "Добавить торрент",
+                "summary": "Add torrent",
                 "parameters": [
                     {
                         "description": "Magnet URI",
@@ -516,14 +516,14 @@ const docTemplate = `{
         },
         "/api/v1/torrents/{id}": {
             "delete": {
-                "description": "Удаляет торрент по его ID",
+                "description": "Removes a torrent by its ID",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "torrents"
                 ],
-                "summary": "Удалить торрент",
+                "summary": "Remove torrent",
                 "parameters": [
                     {
                         "type": "string",
@@ -557,14 +557,14 @@ const docTemplate = `{
         },
         "/api/v1/torrents/{id}/files": {
             "get": {
-                "description": "Возвращает список файлов торрента с пагинацией",
+                "description": "Returns a list of torrent files with pagination",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "torrents"
                 ],
-                "summary": "Список файлов торрента",
+                "summary": "List torrent files",
                 "parameters": [
                     {
                         "type": "string",
@@ -577,14 +577,14 @@ const docTemplate = `{
                         "maximum": 100,
                         "type": "integer",
                         "default": 20,
-                        "description": "Лимит записей",
+                        "description": "Record limit",
                         "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "integer",
                         "default": 0,
-                        "description": "Смещение",
+                        "description": "Offset",
                         "name": "offset",
                         "in": "query"
                     }
@@ -613,7 +613,7 @@ const docTemplate = `{
         },
         "/api/v1/torrents/{id}/select": {
             "post": {
-                "description": "Выбирает файл торрента для стриминга по индексу",
+                "description": "Selects a torrent file for streaming by index",
                 "consumes": [
                     "application/json"
                 ],
@@ -623,7 +623,7 @@ const docTemplate = `{
                 "tags": [
                     "torrents"
                 ],
-                "summary": "Выбрать файл для стриминга",
+                "summary": "Select file for streaming",
                 "parameters": [
                     {
                         "type": "string",
@@ -633,7 +633,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Индекс файла",
+                        "description": "File index",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -660,14 +660,14 @@ const docTemplate = `{
         },
         "/api/v1/torrents/{id}/stream": {
             "get": {
-                "description": "Стримит выбранный файл торрента с поддержкой Range запросов",
+                "description": "Streams the selected torrent file with Range request support",
                 "produces": [
                     "application/octet-stream"
                 ],
                 "tags": [
                     "torrents"
                 ],
-                "summary": "Стриминг файла",
+                "summary": "Stream file",
                 "parameters": [
                     {
                         "type": "string",
@@ -952,7 +952,7 @@ const docTemplate = `{
     },
     "securityDefinitions": {
         "BearerAuth": {
-            "description": "Введите JWT токен в формате: Bearer \u003ctoken\u003e",
+            "description": "Enter JWT token in the format: Bearer <token>",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"
@@ -967,7 +967,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
 	Title:            "TorrSyncPlayer API",
-	Description:      "HTTP API для TorrSyncPlayer — торрент-плеера с P2P синхронизацией воспроизведения.",
+	Description:      "HTTP API for TorrSyncPlayer — torrent player with P2P playback synchronization.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 }

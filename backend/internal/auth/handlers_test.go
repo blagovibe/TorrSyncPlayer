@@ -31,10 +31,10 @@ func TestRegisterHandler(t *testing.T) {
 		checkResponse  func(t *testing.T, body []byte)
 	}{
 		{
-			name: "Успешная регистрация",
+			name: "Successful registration",
 			body: models.RegisterRequest{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass1!",
 			},
 			expectedStatus: http.StatusCreated,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -46,23 +46,29 @@ func TestRegisterHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "Дубликат пользователя",
+			name: "Duplicate user",
 			body: models.RegisterRequest{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass1!",
 			},
-			expectedStatus: http.StatusConflict,
+			expectedStatus: http.StatusBadRequest,
+			checkResponse: func(t *testing.T, body []byte) {
+				var errResp map[string]string
+				err := json.Unmarshal(body, &errResp)
+				require.NoError(t, err)
+				assert.Equal(t, "Registration failed", errResp["error"])
+			},
 		},
 		{
-			name: "Пустое имя пользователя",
+			name: "Empty username",
 			body: models.RegisterRequest{
 				Username: "",
-				Password: "password123",
+				Password: "TestPass1!",
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name: "Короткий пароль",
+			name: "Short password",
 			body: models.RegisterRequest{
 				Username: "newuser",
 				Password: "123",
@@ -70,13 +76,13 @@ func TestRegisterHandler(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Невалидный JSON",
+			name:           "Invalid JSON",
 			body:           "invalid json",
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
 
-	// Первый запрос для создания пользователя
+	// First request to create user
 	reqBody, _ := json.Marshal(tests[0].body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -84,12 +90,12 @@ func TestRegisterHandler(t *testing.T) {
 	handler.Register(rr, req)
 	assert.Equal(t, http.StatusCreated, rr.Code)
 
-	// Остальные тесты
+	// Remaining tests
 	for _, tt := range tests[1:] {
 		t.Run(tt.name, func(t *testing.T) {
-			// Для теста дубликата используем тот же handler
+			// For duplicate test use the same handler
 			testHandler := handler
-			if tt.name != "Дубликат пользователя" {
+			if tt.name != "Duplicate user" {
 				testHandler = setupTestHandler()
 			}
 			var reqBody []byte
@@ -116,8 +122,8 @@ func TestRegisterHandler(t *testing.T) {
 func TestLoginHandler(t *testing.T) {
 	handler := setupTestHandler()
 
-	// Создаём пользователя
-	_, err := handler.store.Create("testuser", "password123")
+	// Create a user
+	_, err := handler.store.Create("testuser", "TestPass1!")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -127,10 +133,10 @@ func TestLoginHandler(t *testing.T) {
 		checkResponse  func(t *testing.T, body []byte)
 	}{
 		{
-			name: "Успешный вход",
+			name: "Successful login",
 			body: models.LoginRequest{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass1!",
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -142,7 +148,7 @@ func TestLoginHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "Неверный пароль",
+			name: "Wrong password",
 			body: models.LoginRequest{
 				Username: "testuser",
 				Password: "wrongpassword",
@@ -150,15 +156,15 @@ func TestLoginHandler(t *testing.T) {
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name: "Несуществующий пользователь",
+			name: "Non-existent user",
 			body: models.LoginRequest{
 				Username: "nonexistent",
-				Password: "password123",
+				Password: "TestPass1!",
 			},
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name:           "Невалидный JSON",
+			name:           "Invalid JSON",
 			body:           "invalid json",
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -188,11 +194,11 @@ func TestLoginHandler(t *testing.T) {
 }
 
 func TestJWTMiddleware(t *testing.T) {
-	// Создаём AuthService с фиксированным секретом для тестов
+	// Create AuthService with fixed secret for tests
 	authService, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
 	require.NoError(t, err)
 
-	// Создаём тестовый handler
+	// Create test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := GetClaims(r)
 		if claims == nil {
@@ -205,10 +211,10 @@ func TestJWTMiddleware(t *testing.T) {
 		}
 	})
 
-	// Оборачиваем в JWT middleware
+	// Wrap in JWT middleware
 	handler := authService.JWTMiddleware(testHandler)
 
-	// Создаём тестовый токен
+	// Create test token
 	user := &models.User{
 		ID:       "user123",
 		Username: "testuser",
@@ -222,27 +228,27 @@ func TestJWTMiddleware(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:           "Валидный токен",
+			name:           "Valid token",
 			authHeader:     "Bearer " + token,
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "Без заголовка Authorization",
+			name:           "No Authorization header",
 			authHeader:     "",
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name:           "Неверный формат заголовка",
+			name:           "Invalid header format",
 			authHeader:     "Basic " + token,
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name:           "Пустой токен",
+			name:           "Empty token",
 			authHeader:     "Bearer ",
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name:           "Невалидный токен",
+			name:           "Invalid token",
 			authHeader:     "Bearer invalid-token",
 			expectedStatus: http.StatusUnauthorized,
 		},
@@ -263,14 +269,14 @@ func TestJWTMiddleware(t *testing.T) {
 }
 
 func TestGetClaims(t *testing.T) {
-	// Тест без claims в контексте
+	// Test without claims in context
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	claims := GetClaims(req)
 	assert.Nil(t, claims)
 }
 
 func TestLogoutHandler(t *testing.T) {
-	// Создаём auth service (revocation store теперь внутри)
+	// Create auth service (revocation store is now internal)
 	authService, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
 	require.NoError(t, err)
 
@@ -289,23 +295,23 @@ func TestLogoutHandler(t *testing.T) {
 		checkResponse  func(t *testing.T, body []byte)
 	}{
 		{
-			name:           "Успешный logout с валидным токеном",
+			name:           "Successful logout with valid token",
 			authHeader:     "Bearer " + token,
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
 				var resp models.SuccessResponse
 				err := json.Unmarshal(body, &resp)
 				require.NoError(t, err)
-				assert.Equal(t, "Токен успешно отозван", resp.Message)
+				assert.Equal(t, "Token revoked successfully", resp.Message)
 			},
 		},
 		{
-			name:           "Logout без заголовка Authorization",
+			name:           "Logout without Authorization header",
 			authHeader:     "",
-			expectedStatus: http.StatusUnauthorized,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Logout с пустым токеном",
+			name:           "Logout with empty token",
 			authHeader:     "Bearer ",
 			expectedStatus: http.StatusBadRequest,
 		},

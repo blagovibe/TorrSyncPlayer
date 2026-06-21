@@ -185,8 +185,7 @@ void TestNetworkManager::testStreamUrlWithDifferentIds()
     QCOMPARE(m_manager->streamUrl("0123456789abcdef0123456789abcdef01234567"),
              QString("http://localhost:8889/api/v1/torrents/0123456789abcdef0123456789abcdef01234567/stream"));
 
-    QCOMPARE(m_manager->streamUrl(""),
-             QString("http://localhost:8889/api/v1/torrents//stream"));
+    QVERIFY(m_manager->streamUrl("").isEmpty());
 }
 
 // ── Room state ─────────────────────────────────────────────────────────────

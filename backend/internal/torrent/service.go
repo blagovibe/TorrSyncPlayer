@@ -2,9 +2,9 @@
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
 // See LICENSE file for full license text
 
-// Package torrent предоставляет сервис для работы с торрентами.
-// Управляет добавлением, удалением и стримингом торрентов через anacrolix/torrent.
-// Использует структурированное логирование с контекстом операций.
+// Package torrent provides the torrent service.
+// Manages adding, removing and streaming torrents via anacrolix/torrent.
+// Uses structured logging with operation context.
 package torrent
 
 import (
@@ -28,48 +28,49 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// Константы сервиса торрентов
+// Torrent service constants
 const (
 	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
 	maxTorrents             = 100
-	maxStreamFileSize       = 100 * 1024 * 1024 * 1024 // 100 GB
+	maxStreamFileSize       = constants.MaxStreamFileSize
 )
 
-// Service сервис управления торрентами.
-// Предоставляет методы для добавления, удаления и стриминга торрентов.
-// Потокобезопасен благодаря использованию sync.RWMutex.
-// Всегда использует in-memory хранилище для данных торрентов.
+// Service torrent management service.
+// Provides methods for adding, removing and streaming torrents.
+// Thread-safe thanks to sync.RWMutex.
+// Always uses in-memory storage for torrent data.
 type Service struct {
 	mu            sync.RWMutex
 	client        *torrent.Client
 	torrents      map[string]*torrent.Torrent
 	selectedFiles map[string]int // torrentID -> fileIndex
 	bufferService *buffer.Service
+	streamWG      sync.WaitGroup // tracks active ServeFile streams
 }
 
-// ServiceOptions содержит опции для настройки торрент-сервиса
+// ServiceOptions contains options for configuring the torrent service
 type ServiceOptions struct {
-	// NoDHT отключает DHT (для тестов)
+	// NoDHT disables DHT (for tests)
 	NoDHT bool
-	// DisableUTP отключает UTP (для тестов)
+	// DisableUTP disables UTP (for tests)
 	DisableUTP bool
-	// DisableTCP отключает TCP (для тестов)
+	// DisableTCP disables TCP (for tests)
 	DisableTCP bool
-	// ListenPort порт для прослушивания (0 = случайный)
+	// ListenPort listen port (0 = random)
 	ListenPort int
-	// MemoryStorageCapacity максимальный размер in-memory хранилища (0 = без ограничений)
+	// MemoryStorageCapacity maximum in-memory storage size (0 = unlimited)
 	MemoryStorageCapacity int64
 }
 
-// readCloserWithClose обёртка для io.ReadSeekCloser с безопасным закрытием.
-// Гарантирует идемпотентное закрытие (Close можно вызывать многократно).
+// readCloserWithClose wrapper for io.ReadSeekCloser with safe closing.
+// Guarantees idempotent close (Close can be called multiple times).
 type readCloserWithClose struct {
 	io.ReadSeekCloser
 	closed bool
 	mu     sync.Mutex
 }
 
-// Close закрывает reader только один раз (идемпотентное закрытие)
+// Close closes the reader only once (idempotent close)
 func (r *readCloserWithClose) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -80,29 +81,29 @@ func (r *readCloserWithClose) Close() error {
 	return r.ReadSeekCloser.Close()
 }
 
-// NewService создаёт новый сервис торрентов с in-memory хранилищем.
-// Параметр bufferService - сервис буферизации (может быть nil).
-// Возвращает инициализированный сервис или ошибку.
+// NewService creates a new torrent service with in-memory storage.
+// Parameter bufferService - buffer service (can be nil).
+// Returns an initialized service or an error.
 func NewService(bufferService *buffer.Service) (*Service, error) {
 	return NewServiceWithOptions(bufferService, ServiceOptions{})
 }
 
-// NewServiceWithOptions создаёт новый сервис торрентов с расширенными опциями.
-// Позволяет настроить параметры сети для тестирования.
-// Всегда использует in-memory хранилище для данных торрентов.
+// NewServiceWithOptions creates a new torrent service with extended options.
+// Allows configuring network parameters for testing.
+// Always uses in-memory storage for torrent data.
 func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (*Service, error) {
-	// Конфигурация торрент-клиента
+	// Configure torrent client
 	cfg := torrent.NewDefaultClientConfig()
 
-	// Всегда используем in-memory хранилище
+	// Always use in-memory storage
 	memStorage := storage.NewMemoryStorage(opts.MemoryStorageCapacity)
 	cfg.DefaultStorage = memStorage
-	logger.Info("Torrent: используется in-memory хранилище", "capacity", opts.MemoryStorageCapacity)
+	logger.Info("Torrent: using in-memory storage", "capacity", opts.MemoryStorageCapacity)
 
 	cfg.NoUpload = false
 	cfg.Seed = true
 
-	// Применяем опции для тестирования
+	// Apply testing options
 	if opts.NoDHT {
 		cfg.NoDHT = true
 	}
@@ -118,11 +119,11 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 
 	client, err := torrent.NewClient(cfg)
 	if err != nil {
-		logger.Error("Torrent: не удалось создать торрент-клиент", "error", err)
-		return nil, fmt.Errorf("не удалось создать торрент-клиент: %w", err)
+		logger.Error("Torrent: failed to create torrent client", "error", err)
+		return nil, fmt.Errorf("failed to create torrent client: %w", err)
 	}
 
-	logger.Info("Torrent: сервис инициализирован")
+	logger.Info("Torrent: service initialized")
 
 	return &Service{
 		client:        client,
@@ -132,67 +133,68 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 	}, nil
 }
 
-// AddMagnet добавляет торрент по magnet-ссылке.
-// Параметр ctx - контекст для отмены операции.
-// Параметр magnetURI - magnet-ссылка на торрент.
-// Ожидает получения метаданных (таймаут через контекст).
-// Возвращает информацию о торренте или ошибку.
+// AddMagnet adds a torrent via magnet link.
+// Parameter ctx - context for operation cancellation.
+// Parameter magnetURI - magnet link for the torrent.
+// Waits for metadata reception (timeout via context).
+// Returns torrent information or an error.
 func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.TorrentInfo, error) {
-	// Валидация magnet URI
+	// Validate magnet URI
 	if err := validation.ValidateMagnetURI(magnetURI); err != nil {
-		logger.Warn("Torrent: невалидный magnet URI", "error", err)
-		return nil, fmt.Errorf("невалидный magnet URI: %w", err)
+		logger.Warn("Torrent: invalid magnet URI", "error", err)
+		return nil, fmt.Errorf("invalid magnet URI: %w", err)
 	}
 
-	// Логируем только хеш для безопасности (не полную magnet-ссылку)
+	// Log only hash for security (not the full magnet link)
 	hash := sha256.Sum256([]byte(magnetURI))
 	magnetHash := fmt.Sprintf("%x", hash[:8])
 
-	logger.Info("Torrent: добавление торрента", "magnetHash", magnetHash)
+	s.mu.RLock()
+	overLimit := len(s.torrents) >= maxTorrents
+	s.mu.RUnlock()
+	if overLimit {
+		logger.Warn("Torrent: torrent limit exceeded", "max", maxTorrents)
+		return nil, errors.New(errors.ErrUnavailable, "maximum number of torrents exceeded")
+	}
+
+	logger.Info("Torrent: adding torrent", "magnetHash", magnetHash)
 
 	t, err := s.client.AddMagnet(magnetURI)
 	if err != nil {
-		logger.Error("Torrent: не удалось добавить торрент", "magnetHash", magnetHash, "error", err)
-		return nil, fmt.Errorf("не удалось добавить торрент: %w", err)
+		logger.Error("Torrent: failed to add torrent", "magnetHash", magnetHash, "error", err)
+		return nil, fmt.Errorf("failed to add torrent: %w", err)
 	}
 
-	// Ожидаем получения метаданных
+	// Wait for metadata reception
 	select {
 	case <-t.GotInfo():
-		// Метаданные получены
-		logger.Debug("Torrent: метаданные получены", "magnetHash", magnetHash)
+		logger.Debug("Torrent: metadata received", "magnetHash", magnetHash)
 	case <-ctx.Done():
 		t.Drop()
-		logger.Warn("Torrent: таймаут получения метаданных", "magnetHash", magnetHash, "error", ctx.Err())
-		return nil, fmt.Errorf("таймаут получения метаданных: %w", ctx.Err())
+		logger.Warn("Torrent: timeout waiting for metadata", "magnetHash", magnetHash, "error", ctx.Err())
+		return nil, fmt.Errorf("timeout waiting for metadata: %w", ctx.Err())
 	}
 
 	torrentID := t.InfoHash().HexString()
 
 	s.mu.Lock()
-	if len(s.torrents) >= maxTorrents {
-		s.mu.Unlock()
-		t.Drop()
-		logger.Warn("Torrent: превышен лимит торрентов", "torrentID", torrentID, "max", maxTorrents)
-		return nil, errors.New(errors.ErrUnavailable, "превышен максимальный количество торрентов")
-	}
 	s.torrents[torrentID] = t
 	s.mu.Unlock()
 
 	info := s.torrentToInfo(t)
 
-	// Валидация названия торрента
+	// Validate torrent name
 	if err := validation.ValidateTorrentName(info.Name); err != nil {
-		logger.Warn("Torrent: некорректное название торрента", "torrentID", torrentID, "error", err)
-		// Не прерываем операцию, но логируем
+		logger.Warn("Torrent: invalid torrent name", "torrentID", torrentID, "error", err)
+		// Do not abort the operation, just log
 	}
 
-	// Валидация размера
+	// Validate file size
 	if err := validation.ValidateFileSize(info.Size); err != nil {
-		logger.Warn("Torrent: некорректный размер торрента", "torrentID", torrentID, "size", info.Size, "error", err)
+		logger.Warn("Torrent: invalid torrent size", "torrentID", torrentID, "size", info.Size, "error", err)
 	}
 
-	logger.Info("Torrent: торрент добавлен",
+	logger.Info("Torrent: torrent added",
 		"torrentID", torrentID,
 		"name", info.Name,
 		"size", info.Size,
@@ -202,17 +204,18 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 	return info, nil
 }
 
-// RemoveTorrent удаляет торрент по ID.
-// Останавливает загрузку и удаляет торрент из клиента.
-// Возвращает ошибку если торрент не найден.
+// RemoveTorrent removes a torrent by ID.
+// Stops the download and removes the torrent from the client.
+// Waits for active ServeFile streams to finish before returning.
+// Returns an error if the torrent is not found.
 func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
+	// First mark the torrent for removal under lock
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	t, exists := s.torrents[id]
 	if !exists {
-		logger.Warn("Torrent: торрент не найден для удаления", "torrentID", id)
-		return errors.NotFound("торрент", id)
+		s.mu.Unlock()
+		logger.Warn("Torrent: torrent not found for removal", "torrentID", id)
+		return errors.NotFound("torrent", id)
 	}
 
 	torrentName := ""
@@ -220,22 +223,37 @@ func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
 		torrentName = t.Info().BestName()
 	}
 
-	t.Drop()
+	// Remove from maps immediately so new streams can't start
 	delete(s.torrents, id)
 	delete(s.selectedFiles, id)
+	s.mu.Unlock()
 
-	// Удаляем из сервиса буферизации
+	// Wait for any active streams to finish
+	done := make(chan struct{})
+	go func() {
+		s.streamWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		logger.Warn("Torrent: timeout waiting for active streams to finish", "torrentID", id)
+	}
+
+	t.Drop()
+
+	// Remove from buffer service
 	if s.bufferService != nil {
 		s.bufferService.UnregisterTorrent(id)
 	}
 
-	logger.Info("Torrent: торрент удалён", "torrentID", id, "name", torrentName)
+	logger.Info("Torrent: torrent removed", "torrentID", id, "name", torrentName)
 	return nil
 }
 
-// ListTorrents возвращает список всех торрентов.
-// Возвращает массив с информацией о каждом торренте (ID, имя, прогресс, статус).
-func (s *Service) ListTorrents() []*models.TorrentInfo {
+// ListTorrents returns a list of all torrents.
+// Returns an array with information about each torrent (ID, name, progress, status).
+func (s *Service) ListTorrents(_ context.Context) []*models.TorrentInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -244,36 +262,36 @@ func (s *Service) ListTorrents() []*models.TorrentInfo {
 		result = append(result, s.torrentToInfo(t))
 	}
 
-	logger.Debug("Torrent: получен список торрентов", "count", len(result))
+	logger.Debug("Torrent: retrieved torrent list", "count", len(result))
 	return result
 }
 
-// GetFiles возвращает список файлов торрента.
-// Параметр torrentID - идентификатор торрента.
-// Возвращает массив файлов с индексами, именами, размерами и путями.
-// Возвращает ошибку если торрент не найден или метаданные не получены.
-func (s *Service) GetFiles(torrentID string) ([]models.FileInfo, error) {
+// GetFiles returns a list of torrent files.
+// Parameter torrentID - torrent identifier.
+// Returns an array of files with indices, names, sizes and paths.
+// Returns an error if the torrent is not found or metadata is not received.
+func (s *Service) GetFiles(ctx context.Context, torrentID string) ([]models.FileInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	t, exists := s.torrents[torrentID]
 	if !exists {
-		logger.Warn("Torrent: торрент не найден для получения файлов", "torrentID", torrentID)
-		return nil, errors.NotFound("торрент", torrentID)
+		logger.Warn("Torrent: torrent not found for getting files", "torrentID", torrentID)
+		return nil, errors.NotFound("torrent", torrentID)
 	}
 
 	if t.Info() == nil {
-		logger.Warn("Torrent: метаданные торрента ещё не получены", "torrentID", torrentID)
-		return nil, errors.New(errors.ErrUnavailable, "метаданные торрента ещё не получены")
+		logger.Warn("Torrent: torrent metadata not yet received", "torrentID", torrentID)
+		return nil, errors.New(errors.ErrUnavailable, "torrent metadata not yet received")
 	}
 
 	files := t.Files()
 	result := make([]models.FileInfo, 0, len(files))
 
 	for i, f := range files {
-		// Валидация размера файла
+		// Validate file size
 		if err := validation.ValidateFileSize(f.Length()); err != nil {
-			logger.Warn("Torrent: некорректный размер файла",
+			logger.Warn("Torrent: invalid file size",
 				"torrentID", torrentID,
 				"fileIndex", i,
 				"error", err,
@@ -282,53 +300,53 @@ func (s *Service) GetFiles(torrentID string) ([]models.FileInfo, error) {
 
 		result = append(result, models.FileInfo{
 			Index: i,
-			Name:  f.DisplayPath(),
+			Name:  sanitizeFilename(f.DisplayPath()),
 			Size:  f.Length(),
 		})
 	}
 
-	logger.Debug("Torrent: получен список файлов", "torrentID", torrentID, "fileCount", len(result))
+	logger.Debug("Torrent: retrieved file list", "torrentID", torrentID, "fileCount", len(result))
 	return result, nil
 }
 
-// SelectFile выбирает файл для стриминга.
-// Параметр torrentID - идентификатор торрента.
-// Параметр fileIndex - индекс файла в торренте.
-// Устанавливает приоритет загрузки для выбранного файла.
-// Возвращает ошибку если торрент не найден или индекс неверный.
-func (s *Service) SelectFile(torrentID string, fileIndex int) error {
+// SelectFile selects a file for streaming.
+// Parameter torrentID - torrent identifier.
+// Parameter fileIndex - file index in the torrent.
+// Sets download priority for the selected file.
+// Returns an error if the torrent is not found or index is invalid.
+func (s *Service) SelectFile(ctx context.Context, torrentID string, fileIndex int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	t, exists := s.torrents[torrentID]
 	if !exists {
-		logger.Warn("Torrent: торрент не найден для выбора файла", "torrentID", torrentID, "fileIndex", fileIndex)
-		return errors.NotFound("торрент", torrentID)
+		logger.Warn("Torrent: torrent not found for file selection", "torrentID", torrentID, "fileIndex", fileIndex)
+		return errors.NotFound("torrent", torrentID)
 	}
 
 	files := t.Files()
 
-	// Валидация индекса файла
+	// Validate file index
 	if err := validation.ValidateFileIndex(fileIndex, len(files)-1); err != nil {
-		logger.Warn("Torrent: неверный индекс файла",
+		logger.Warn("Torrent: invalid file index",
 			"torrentID", torrentID,
 			"fileIndex", fileIndex,
 			"totalFiles", len(files),
 			"error", err,
 		)
-		return errors.Wrap(errors.ErrInvalidInput, "неверный индекс файла", err)
+		return errors.Wrap(errors.ErrInvalidInput, "invalid file index", err)
 	}
 
-	// Отменяем загрузку всех файлов
+	// Cancel download of all files
 	for _, f := range files {
 		f.SetPriority(torrent.PiecePriorityNone)
 	}
 
-	// Выбираем нужный файл
+	// Select the desired file
 	files[fileIndex].SetPriority(torrent.PiecePriorityNormal)
 	s.selectedFiles[torrentID] = fileIndex
 
-	// Регистрируем в сервисе буферизации
+	// Register in buffer service
 	if s.bufferService != nil {
 		s.bufferService.RegisterTorrent(
 			torrentID,
@@ -339,7 +357,7 @@ func (s *Service) SelectFile(torrentID string, fileIndex int) error {
 		)
 	}
 
-	logger.Info("Torrent: выбран файл для стриминга",
+	logger.Info("Torrent: file selected for streaming",
 		"torrentID", torrentID,
 		"fileIndex", fileIndex,
 		"fileName", files[fileIndex].DisplayPath(),
@@ -347,60 +365,60 @@ func (s *Service) SelectFile(torrentID string, fileIndex int) error {
 	return nil
 }
 
-// UpdateBufferPosition обновляет текущую позицию воспроизведения для буферизации.
-// Параметр torrentID - идентификатор торрента.
-// Параметр position - позиция в байтах.
-func (s *Service) UpdateBufferPosition(torrentID string, position int64) {
+// UpdateBufferPosition updates the current playback position for buffering.
+// Parameter torrentID - torrent identifier.
+// Parameter position - position in bytes.
+func (s *Service) UpdateBufferPosition(ctx context.Context, torrentID string, position int64) {
 	if s.bufferService != nil {
-		s.bufferService.UpdatePosition(torrentID, position)
+		s.bufferService.UpdatePosition(ctx, torrentID, position)
 	}
 }
 
-// GetBufferInfo возвращает информацию о состоянии буфера.
-// Параметр torrentID - идентификатор торрента.
-// Возвращает информацию о буфере или ошибку.
-func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
+// GetBufferInfo returns buffer state information.
+// Parameter torrentID - torrent identifier.
+// Returns buffer information or an error.
+func (s *Service) GetBufferInfo(ctx context.Context, torrentID string) (*models.BufferInfo, error) {
 	if s.bufferService == nil {
-		return nil, errors.New(errors.ErrUnavailable, "сервис буферизации не инициализирован")
+		return nil, errors.New(errors.ErrUnavailable, "buffer service not initialized")
 	}
-	return s.bufferService.GetBufferInfo(torrentID)
+	return s.bufferService.GetBufferInfo(ctx, torrentID)
 }
 
-// ServeFile обрабатывает HTTP стриминг файла торрента.
-// Поддерживает Range запросы для перемотки через http.ServeContent.
-// Автоматически определяет Content-Type по расширению файла.
-// Возвращает 400 если файл не выбран, 404 если торрент не найден.
+// ServeFile handles HTTP streaming of a torrent file.
+// Supports Range requests for seeking via http.ServeContent.
+// Automatically determines Content-Type from file extension.
+// Returns 400 if file is not selected, 404 if torrent is not found.
 //
-// Использует одну RLock для обеих проверок (существование торрента и выбор файла),
-// чтобы предотвратить race condition когда торрент может быть удалён между двумя RLock.
+// Uses streamWG to prevent TOCTOU races where a torrent might be removed
+// between validation and actual streaming. RemoveTorrent waits for active streams.
 func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID string) {
 	s.mu.RLock()
 	t, exists := s.torrents[torrentID]
 	if !exists {
 		s.mu.RUnlock()
-		logger.Warn("Torrent: торрент не найден для стриминга", "torrentID", torrentID)
-		http.Error(w, "Торрент не найден", http.StatusNotFound)
+		logger.Warn("Torrent: torrent not found for streaming", "torrentID", torrentID)
+		http.Error(w, "Torrent not found", http.StatusNotFound)
 		return
 	}
 
 	fileIndex, hasSelection := s.selectedFiles[torrentID]
 	if !hasSelection {
 		s.mu.RUnlock()
-		logger.Warn("Torrent: файл не выбран для стриминга", "torrentID", torrentID)
-		http.Error(w, "Файл не выбран для стриминга", http.StatusBadRequest)
+		logger.Warn("Torrent: file not selected for streaming", "torrentID", torrentID)
+		http.Error(w, "File not selected for streaming", http.StatusBadRequest)
 		return
 	}
 
-	// Получаем список файлов пока блокировка активна
+	// Get file list while lock is active
 	files := t.Files()
 	if fileIndex >= len(files) {
 		s.mu.RUnlock()
-		logger.Warn("Torrent: неверный индекс файла при стриминге",
+		logger.Warn("Torrent: invalid file index during streaming",
 			"torrentID", torrentID,
 			"fileIndex", fileIndex,
 			"totalFiles", len(files),
 		)
-		http.Error(w, "Неверный индекс файла", http.StatusBadRequest)
+		http.Error(w, "Invalid file index", http.StatusBadRequest)
 		return
 	}
 
@@ -408,24 +426,33 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 
 	if file.Length() > maxStreamFileSize {
 		s.mu.RUnlock()
-		logger.Warn("Torrent: файл превышает максимальный размер для стриминга",
+		logger.Warn("Torrent: file exceeds maximum streaming size",
 			"torrentID", torrentID,
 			"fileSize", file.Length(),
 			"maxSize", maxStreamFileSize,
 		)
-		http.Error(w, "Файл слишком большой для стриминга", http.StatusBadRequest)
+		http.Error(w, "File too large for streaming", http.StatusBadRequest)
 		return
 	}
 
 	reader := file.NewReader()
+	s.streamWG.Add(1)
 	s.mu.RUnlock()
 
 	closer := &readCloserWithClose{ReadSeekCloser: reader}
-	defer func() { _ = closer.Close() }()
+	var streamErr error
+	defer func() {
+		closeErr := closer.Close()
+		s.streamWG.Done()
+		if closeErr != nil && streamErr == nil {
+			logger.Warn("Torrent: error closing stream reader",
+				"torrentID", torrentID, "error", closeErr)
+		}
+	}()
 
 	safeName := sanitizeFilename(file.DisplayPath())
 
-	logger.Info("Torrent: начало стриминга",
+	logger.Info("Torrent: starting stream",
 		"torrentID", torrentID,
 		"fileIndex", fileIndex,
 		"fileName", safeName,
@@ -435,20 +462,20 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 	http.ServeContent(w, r, safeName, time.Now(), closer)
 }
 
-// Close закрывает сервис торрентов с graceful shutdown.
-// Останавливает торрент-клиент и освобождает ресурсы.
-// Использует контекст с таймаутом для ожидания завершения активных загрузок.
-// После вызова сервис не может быть использован.
+// Close closes the torrent service with graceful shutdown.
+// Stops the torrent client and releases resources.
+// Uses a context with timeout for waiting on active downloads.
+// After calling Close, the service cannot be used.
 func (s *Service) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.client != nil {
-		// Создаём контекст с таймаутом для graceful shutdown
+		// Create context with timeout for graceful shutdown
 		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
 		defer cancel()
 
-		// Канал для сигнализации о завершении
+		// Channel for shutdown signaling
 		done := make(chan struct{})
 
 		torrentCount := len(s.torrents)
@@ -456,19 +483,19 @@ func (s *Service) Close() error {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.Error("Torrent: горутина close завершилась с паникой", "error", r)
+					logger.Error("Torrent: close goroutine exited with panic", "error", r)
 				}
 			}()
 			s.client.Close()
 			close(done)
 		}()
 
-		// Ожидаем завершения или таймаута
+		// Wait for completion or timeout
 		select {
 		case <-done:
-			logger.Info("Torrent: сервис остановлен gracefully", "torrentCount", torrentCount)
+			logger.Info("Torrent: service stopped gracefully", "torrentCount", torrentCount)
 		case <-ctx.Done():
-			logger.Warn("Torrent: сервис остановлен с таймаутом", "torrentCount", torrentCount)
+			logger.Warn("Torrent: service stopped with timeout", "torrentCount", torrentCount)
 		}
 	}
 
@@ -500,8 +527,8 @@ func (s *Service) torrentToInfo(t *torrent.Torrent) *models.TorrentInfo {
 	return info
 }
 
-// sanitizeFilename очищает имя файла от потенциально опасных символов и путей.
-// Предотвращает path traversal и CRLF-инъекции.
+// sanitizeFilename cleans a filename from potentially dangerous characters and paths.
+// Prevents path traversal and CRLF injections.
 func sanitizeFilename(name string) string {
 	name = path.Base(name)
 	name = strings.ReplaceAll(name, "\r", "")

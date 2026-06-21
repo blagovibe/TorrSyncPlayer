@@ -89,7 +89,7 @@ func TestMemoryPieceImpl_WriteAt(t *testing.T) {
 	n, err := p.WriteAt([]byte("hello"), 0)
 	require.NoError(t, err)
 	assert.Equal(t, 5, n)
-	assert.Equal(t, int64(5), p.bytesAllocated)
+	assert.Equal(t, int64(10), p.bytesAllocated) // allocation of full piece length
 }
 
 func TestMemoryPieceImpl_WriteAt_ExistingData(t *testing.T) {

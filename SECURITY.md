@@ -20,6 +20,7 @@ responsibly by following these steps:
 ## Security Considerations
 
 - JWT tokens are signed with HS256 and should use a strong secret (min 32 chars)
+- The `JWT_SECRET` environment variable must be set in production (the server refuses to start without one)
 - Passwords are hashed with bcrypt (cost=12)
 - HTTPS is enforced in production
 - Rate limiting is applied per-IP

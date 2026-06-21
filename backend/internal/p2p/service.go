@@ -2,15 +2,15 @@
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
 // See LICENSE file for full license text
 
-// Package p2p предоставляет сервис для P2P соединений через WebRTC.
-// Управляет комнатами, пирами и событиями в потокобезопасном режиме.
-// Поддерживает JWT аутентификацию пиров при подключении.
+// Package p2p provides the P2P service via WebRTC.
+// Manages rooms, peers and events in a thread-safe manner.
+// Supports JWT peer authentication on connection.
 package p2p
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"context"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,7 +22,9 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/utils"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
@@ -70,6 +72,7 @@ type Service struct {
 	localPeerID     string
 	localUserID     string
 	closeChan       chan struct{}
+	doneChan        chan struct{}
 	closeOnce       sync.Once
 	wg              sync.WaitGroup
 	authService     *auth.AuthService
@@ -93,7 +96,7 @@ func NewService(authService *auth.AuthService) (*Service, error) {
 		webrtc.WithSettingEngine(settingEngine),
 	)
 
-	localPeerID, err := generateID()
+	localPeerID, err := utils.GenerateID(peerIDLength)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate local peer ID: %w", err)
 	}
@@ -107,6 +110,7 @@ func NewService(authService *auth.AuthService) (*Service, error) {
 		config:          config,
 		localPeerID:     localPeerID,
 		closeChan:       make(chan struct{}),
+		doneChan:        make(chan struct{}),
 	}
 
 	service.wg.Add(1)
@@ -114,13 +118,13 @@ func NewService(authService *auth.AuthService) (*Service, error) {
 		defer service.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("P2P: горутина handleDataChannelEvents завершилась с паникой", "error", r)
+				logger.Error("P2P: handleDataChannelEvents goroutine exited with panic", "error", r)
 			}
 		}()
 		service.handleDataChannelEvents()
 	}()
 
-	logger.Info("P2P сервис инициализирован",
+	logger.Info("P2P service initialized",
 		"localPeerID", service.localPeerID,
 		"stun_servers", len(config.ICEServers[0].URLs),
 	)
@@ -131,30 +135,31 @@ func (s *Service) SetLocalUserID(userID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.localUserID = userID
-	logger.Info("P2P: установлен ID пользователя", "userID", userID)
+	logger.Info("P2P: user ID set", "userID", userID)
 }
 
-func (s *Service) CreateRoom(name, password string) (*models.RoomInfo, error) {
+func (s *Service) CreateRoom(ctx context.Context, name, password string) (*models.RoomInfo, error) {
+	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if len(s.rooms) >= maxRooms {
-		logger.Warn("P2P: превышен лимит комнат", "max", maxRooms)
-		return nil, errors.New(errors.ErrUnavailable, "превышено максимальное количество комнат")
+		logger.Warn("P2P: room limit exceeded", "max", maxRooms)
+		return nil, errors.New(errors.ErrUnavailable, "maximum number of rooms exceeded")
 	}
 
-	roomID, err := generateID()
+	roomID, err := utils.GenerateID(peerIDLength)
 	if err != nil {
-		logger.Error("P2P: ошибка генерации room ID", "error", err)
-		return nil, fmt.Errorf("ошибка генерации room ID: %w", err)
+		logger.Error("P2P: room ID generation error", "error", err)
+		return nil, fmt.Errorf("room ID generation error: %w", err)
 	}
 
 	var passwordHash string
 	if password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), constants.BcryptCost)
 		if err != nil {
-			logger.Error("P2P: ошибка хеширования пароля", "error", err, "roomID", roomID)
-			return nil, fmt.Errorf("ошибка хеширования пароля: %w", err)
+			logger.Error("P2P: password hashing error", "error", err, "roomID", roomID)
+			return nil, fmt.Errorf("password hashing error: %w", err)
 		}
 		passwordHash = string(hash)
 	}
@@ -173,7 +178,7 @@ func (s *Service) CreateRoom(name, password string) (*models.RoomInfo, error) {
 	s.rooms[roomID] = room
 	s.currentRoom = roomID
 
-	logger.Info("P2P: комната создана",
+	logger.Info("P2P: room created",
 		"roomID", roomID,
 		"name", name,
 		"hostID", s.localPeerID,
@@ -191,20 +196,21 @@ func (s *Service) CreateRoom(name, password string) (*models.RoomInfo, error) {
 	}, nil
 }
 
-func (s *Service) JoinRoom(roomID, password string) error {
+func (s *Service) JoinRoom(ctx context.Context, roomID, password string) error {
+	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	room, exists := s.rooms[roomID]
 	if !exists {
-		logger.Warn("P2P: комната не найдена", "roomID", roomID)
-		return errors.NotFound("комната", roomID)
+		logger.Warn("P2P: room not found", "roomID", roomID)
+		return errors.NotFound("room", roomID)
 	}
 
 	if room.Password != "" {
 		if err := bcrypt.CompareHashAndPassword([]byte(room.Password), []byte(password)); err != nil {
-			logger.Warn("P2P: неверный пароль комнаты", "roomID", roomID)
-			return errors.Unauthorized("неверный пароль")
+			logger.Warn("P2P: invalid room password", "roomID", roomID)
+			return errors.Unauthorized("invalid password")
 		}
 	}
 
@@ -212,9 +218,11 @@ func (s *Service) JoinRoom(roomID, password string) error {
 
 	peerConnection, err := s.api.NewPeerConnection(s.config)
 	if err != nil {
-		logger.Error("P2P: ошибка создания peer connection", "error", err, "roomID", roomID)
-		return fmt.Errorf("ошибка создания peer connection: %w", err)
+		logger.Error("P2P: error creating peer connection", "error", err, "roomID", roomID)
+		return fmt.Errorf("error creating peer connection: %w", err)
 	}
+
+	s.setupPeerConnection(peerConnection, roomID)
 
 	peer := &Peer{
 		ID:            s.localPeerID,
@@ -227,9 +235,9 @@ func (s *Service) JoinRoom(roomID, password string) error {
 	room.Peers[s.localPeerID] = peer
 	s.peers[s.localPeerID] = peer
 
-	s.setupPeerConnection(peerConnection, roomID)
+	metrics.GetInstance().PeerJoined()
 
-	logger.Info("P2P: присоединились к комнате",
+	logger.Info("P2P: joined room",
 		"roomID", roomID,
 		"peerID", s.localPeerID,
 		"userID", s.localUserID,
@@ -244,44 +252,46 @@ func (s *Service) JoinRoom(roomID, password string) error {
 	return nil
 }
 
-func (s *Service) JoinRoomWithToken(roomID, password, token string) error {
-	claims, err := s.authService.ValidateToken(token)
+func (s *Service) JoinRoomWithToken(ctx context.Context, roomID, password, token string) error {
+	_ = ctx
+	claims, err := s.authService.ValidateTokenWithRevocation(token)
 	if err != nil {
-		logger.Warn("P2P: невалидный JWT токен", "roomID", roomID, "error", err)
-		return fmt.Errorf("аутентификация не удалась: невалидный токен")
+		logger.Warn("P2P: invalid or revoked JWT token", "roomID", roomID, "error", err)
+		return fmt.Errorf("authentication failed: invalid token")
 	}
 
 	s.SetLocalUserID(claims.UserID)
 
-	logger.Info("P2P: пир аутентифицирован",
+	logger.Info("P2P: peer authenticated",
 		"roomID", roomID,
 		"userID", claims.UserID,
 		"username", claims.Username,
 	)
 
-	return s.JoinRoom(roomID, password)
+	return s.JoinRoom(ctx, roomID, password)
 }
 
-func (s *Service) AuthenticatePeer(peerID, token string) error {
+func (s *Service) AuthenticatePeer(ctx context.Context, peerID, token string) error {
+	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	peer, exists := s.peers[peerID]
 	if !exists {
-		return fmt.Errorf("пир не найден: %s", peerID)
+		return fmt.Errorf("peer not found: %s", peerID)
 	}
 
-	claims, err := s.authService.ValidateToken(token)
+	claims, err := s.authService.ValidateTokenWithRevocation(token)
 	if err != nil {
-		logger.Warn("P2P: невалидный JWT токен пира", "peerID", peerID, "error", err)
-		return fmt.Errorf("аутентификация не удалась")
+		logger.Warn("P2P: invalid or revoked peer JWT token", "peerID", peerID, "error", err)
+		return fmt.Errorf("authentication failed")
 	}
 
 	peer.UserID = claims.UserID
 	peer.Username = claims.Username
 	peer.Authenticated = true
 
-	logger.Info("P2P: пир аутентифицирован",
+	logger.Info("P2P: peer authenticated",
 		"peerID", peerID,
 		"userID", claims.UserID,
 		"username", claims.Username,
@@ -296,30 +306,31 @@ func (s *Service) AuthenticatePeer(peerID, token string) error {
 	return nil
 }
 
-func (s *Service) LeaveRoom() error {
+func (s *Service) LeaveRoom(ctx context.Context) error {
+	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.currentRoom == "" {
-		return errors.New(errors.ErrInvalidInput, "не подключены к комнате")
+		return errors.New(errors.ErrInvalidInput, "not connected to a room")
 	}
 
 	roomID := s.currentRoom
 	room, exists := s.rooms[roomID]
 	if !exists {
-		logger.Warn("P2P: комната не найдены при выходе", "roomID", roomID)
-		return errors.NotFound("комната", roomID)
+		logger.Warn("P2P: room not found on leave", "roomID", roomID)
+		return errors.NotFound("room", roomID)
 	}
 
 	if peer, exists := s.peers[s.localPeerID]; exists {
 		if peer.DataChannel != nil {
 			if err := peer.DataChannel.Close(); err != nil {
-				logger.Warn("P2P: ошибка закрытия DataChannel", "error", err, "peerID", s.localPeerID)
+				logger.Warn("P2P: error closing DataChannel", "error", err, "peerID", s.localPeerID)
 			}
 		}
 		if peer.Connection != nil {
 			if err := peer.Connection.Close(); err != nil {
-				logger.Warn("P2P: ошибка закрытия PeerConnection", "error", err, "peerID", s.localPeerID)
+				logger.Warn("P2P: error closing PeerConnection", "error", err, "peerID", s.localPeerID)
 			}
 		}
 		delete(s.peers, s.localPeerID)
@@ -329,12 +340,14 @@ func (s *Service) LeaveRoom() error {
 
 	if len(room.Peers) == 0 {
 		delete(s.rooms, roomID)
-		logger.Info("P2P: комната удалена (пустая)", "roomID", roomID)
+		metrics.GetInstance().RoomClosed()
+		logger.Info("P2P: room deleted (empty)", "roomID", roomID)
 	}
 
+	metrics.GetInstance().PeerLeft()
 	s.currentRoom = ""
 
-	logger.Info("P2P: вышли из комнаты", "roomID", roomID, "peerID", s.localPeerID)
+	logger.Info("P2P: left room", "roomID", roomID, "peerID", s.localPeerID)
 
 	s.emitEvent("peer_left", map[string]string{
 		"peerID": s.localPeerID,
@@ -344,30 +357,35 @@ func (s *Service) LeaveRoom() error {
 	return nil
 }
 
-func (s *Service) SendSignal(signal []byte) error {
+func (s *Service) SendSignal(ctx context.Context, signal []byte) error {
+	_ = ctx
+	if len(signal) > constants.MaxSignalSize {
+		return errors.InvalidInput(fmt.Sprintf("signal exceeds maximum size: %d > %d", len(signal), constants.MaxSignalSize))
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if s.currentRoom == "" {
-		return errors.InvalidInput("не подключены к комнате")
+		return errors.InvalidInput("not connected to a room")
 	}
 
 	peer, exists := s.peers[s.localPeerID]
 	if !exists {
-		return errors.InvalidInput("пир не найден")
+		return errors.InvalidInput("peer not found")
 	}
 
 	if peer.DataChannel == nil {
-		return errors.InvalidInput("data channel не создан")
+		return errors.InvalidInput("data channel not created")
 	}
 
 	err := peer.DataChannel.Send(signal)
 	if err != nil {
-		logger.Error("P2P: ошибка отправки сигнала", "error", err, "roomID", s.currentRoom)
-		return errors.Wrap(errors.ErrInternal, "ошибка отправки сигнала", err)
+		logger.Error("P2P: error sending signal", "error", err, "roomID", s.currentRoom)
+		return errors.Wrap(errors.ErrInternal, "error sending signal", err)
 	}
 
-	logger.Debug("P2P: сигнал отправлен", "roomID", s.currentRoom, "signalSize", len(signal))
+	logger.Debug("P2P: signal sent", "roomID", s.currentRoom, "signalSize", len(signal))
 	return nil
 }
 
@@ -375,17 +393,18 @@ func (s *Service) GetEvents() chan models.P2PEvent {
 	return s.eventChan
 }
 
-func (s *Service) GetRoomInfo() (*models.RoomInfo, error) {
+func (s *Service) GetRoomInfo(ctx context.Context) (*models.RoomInfo, error) {
+	_ = ctx
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if s.currentRoom == "" {
-		return nil, fmt.Errorf("не подключены к комнате")
+		return nil, fmt.Errorf("not connected to a room")
 	}
 
 	room, exists := s.rooms[s.currentRoom]
 	if !exists {
-		return nil, fmt.Errorf("комната не найдена")
+		return nil, fmt.Errorf("room not found")
 	}
 
 	return &models.RoomInfo{
@@ -401,26 +420,53 @@ func (s *Service) Close() error {
 		close(s.closeChan)
 	})
 
+	// Collect connections for closing under lock,
+	// but close them after releasing the lock
+	// to avoid deadlock: WebRTC OnClose/OnError callbacks
+	// call emitEvent, which tries to acquire RLock.
+	type peerConnections struct {
+		dataChannel io.Closer
+		connection  io.Closer
+		id          string
+	}
+	var toClose []peerConnections
+	var roomCount int
+
 	s.mu.Lock()
 	s.closed.Store(true)
 
 	for peerID, peer := range s.peers {
+		conns := peerConnections{id: peerID}
 		if peer.DataChannel != nil {
-			_ = peer.DataChannel.Close()
+			conns.dataChannel = peer.DataChannel
 		}
 		if peer.Connection != nil {
-			_ = peer.Connection.Close()
+			conns.connection = peer.Connection
 		}
-		logger.Debug("P2P: закрыто подключение пира", "peerID", peerID)
+		toClose = append(toClose, conns)
 	}
 
-	roomCount := len(s.rooms)
+	roomCount = len(s.rooms)
 	s.rooms = make(map[string]*Room)
 	s.peers = make(map[string]*Peer)
 	s.currentRoom = ""
+
+	// Close the done channel to signal emitEvent to stop sending.
+	// eventChan is left open so consumers can drain remaining events.
+	close(s.doneChan)
 	s.mu.Unlock()
 
-	close(s.eventChan)
+	// Close connections outside lock — WebRTC callbacks must not
+	// acquire mu and cause a deadlock.
+	for _, conns := range toClose {
+		if conns.dataChannel != nil {
+			_ = conns.dataChannel.Close()
+		}
+		if conns.connection != nil {
+			_ = conns.connection.Close()
+		}
+		logger.Debug("P2P: peer connection closed", "peerID", conns.id)
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -429,9 +475,9 @@ func (s *Service) Close() error {
 	}()
 	select {
 	case <-done:
-		logger.Info("P2P сервис остановлен", "closedRooms", roomCount)
+		logger.Info("P2P service stopped", "closedRooms", roomCount)
 	case <-time.After(5 * time.Second):
-		logger.Warn("P2P: таймаут ожидания завершения горутины")
+		logger.Warn("P2P: timeout waiting for goroutine to finish")
 	}
 	return nil
 }
@@ -445,7 +491,7 @@ func (s *Service) setupPeerConnection(pc *webrtc.PeerConnection, roomID string) 
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		logger.Info("P2P: состояние подключения изменилось",
+		logger.Info("P2P: connection state changed",
 			"state", state.String(),
 			"roomID", roomID,
 		)
@@ -461,7 +507,7 @@ func (s *Service) setupPeerConnection(pc *webrtc.PeerConnection, roomID string) 
 	})
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		logger.Info("P2P: получен data channel", "label", dc.Label(), "roomID", roomID)
+		logger.Info("P2P: data channel received", "label", dc.Label(), "roomID", roomID)
 
 		dc.OnOpen(func() {
 			s.emitEvent("data_channel_open", dc.Label())
@@ -480,28 +526,28 @@ func (s *Service) setupPeerConnection(pc *webrtc.PeerConnection, roomID string) 
 			PeerID:      s.localPeerID,
 			DataChannel: dc,
 		}:
-			logger.Debug("P2P: DataChannel отправлен в канал обработки", "peerID", s.localPeerID)
+			logger.Debug("P2P: DataChannel sent to processing channel", "peerID", s.localPeerID)
 		default:
-			logger.Warn("P2P: канал DataChannel полный, событие пропущено", "peerID", s.localPeerID)
+			logger.Warn("P2P: DataChannel channel full, event dropped", "peerID", s.localPeerID)
 		}
 	})
 }
 
 func (s *Service) handleDataChannelEvents() {
-	logger.Info("P2P: обработчик DataChannel событий запущен")
+	logger.Info("P2P: DataChannel event handler started")
 	for {
 		select {
 		case event := <-s.dataChannelChan:
 			s.mu.Lock()
 			if peer, exists := s.peers[event.PeerID]; exists {
 				peer.DataChannel = event.DataChannel
-				logger.Debug("P2P: DataChannel сохранён для пира", "peerID", event.PeerID)
+				logger.Debug("P2P: DataChannel saved for peer", "peerID", event.PeerID)
 			} else {
-				logger.Warn("P2P: пир не найден для DataChannel", "peerID", event.PeerID)
+				logger.Warn("P2P: peer not found for DataChannel", "peerID", event.PeerID)
 			}
 			s.mu.Unlock()
 		case <-s.closeChan:
-			logger.Info("P2P: обработчик DataChannel событий остановлен")
+			logger.Info("P2P: DataChannel event handler stopped")
 			return
 		}
 	}
@@ -513,19 +559,19 @@ func (s *Service) emitEvent(eventType string, data interface{}) {
 	}
 
 	select {
+	case <-s.doneChan:
+		return
+	default:
+	}
+
+	select {
 	case s.eventChan <- models.P2PEvent{
 		Type: eventType,
 		Data: data,
 	}:
 	default:
-		logger.Warn("P2P: канал событий полный, событие пропущено", "type", eventType)
+		logger.Warn("P2P: event channel full, event dropped", "type", eventType)
 	}
 }
 
-func generateID() (string, error) {
-	bytes := make([]byte, peerIDLength)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("failed to generate random ID: %w", err)
-	}
-	return hex.EncodeToString(bytes), nil
-}
+

@@ -67,7 +67,7 @@ func (m *integrationMockTorrentService) RemoveTorrent(ctx context.Context, id st
 	return nil
 }
 
-func (m *integrationMockTorrentService) ListTorrents() []*models.TorrentInfo {
+func (m *integrationMockTorrentService) ListTorrents(ctx context.Context) []*models.TorrentInfo {
 	result := make([]*models.TorrentInfo, 0, len(m.torrents))
 	for _, t := range m.torrents {
 		result = append(result, t)
@@ -75,7 +75,7 @@ func (m *integrationMockTorrentService) ListTorrents() []*models.TorrentInfo {
 	return result
 }
 
-func (m *integrationMockTorrentService) GetFiles(torrentID string) ([]models.FileInfo, error) {
+func (m *integrationMockTorrentService) GetFiles(ctx context.Context, torrentID string) ([]models.FileInfo, error) {
 	files, exists := m.files[torrentID]
 	if !exists {
 		return nil, fmt.Errorf("torrent not found: %s", torrentID)
@@ -83,7 +83,7 @@ func (m *integrationMockTorrentService) GetFiles(torrentID string) ([]models.Fil
 	return files, nil
 }
 
-func (m *integrationMockTorrentService) SelectFile(torrentID string, fileIndex int) error {
+func (m *integrationMockTorrentService) SelectFile(ctx context.Context, torrentID string, fileIndex int) error {
 	files, exists := m.files[torrentID]
 	if !exists {
 		return fmt.Errorf("torrent not found: %s", torrentID)
@@ -103,11 +103,11 @@ func (m *integrationMockTorrentService) Close() error {
 	return nil
 }
 
-func (m *integrationMockTorrentService) UpdateBufferPosition(torrentID string, position int64) {
+func (m *integrationMockTorrentService) UpdateBufferPosition(ctx context.Context, torrentID string, position int64) {
 	//
 }
 
-func (m *integrationMockTorrentService) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
+func (m *integrationMockTorrentService) GetBufferInfo(ctx context.Context, torrentID string) (*models.BufferInfo, error) {
 	//
 	return &models.BufferInfo{
 		TorrentID:       torrentID,
@@ -137,7 +137,7 @@ func newIntegrationMockP2PService() *integrationMockP2PService {
 	}
 }
 
-func (m *integrationMockP2PService) CreateRoom(name, password string) (*models.RoomInfo, error) {
+func (m *integrationMockP2PService) CreateRoom(ctx context.Context, name, password string) (*models.RoomInfo, error) {
 	if name == "" {
 		return nil, fmt.Errorf("room name cannot be empty")
 	}
@@ -153,12 +153,11 @@ func (m *integrationMockP2PService) CreateRoom(name, password string) (*models.R
 	return room, nil
 }
 
-func (m *integrationMockP2PService) JoinRoomWithToken(roomID, password, token string) error {
-	// Для тестов просто вызываем JoinRoom
-	return m.JoinRoom(roomID, password)
+func (m *integrationMockP2PService) JoinRoomWithToken(ctx context.Context, roomID, password, token string) error {
+	return m.JoinRoom(ctx, roomID, password)
 }
 
-func (m *integrationMockP2PService) AuthenticatePeer(peerID, token string) error {
+func (m *integrationMockP2PService) AuthenticatePeer(ctx context.Context, peerID, token string) error {
 	// Для тестов всегда успешно
 	return nil
 }
@@ -167,7 +166,7 @@ func (m *integrationMockP2PService) SetLocalUserID(userID string) {
 	// Для тестов ничего не делаем
 }
 
-func (m *integrationMockP2PService) JoinRoom(roomID, password string) error {
+func (m *integrationMockP2PService) JoinRoom(ctx context.Context, roomID, password string) error {
 	if _, exists := m.rooms[roomID]; !exists {
 		return fmt.Errorf("room not found: %s", roomID)
 	}
@@ -175,7 +174,7 @@ func (m *integrationMockP2PService) JoinRoom(roomID, password string) error {
 	return nil
 }
 
-func (m *integrationMockP2PService) LeaveRoom() error {
+func (m *integrationMockP2PService) LeaveRoom(ctx context.Context) error {
 	if m.currentRoom == "" {
 		return fmt.Errorf("not in a room")
 	}
@@ -183,7 +182,7 @@ func (m *integrationMockP2PService) LeaveRoom() error {
 	return nil
 }
 
-func (m *integrationMockP2PService) SendSignal(signal []byte) error {
+func (m *integrationMockP2PService) SendSignal(ctx context.Context, signal []byte) error {
 	if m.currentRoom == "" {
 		return fmt.Errorf("not in a room")
 	}
@@ -222,7 +221,7 @@ func (m *integrationMockP2PService) RoomEventsHandler() http.HandlerFunc {
 	}
 }
 
-func (m *integrationMockP2PService) GetRoomInfo() (*models.RoomInfo, error) {
+func (m *integrationMockP2PService) GetRoomInfo(ctx context.Context) (*models.RoomInfo, error) {
 	if m.currentRoom == "" {
 		return nil, fmt.Errorf("not in a room")
 	}
@@ -254,19 +253,19 @@ func newIntegrationMockSyncService() *integrationMockSyncService {
 	}
 }
 
-func (m *integrationMockSyncService) Play() models.SyncStatus {
+func (m *integrationMockSyncService) Play(ctx context.Context) models.SyncStatus {
 	m.status.IsPlaying = true
 	m.status.Timestamp = time.Now().UnixMilli()
 	return m.status
 }
 
-func (m *integrationMockSyncService) Pause() models.SyncStatus {
+func (m *integrationMockSyncService) Pause(ctx context.Context) models.SyncStatus {
 	m.status.IsPlaying = false
 	m.status.Timestamp = time.Now().UnixMilli()
 	return m.status
 }
 
-func (m *integrationMockSyncService) Seek(position float64) (models.SyncStatus, error) {
+func (m *integrationMockSyncService) Seek(ctx context.Context, position float64) (models.SyncStatus, error) {
 	if position < 0 || position > 86400 {
 		return m.status, fmt.Errorf("invalid position: %f", position)
 	}
@@ -275,11 +274,11 @@ func (m *integrationMockSyncService) Seek(position float64) (models.SyncStatus, 
 	return m.status, nil
 }
 
-func (m *integrationMockSyncService) GetStatus() models.SyncStatus {
+func (m *integrationMockSyncService) GetStatus(ctx context.Context) models.SyncStatus {
 	return m.status
 }
 
-func (m *integrationMockSyncService) SetDuration(duration float64) error {
+func (m *integrationMockSyncService) SetDuration(ctx context.Context, duration float64) error {
 	if duration < 0 {
 		return fmt.Errorf("invalid duration: %f", duration)
 	}
@@ -287,14 +286,14 @@ func (m *integrationMockSyncService) SetDuration(duration float64) error {
 	return nil
 }
 
-func (m *integrationMockSyncService) SyncWithLatency(peerStatus models.SyncStatus, latencyMs int) models.SyncStatus {
+func (m *integrationMockSyncService) SyncWithLatency(ctx context.Context, peerStatus models.SyncStatus, latencyMs int) models.SyncStatus {
 	m.status.Position = peerStatus.Position
 	m.status.IsPlaying = peerStatus.IsPlaying
 	m.status.Timestamp = time.Now().UnixMilli()
 	return m.status
 }
 
-func (m *integrationMockSyncService) UpdatePosition(position float64) error {
+func (m *integrationMockSyncService) UpdatePosition(ctx context.Context, position float64) error {
 	if position < 0 || position > 86400 {
 		return fmt.Errorf("invalid position: %f", position)
 	}
@@ -370,7 +369,7 @@ func getIntegrationTestAuthToken(t *testing.T, server *httptest.Server) string {
 	}
 
 	// Регистрируем пользователя с CSRF токеном
-	registerBody := `{"username":"integrationtestuser","password":"testpass123"}`
+	registerBody := `{"username":"integrationtestuser","password":"TestPass1!"}`
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/register", strings.NewReader(registerBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", csrfToken)
@@ -436,12 +435,12 @@ func TestIntegrationAuthRegistration(t *testing.T) {
 	}{
 		{
 			name:     "valid registration",
-			body:     `{"username":"newuser","password":"newpass123"}`,
+			body:     `{"username":"newuser","password":"TestPass1!"}`,
 			wantCode: http.StatusCreated,
 		},
 		{
 			name:     "missing username",
-			body:     `{"password":"newpass123"}`,
+			body:     `{"password":"TestPass1!"}`,
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -498,7 +497,7 @@ func TestIntegrationAuthLogin(t *testing.T) {
 	}
 
 	// Сначала регистрируем пользователя
-	registerBody := `{"username":"logintest","password":"loginpass123"}`
+	registerBody := `{"username":"logintest","password":"TestPass1!"}`
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/register", strings.NewReader(registerBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", csrfToken)
@@ -522,7 +521,7 @@ func TestIntegrationAuthLogin(t *testing.T) {
 	}{
 		{
 			name:     "valid login",
-			body:     `{"username":"logintest","password":"loginpass123"}`,
+			body:     `{"username":"logintest","password":"TestPass1!"}`,
 			wantCode: http.StatusOK,
 		},
 		{
@@ -532,7 +531,7 @@ func TestIntegrationAuthLogin(t *testing.T) {
 		},
 		{
 			name:     "non-existent user",
-			body:     `{"username":"nonexistent","password":"somepass123"}`,
+			body:     `{"username":"nonexistent","password":"TestPass1!"}`,
 			wantCode: http.StatusUnauthorized,
 		},
 	}
@@ -623,12 +622,17 @@ func TestIntegrationTorrentOperations(t *testing.T) {
 	defer server.Close()
 
 	token := getIntegrationTestAuthToken(t, server)
+	csrfToken, err := getIntegrationTestCSRFToken(server)
+	if err != nil {
+		t.Fatalf("Failed to get CSRF token: %v", err)
+	}
 
 	// Тест добавления торрента
 	t.Run("add torrent", func(t *testing.T) {
 		body := `{"magnetUri":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/torrents", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -689,6 +693,7 @@ func TestIntegrationTorrentOperations(t *testing.T) {
 		body := `{"magnetUri":"invalid-magnet"}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/torrents", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -709,7 +714,10 @@ func TestIntegrationRoomOperations(t *testing.T) {
 	defer server.Close()
 
 	token := getIntegrationTestAuthToken(t, server)
-
+	csrfToken, err := getIntegrationTestCSRFToken(server)
+	if err != nil {
+		t.Fatalf("Failed to get CSRF token: %v", err)
+	}
 	var roomID string
 
 	// Тест создания комнаты
@@ -717,6 +725,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		body := `{"name":"Test Room","password":""}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/rooms", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -750,6 +759,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		body := `{"name":""}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/rooms", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -768,6 +778,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		body := fmt.Sprintf(`{"roomId":"%s","password":""}`, roomID)
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/rooms/join", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -786,6 +797,7 @@ func TestIntegrationRoomOperations(t *testing.T) {
 		body := `{}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/rooms/leave", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -806,6 +818,10 @@ func TestIntegrationSyncOperations(t *testing.T) {
 	defer server.Close()
 
 	token := getIntegrationTestAuthToken(t, server)
+	csrfToken, err := getIntegrationTestCSRFToken(server)
+	if err != nil {
+		t.Fatalf("Failed to get CSRF token: %v", err)
+	}
 
 	// Тест получения статуса синхронизации
 	t.Run("get sync status", func(t *testing.T) {
@@ -833,6 +849,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		body := `{}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/sync/play", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -860,6 +877,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		body := `{"position":120.5}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/sync/seek", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
@@ -887,6 +905,7 @@ func TestIntegrationSyncOperations(t *testing.T) {
 		body := `{"position":-10}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/sync/seek", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-CSRF-Token", csrfToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)

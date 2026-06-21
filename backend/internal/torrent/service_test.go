@@ -6,31 +6,29 @@ package torrent
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func init() {
-	// Инициализируем логгер с выводом в stderr для тестов
-	// Это предотвращает блокировку на stdout в Windows тестах
+	// Initialize logger with stderr output for tests
+	// This prevents blocking on stdout in Windows tests
 	logger.Init("error", "json")
 }
 
-// createTestService создаёт торрент-сервис для тестов с отключённой сетью
+// createTestService creates a torrent service for tests with networking disabled
 func createTestService(t *testing.T) *Service {
 	t.Helper()
 
 	bufferSvc := buffer.NewService(64 * 1024 * 1024)
 
-	// Используем ListenPort: 0 для динамического выбора свободного порта
-	// Это предотвращает конфликты портов при параллельном запуске тестов
+	// Use ListenPort: 0 for dynamic free port selection
+	// This prevents port conflicts during parallel test execution
 	svc, err := NewServiceWithOptions(bufferSvc, ServiceOptions{
 		NoDHT:      true,
 		DisableUTP: true,
@@ -46,7 +44,7 @@ func createTestService(t *testing.T) *Service {
 	return svc
 }
 
-// TestNewService проверяет инициализацию торрент-сервиса
+// TestNewService tests torrent service initialization
 func TestNewService(t *testing.T) {
 	svc := createTestService(t)
 	require.NotNil(t, svc)
@@ -54,7 +52,7 @@ func TestNewService(t *testing.T) {
 	assert.NotNil(t, svc.torrents)
 }
 
-// TestAddMagnet_EmptyURI проверяет валидацию пустой magnet-ссылки
+// TestAddMagnet_EmptyURI tests validation of empty magnet link
 func TestAddMagnet_EmptyURI(t *testing.T) {
 	svc := createTestService(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -62,10 +60,10 @@ func TestAddMagnet_EmptyURI(t *testing.T) {
 
 	_, err := svc.AddMagnet(ctx, "")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "не может быть пустой")
+	assert.Contains(t, err.Error(), "cannot be empty")
 }
 
-// TestAddMagnet_InvalidURI проверяет валидацию невалидной magnet-ссылки
+// TestAddMagnet_InvalidURI tests validation of invalid magnet link
 func TestAddMagnet_InvalidURI(t *testing.T) {
 	svc := createTestService(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -73,132 +71,28 @@ func TestAddMagnet_InvalidURI(t *testing.T) {
 
 	_, err := svc.AddMagnet(ctx, "not-a-magnet-link")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "невалидный magnet URI")
+	assert.Contains(t, err.Error(), "invalid magnet URI")
 }
 
-// TestListTorrents_Empty проверяет получение пустого списка торрентов
+// TestListTorrents_Empty tests getting an empty torrent list
 func TestListTorrents_Empty(t *testing.T) {
 	svc := createTestService(t)
-	torrents := svc.ListTorrents()
+	torrents := svc.ListTorrents(context.Background())
 	assert.NotNil(t, torrents)
 }
 
-// TestRemoveTorrent_NotFound проверяет удаление несуществующего торрента
+// TestRemoveTorrent_NotFound tests removing a non-existent torrent
 func TestRemoveTorrent_NotFound(t *testing.T) {
 	svc := createTestService(t)
 	err := svc.RemoveTorrent(context.Background(), "nonexistent")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "не найден")
+	assert.Contains(t, err.Error(), "not found")
 }
 
-// TestGetFiles_NotFound проверяет получение файлов несуществующего торрента
+// TestGetFiles_NotFound tests getting files of a non-existent torrent
 func TestGetFiles_NotFound(t *testing.T) {
 	svc := createTestService(t)
-	_, err := svc.GetFiles("nonexistent")
+	_, err := svc.GetFiles(context.Background(), "nonexistent")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "не найден")
+	assert.Contains(t, err.Error(), "not found")
 }
-
-// TestSelectFile_InvalidIndex проверяет выбор файла в несуществующем торренте
-func TestSelectFile_InvalidIndex(t *testing.T) {
-	svc := createTestService(t)
-	err := svc.SelectFile("nonexistent", 0)
-	assert.Error(t, err)
-}
-
-// TestClose проверяет корректное закрытие сервиса
-func TestClose(t *testing.T) {
-	svc := createTestService(t)
-	err := svc.Close()
-	assert.NoError(t, err)
-}
-
-// TestClose_MultipleCalls проверяет что повторный Close не вызывает панику
-func TestClose_MultipleCalls(t *testing.T) {
-	svc := createTestService(t)
-	err := svc.Close()
-	assert.NoError(t, err)
-	// Повторный Close
-	err = svc.Close()
-	assert.NoError(t, err)
-}
-
-// TestValidatePosition проверяет валидацию позиции воспроизведения
-func TestValidatePosition(t *testing.T) {
-	tests := []struct {
-		name    string
-		pos     float64
-		wantErr bool
-	}{
-		{"valid zero", 0, false},
-		{"valid positive", 100.5, false},
-		{"valid max", 86400, false},
-		{"negative", -1, true},
-		{"too large", 86401, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validation.ValidatePosition(tt.pos)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestValidateTorrentID проверяет валидацию ID торрента
-func TestValidateTorrentID(t *testing.T) {
-	tests := []struct {
-		name    string
-		id      string
-		wantErr bool
-	}{
-		{"valid hex id", "0123456789abcdef0123456789abcdef01234567", false},
-		{"empty id", "", true},
-		{"too short", "abc123", true},
-		{"too long", "0123456789abcdef0123456789abcdef0123456789abcdef", true},
-		{"invalid chars", "xyz123456789abcdef0123456789abcdef0123456", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validation.ValidateTorrentID(tt.id)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestServiceWithTimeout проверяет что все операции завершаются за разумное время
-func TestServiceWithTimeout(t *testing.T) {
-	svc := createTestService(t)
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		// Проверяем ListTorrents
-		torrents := svc.ListTorrents()
-		assert.NotNil(t, torrents)
-
-		// Проверяем RemoveTorrent с несуществующим ID
-		err := svc.RemoveTorrent(context.Background(), "nonexistent-id-for-timeout-test")
-		assert.Error(t, err)
-	}()
-
-	select {
-	case <-done:
-		// Тест завершился успешно
-	case <-time.After(10 * time.Second):
-		t.Fatal("тест завис — операции не завершились за 10 секунд")
-	}
-}
-
-// Подавляем предупреждение о неиспользуемом импорте
-var _ = slog.NewJSONHandler

@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,105 +12,105 @@ import (
 )
 
 func init() {
-	// Инициализируем логгер для тестов
+	// Initialize logger for tests
 	logger.Init("error", "json")
 }
 
-// TestNewService проверяет инициализацию сервиса синхронизации
+// TestNewService tests the sync service initialization
 func TestNewService(t *testing.T) {
 	svc := NewService()
 	require.NotNil(t, svc)
 
 	defer svc.Close()
 
-	status := svc.GetStatus()
+	status := svc.GetStatus(context.Background())
 	assert.False(t, status.IsPlaying)
 	assert.Equal(t, float64(0), status.Position)
 	assert.Equal(t, float64(0), status.Duration)
 	assert.Greater(t, status.Timestamp, int64(0))
 }
 
-// TestPlay проверяет запуск воспроизведения
+// TestPlay tests starting playback
 func TestPlay(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	status := svc.Play()
+	status := svc.Play(context.Background())
 	assert.True(t, status.IsPlaying)
 	assert.Greater(t, status.Timestamp, int64(0))
 }
 
-// TestPause проверяет приостановку воспроизведения
+// TestPause tests pausing playback
 func TestPause(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Сначала запускаем
-	svc.Play()
+	// First start playback
+	svc.Play(context.Background())
 
-	// Затем ставим на паузу
-	status := svc.Pause()
+	// Then pause
+	status := svc.Pause(context.Background())
 	assert.False(t, status.IsPlaying)
 }
 
-// TestSeek проверяет перемотку на указанную позицию
+// TestSeek tests seeking to a specified position
 func TestSeek(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	status, err := svc.Seek(100.5)
+	status, err := svc.Seek(context.Background(), 100.5)
 	require.NoError(t, err)
 	assert.Equal(t, 100.5, status.Position)
 }
 
-// TestSeek_InvalidPosition проверяет перемотку с невалидной позицией
+// TestSeek_InvalidPosition tests seeking with invalid position
 func TestSeek_InvalidPosition(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Отрицательная позиция
-	_, err := svc.Seek(-1)
+	// Negative position
+	_, err := svc.Seek(context.Background(), -1)
 	assert.Error(t, err)
 
-	// Слишком большая позиция
-	_, err = svc.Seek(100000)
+	// Position too large
+	_, err = svc.Seek(context.Background(), 100000)
 	assert.Error(t, err)
 }
 
-// TestSetDuration проверяет установку длительности
+// TestSetDuration tests setting duration
 func TestSetDuration(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	err := svc.SetDuration(3600.0)
+	err := svc.SetDuration(context.Background(), 3600.0)
 	require.NoError(t, err)
 
-	status := svc.GetStatus()
+	status := svc.GetStatus(context.Background())
 	assert.Equal(t, 3600.0, status.Duration)
 }
 
-// TestSetDuration_Invalid проверяет установку невалидной длительности
+// TestSetDuration_Invalid tests setting invalid duration
 func TestSetDuration_Invalid(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	err := svc.SetDuration(-1)
+	err := svc.SetDuration(context.Background(), -1)
 	assert.Error(t, err)
 }
 
-// TestUpdatePosition проверяет обновление позиции
+// TestUpdatePosition tests updating position
 func TestUpdatePosition(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	err := svc.UpdatePosition(50.0)
+	err := svc.UpdatePosition(context.Background(), 50.0)
 	require.NoError(t, err)
 
-	status := svc.GetStatus()
+	status := svc.GetStatus(context.Background())
 	assert.Equal(t, 50.0, status.Position)
 }
 
-// TestSyncWithLatency проверяет синхронизацию с учётом задержки сети
+// TestSyncWithLatency tests synchronization with network latency
 func TestSyncWithLatency(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
@@ -121,18 +122,18 @@ func TestSyncWithLatency(t *testing.T) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	status := svc.SyncWithLatency(peerStatus, 50) // 50ms задержка
+	status := svc.SyncWithLatency(context.Background(), peerStatus, 50) // 50ms latency
 	assert.True(t, status.IsPlaying)
 	assert.Greater(t, status.Position, float64(0))
 }
 
-// TestSyncWithLatency_Pause проверяет синхронизацию с состоянием паузы
+// TestSyncWithLatency_Pause tests synchronization with pause state
 func TestSyncWithLatency_Pause(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Запускаем воспроизведение
-	svc.Play()
+	// Start playback
+	svc.Play(context.Background())
 
 	peerStatus := models.SyncStatus{
 		IsPlaying: false,
@@ -141,38 +142,38 @@ func TestSyncWithLatency_Pause(t *testing.T) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	status := svc.SyncWithLatency(peerStatus, 0)
+	status := svc.SyncWithLatency(context.Background(), peerStatus, 0)
 	assert.False(t, status.IsPlaying)
 }
 
-// TestClose проверяет закрытие сервиса
+// TestClose tests closing the service
 func TestClose(t *testing.T) {
 	svc := NewService()
 
-	// Запускаем
-	svc.Play()
-	status := svc.GetStatus()
+	// Start
+	svc.Play(context.Background())
+	status := svc.GetStatus(context.Background())
 	assert.True(t, status.IsPlaying)
 
-	// Закрываем
+	// Close
 	svc.Close()
 
-	// После закрытия статус не должен меняться
-	status = svc.Play()
+	// After close, status should not change
+	status = svc.Play(context.Background())
 	assert.False(t, status.IsPlaying)
 }
 
-// TestClose_MultipleCalls проверяет что множественные вызовы Close безопасны
+// TestClose_MultipleCalls tests that multiple Close calls are safe
 func TestClose_MultipleCalls(t *testing.T) {
 	svc := NewService()
 
-	// Множественные вызовы Close не должны вызывать панику
+	// Multiple Close calls should not cause panic
 	svc.Close()
 	svc.Close()
 	svc.Close()
 }
 
-// TestValidatePosition проверяет валидацию позиции
+// TestValidatePosition tests position validation
 func TestValidatePosition(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
@@ -191,7 +192,7 @@ func TestValidatePosition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Seek(tt.pos)
+			_, err := svc.Seek(context.Background(), tt.pos)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -201,91 +202,91 @@ func TestValidatePosition(t *testing.T) {
 	}
 }
 
-// ============ Новые интеграционные тесты ============
+// ============ New integration tests ============
 
-// TestSyncPlayback_FullCycle проверяет полный цикл синхронизации воспроизведения
+// TestSyncPlayback_FullCycle tests a full playback synchronization cycle
 func TestSyncPlayback_FullCycle(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// 1. Начальное состояние — пауза
-	status := svc.GetStatus()
+	// 1. Initial state — paused
+	status := svc.GetStatus(context.Background())
 	assert.False(t, status.IsPlaying)
 	assert.Equal(t, float64(0), status.Position)
 
-	// 2. Устанавливаем длительность
-	err := svc.SetDuration(7200.0) // 2 часа
+	// 2. Set duration
+	err := svc.SetDuration(context.Background(), 7200.0) // 2 hours
 	require.NoError(t, err)
 
-	// 3. Запускаем воспроизведение
-	status = svc.Play()
+	// 3. Start playback
+	status = svc.Play(context.Background())
 	assert.True(t, status.IsPlaying)
 
-	// 4. Обновляем позицию
-	err = svc.UpdatePosition(120.0)
+	// 4. Update position
+	err = svc.UpdatePosition(context.Background(), 120.0)
 	require.NoError(t, err)
 
-	status = svc.GetStatus()
+	status = svc.GetStatus(context.Background())
 	assert.Equal(t, 120.0, status.Position)
 	assert.True(t, status.IsPlaying)
 
-	// 5. Перематываем
-	status, err = svc.Seek(300.0)
+	// 5. Seek
+	status, err = svc.Seek(context.Background(), 300.0)
 	require.NoError(t, err)
 	assert.Equal(t, 300.0, status.Position)
 
-	// 6. Ставим на паузу
-	status = svc.Pause()
+	// 6. Pause
+	status = svc.Pause(context.Background())
 	assert.False(t, status.IsPlaying)
 	assert.Equal(t, 300.0, status.Position)
 
-	// 7. Проверяем что длительность сохранилась
-	status = svc.GetStatus()
+	// 7. Verify duration is preserved
+	status = svc.GetStatus(context.Background())
 	assert.Equal(t, 7200.0, status.Duration)
 }
 
-// TestSyncPlayback_SeekBoundaries проверяет перемотку на граничных значениях
+// TestSyncPlayback_SeekBoundaries tests seeking at boundary values
 func TestSyncPlayback_SeekBoundaries(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Устанавливаем длительность
-	err := svc.SetDuration(3600.0)
+	// Set duration
+	err := svc.SetDuration(context.Background(), 3600.0)
 	require.NoError(t, err)
 
-	// Перемотка в начало
-	status, err := svc.Seek(0)
+	// Seek to start
+	status, err := svc.Seek(context.Background(), 0)
 	require.NoError(t, err)
 	assert.Equal(t, float64(0), status.Position)
 
-	// Перемотка в конец
-	status, err = svc.Seek(3600.0)
+	// Seek to end
+	status, err = svc.Seek(context.Background(), 3600.0)
 	require.NoError(t, err)
 	assert.Equal(t, 3600.0, status.Position)
 }
 
-// TestGetPlaybackState_Consistency проверяет консистентность состояния
+// TestGetPlaybackState_Consistency tests state consistency
 func TestGetPlaybackState_Consistency(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Получаем состояние несколько раз — оно должно быть консистентным
-	status1 := svc.GetStatus()
-	status2 := svc.GetStatus()
+	// Get state multiple times — it should be consistent
+	status1 := svc.GetStatus(context.Background())
+	status2 := svc.GetStatus(context.Background())
 	assert.Equal(t, status1.IsPlaying, status2.IsPlaying)
 	assert.Equal(t, status1.Position, status2.Position)
 	assert.Equal(t, status1.Duration, status2.Duration)
 
-	// После изменений состояние должно отражать изменения
-	svc.Play()
-	_ = svc.UpdatePosition(42.0)
+	// After changes, state should reflect the changes
+	svc.Play(context.Background())
+	_ = svc.UpdatePosition(context.Background(), 42.0)
 
-	status3 := svc.GetStatus()
+	status3 := svc.GetStatus(context.Background())
 	assert.True(t, status3.IsPlaying)
 	assert.Equal(t, 42.0, status3.Position)
 }
 
-// TestSyncWithLatency_LargeLatency проверяет синхронизацию с большой задержкой
+// TestSyncWithLatency_LargeLatency tests synchronization with large latency
 func TestSyncWithLatency_LargeLatency(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
@@ -297,20 +298,20 @@ func TestSyncWithLatency_LargeLatency(t *testing.T) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	// Большая задержка 500ms
-	status := svc.SyncWithLatency(peerStatus, 500)
+	// Large delay 500ms
+	status := svc.SyncWithLatency(context.Background(), peerStatus, 500)
 	assert.True(t, status.IsPlaying)
-	// Позиция должна быть скорректирована с учётом задержки
+	// Position should be adjusted for latency
 	assert.Greater(t, status.Position, float64(0))
 }
 
-// TestSyncWithLatency_ZeroLatency проверяет синхронизацию без задержки
+// TestSyncWithLatency_ZeroLatency tests synchronization with zero latency
 func TestSyncWithLatency_ZeroLatency(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Устанавливаем позицию близко к пиру (разница < 2с — полная подстройка)
-	err := svc.UpdatePosition(199.0)
+	// Set position close to peer (difference < 2s — full adjustment)
+	err := svc.UpdatePosition(context.Background(), 199.0)
 	require.NoError(t, err)
 
 	now := time.Now().UnixMilli()
@@ -321,22 +322,22 @@ func TestSyncWithLatency_ZeroLatency(t *testing.T) {
 		Timestamp: now,
 	}
 
-	status := svc.SyncWithLatency(peerStatus, 0)
+	status := svc.SyncWithLatency(context.Background(), peerStatus, 0)
 	assert.False(t, status.IsPlaying)
-	// При малом расхождении (<2с) должна быть полная подстройка
+	// With small discrepancy (<2s) full adjustment should occur
 	assert.InDelta(t, 200.0, status.Position, 0.1)
 }
 
-// TestSyncWithLatency_SmallDifference проверяет плавную подстройку при малом расхождении
+// TestSyncWithLatency_SmallDifference tests smooth adjustment with small discrepancy
 func TestSyncWithLatency_SmallDifference(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Устанавливаем текущую позицию
-	err := svc.UpdatePosition(100.0)
+	// Set current position
+	err := svc.UpdatePosition(context.Background(), 100.0)
 	require.NoError(t, err)
 
-	// Пир с небольшим расхождением (менее 2 секунд)
+	// Peer with small discrepancy (less than 2 seconds)
 	peerStatus := models.SyncStatus{
 		IsPlaying: true,
 		Position:  101.0,
@@ -344,21 +345,21 @@ func TestSyncWithLatency_SmallDifference(t *testing.T) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	status := svc.SyncWithLatency(peerStatus, 0)
-	// При малом расхождении должна быть полная подстройка
+	status := svc.SyncWithLatency(context.Background(), peerStatus, 0)
+	// With small discrepancy full adjustment should occur
 	assert.InDelta(t, 101.0, status.Position, 0.1)
 }
 
-// TestSyncWithLatency_LargeDifference проверяет плавную подстройку при большом расхождении
+// TestSyncWithLatency_LargeDifference tests smooth adjustment with large discrepancy
 func TestSyncWithLatency_LargeDifference(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Устанавливаем текущую позицию
-	err := svc.UpdatePosition(100.0)
+	// Set current position
+	err := svc.UpdatePosition(context.Background(), 100.0)
 	require.NoError(t, err)
 
-	// Пир с большим расхождением (более 2 секунд — максимальный прыжок)
+	// Peer with large discrepancy (more than 2 seconds — maximum jump)
 	peerStatus := models.SyncStatus{
 		IsPlaying: true,
 		Position:  200.0,
@@ -366,86 +367,86 @@ func TestSyncWithLatency_LargeDifference(t *testing.T) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	status := svc.SyncWithLatency(peerStatus, 0)
-	// При большом расхождении должна быть плавная подстройка (30% от разницы)
-	// Разница = 100, 30% = 30, новая позиция = 100 + 30 = 130
+	status := svc.SyncWithLatency(context.Background(), peerStatus, 0)
+	// With large discrepancy smooth adjustment should occur (30% of difference)
+	// Difference = 100, 30% = 30, new position = 100 + 30 = 130
 	assert.InDelta(t, 130.0, status.Position, 0.1)
 }
 
-// TestUpdatePosition_InvalidValues проверяет обновление позиции с невалидными значениями
+// TestUpdatePosition_InvalidValues tests updating position with invalid values
 func TestUpdatePosition_InvalidValues(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Отрицательная позиция
-	err := svc.UpdatePosition(-10.0)
+	// Negative position
+	err := svc.UpdatePosition(context.Background(), -10.0)
 	assert.Error(t, err)
 
-	// Слишком большая позиция
-	err = svc.UpdatePosition(90000.0)
+	// Position too large
+	err = svc.UpdatePosition(context.Background(), 90000.0)
 	assert.Error(t, err)
 }
 
-// TestSetDuration_EdgeCases проверяет установку длительности в граничных случаях
+// TestSetDuration_EdgeCases tests setting duration in edge cases
 func TestSetDuration_EdgeCases(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	// Нулевая длительность — допустима
-	err := svc.SetDuration(0)
+	// Zero duration — allowed
+	err := svc.SetDuration(context.Background(), 0)
 	assert.NoError(t, err)
 
-	// Отрицательная — недопустима
-	err = svc.SetDuration(-1)
+	// Negative — not allowed
+	err = svc.SetDuration(context.Background(), -1)
 	assert.Error(t, err)
 }
 
-// TestPlayPauseSequence проверяет последовательность Play/Pause
+// TestPlayPauseSequence tests the Play/Pause sequence
 func TestPlayPauseSequence(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
 	for i := 0; i < 5; i++ {
-		status := svc.Play()
+		status := svc.Play(context.Background())
 		assert.True(t, status.IsPlaying)
 
-		status = svc.Pause()
+		status = svc.Pause(context.Background())
 		assert.False(t, status.IsPlaying)
 	}
 }
 
-// TestClosedService_Operations проверяет поведение операций после закрытия
+// TestClosedService_Operations tests operation behavior after close
 func TestClosedService_Operations(t *testing.T) {
 	svc := NewService()
 	svc.Close()
 
-	// Play после закрытия
-	status := svc.Play()
+	// Play after close
+	status := svc.Play(context.Background())
 	assert.False(t, status.IsPlaying)
 
-	// Pause после закрытия
-	status = svc.Pause()
+	// Pause after close
+	status = svc.Pause(context.Background())
 	assert.False(t, status.IsPlaying)
 
-	// Seek после закрытия
-	_, err := svc.Seek(100.0)
+	// Seek after close
+	_, err := svc.Seek(context.Background(), 100.0)
 	assert.Error(t, err)
 
-	// SetDuration после закрытия
-	err = svc.SetDuration(3600.0)
+	// SetDuration after close
+	err = svc.SetDuration(context.Background(), 3600.0)
 	assert.Error(t, err)
 
-	// UpdatePosition после закрытия
-	err = svc.UpdatePosition(50.0)
+	// UpdatePosition after close
+	err = svc.UpdatePosition(context.Background(), 50.0)
 	assert.Error(t, err)
 
-	// SyncWithLatency после закрытия
+	// SyncWithLatency after close
 	peerStatus := models.SyncStatus{
 		IsPlaying: true,
 		Position:  100.0,
 		Duration:  3600.0,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	status = svc.SyncWithLatency(peerStatus, 0)
+	status = svc.SyncWithLatency(context.Background(), peerStatus, 0)
 	assert.False(t, status.IsPlaying)
 }

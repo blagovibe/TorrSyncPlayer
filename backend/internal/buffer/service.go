@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package buffer
 
 import (
@@ -11,13 +13,6 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
-
-type CacheEntry struct {
-	PieceIndex int
-	Data       []byte
-	Size       int64
-	AccessTime time.Time
-}
 
 type TorrentBuffer struct {
 	TorrentID       string
@@ -74,7 +69,7 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 		"pieceSize", pieceSize)
 }
 
-func (s *Service) UpdatePosition(torrentID string, position int64) {
+func (s *Service) UpdatePosition(ctx context.Context, torrentID string, position int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -112,8 +107,19 @@ func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
 
 	nowEndPiece := startPiece + constants.BufferNowPieces
 	highEndPiece := startPiece + constants.BufferHighPieces
+	readAheadEnd := endPiece + 20
 
-	for i := 0; i < tb.TotalPieces; i++ {
+	// Scan only the relevant range instead of all pieces
+	low := 0
+	high := tb.TotalPieces - 1
+	if readAheadEnd < high {
+		high = readAheadEnd
+	}
+	if startPiece-1 > low {
+		low = startPiece - 1
+	}
+
+	for i := low; i <= high; i++ {
 		piece := t.Piece(i)
 
 		if i >= startPiece && i <= endPiece {
@@ -124,17 +130,23 @@ func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
 			} else {
 				piece.SetPriority(torrent.PiecePriorityNormal)
 			}
-		} else if i > endPiece && i <= endPiece+20 {
+		} else if i > endPiece && i <= readAheadEnd {
 			piece.SetPriority(torrent.PiecePriorityReadahead)
-		} else if i < startPiece {
-			piece.SetPriority(torrent.PiecePriorityNone)
 		} else {
 			piece.SetPriority(torrent.PiecePriorityNone)
 		}
 	}
+
+	// Reset priority for pieces outside the range
+	for i := 0; i < low; i++ {
+		t.Piece(i).SetPriority(torrent.PiecePriorityNone)
+	}
+	for i := high + 1; i < tb.TotalPieces; i++ {
+		t.Piece(i).SetPriority(torrent.PiecePriorityNone)
+	}
 }
 
-func (s *Service) GetBufferInfo(torrentID string) (*models.BufferInfo, error) {
+func (s *Service) GetBufferInfo(ctx context.Context, torrentID string) (*models.BufferInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -183,11 +195,9 @@ func (s *Service) UnregisterTorrent(torrentID string) {
 }
 
 func (s *Service) StartPeriodicUpdate(interval time.Duration) {
+	s.StopPeriodicUpdate()
+
 	s.mu.Lock()
-	if s.cancelFunc != nil {
-		s.cancelFunc()
-		s.wg.Wait()
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelFunc = cancel
 	s.mu.Unlock()

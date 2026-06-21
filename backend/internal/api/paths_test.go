@@ -10,32 +10,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAPIPaths_Health проверяет пути health check
+// TestAPIPaths_Health tests health check paths
 func TestAPIPaths_Health(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/health", APIPathHealth)
 	assert.Equal(t, "/health/detailed", APIPathHealthDetailed)
 }
 
-// TestAPIPaths_Version проверяет путь версии
+// TestAPIPaths_Version tests version path
 func TestAPIPaths_Version(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/api/v1/version", APIPathVersion)
 }
 
-// TestAPIPaths_Metrics проверяет путь метрик
+// TestAPIPaths_Metrics tests metrics path
 func TestAPIPaths_Metrics(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/metrics", APIPathMetrics)
 }
 
-// TestAPIPaths_CSRF проверяет путь CSRF токена
+// TestAPIPaths_CSRF tests CSRF token path
 func TestAPIPaths_CSRF(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/api/v1/csrf-token", APIPathCSRFToken)
 }
 
-// TestAPIPaths_Auth проверяет пути аутентификации
+// TestAPIPaths_Auth tests authentication paths
 func TestAPIPaths_Auth(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/api/v1/auth/register", APIPathAuthRegister)
@@ -43,7 +43,7 @@ func TestAPIPaths_Auth(t *testing.T) {
 	assert.Equal(t, "/api/v1/auth/logout", APIPathAuthLogout)
 }
 
-// TestAPIPaths_Torrents проверяет пути торрентов
+// TestAPIPaths_Torrents tests torrent paths
 func TestAPIPaths_Torrents(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/api/v1/torrents", APIPathTorrents)
@@ -53,7 +53,7 @@ func TestAPIPaths_Torrents(t *testing.T) {
 	assert.Equal(t, "/api/v1/torrents/{id}", APIPathTorrentRemove)
 }
 
-// TestAPIPaths_Rooms проверяет путей комнат
+// TestAPIPaths_Rooms tests room paths
 func TestAPIPaths_Rooms(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/api/v1/rooms", APIPathRooms)
@@ -63,7 +63,7 @@ func TestAPIPaths_Rooms(t *testing.T) {
 	assert.Equal(t, "/api/v1/rooms/events", APIPathRoomEvents)
 }
 
-// TestAPIPaths_Sync проверяет пути синхронизации
+// TestAPIPaths_Sync tests sync paths
 func TestAPIPaths_Sync(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "/api/v1/sync/play", APIPathSyncPlay)
@@ -72,7 +72,7 @@ func TestAPIPaths_Sync(t *testing.T) {
 	assert.Equal(t, "/api/v1/sync/status", APIPathSyncStatus)
 }
 
-// TestAPIPaths_AllDefined проверяет что все пути определены и не пустые
+// TestAPIPaths_AllDefined tests that all paths are defined and non-empty
 func TestAPIPaths_AllDefined(t *testing.T) {
 	t.Parallel()
 	paths := map[string]string{
@@ -102,13 +102,13 @@ func TestAPIPaths_AllDefined(t *testing.T) {
 
 	for name, path := range paths {
 		t.Run(name, func(t *testing.T) {
-			assert.NotEmpty(t, path, "путь %s не должен быть пустым", name)
-			assert.True(t, len(path) > 1, "путь %s должен начинаться с /", name)
+			assert.NotEmpty(t, path, "path %s must not be empty", name)
+			assert.True(t, len(path) > 1, "path %s should start with /", name)
 		})
 	}
 }
 
-// TestAPIPaths_Consistency проверяет консистентность путей (все начинаются с /api/v1 или /health или /metrics)
+// TestAPIPaths_Consistency tests path consistency (all start with /api/v1 or /health or /metrics)
 func TestAPIPaths_Consistency(t *testing.T) {
 	t.Parallel()
 	apiPaths := []string{
@@ -134,11 +134,11 @@ func TestAPIPaths_Consistency(t *testing.T) {
 	}
 
 	for _, path := range apiPaths {
-		assert.True(t, len(path) > 5, "путь %s слишком короткий", path)
-		// Проверяем что путь начинается с /api/v1 или /health или /metrics
+		assert.True(t, len(path) > 5, "path %s is too short", path)
+		// Check that path starts with /api/v1 or /health or /metrics
 		hasValidPrefix := len(path) >= 7 && path[:7] == "/api/v1" ||
 			len(path) >= 7 && path[:7] == "/health" ||
 			len(path) >= 8 && path[:8] == "/metrics"
-		assert.True(t, hasValidPrefix, "путь %s должен начинаться с /api/v1, /health или /metrics", path)
+		assert.True(t, hasValidPrefix, "path %s must start with /api/v1, /health or /metrics", path)
 	}
 }

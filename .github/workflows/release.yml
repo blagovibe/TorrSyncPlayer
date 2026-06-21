@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      confirm_ci_passed:
+        description: 'CI must pass before running this workflow'
+        required: true
+        default: 'confirmed'
 
 permissions:
   contents: write
@@ -54,9 +60,10 @@ jobs:
       - name: Create AppImage
         run: |
           cd frontend/build
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          LINUXDEPLOY_VERSION="1.20250109"
+          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-x86_64.AppImage"
           chmod +x linuxdeploy-x86_64.AppImage
-          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-plugin-qt-x86_64.AppImage"
           chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
@@ -81,200 +88,6 @@ jobs:
         with:
           name: release-linux-x64
           path: TorrSyncPlayer-linux-x64.AppImage
-          retention-days: 7
-
-  build-windows:
-    name: Build (Windows Static)
-    runs-on: windows-latest
-    env:
-      QT_STATIC_DIR: C:\Qt\6.8.3-static
-      MINGW_DIR: C:\msys64\mingw64
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Install MSYS2 and MinGW
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libpng
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-freetype
-            mingw-w64-x86_64-harfbuzz
-            mingw-w64-x86_64-pcre2
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-libiconv
-            mingw-w64-x86_64-libb2
-            mingw-w64-x86_64-double-conversion
-            mingw-w64-x86_64-icu
-            mingw-w64-x86_64-mpv
-            make
-            perl
-            python
-
-      - name: Cache static Qt6
-        id: cache-qt-static
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.QT_STATIC_DIR }}
-          key: qt-static-v3-${{ env.QT_VERSION }}-mingw64
-
-      - name: Download Qt6 source
-        if: steps.cache-qt-static.outputs.cache-hit != 'true'
-        run: |
-          $qtVersion = "${{ env.QT_VERSION }}"
-          $url = "https://download.qt.io/official_releases/qt/6.8/$qtVersion/submodules/qtbase-everywhere-src-$qtVersion.zip"
-          $zip = "$env:TEMP\qtbase.zip"
-          $dest = "C:\qtbase-src"
-          Write-Host "Downloading qtbase $qtVersion..."
-          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-          Write-Host "Extracting..."
-          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-          Write-Host "Done: $dest"
-
-      - name: Build static Qt6
-        if: steps.cache-qt-static.outputs.cache-hit != 'true'
-        timeout-minutes: 120
-        shell: msys2 {0}
-        run: |
-          set -e
-          QT_SRC=$(ls -d /c/qtbase-src/qtbase-*)
-          QT_BUILD_DIR="/tmp/qtbase-build"
-          QT_PREFIX="C:/Qt/6.8.3-static"
-
-          echo "Configuring qtbase static..."
-          mkdir -p "${QT_BUILD_DIR}"
-          cd "${QT_BUILD_DIR}"
-
-          "${QT_SRC}/configure" \
-            -prefix "${QT_PREFIX}" \
-            -static \
-            -static-runtime \
-            -release \
-            -opensource -confirm-license \
-            -platform win32-g++ \
-            -nomake examples \
-            -nomake tests \
-            -no-dbus \
-            -no-icu \
-            -no-sql-sqlite \
-            -no-sql-odbc \
-            -no-feature-sql \
-            -no-feature-testlib \
-            -qt-zlib \
-            -qt-libpng \
-            -qt-libjpeg \
-            -qt-freetype \
-            -qt-harfbuzz \
-            -qt-pcre \
-            -DQT_FEATURE_tiff=OFF \
-            -DQT_FEATURE_webp=OFF
-
-          echo "Building qtbase..."
-          cmake --build . --parallel $(nproc)
-
-          echo "Installing qtbase..."
-          cmake --install .
-      - name: Download Qt6 Svg source
-        if: steps.cache-qt-static.outputs.cache-hit != 'true'
-        run: |
-          $qtVersion = "${{ env.QT_VERSION }}"
-          $url = "https://download.qt.io/official_releases/qt/6.8/$qtVersion/submodules/qtsvg-everywhere-src-$qtVersion.zip"
-          $zip = "$env:TEMP\qtsvg.zip"
-          $dest = "C:\qtsvg-src"
-          Write-Host "Downloading qtsvg $qtVersion..."
-          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-          Write-Host "Extracting..."
-          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-          Write-Host "Done: $dest"
-
-      - name: Build static Qt6 Svg
-        if: steps.cache-qt-static.outputs.cache-hit != 'true'
-        timeout-minutes: 30
-        shell: msys2 {0}
-        run: |
-          set -e
-          QT_SRC=$(ls -d /c/qtsvg-src/qtsvg-*)
-          QT_BUILD_DIR="/tmp/qtsvg-build"
-          QT_PREFIX="C:/Qt/6.8.3-static"
-
-          echo "Configuring qtsvg static..."
-          mkdir -p "${QT_BUILD_DIR}"
-          cd "${QT_BUILD_DIR}"
-
-          cmake "${QT_SRC}" \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="${QT_PREFIX}" \
-            -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DQt6_DIR="${QT_PREFIX}/lib/cmake/Qt6"
-
-          echo "Building qtsvg..."
-          cmake --build . --parallel $(nproc)
-
-          echo "Installing qtsvg..."
-          cmake --install .
-
-
-      - name: Build backend (static)
-        working-directory: ./backend
-        env:
-          CGO_ENABLED: 0
-        run: go build -ldflags "-s -w" -o build/torrsyncplayer.exe ./cmd/server
-
-      - name: Build frontend (static, embedded backend)
-        shell: msys2 {0}
-        working-directory: frontend
-        run: |
-          set -e
-          QT_PREFIX="$(cygpath -u '${{ env.QT_STATIC_DIR }}')"
-          export PATH="$QT_PREFIX/bin:/mingw64/bin:$PATH"
-          export Qt6_DIR="$QT_PREFIX/lib/cmake/Qt6"
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:$PKG_CONFIG_PATH"
-
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DSTATIC_BUILD=ON \
-            -DEMBED_BACKEND=ON \
-            -DEMBED_BACKEND_PATH="$(echo $GITHUB_WORKSPACE | sed 's/\\/\//g')/backend/build/torrsyncplayer.exe" \
-            -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
-            -DCMAKE_MAKE_PROGRAM=ninja
-
-          cmake --build build
-
-      - name: Package single static exe
-        working-directory: frontend/build
-        run: |
-          if (-not (Test-Path TorrSyncPlayer.exe)) {
-            Write-Error "TorrSyncPlayer.exe not found"
-            Get-ChildItem -Recurse | Select-Object FullName
-            exit 1
-          }
-          $dest = "$env:GITHUB_WORKSPACE\TorrSyncPlayer-windows-x64"
-          New-Item -ItemType Directory -Force -Path $dest
-          Copy-Item TorrSyncPlayer.exe "$dest\TorrSyncPlayer.exe"
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-windows-x64
-          path: TorrSyncPlayer-windows-x64/
           retention-days: 7
 
   build-macos:
@@ -307,7 +120,7 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS="-L/opt/homebrew/lib"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           cmake --build build
 
       - name: Create .app bundle and DMG
@@ -316,30 +129,9 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           mkdir -p TorrSyncPlayer.app/Contents/MacOS
           mkdir -p TorrSyncPlayer.app/Contents/Resources
-          mkdir -p TorrSyncPlayer.app/Contents/Frameworks
           cp TorrSyncPlayer TorrSyncPlayer.app/Contents/MacOS/
           cp ../../backend/build/torrsyncplayer TorrSyncPlayer.app/Contents/MacOS/
           cp ../resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
-          cat > TorrSyncPlayer.app/Contents/Info.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleExecutable</key>
-            <string>TorrSyncPlayer</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.torrsyncplayer.app</string>
-            <key>CFBundleName</key>
-            <string>TorrSyncPlayer</string>
-            <key>CFBundleVersion</key>
-            <string>${VERSION}</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>11.0</string>
-          </dict>
-          </plist>
-          EOF
           ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
           mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
 
@@ -352,7 +144,7 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -366,18 +158,10 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
-      - name: List artifacts
-        run: ls -laR artifacts/
-
-      - name: Package Windows build
-        run: |
-          cd artifacts/release-windows-x64
-          zip -r ../TorrSyncPlayer-windows-x64.zip .
-
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.zip' -o -name '*.dmg' \) | sort | xargs sha256sum > SHA256SUMS
+          find . -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.dmg' \) | sort | xargs sha256sum > SHA256SUMS
           cat SHA256SUMS
 
       - name: Generate changelog
@@ -391,14 +175,6 @@ jobs:
           echo "## Changes in this release" > changelog.md
           echo "" >> changelog.md
           echo "$CHANGES" >> changelog.md
-          echo "" >> changelog.md
-          echo "## Files" >> changelog.md
-          echo "" >> changelog.md
-          echo "| Platform | File |" >> changelog.md
-          echo "|----------|------|" >> changelog.md
-          echo "| Linux x64 | TorrSyncPlayer-linux-x64.AppImage |" >> changelog.md
-          echo "| Windows x64 | TorrSyncPlayer-windows-x64.zip (single static exe) |" >> changelog.md
-          echo "| macOS ARM64 | TorrSyncPlayer-macos-arm64.dmg |" >> changelog.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -406,11 +182,9 @@ jobs:
           body_path: changelog.md
           files: |
             artifacts/*.AppImage
-            artifacts/*.zip
             artifacts/*.dmg
             artifacts/SHA256SUMS
           draft: true
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

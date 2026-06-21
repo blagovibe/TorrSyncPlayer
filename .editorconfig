@@ -1,22 +1,22 @@
-# EditorConfig для TorrSyncPlayer
+# EditorConfig for TorrSyncPlayer
 # https://editorconfig.org/
 
 root = true
 
-# ── Универсальные настройки ──────────────────────────────────────────────
+# ── Universal settings ───────────────────────────────────────────────────
 [*]
 charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-# ── Go файлы ─────────────────────────────────────────────────────────────
+# ── Go files ─────────────────────────────────────────────────────────────
 [*.go]
 indent_style = tab
 indent_size = 4
 tab_width = 4
 
-# ── C++ файлы ────────────────────────────────────────────────────────────
+# ── C++ files ────────────────────────────────────────────────────────────
 [*.{cpp,h,hpp}]
 indent_style = space
 indent_size = 4
@@ -40,7 +40,7 @@ indent_size = 2
 indent_style = space
 indent_size = 2
 
-# ── BAT скрипты ─────────────────────────────────────────────────────────
+# ── BAT scripts ─────────────────────────────────────────────────────────
 [*.bat]
 end_of_line = crlf
 indent_style = space

@@ -20,8 +20,7 @@ TorrSyncPlayer/
 │   └── resources/     # Icons, etc.
 ├── docs/              # Documentation (API.md, ARCHITECTURE.md, INSTALL.md, USER_GUIDE.md)
 ├── .github/           # CI/CD workflows
-├── Dockerfile
-├── docker-compose.yml
+
 └── Makefile
 ```
 
@@ -40,11 +39,13 @@ TorrSyncPlayer/
 - Sanitize all user-controlled values before URL construction
 
 ## Key Security Considerations
-- JWT tokens are parsed once per request (JTI extracted from already-parsed claims)
-- CSRF protection is skipped for requests with valid JWT tokens
+- JWT tokens are parsed once per request (JTI extracted from already-parsed claims via middleware context, not re-parsed)
+- CSRF protection is skipped for requests with valid JWT Bearer tokens (API clients not vulnerable to browser-based CSRF)
 - Self-signed certs use random serial numbers
-- Temp cert files are cleaned up on shutdown
+- Auto-generated temp cert files are cleaned up on shutdown; user-provided certs are preserved
 - Usernames are case-insensitive (stored lowercase)
+- Metrics endpoint (/metrics) is per-IP rate limited but not JWT-protected (for Prometheus scraping)
+- MemoryStorageCapacity has an upper bound of 256GB (MaxMemoryStorageCapacity)
 
 ## Testing
 - Backend: `cd backend && make test`

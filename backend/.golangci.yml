@@ -1,6 +1,6 @@
 run:
   timeout: 5m
-  go: "1.25"
+  go: "1.26"
 
 linters:
   enable:
@@ -13,13 +13,17 @@ linters:
     - goimports
     - misspell
     - unconvert
+    - gosec
+    - ineffassign
+    - revive
+    - unused
   disable: []
 
 linters-settings:
   gofmt:
     simplify: true
   goimports:
-    local-prefixes: github.com
+    local-prefixes: github.com/blagovibe/TorrSyncPlayer
 
 issues:
   exclude-use-default: false

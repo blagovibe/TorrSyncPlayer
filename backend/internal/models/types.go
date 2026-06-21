@@ -1,7 +1,7 @@
-// Package models содержит общие типы данных для сервера
+// Package models contains common data types for the server
 package models
 
-// TorrentInfo информация о торренте
+// TorrentInfo information about a torrent
 type TorrentInfo struct {
 	ID       string  `json:"id"`
 	Name     string  `json:"name"`
@@ -10,14 +10,14 @@ type TorrentInfo struct {
 	Size     int64   `json:"size"`
 }
 
-// FileInfo информация о файле в торренте
+// FileInfo information about a file in a torrent
 type FileInfo struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	Size  int64  `json:"size"`
 }
 
-// RoomInfo информация о P2P комнате
+// RoomInfo information about a P2P room
 type RoomInfo struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -25,7 +25,7 @@ type RoomInfo struct {
 	PeerCount int    `json:"peerCount"`
 }
 
-// SyncStatus статус синхронизации воспроизведения
+// SyncStatus playback synchronization status
 type SyncStatus struct {
 	IsPlaying bool    `json:"isPlaying"`
 	Position  float64 `json:"position"`
@@ -33,84 +33,100 @@ type SyncStatus struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-// P2PEvent событие P2P соединения
+// P2PEvent P2P connection event
 type P2PEvent struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
 }
 
-// AddTorrentRequest запрос на добавление торрента
+// AddTorrentRequest request to add a torrent
 type AddTorrentRequest struct {
 	MagnetURI string `json:"magnetUri"`
 }
 
-// CreateRoomRequest запрос на создание комнаты
+// CreateRoomRequest request to create a room
 type CreateRoomRequest struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 }
 
-// JoinRoomRequest запрос на присоединение к комнате
+// JoinRoomRequest request to join a room
 type JoinRoomRequest struct {
 	RoomID   string `json:"roomId"`
 	Password string `json:"password"`
 }
 
-// SignalRequest запрос на отправку WebRTC сигнала
+// SignalRequest request to send a WebRTC signal
 type SignalRequest struct {
 	RoomID string `json:"roomId"`
 	Signal []byte `json:"signal"`
 }
 
-// SeekRequest запрос на перемотку
+// SeekRequest seek request
 type SeekRequest struct {
 	Position float64 `json:"position"`
 }
 
-// SelectFileRequest запрос на выбор файла
+// SelectFileRequest file selection request
 type SelectFileRequest struct {
 	FileIndex int `json:"fileIndex"`
 }
 
-// ErrorResponse ответ с ошибкой
+// ErrorResponse error response
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// SuccessResponse успешный ответ
+// SuccessResponse success response
 type SuccessResponse struct {
 	Message string `json:"message"`
 }
 
 // ============ Auth Models ============
 
-// User пользователь системы
+// User system user
 type User struct {
 	ID           string `json:"id"`
 	Username     string `json:"username"`
-	PasswordHash string `json:"-"` // не возвращаем в JSON
+	PasswordHash string `json:"-"`
 	CreatedAt    int64  `json:"createdAt"`
 }
 
-// RegisterRequest запрос на регистрацию
+// RegisterRequest registration request
 type RegisterRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-// LoginRequest запрос на вход
+// LoginRequest login request
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-// AuthResponse ответ с токеном аутентификации
-type AuthResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+// UserResponse is the API-safe user representation (no password hash)
+type UserResponse struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
-// Claims данные JWT токена
+// ToUserResponse converts a User to UserResponse
+func (u *User) ToUserResponse() UserResponse {
+	return UserResponse{
+		ID:        u.ID,
+		Username:  u.Username,
+		CreatedAt: u.CreatedAt,
+	}
+}
+
+// AuthResponse auth token response
+type AuthResponse struct {
+	Token string       `json:"token"`
+	User  UserResponse `json:"user"`
+}
+
+// Claims JWT token data
 type Claims struct {
 	UserID    string `json:"userId"`
 	Username  string `json:"username"`
@@ -120,13 +136,13 @@ type Claims struct {
 
 // ============ Pagination Models ============
 
-// PaginationParams параметры пагинации из запроса
+// PaginationParams pagination parameters from request
 type PaginationParams struct {
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 }
 
-// PaginatedResponse обёртка для пагинированных ответов
+// PaginatedResponse wrapper for paginated responses
 type PaginatedResponse struct {
 	Data       interface{} `json:"data"`
 	TotalCount int         `json:"totalCount"`
@@ -135,7 +151,7 @@ type PaginatedResponse struct {
 	HasMore    bool        `json:"hasMore"`
 }
 
-// TorrentListResponse ответ со списком торрентов и пагинацией
+// TorrentListResponse response with torrent list and pagination
 type TorrentListResponse struct {
 	Torrents   []*TorrentInfo `json:"torrents"`
 	TotalCount int            `json:"totalCount"`
@@ -144,7 +160,7 @@ type TorrentListResponse struct {
 	HasMore    bool           `json:"hasMore"`
 }
 
-// FileListResponse ответ со списком файлов и пагинацией
+// FileListResponse response with file list and pagination
 type FileListResponse struct {
 	Files      []FileInfo `json:"files"`
 	TotalCount int        `json:"totalCount"`
@@ -153,7 +169,7 @@ type FileListResponse struct {
 	HasMore    bool       `json:"hasMore"`
 }
 
-// NewPaginatedResponse создаёт пагинированный ответ
+// NewPaginatedResponse creates a paginated response
 func NewPaginatedResponse(data interface{}, totalCount, limit, offset int) PaginatedResponse {
 	return PaginatedResponse{
 		Data:       data,
@@ -164,7 +180,7 @@ func NewPaginatedResponse(data interface{}, totalCount, limit, offset int) Pagin
 	}
 }
 
-// NewTorrentListResponse создаёт ответ со списком торрентов
+// NewTorrentListResponse creates a torrent list response
 func NewTorrentListResponse(torrents []*TorrentInfo, totalCount, limit, offset int) TorrentListResponse {
 	return TorrentListResponse{
 		Torrents:   torrents,
@@ -175,7 +191,7 @@ func NewTorrentListResponse(torrents []*TorrentInfo, totalCount, limit, offset i
 	}
 }
 
-// NewFileListResponse создаёт ответ со списком файлов
+// NewFileListResponse creates a file list response
 func NewFileListResponse(files []FileInfo, totalCount, limit, offset int) FileListResponse {
 	return FileListResponse{
 		Files:      files,
@@ -188,29 +204,29 @@ func NewFileListResponse(files []FileInfo, totalCount, limit, offset int) FileLi
 
 // ============ Buffer Models ============
 
-// StreamConfig конфигурация стриминга
+// StreamConfig streaming configuration
 type StreamConfig struct {
-	BufferPercent    int   `json:"buffer_percent"`     // Процент буферизации (5-20)
-	BufferDuration   int   `json:"buffer_duration"`    // Длительность буфера в секундах
-	MaxBufferSize    int64 `json:"max_buffer_size"`    // Максимальный размер буфера в байтах
-	PreBufferPercent int   `json:"pre_buffer_percent"` // Процент предварительной буферизации
+	BufferPercent    int   `json:"buffer_percent"`     // Buffer percentage (5-20)
+	BufferDuration   int   `json:"buffer_duration"`    // Buffer duration in seconds
+	MaxBufferSize    int64 `json:"max_buffer_size"`    // Maximum buffer size in bytes
+	PreBufferPercent int   `json:"pre_buffer_percent"` // Pre-buffer percentage
 }
 
-// BufferInfo информация о состоянии буфера
+// BufferInfo buffer state information
 type BufferInfo struct {
 	TorrentID       string  `json:"torrent_id"`
 	FileIndex       int     `json:"file_index"`
-	CurrentPosition int64   `json:"current_position"` // Текущая позиция в байтах
-	BufferStart     int64   `json:"buffer_start"`     // Начало буфера
-	BufferEnd       int64   `json:"buffer_end"`       // Конец буфера
-	BufferSize      int64   `json:"buffer_size"`      // Размер буфера
-	BufferedBytes   int64   `json:"buffered_bytes"`   // Загружено байт
-	BufferedPercent float64 `json:"buffered_percent"` // Процент загрузки буфера
-	DownloadSpeed   int64   `json:"download_speed"`   // Скорость загрузки (байт/сек)
-	IsBuffering     bool    `json:"is_buffering"`     // Идёт ли буферизация
+	CurrentPosition int64   `json:"current_position"` // Current position in bytes
+	BufferStart     int64   `json:"buffer_start"`     // Buffer start
+	BufferEnd       int64   `json:"buffer_end"`       // Buffer end
+	BufferSize      int64   `json:"buffer_size"`      // Buffer size
+	BufferedBytes   int64   `json:"buffered_bytes"`   // Bytes buffered
+	BufferedPercent float64 `json:"buffered_percent"` // Buffer load percentage
+	DownloadSpeed   int64   `json:"download_speed"`   // Download speed (bytes/sec)
+	IsBuffering     bool    `json:"is_buffering"`     // Is buffering in progress
 }
 
-// SetBufferPositionRequest запрос на установку позиции буфера
+// SetBufferPositionRequest request to set buffer position
 type SetBufferPositionRequest struct {
-	Position int64 `json:"position"` // Позиция в байтах
+	Position int64 `json:"position"` // Position in bytes
 }

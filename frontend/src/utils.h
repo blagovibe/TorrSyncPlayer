@@ -14,6 +14,16 @@
 #include <QString>
 #include <qtypes.h>
 
+// ── Shared API Constants ──────────────────────────────────────────
+// These are mirrored from the backend. Keep in sync.
+namespace APIConstants {
+    const int MaxMagnetUriLength = 8192;
+    const int MaxTorrentIdLength = 40;
+    const int MaxRoomIdLength = 32;
+    const int MaxRoomNameLength = 50;
+    const int MinRoomNameLength = 2;
+}
+
 namespace Utils {
 
 /**

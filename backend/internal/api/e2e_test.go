@@ -36,14 +36,14 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	})
 	require.NoError(t, err)
 
-	authService, err := auth.NewAuthService([]byte("test-secret-key-for-e2e-tests"))
+	authService, err := auth.NewAuthService([]byte("test-secret-key-for-e2e-tests-32bytes!"))
 	require.NoError(t, err)
 	p2pSvc, err := p2p.NewService(authService)
 	require.NoError(t, err)
 
 	syncSvc := sync.NewService()
 	authStore := auth.NewUserStore()
-	authService, err = auth.NewAuthService([]byte("test-secret-key-for-e2e-tests"))
+	authService, err = auth.NewAuthService([]byte("test-secret-key-for-e2e-tests-32bytes!"))
 	require.NoError(t, err)
 
 	// Создаём роутер
@@ -129,8 +129,8 @@ func TestE2E_AuthFlow(t *testing.T) {
 	// 1. Регистрация пользователя
 	registerBody := map[string]string{
 		"username": "testuser",
-		"password": "testpassword123",
-	}
+		"password": "TestPass1!",
+	}	
 	body, _ := json.Marshal(registerBody)
 
 	resp, err := http.Post(server.URL+"/api/v1/auth/register", "application/json", bytes.NewReader(body))
@@ -141,7 +141,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 	// 2. Вход в систему
 	loginBody := map[string]string{
 		"username": "testuser",
-		"password": "testpassword123",
+		"password": "TestPass1!",
 	}
 	body, _ = json.Marshal(loginBody)
 
@@ -204,6 +204,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	defer cleanup()
 
 	token := getAuthToken(t, server.URL)
+	csrfToken := getCSRFToken(t, server.URL)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// 1. Play
@@ -213,6 +214,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	req, err := http.NewRequest("POST", server.URL+"/api/v1/sync/play", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -234,6 +236,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/seek", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err = client.Do(req)
@@ -253,6 +256,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/pause", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err = client.Do(req)
@@ -288,6 +292,7 @@ func TestE2E_RoomFlow(t *testing.T) {
 	defer cleanup()
 
 	token := getAuthToken(t, server.URL)
+	csrfToken := getCSRFToken(t, server.URL)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// 1. Создание комнаты
@@ -300,6 +305,7 @@ func TestE2E_RoomFlow(t *testing.T) {
 	req, err := http.NewRequest("POST", server.URL+"/api/v1/rooms", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -344,6 +350,7 @@ func TestE2E_InvalidInput(t *testing.T) {
 	defer cleanup()
 
 	token := getAuthToken(t, server.URL)
+	csrfToken := getCSRFToken(t, server.URL)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// Невалидный seek (отрицательная позиция)
@@ -355,12 +362,31 @@ func TestE2E_InvalidInput(t *testing.T) {
 	req, err := http.NewRequest("POST", server.URL+"/api/v1/sync/seek", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// getCSRFToken получает CSRF токен для тестов.
+func getCSRFToken(t *testing.T, baseURL string) string {
+	t.Helper()
+
+	resp, err := http.Get(baseURL + "/api/v1/csrf-token")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	var result map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+
+	token, ok := result["csrfToken"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, token)
+	return token
 }
 
 // getAuthToken получает JWT токен для тестов.
@@ -370,7 +396,7 @@ func getAuthToken(t *testing.T, baseURL string) string {
 	// Регистрация
 	registerBody := map[string]string{
 		"username": "e2e_test_user",
-		"password": "e2e_test_password",
+		"password": "TestPass1!",
 	}
 	body, _ := json.Marshal(registerBody)
 
@@ -381,7 +407,7 @@ func getAuthToken(t *testing.T, baseURL string) string {
 	// Вход
 	loginBody := map[string]string{
 		"username": "e2e_test_user",
-		"password": "e2e_test_password",
+		"password": "TestPass1!",
 	}
 	body, _ = json.Marshal(loginBody)
 

@@ -134,7 +134,7 @@ QWidget* RoomDialog::createJoinTab()
     QLabel *idLabel = new QLabel(tr("ID комнаты:"), tab);
     m_idEdit = new QLineEdit(tab);
     m_idEdit->setPlaceholderText(tr("Введите ID комнаты..."));
-    m_idEdit->setMaxLength(100);
+    m_idEdit->setMaxLength(32);
     m_idEdit->setClearButtonEnabled(true);
     layout->addRow(idLabel, m_idEdit);
     
@@ -246,12 +246,14 @@ bool RoomDialog::validateInput()
             return false;
         }
         
-        // Проверка на недопустимые символы
-        QRegularExpression validName("^[a-zA-Zа-яА-ЯёЁ0-9\\s\\-_]+$");
-        if (!validName.match(name).hasMatch()) {
-            showValidationError(tr("Имя комнаты содержит недопустимые символы"));
-            m_nameEdit->setFocus();
-            return false;
+        // Проверка на недопустимые символы — запрещаем только control chars
+        for (int i = 0; i < name.length(); ++i) {
+            QChar c = name.at(i);
+            if (c.category() == QChar::Other_Control) {
+                showValidationError(tr("Имя комнаты содержит недопустимые символы"));
+                m_nameEdit->setFocus();
+                return false;
+            }
         }
         
     } else {

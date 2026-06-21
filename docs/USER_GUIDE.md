@@ -28,7 +28,7 @@ TorrSyncPlayer is an application for streaming media content via torrents with t
 
 ### Requirements
 
-- **Backend:** Go 1.25+
+- **Backend:** Go 1.26+
 - **Frontend:** Qt 6.5+, libmpv
 - **OS:** Windows, Linux, macOS
 
@@ -160,9 +160,7 @@ The application automatically compensates for network latency for synchronized v
 
 ### Frontend Settings
 
-Settings are available in the "Settings" menu:
-
-- **Server URL** — backend server address
+The frontend settings UI is not yet implemented.
 
 ## Troubleshooting
 

@@ -1,4 +1,6 @@
-// Package pkg предоставляет логгер на основе slog
+// SPDX-License-Identifier: MIT
+
+// Package pkg provides a logger based on slog
 package logger
 
 import (
@@ -8,7 +10,7 @@ import (
 	"sync"
 )
 
-// Logger обёртка над slog.Logger
+// Logger is a wrapper around slog.Logger
 type Logger struct {
 	*slog.Logger
 }
@@ -18,8 +20,8 @@ var (
 	initOnce      sync.Once
 )
 
-// Init инициализирует глобальный логгер.
-// Безопасен для конкурентного вызова - инициализация произойдёт только один раз.
+// Init initializes the global logger.
+// Safe for concurrent calls - initialization occurs only once.
 func Init(level string, format string) {
 	initOnce.Do(func() {
 		var logLevel slog.Level
@@ -54,8 +56,8 @@ func Init(level string, format string) {
 	})
 }
 
-// Get возвращает глобальный логгер.
-// Если логгер не инициализирован, создаёт логгер с настройками по умолчанию.
+// Get returns the global logger.
+// If the logger is not initialized, creates a logger with default settings.
 func Get() *Logger {
 	initOnce.Do(func() {
 		Init("info", "text")
@@ -63,22 +65,22 @@ func Get() *Logger {
 	return defaultLogger
 }
 
-// Debug логирование отладочного сообщения
+// Debug logs a debug message
 func Debug(msg string, args ...any) {
 	Get().Logger.Debug(msg, args...)
 }
 
-// Info логирование информационного сообщения
+// Info logs an informational message
 func Info(msg string, args ...any) {
 	Get().Logger.Info(msg, args...)
 }
 
-// Warn логирование предупреждения
+// Warn logs a warning message
 func Warn(msg string, args ...any) {
 	Get().Logger.Warn(msg, args...)
 }
 
-// Error логирование ошибки
+// Error logs an error message
 func Error(msg string, args ...any) {
 	Get().Logger.Error(msg, args...)
 }

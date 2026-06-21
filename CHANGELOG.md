@@ -10,11 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Documentation improvements: translated README.md, CONTRIBUTING.md, USER_GUIDE.md, INSTALL.md to English
-- Split ARCHITECTURE.md into modular sub-docs (ARCHITECTURE_BACKEND.md, ARCHITECTURE_FRONTEND.md, ARCHITECTURE_P2P.md)
-- Added docs/METRICS.md documenting all Prometheus metrics
 - Added API versioning policy and authentication flow documentation to docs/API.md
 - Added branching strategy and rollback procedure to CONTRIBUTING.md
-- Added Grafana password rotation docs to INSTALL.md
+
 - Added QSignalSpy tests for TorrentModel signal emissions
 - Added expanded NetworkManager tests (error handling, retry exhaustion, SSE, JSON edge cases)
 - Added Utils tests (formatBytes, formatDuration, formatDurationSeconds, formatSpeed)
@@ -58,7 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pprof on port 6060 (optional)
 - Retry logic in NetworkManager (exponential backoff, max 3)
 - Seek debounce in MpvWidget
-- Docker Compose integration (Prometheus + Grafana profiles)
 - `.editorconfig` for Go, C++, CMake, Makefile, JSON, YAML
 - Code coverage in CI pipeline (Go + C++ with Codecov integration)
 - Coverage check for PRs (minimum 60%)

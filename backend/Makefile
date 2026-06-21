@@ -24,19 +24,19 @@ check-version:
 	@go version
 	@go version | grep -q "go1\." || echo "Warning: Go 1.20+ required"
 
-## build: Собрать проект
+## build: Build project
 build:
-	@echo "Сборка $(BINARY_NAME)..."
+	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_FILE)
-	@echo "Сборка завершена: $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
-## build-prod: Собрать оптимизированную версию
+## build-prod: Build optimized production binary (stripped + version info)
 build-prod:
-	@echo "Сборка $(BINARY_NAME) (production)..."
+	@echo "Building $(BINARY_NAME) (production)..."
 	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -ldflags "-s -w" -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_FILE)
-	@echo "Сборка завершена: $(BUILD_DIR)/$(BINARY_NAME)"
+	go build -ldflags "-s -w -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=$(VERSION) -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=$(COMMIT) -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(BUILD_TIME)" -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_FILE)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 ## run: Запустить сервер
 run:
@@ -58,10 +58,9 @@ test-verbose:
 	@echo "Запуск тестов (verbose)..."
 	go test -v ./...
 
-## test-race: Запустить тесты с детектором гонок (требуется gcc)
+## test-race: Запустить тесты с детектором гонок (требуется gcc на Windows)
 test-race:
 	@echo "Запуск тестов с race detector..."
-	@which gcc > /dev/null 2>&1 || (echo "Ошибка: gcc не найден. Установите MinGW или TDM-GCC для использования race detector." && exit 1)
 	CGO_ENABLED=1 go test -race -v ./...
 
 ## test-coverage: Запустить тесты с отчётом о покрытии
@@ -91,10 +90,10 @@ vet:
 	@echo "Running go vet..."
 	go vet ./...
 
-## lint: Запустить линтер
+## lint: Запустить линтер (golangci-lint)
 lint:
-	@echo "Запуск линтера..."
-	go vet ./...
+	@echo "Запуск golangci-lint..."
+	golangci-lint run --timeout=5m ./...
 
 ## fmt: Форматировать код
 fmt:

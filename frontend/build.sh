@@ -1,5 +1,5 @@
 #!/bin/bash
-# ── Скрипт сборки TorrPlayer для Linux/macOS ───────────────────────────
+# ── Скрипт сборки TorrSyncPlayer для Linux/macOS ───────────────────────────
 # Требования: Qt6, libmpv, CMake 3.16+, pkg-config
 
 set -e  # Выход при ошибке
@@ -77,9 +77,9 @@ log_info "Сборка..."
 cmake --build . --parallel "$JOBS"
 
 # ── Результат ────────────────────────────────────────────────────────
-if [ -f "./TorrPlayer" ]; then
+if [ -f "./TorrSyncPlayer" ]; then
     log_info "Сборка завершена успешно!"
-    log_info "Исполняемый файл: $(pwd)/TorrPlayer"
+    log_info "Исполняемый файл: $(pwd)/TorrSyncPlayer"
     
     # Копирование ресурсов если нужно
     if [ -d "../resources" ]; then
@@ -93,6 +93,6 @@ fi
 
 # ── Запуск (опционально) ─────────────────────────────────────────────
 if [ "${2:-}" = "run" ]; then
-    log_info "Запуск TorrPlayer..."
-    ./TorrPlayer
+    log_info "Запуск TorrSyncPlayer..."
+    ./TorrSyncPlayer
 fi

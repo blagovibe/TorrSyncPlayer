@@ -2,8 +2,8 @@
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
 // See LICENSE file for full license text
 
-// Package api предоставляет HTTP API для сервера.
-// Содержит общие функции для формирования HTTP ответов.
+// Package api provides HTTP API for the server.
+// Contains common functions for forming HTTP responses.
 package api
 
 import (
@@ -12,16 +12,16 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
 
-// WriteJSON записывает JSON ответ с указанным статусом.
-// Устанавливает Content-Type: application/json.
-// Логирует ошибку кодирования и возвращает 500 Internal Server Error при сбое.
+// WriteJSON writes a JSON response with the specified status.
+// Sets Content-Type: application/json.
+// Logs encoding error and returns 500 Internal Server Error on failure.
 func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
 	response.WriteJSON(w, status, data)
 }
 
-// WriteError записывает структурированную ошибку в формате JSON.
-// Параметр status - HTTP код ошибки.
-// Параметр message - описание ошибки (безопасное для клиента).
+// WriteError writes a structured error in JSON format.
+// Parameter status - HTTP error code.
+// Parameter message - error description (safe for client).
 func WriteError(w http.ResponseWriter, status int, message string) {
 	response.WriteJSON(w, status, map[string]string{"error": message})
 }

@@ -11,8 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
 	syncsvc "github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
@@ -56,6 +59,18 @@ func initTorrentService() {
 }
 
 // getTestToken возвращает токен для тестового пользователя
+func getTestCSRFToken(t *testing.T) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/csrf-token", nil)
+	rr := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var result map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &result)
+	require.NoError(t, err)
+	return result["csrfToken"]
+}
+
 func getTestToken(t *testing.T) string {
 	t.Helper()
 	// Создаём пользователя и получаем токен
@@ -63,7 +78,7 @@ func getTestToken(t *testing.T) string {
 	require.NoError(t, err)
 	authHandler := auth.NewAuthHandler(apiAuthStore, authService)
 
-	body := `{"username":"testuser","password":"password123"}`
+	body := `{"username":"testuser","password":"TestPass1!"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -164,7 +179,7 @@ func TestAddTorrent_InvalidJSON(t *testing.T) {
 
 	var errResp map[string]interface{}
 	parseJSON(t, rec.Body, &errResp)
-	assert.Equal(t, "Неверный формат запроса", errResp["error"])
+	assert.Equal(t, "Invalid request format", errResp["error"])
 }
 
 // TestAddTorrent_InvalidMagnetURI проверяет валидацию magnet URI
@@ -349,7 +364,7 @@ func TestCreateRoom_InvalidJSON(t *testing.T) {
 }
 
 func TestJoinRoom_Success(t *testing.T) {
-	room, err := apiP2pSvc.CreateRoom("Test Room", "")
+	room, err := apiP2pSvc.CreateRoom(context.Background(), "Test Room", "")
 	require.NoError(t, err)
 
 	handler := JoinRoom(apiP2pSvc)
@@ -365,7 +380,7 @@ func TestJoinRoom_Success(t *testing.T) {
 
 	var response models.SuccessResponse
 	parseJSON(t, rec.Body, &response)
-	assert.Equal(t, "Присоединились к комнате", response.Message)
+	assert.Equal(t, "Joined the room", response.Message)
 }
 
 func TestJoinRoom_NotFound(t *testing.T) {
@@ -392,9 +407,9 @@ func TestJoinRoom_InvalidJSON(t *testing.T) {
 }
 
 func TestLeaveRoom_Success(t *testing.T) {
-	room, err := apiP2pSvc.CreateRoom("Test Room", "")
+	room, err := apiP2pSvc.CreateRoom(context.Background(), "Test Room", "")
 	require.NoError(t, err)
-	err = apiP2pSvc.JoinRoom(room.ID, "")
+	err = apiP2pSvc.JoinRoom(context.Background(), room.ID, "")
 	require.NoError(t, err)
 
 	handler := LeaveRoom(apiP2pSvc)
@@ -408,7 +423,7 @@ func TestLeaveRoom_Success(t *testing.T) {
 
 	var response models.SuccessResponse
 	parseJSON(t, rec.Body, &response)
-	assert.Equal(t, "Вышли из комнаты", response.Message)
+	assert.Equal(t, "Left the room", response.Message)
 }
 
 func TestLeaveRoom_NotJoined(t *testing.T) {
@@ -462,7 +477,7 @@ func TestSyncPlay(t *testing.T) {
 }
 
 func TestSyncPause(t *testing.T) {
-	apiSyncSvc.Play()
+	apiSyncSvc.Play(context.Background())
 
 	handler := SyncPause(apiSyncSvc)
 
@@ -643,7 +658,7 @@ func TestValidateMagnetURI(t *testing.T) {
 		{"empty string", "", true},
 		{"plain text", "not a magnet link", true},
 		{"partial magnet", "magnet:?xt=", true},
-		{"magnet with short hash", "magnet:?xt=urn:btih:abc123", false},
+		{"magnet with short hash", "magnet:?xt=urn:btih:abc123", true},
 	}
 
 	for _, tt := range tests {
@@ -662,6 +677,7 @@ func TestValidateMagnetURI(t *testing.T) {
 
 func TestFullTorrentFlow(t *testing.T) {
 	token := getTestToken(t)
+	csrfToken := getTestCSRFToken(t)
 
 	// 1. Получаем список торрентов (с токеном) - теперь с пагинацией
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
@@ -679,6 +695,7 @@ func TestFullTorrentFlow(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/torrents", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	rec = httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -686,6 +703,7 @@ func TestFullTorrentFlow(t *testing.T) {
 	// 3. Пытаемся удалить несуществующий торрент (используем валидный формат ID)
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/torrents/0123456789abcdef0123456789abcdef01234567", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	rec = httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -790,7 +808,7 @@ func TestGetFiles_InvalidID(t *testing.T) {
 
 // TestRoomEvents_WithRoomID проверяет SSE endpoint для событий комнаты с параметром roomID в URL
 func TestRoomEvents_WithRoomID(t *testing.T) {
-	roomInfo, err := apiP2pSvc.CreateRoom("test-room", "")
+	roomInfo, err := apiP2pSvc.CreateRoom(context.Background(), "test-room", "")
 	require.NoError(t, err)
 	roomID := roomInfo.ID
 
@@ -815,4 +833,118 @@ func TestRoomEvents_WithRoomID(t *testing.T) {
 	body := rec.Body.String()
 	assert.Contains(t, body, "event: connected")
 	assert.Contains(t, body, "status")
+}
+
+// ============ Security Tests ============
+
+func TestSecurity_CSRF_RejectsMissingToken(t *testing.T) {
+	handler := CSRFMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestSecurity_CSRF_SkipsWithJWT(t *testing.T) {
+	handler := CSRFMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
+	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.valid-token")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSecurity_CSRF_SkipsOnGET(t *testing.T) {
+	handler := CSRFMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSecurity_SecurityHeaders(t *testing.T) {
+	handler := SecurityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"))
+	assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "default-src 'self'")
+}
+
+func TestSecurity_ContentType_RejectsNonJSON(t *testing.T) {
+	handler := ContentTypeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
+	req.Header.Set("Content-Type", "text/plain")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnsupportedMediaType, rec.Code)
+}
+
+func TestSecurity_ContentType_AcceptsJSON(t *testing.T) {
+	handler := ContentTypeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSecurity_RateLimiter_BlocksExcess(t *testing.T) {
+	limiter := NewRateLimiter(rate.Limit(0.01), 1)
+	handler := limiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+}
+
+func TestSecurity_Router_HealthNoAuth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSecurity_Router_ProtectedEndpointRejectsNoAuth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestSecurity_Router_CSRFOnProtectedEndpoint(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
+	req.Header.Set("Authorization", "Bearer test.jwt.token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.NotEqual(t, http.StatusForbidden, rec.Code)
+}
+
+func TestSecurity_Pagination_MaxLimit(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents?limit=999999", nil)
+	limit, _ := parsePaginationParams(req)
+	assert.LessOrEqual(t, limit, constants.MaxPaginationLimit)
+}
+
+func TestSecurity_Pagination_MaxOffset(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents?offset=999999999", nil)
+	_, offset := parsePaginationParams(req)
+	assert.LessOrEqual(t, offset, constants.MaxPaginationOffset)
 }

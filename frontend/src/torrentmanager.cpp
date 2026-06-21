@@ -6,6 +6,7 @@
 #include "torrentmanager.h"
 #include "networkmanager.h"
 #include "torrentmodel.h"
+#include "utils.h"
 
 #include <QDebug>
 
@@ -35,10 +36,8 @@ void TorrentManager::addTorrent(const QString &magnetUri)
         return;
     }
     
-    // Проверка максимальной длины magnet URI (8192 символа)
-    const int maxMagnetUriLength = 8192;
-    if (magnetUri.length() > maxMagnetUriLength) {
-        emit error(tr("Magnet-ссылка слишком длинная (максимум %1 символов)").arg(maxMagnetUriLength));
+    if (magnetUri.length() > APIConstants::MaxMagnetUriLength) {
+        emit error(tr("Magnet-ссылка слишком длинная (максимум %1 символов)").arg(APIConstants::MaxMagnetUriLength));
         return;
     }
     

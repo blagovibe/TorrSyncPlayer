@@ -1,12 +1,19 @@
 package buffer
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
+
+func init() {
+	logger.Init("error", "json")
+}
 
 func TestNewService(t *testing.T) {
 	s := NewService(1024 * 1024)
@@ -16,7 +23,7 @@ func TestNewService(t *testing.T) {
 
 func TestService_GetBufferInfo_NotFound(t *testing.T) {
 	s := NewService(1024)
-	_, err := s.GetBufferInfo("nonexistent")
+	_, err := s.GetBufferInfo(context.Background(), "nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -41,17 +48,6 @@ func TestService_StopPeriodicUpdate_NotStarted(t *testing.T) {
 	assert.NotNil(t, s)
 }
 
-func TestCacheEntry(t *testing.T) {
-	entry := CacheEntry{
-		PieceIndex: 42,
-		Data:       []byte("test"),
-		Size:       4,
-		AccessTime: time.Now(),
-	}
-	assert.Equal(t, 42, entry.PieceIndex)
-	assert.Equal(t, int64(4), entry.Size)
-}
-
 func TestTorrentBuffer(t *testing.T) {
 	tb := &TorrentBuffer{
 		TorrentID:       "test-id",
@@ -69,7 +65,7 @@ func TestTorrentBuffer(t *testing.T) {
 
 func TestService_UpdatePosition_Nonexistent(t *testing.T) {
 	s := NewService(1024)
-	s.UpdatePosition("nonexistent", 1000)
+	s.UpdatePosition(context.Background(), "nonexistent", 1000)
 	assert.Equal(t, 0, len(s.torrentBuffers))
 }
 
@@ -77,12 +73,66 @@ func TestService_ConcurrentAccess(t *testing.T) {
 	s := NewService(1024)
 	done := make(chan struct{})
 	go func() {
-		s.UpdatePosition("test", 100)
+		s.UpdatePosition(context.Background(), "test", 100)
 		close(done)
 	}()
 	go func() {
-		_, _ = s.GetBufferInfo("test")
+		_, _ = s.GetBufferInfo(context.Background(), "test")
 	}()
 	<-done
 	require.NotNil(t, s)
+}
+
+func TestService_UnregisterTorrent(t *testing.T) {
+	s := NewService(1024)
+	s.mu.Lock()
+	s.torrentBuffers["t1"] = &TorrentBuffer{TorrentID: "t1"}
+	s.torrentBuffers["t2"] = &TorrentBuffer{TorrentID: "t2"}
+	s.mu.Unlock()
+
+	s.UnregisterTorrent("t1")
+	_, exists := s.torrentBuffers["t1"]
+	assert.False(t, exists)
+	_, exists = s.torrentBuffers["t2"]
+	assert.True(t, exists)
+}
+
+func TestService_Close_WithEntries(t *testing.T) {
+	s := NewService(1024)
+	s.mu.Lock()
+	s.torrentBuffers["t1"] = &TorrentBuffer{TorrentID: "t1", BufferPercent: 10}
+	s.torrentBuffers["t2"] = &TorrentBuffer{TorrentID: "t2", BufferPercent: 20}
+	s.mu.Unlock()
+	s.Close()
+	s.mu.Lock()
+	assert.Equal(t, 0, len(s.torrentBuffers))
+	s.mu.Unlock()
+}
+
+func TestService_UnregisterTorrent_Nonexistent(t *testing.T) {
+	s := NewService(1024)
+	s.UnregisterTorrent("nonexistent")
+	assert.NotNil(t, s)
+}
+
+func TestService_MaxCacheSize(t *testing.T) {
+	s := NewService(500)
+	assert.Equal(t, int64(500), s.maxCacheSize)
+}
+
+func TestService_Close_Idempotent(t *testing.T) {
+	s := NewService(1024)
+	s.Close()
+	s.Close()
+	assert.Equal(t, 0, len(s.torrentBuffers))
+}
+
+func TestService_PeriodicUpdate_IdempotentStop(t *testing.T) {
+	s := NewService(1024)
+	s.StopPeriodicUpdate()
+	s.StopPeriodicUpdate()
+	s.StartPeriodicUpdate(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	s.StopPeriodicUpdate()
+	assert.NotNil(t, s)
 }
