@@ -79,7 +79,7 @@ jobs:
           govulncheck ./...
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           directory: backend
           files: coverage.out
