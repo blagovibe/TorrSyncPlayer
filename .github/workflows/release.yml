@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      confirm_ci_passed:
-        description: 'CI must pass before running this workflow'
-        required: true
-        default: 'confirmed'
 
 env:
   QT_VERSION: '6.8.3'
@@ -227,22 +221,25 @@ jobs:
           find . -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \) | sort | xargs sha256sum > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Generate changelog
+      - name: Extract release notes from CHANGELOG.md
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$PREV_TAG" ]; then
-            CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges)
-          else
-            CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "## \\[" ver "\\]" { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Warning: no release notes found for v${VERSION} in CHANGELOG.md" >&2
+            echo "Release $(VERSION)" > release-notes.md
           fi
-          echo "## Changes in this release" > changelog.md
-          echo "" >> changelog.md
-          echo "$CHANGES" >> changelog.md
+          echo "Notes:"
+          cat release-notes.md
 
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
-          body_path: changelog.md
+          body_path: release-notes.md
           files: |
             artifacts/*.AppImage
             artifacts/*.dmg

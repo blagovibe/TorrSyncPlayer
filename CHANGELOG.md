@@ -9,23 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Documentation improvements: translated README.md, CONTRIBUTING.md, USER_GUIDE.md, INSTALL.md to English
-- Added API versioning policy and authentication flow documentation to docs/API.md
-- Added branching strategy and rollback procedure to CONTRIBUTING.md
-
-- Added QSignalSpy tests for TorrentModel signal emissions
-- Added expanded NetworkManager tests (error handling, retry exhaustion, SSE, JSON edge cases)
-- Added Utils tests (formatBytes, formatDuration, formatDurationSeconds, formatSpeed)
-- Added `check` target to backend Makefile
-- Enabled disabled linters (revive, unused, ineffassign) in .golangci.yml
+- Makefile `release` target: single-command tag + push workflow
+- Release workflow: release notes extracted from CHANGELOG.md (via awk)
+- Release workflow: single-file portable Windows EXE with embedded Go backend
+- Release workflow: SHA256 checksum verification for linuxdeploy downloads
+- Release workflow: per-job permissions (contents:read/write)
+- CI: race detector with CGO_ENABLED=1
+- `backend/Dockerfile`: multi-stage Alpine build (1.6MB runtime)
+- P2P: TURN server configuration via TURN_URL/TURN_USERNAME/TURN_CREDENTIAL envar
+- Auth: JWT token TTL configurable via JWT_TTL_HOURS environment variable
+- Auth: structured audit logging for register/login events
+- Auth: CORS origins reload every 5 minutes (no restart required)
+- Security: IPv6 private range detection in proxy trust logic (fc00::/7, fe80::/10, ::1)
+- Torrent service: 10 new tests (sanitizeFilename, nil buffer, Close idempotent, custom options, concurrent remove)
+- Goroutine leak tests for P2P and Buffer services
 
 ### Fixed
 
-- Fixed USER_GUIDE.md: replaced non-existent log path references with stdout/stderr
-- Fixed USER_GUIDE.md: removed references to unimplemented frontend settings
-- Fixed INSTALL.md: replaced non-existent service file references with manual creation instructions
-- Fixed CHANGELOG.md: cleaned up unreleased section by moving old entries to v1.0.0
-- Fixed root Makefile: removed references to Go 1.25
+- Auth: hardcoded dummy bcrypt hash fallback replaced with nil-safe handling
+- Auth: `ErrInvalidCredentials` now returns AppError for correct HTTP 401 mapping
+- API: `ErrTimeout` now returns HTTP 408 instead of 500
+- P2P: Close timeout extracted to named constant
+- Makefile: Go version check now uses proper semver comparison
+- Sync: `latencyMs` validated for negative values (clamped to 0)
+- CORS: exposed X-RateLimit-* headers for client access
+- Server: default Go Server header removed from all responses
+- Frontend: `MinRoomNameLength` synced to 1 (was 2, backend expects 1)
+- Frontend: `testFormatDurationSecondsOnly` now tests seconds (was duplicate of zero test)
+- Frontend: `build.sh` treats libmpv as optional, matching CMakeLists.txt
+- Frontend: `handleApiError` body size limited to 64KB (OOM protection)
+- API: documented health check response corrected (basic check returns only {"status":"ok"})
+- Cleaned up stale artifacts (coverage, gosec-results.json)
 
 ## [1.0.0] - 2025-06-01
 
