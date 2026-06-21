@@ -98,7 +98,7 @@ void TestUtils::testFormatDurationZero()
 
 void TestUtils::testFormatDurationSecondsOnly()
 {
-    QVERIFY(!verifyFormatDurationSeconds(0, "00:00:00"));
+    QCOMPARE(Utils::formatDuration(0), QString("00:00"));
 }
 
 void TestUtils::testFormatDurationSecondsOnlySec()
