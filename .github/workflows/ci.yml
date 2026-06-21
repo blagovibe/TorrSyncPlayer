@@ -66,10 +66,10 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - name: Run tests with coverage
+      - name: Run tests with race detector and coverage
         working-directory: backend
         run: |
-          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+          CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out
 
       - name: Run govulncheck

@@ -21,7 +21,7 @@ namespace APIConstants {
     const int MaxTorrentIdLength = 40;
     const int MaxRoomIdLength = 32;
     const int MaxRoomNameLength = 50;
-    const int MinRoomNameLength = 2;
+    const int MinRoomNameLength = 1;
 }
 
 namespace Utils {

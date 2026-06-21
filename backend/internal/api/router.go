@@ -8,6 +8,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -28,6 +29,7 @@ type RouterConfig struct {
 	SyncSvc     internal.SyncService
 	AuthStore   *auth.UserStore
 	AuthService *auth.AuthService
+	JWTTokenTTL time.Duration
 }
 
 // NewRouter creates and configures an HTTP router.
@@ -69,6 +71,11 @@ func NewRouter(config RouterConfig) http.Handler {
 			"csrfToken": token,
 		})
 	})
+
+	// Apply JWT TTL if configured
+	if config.JWTTokenTTL > 0 {
+		config.AuthService.SetTokenTTL(config.JWTTokenTTL)
+	}
 
 	// Create auth handler
 	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)

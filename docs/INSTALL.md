@@ -279,6 +279,64 @@ nssm install TorrSyncPlayer "C:\path\to\server.exe"
 nssm start TorrSyncPlayer
 ```
 
+## P2P Configuration
+
+### STUN/TURN Servers
+
+TorrSyncPlayer uses WebRTC for P2P connections. By default, Google's public STUN servers are used. For reliable connections behind symmetric NATs, configure a TURN server:
+
+```bash
+# TURN server URL (e.g., turn:turn.example.com:3478)
+export TURN_URL="turn:your-turn-server.com:3478"
+
+# Optional: TURN credentials
+export TURN_USERNAME="your-username"
+export TURN_CREDENTIAL="your-credential"
+```
+
+### Port Forwarding
+
+For optimal P2P performance, ensure the following ports are open:
+- STUN: UDP 3478 (outbound)
+- TURN: UDP/TCP 3478-3481 (if using TURN)
+- WebRTC: UDP 49152-65535 (ephemeral range)
+
+## Docker Deployment
+
+The backend server can be run as a Docker container:
+
+```bash
+# Build the image
+cd backend
+docker build -t torrsyncplayer-server .
+
+# Run with in-memory storage
+docker run -d --name torrsyncplayer \
+  -p 8889:8889 \
+  -e JWT_SECRET="your-secure-secret-at-least-32-chars" \
+  -e LOG_LEVEL=info \
+  torrsyncplayer-server
+
+# Run with persistent data directory
+docker run -d --name torrsyncplayer \
+  -p 8889:8889 \
+  -v torrsync-data:/data \
+  -e JWT_SECRET="your-secure-secret-at-least-32-chars" \
+  -e DATA_DIR=/data \
+  -e LOG_LEVEL=info \
+  torrsyncplayer-server
+
+# Run with TLS
+docker run -d --name torrsyncplayer \
+  -p 8889:8889 \
+  -v /path/to/certs:/certs:ro \
+  -e JWT_SECRET="your-secure-secret-at-least-32-chars" \
+  -e TLS_CERT=/certs/cert.pem \
+  -e TLS_KEY=/certs/key.pem \
+  -e LOG_LEVEL=info \
+  torrsyncplayer-server --tls
+```
+
 ## Updating
 
 ### Update from Source

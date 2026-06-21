@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -411,4 +412,32 @@ func TestConcurrentEventChannel(t *testing.T) {
 	wg.Wait()
 	// Allow time for event processing
 	time.Sleep(100 * time.Millisecond)
+}
+
+func TestP2PService_NoGoroutineLeak(t *testing.T) {
+	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	require.NoError(t, err)
+
+	goroutinesBefore := runtime.NumGoroutine()
+
+	for i := 0; i < 3; i++ {
+		svc, err := NewService(authSvc)
+		require.NoError(t, err)
+		events := svc.GetEvents()
+		go func() {
+			for range events {
+			}
+		}()
+		time.Sleep(20 * time.Millisecond)
+		err = svc.Close()
+		require.NoError(t, err)
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+
+	goroutinesAfter := runtime.NumGoroutine()
+	assert.LessOrEqual(t, goroutinesAfter, goroutinesBefore+3,
+		"P2P service goroutine leak: was %d, now %d", goroutinesBefore, goroutinesAfter)
 }

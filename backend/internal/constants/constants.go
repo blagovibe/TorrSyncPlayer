@@ -62,7 +62,7 @@ const (
 	CORSAllowHeaders = "Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID"
 
 	// CORSExposeHeaders headers exposed to the client
-	CORSExposeHeaders = "X-CSRF-Token"
+	CORSExposeHeaders = "X-CSRF-Token, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset"
 
 	// HSTSMaxAge HSTS header lifetime (1 year in seconds)
 	HSTSMaxAge = "max-age=31536000; includeSubDomains"

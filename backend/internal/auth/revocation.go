@@ -27,6 +27,8 @@ type TokenRevocationStore struct {
 	wg            sync.WaitGroup // for waiting on cleanup goroutine completion
 	persistDir    string
 	persistor     *persistence.Store
+	persistTimer  *time.Timer
+	dirty         bool
 }
 
 // NewTokenRevocationStore creates a new token revocation store.
@@ -115,13 +117,32 @@ func (s *TokenRevocationStore) persist() {
 	}
 }
 
+// schedulePersist schedules a debounced persist.
+// The actual write to disk happens at most once per debounce interval.
+func (s *TokenRevocationStore) schedulePersist() {
+	const debounceInterval = 5 * time.Second
+	s.dirty = true
+	if s.persistTimer == nil {
+		s.persistTimer = time.AfterFunc(debounceInterval, func() {
+			s.mu.Lock()
+			if s.dirty && s.persistor != nil {
+				s.dirty = false
+				s.mu.Unlock()
+				s.persist()
+				return
+			}
+			s.mu.Unlock()
+		})
+	}
+}
+
 // Revoke revokes a token by its JTI.
 // expiry - token expiration time (for automatic cleanup).
 func (s *TokenRevocationStore) Revoke(jti string, expiry time.Time) {
 	s.mu.Lock()
 	s.revokedTokens[jti] = expiry
 	s.mu.Unlock()
-	s.persist()
+	s.schedulePersist()
 }
 
 // IsRevoked checks if a token is revoked.
@@ -161,5 +182,20 @@ func (s *TokenRevocationStore) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.stopChan)
 	})
+
+	if s.persistTimer != nil {
+		s.persistTimer.Stop()
+	}
+
+	// Flush pending persist on shutdown
+	s.mu.Lock()
+	if s.dirty && s.persistor != nil {
+		s.dirty = false
+		s.mu.Unlock()
+		s.persist()
+	} else {
+		s.mu.Unlock()
+	}
+
 	s.wg.Wait()
 }

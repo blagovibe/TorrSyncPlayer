@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,9 +30,10 @@ import (
 )
 
 const (
-	eventChannelSize = constants.P2PEventChannelSize
-	peerIDLength     = constants.PeerIDLength
-	maxRooms         = 1000
+	eventChannelSize       = constants.P2PEventChannelSize
+	peerIDLength           = constants.PeerIDLength
+	maxRooms               = 1000
+	p2pCloseTimeoutDefault = 5 * time.Second
 )
 
 type Peer struct {
@@ -79,16 +81,36 @@ type Service struct {
 	closed          atomic.Bool
 }
 
-func NewService(authService *auth.AuthService) (*Service, error) {
-	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{
-					"stun:stun.l.google.com:19302",
-					"stun:stun1.l.google.com:19302",
-				},
+func loadICEServers() []webrtc.ICEServer {
+	servers := []webrtc.ICEServer{
+		{
+			URLs: []string{
+				"stun:stun.l.google.com:19302",
+				"stun:stun1.l.google.com:19302",
 			},
 		},
+	}
+
+	if turnURL := os.Getenv("TURN_URL"); turnURL != "" {
+		turnServer := webrtc.ICEServer{
+			URLs: []string{turnURL},
+		}
+		if username := os.Getenv("TURN_USERNAME"); username != "" {
+			turnServer.Username = username
+		}
+		if credential := os.Getenv("TURN_CREDENTIAL"); credential != "" {
+			turnServer.Credential = credential
+		}
+		servers = append(servers, turnServer)
+		logger.Info("P2P: TURN server configured", "url", turnURL)
+	}
+
+	return servers
+}
+
+func NewService(authService *auth.AuthService) (*Service, error) {
+	config := webrtc.Configuration{
+		ICEServers: loadICEServers(),
 	}
 
 	settingEngine := webrtc.SettingEngine{}
@@ -476,7 +498,7 @@ func (s *Service) Close() error {
 	select {
 	case <-done:
 		logger.Info("P2P service stopped", "closedRooms", roomCount)
-	case <-time.After(5 * time.Second):
+	case <-time.After(p2pCloseTimeoutDefault):
 		logger.Warn("P2P: timeout waiting for goroutine to finish")
 	}
 	return nil
@@ -570,6 +592,10 @@ func (s *Service) emitEvent(eventType string, data interface{}) {
 		Data: data,
 	}:
 	default:
-		logger.Warn("P2P: event channel full, event dropped", "type", eventType)
+		logger.Warn("P2P: event channel full, event dropped",
+			"type", eventType,
+			"currentRoom", s.currentRoom,
+			"roomCount", len(s.rooms),
+		)
 	}
 }

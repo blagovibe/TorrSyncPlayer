@@ -98,7 +98,9 @@ void TestUtils::testFormatDurationZero()
 
 void TestUtils::testFormatDurationSecondsOnly()
 {
-    QCOMPARE(Utils::formatDuration(0), QString("00:00"));
+    QCOMPARE(Utils::formatDuration(1000), QString("00:01"));
+    QCOMPARE(Utils::formatDuration(5000), QString("00:05"));
+    QCOMPARE(Utils::formatDuration(59000), QString("00:59"));
 }
 
 void TestUtils::testFormatDurationMinutesSeconds()

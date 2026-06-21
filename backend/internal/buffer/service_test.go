@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -135,4 +136,23 @@ func TestService_PeriodicUpdate_IdempotentStop(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	s.StopPeriodicUpdate()
 	assert.NotNil(t, s)
+}
+
+func TestService_NoGoroutineLeak(t *testing.T) {
+	goroutinesBefore := runtime.NumGoroutine()
+
+	for i := 0; i < 5; i++ {
+		s := NewService(1024)
+		s.StartPeriodicUpdate(50 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
+		s.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+
+	goroutinesAfter := runtime.NumGoroutine()
+	assert.LessOrEqual(t, goroutinesAfter, goroutinesBefore+2,
+		"Buffer service goroutine leak: was %d, now %d", goroutinesBefore, goroutinesAfter)
 }

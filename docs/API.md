@@ -117,14 +117,7 @@ Basic health check (no authentication required).
 **Response (200):**
 ```json
 {
-  "status": "ok",
-  "uptime": 3600.5,
-  "version": "1.0.0",
-  "services": {
-    "torrent": "ok",
-    "p2p": "ok",
-    "sync": "ok"
-  }
+  "status": "ok"
 }
 ```
 

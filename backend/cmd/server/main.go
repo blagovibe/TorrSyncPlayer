@@ -148,6 +148,7 @@ func main() {
 		SyncSvc:     syncSvc,
 		AuthStore:   authStore,
 		AuthService: authService,
+		JWTTokenTTL: time.Duration(getEnvInt("JWT_TTL_HOURS", 24)) * time.Hour,
 	})
 
 	// Configure HTTP server
@@ -525,6 +526,16 @@ func setupPprof() *http.Server {
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	return defaultValue
+}
+
+// getEnvInt returns the environment variable as int or the default value
+func getEnvInt(key string, defaultValue int) int {
+	if value, exists := os.LookupEnv(key); exists {
+		if n, err := strconv.Atoi(value); err == nil && n > 0 {
+			return n
+		}
 	}
 	return defaultValue
 }

@@ -888,8 +888,9 @@ void NetworkManager::handleApiError(QNetworkReply *reply)
     QString errorMessage = reply->errorString();
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-    // Пытаемся прочитать тело ошибки
-    QByteArray data = reply->readAll();
+    // Пытаемся прочитать тело ошибки (с лимитом для защиты от OOM)
+    const qint64 maxErrorBodySize = 1024 * 64; // 64 KB
+    QByteArray data = reply->read(maxErrorBodySize);
     if (!data.isEmpty()) {
         QJsonDocument doc = parseJson(data);
         if (doc.isObject()) {

@@ -250,6 +250,9 @@ func handleError(w http.ResponseWriter, r *http.Request, err error, operation st
 	case apperrors.ErrUnavailable:
 		statusCode = http.StatusServiceUnavailable
 		clientMessage = "Service temporarily unavailable"
+	case apperrors.ErrTimeout:
+		statusCode = http.StatusRequestTimeout
+		clientMessage = "Request timed out"
 	default:
 		statusCode = http.StatusInternalServerError
 		clientMessage = "Internal server error"

@@ -161,6 +161,11 @@ func (s *Service) SyncWithLatency(ctx context.Context, peerStatus models.SyncSta
 		return s.status
 	}
 
+	// Validate latency
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
+
 	// Latency compensation
 	latencySeconds := float64(latencyMs) / constants.MsPerSecond
 

@@ -18,6 +18,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	apperrors "github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
@@ -28,6 +29,8 @@ var (
 	ErrExpiredToken = errors.New("token expired")
 	// ErrInvalidCredentials invalid credentials error
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrInvalidCredentialsAppError AppError variant for HTTP handling
+	ErrInvalidCredentialsAppError = apperrors.Unauthorized("invalid credentials")
 	// ErrUserExists user already exists error
 	ErrUserExists = errors.New("user already exists")
 )
@@ -37,6 +40,7 @@ var (
 type AuthService struct {
 	jwtSecret       []byte
 	revocationStore *TokenRevocationStore
+	tokenTTL        time.Duration
 }
 
 // NewAuthService creates a new authentication service.
@@ -54,6 +58,7 @@ func NewAuthService(secret []byte) (*AuthService, error) {
 	svc := &AuthService{
 		jwtSecret:       secret,
 		revocationStore: NewTokenRevocationStore(),
+		tokenTTL:        constants.JWTTokenTTL,
 	}
 
 	return svc, nil
@@ -72,6 +77,11 @@ func (s *AuthService) SetPersistence(dataDir string) error {
 		}
 	}
 	return nil
+}
+
+// SetTokenTTL sets the JWT token TTL.
+func (s *AuthService) SetTokenTTL(ttl time.Duration) {
+	s.tokenTTL = ttl
 }
 
 // Stop stops internal AuthService services.
@@ -102,7 +112,7 @@ func HashPassword(password string) (string, error) {
 // Returns nil if the password is correct, otherwise an error.
 func CheckPassword(password, hash string) error {
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
-		return ErrInvalidCredentials
+		return ErrInvalidCredentialsAppError
 	}
 	return nil
 }
@@ -121,7 +131,7 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 	claims := jwt.MapClaims{
 		"userId":   user.ID,
 		"username": user.Username,
-		"exp":      time.Now().Add(constants.JWTTokenTTL).Unix(),
+		"exp":      time.Now().Add(s.tokenTTL).Unix(),
 		"iat":      time.Now().Unix(),
 		"jti":      jti,
 	}

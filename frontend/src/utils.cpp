@@ -66,6 +66,9 @@ QString formatDuration(qint64 ms)
 
 QString formatDurationSeconds(qint64 seconds)
 {
+    if (seconds < 0) {
+        seconds = 0;
+    }
     return formatDuration(seconds * 1000);
 }
 

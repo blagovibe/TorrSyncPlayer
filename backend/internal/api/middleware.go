@@ -328,6 +328,9 @@ func ContentTypeMiddleware(next http.Handler) http.Handler {
 // Protects against XSS, clickjacking, MIME-sniffing and other attacks.
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Remove default Server header
+		w.Header().Del("Server")
+
 		// Prevents MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 
@@ -401,18 +404,34 @@ func Logger(next http.Handler) http.Handler {
 }
 
 var (
-	corsOriginsOnce   sync.Once
+	corsOriginsMu    sync.RWMutex
 	cachedCORSOrigins map[string]bool
+	corsLastLoad     time.Time
+	corsTTL          = 5 * time.Minute
 )
 
 // getCORSOrigins returns the list of allowed CORS origins.
 // Reads from the CORS_ORIGINS environment variable (comma-separated).
-// If the variable is not set — uses localhost defaults with a warning.
-// In production mode, CORS_ORIGINS must be explicitly set.
+// Reloads periodically to allow runtime configuration changes.
 func getCORSOrigins() map[string]bool {
-	corsOriginsOnce.Do(func() {
-		cachedCORSOrigins = loadCORSOrigins()
-	})
+	corsOriginsMu.RLock()
+	cached := cachedCORSOrigins
+	lastLoad := corsLastLoad
+	corsOriginsMu.RUnlock()
+
+	if cached != nil && time.Since(lastLoad) < corsTTL {
+		return cached
+	}
+
+	corsOriginsMu.Lock()
+	defer corsOriginsMu.Unlock()
+
+	if time.Since(corsLastLoad) < corsTTL {
+		return cachedCORSOrigins
+	}
+
+	cachedCORSOrigins = loadCORSOrigins()
+	corsLastLoad = time.Now()
 	return cachedCORSOrigins
 }
 
@@ -465,6 +484,7 @@ func CORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Headers", constants.CORSAllowHeaders)
 		w.Header().Set("Access-Control-Max-Age", constants.CORSMaxAge)
 		w.Header().Set("Access-Control-Expose-Headers", constants.CORSExposeHeaders)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -635,6 +655,9 @@ var (
 	private192      *net.IPNet
 	loopbackNet     *net.IPNet
 	linkLocalNet    *net.IPNet
+	uniqueLocal6    *net.IPNet
+	linkLocal6      *net.IPNet
+	loopback6       *net.IPNet
 )
 
 func initPrivateNets() {
@@ -643,12 +666,18 @@ func initPrivateNets() {
 	_, private192, _ = net.ParseCIDR("192.168.0.0/16")
 	_, loopbackNet, _ = net.ParseCIDR("127.0.0.0/8")
 	_, linkLocalNet, _ = net.ParseCIDR("169.254.0.0/16")
+	_, uniqueLocal6, _ = net.ParseCIDR("fc00::/7")
+	_, linkLocal6, _ = net.ParseCIDR("fe80::/10")
+	_, loopback6, _ = net.ParseCIDR("::1/128")
 }
 
 func isPrivateIP(ip net.IP) bool {
 	privateNetsOnce.Do(initPrivateNets)
-	return private10.Contains(ip) || private172.Contains(ip) ||
-		private192.Contains(ip) || loopbackNet.Contains(ip) || linkLocalNet.Contains(ip)
+	if ip.To4() != nil {
+		return private10.Contains(ip) || private172.Contains(ip) ||
+			private192.Contains(ip) || loopbackNet.Contains(ip) || linkLocalNet.Contains(ip)
+	}
+	return uniqueLocal6.Contains(ip) || linkLocal6.Contains(ip) || loopback6.Contains(ip)
 }
 
 // getLimiter returns the rate limiter for the specified IP

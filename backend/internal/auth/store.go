@@ -28,8 +28,8 @@ func getDummyHash() []byte {
 	dummyHashOnce.Do(func() {
 		hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-mitigation"), constants.BcryptCost)
 		if err != nil {
-			dummyHashVal = []byte("$2a$12$K8K8K8K8K8K8K8K8K8K8K8O8O8O8O8O8O8O8O8O8O8O8O8O8O8O8O")
 			logger.Error("failed to generate dummy bcrypt hash", "error", err)
+			dummyHashVal = nil
 		} else {
 			dummyHashVal = hash
 		}
@@ -157,8 +157,10 @@ func (s *UserStore) Authenticate(username, password string) (*models.User, error
 	s.mu.RUnlock()
 
 	if !exists {
-		_ = bcrypt.CompareHashAndPassword(getDummyHash(), []byte(password))
-		return nil, ErrInvalidCredentials
+		if dummyHash := getDummyHash(); dummyHash != nil {
+			_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		}
+		return nil, ErrInvalidCredentialsAppError
 	}
 
 	if err := CheckPassword(password, user.PasswordHash); err != nil {

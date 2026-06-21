@@ -41,10 +41,10 @@ if ! pkg-config --exists Qt6Core; then
     exit 1
 fi
 
-# Проверка libmpv
+# Проверка libmpv (опционально — плеер работает без аппаратного ускорения)
 if ! pkg-config --exists libmpv; then
-    log_error "libmpv не найден. Установите libmpv-dev."
-    exit 1
+    log_warn "libmpv не найден. Сборка без аппаратного декодирования видео."
+    log_warn "Установите libmpv-dev для полнофункционального воспроизведения."
 fi
 
 log_info "Все зависимости найдены"

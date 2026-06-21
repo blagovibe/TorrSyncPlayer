@@ -185,8 +185,9 @@ QWidget* MainWindow::createControlsPanel()
     layout->setContentsMargins(0, 0, 0, 0);
 
     // Слайдер перемотки
+    const int seekSliderMax = 1000;
     m_seekSlider = new QSlider(Qt::Horizontal, this);
-    m_seekSlider->setRange(0, 1000);
+    m_seekSlider->setRange(0, seekSliderMax);
     m_seekSlider->setValue(0);
     m_seekSlider->setEnabled(false);
     layout->addWidget(m_seekSlider);
@@ -467,7 +468,8 @@ void MainWindow::onPlayPause()
 void MainWindow::onSeek(int value)
 {
     if (m_duration <= 0) return;
-    double position = (value / 1000.0) * m_duration;
+    const int seekSliderMax = 1000;
+    double position = (static_cast<double>(value) / seekSliderMax) * m_duration;
     m_mpvWidget->seek(position);
     if (!m_isSeeking && m_roomManager->isInRoom()) m_roomManager->syncSeek(position);
 }
@@ -486,7 +488,8 @@ void MainWindow::onSeekSliderReleased()
 void MainWindow::onPositionChanged(double position)
 {
     if (!m_isSeeking && m_duration > 0) {
-        m_seekSlider->setValue(static_cast<int>((position / m_duration) * 1000));
+        const int seekSliderMax = 1000;
+        m_seekSlider->setValue(static_cast<int>((position / m_duration) * seekSliderMax));
     }
     updateTimeLabel(position, m_duration);
 }

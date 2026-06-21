@@ -5,7 +5,9 @@ package auth
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
@@ -24,6 +26,18 @@ func NewAuthHandler(store *UserStore, authService *AuthService) *AuthHandler {
 		store:       store,
 		authService: authService,
 	}
+}
+
+// auditLog logs authentication events for security audit trail
+func auditLog(event, username, remoteAddr, userAgent string, success bool) {
+	slog.Info("AUDIT",
+		"event", event,
+		"username", username,
+		"remote_addr", remoteAddr,
+		"user_agent", userAgent,
+		"success", success,
+		"timestamp", time.Now().Unix(),
+	)
 }
 
 // Register handler for new user registration.
@@ -55,6 +69,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Create user
 	user, err := h.store.Create(req.Username, req.Password)
 	if err != nil {
+		auditLog("register", req.Username, r.RemoteAddr, r.UserAgent(), false)
 		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Registration failed"})
 		return
 	}
@@ -62,9 +77,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Generate token
 	token, err := h.authService.GenerateToken(user)
 	if err != nil {
+		auditLog("register", req.Username, r.RemoteAddr, r.UserAgent(), false)
 		response.WriteJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Token generation error"})
 		return
 	}
+
+	auditLog("register", req.Username, r.RemoteAddr, r.UserAgent(), true)
 
 	// Return response
 	response.WriteJSON(w, http.StatusCreated, models.AuthResponse{
@@ -102,6 +120,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Authenticate user
 	user, err := h.store.Authenticate(req.Username, req.Password)
 	if err != nil {
+		auditLog("login", req.Username, r.RemoteAddr, r.UserAgent(), false)
 		response.WriteJSON(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid username or password"})
 		return
 	}
@@ -109,9 +128,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Generate token
 	token, err := h.authService.GenerateToken(user)
 	if err != nil {
+		auditLog("login", req.Username, r.RemoteAddr, r.UserAgent(), false)
 		response.WriteJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Token generation error"})
 		return
 	}
+
+	auditLog("login", req.Username, r.RemoteAddr, r.UserAgent(), true)
 
 	// Return response
 	response.WriteJSON(w, http.StatusOK, models.AuthResponse{
