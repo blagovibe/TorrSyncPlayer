@@ -22,7 +22,7 @@ const (
 	APIPathMetrics = "/metrics"
 
 	// CSRFToken path for getting CSRF token
-	APIPathCSRFToken = "/api/v1/csrf-token"
+	APIPathCSRFToken = "/api/v1/csrf-token" //nolint:gosec // not a credential
 
 	// ── Auth endpoints ─────────────────────────────────────────────────
 

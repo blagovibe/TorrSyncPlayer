@@ -573,5 +573,3 @@ func (s *Service) emitEvent(eventType string, data interface{}) {
 		logger.Warn("P2P: event channel full, event dropped", "type", eventType)
 	}
 }
-
-

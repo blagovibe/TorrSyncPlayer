@@ -13,6 +13,10 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
@@ -22,9 +26,6 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
-	"github.com/go-chi/chi/v5"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // Глобальные сервисы для API-тестов

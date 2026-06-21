@@ -185,5 +185,3 @@ func (s *UserStore) GetByID(id string) (*models.User, bool) {
 	user, exists := s.usersByID[id]
 	return user, exists
 }
-
-

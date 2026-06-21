@@ -11,8 +11,8 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include <QtCore>
 #include <QString>
-#include <qtypes.h>
 
 // ── Shared API Constants ──────────────────────────────────────────
 // These are mirrored from the backend. Keep in sync.

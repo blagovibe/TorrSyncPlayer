@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
+	// swagger docs import for side effects
 	_ "github.com/blagovibe/TorrSyncPlayer/backend/docs"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"

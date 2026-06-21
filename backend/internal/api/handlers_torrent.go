@@ -10,11 +10,12 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
-	"github.com/go-chi/chi/v5"
 )
 
 // AddTorrent handler for adding a torrent via magnet link.

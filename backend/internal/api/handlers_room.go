@@ -11,13 +11,14 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
-	"github.com/go-chi/chi/v5"
 )
 
 // CreateRoom handler for creating a P2P room.

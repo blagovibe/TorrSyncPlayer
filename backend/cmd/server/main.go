@@ -426,46 +426,46 @@ func generateSelfSignedCert() (certPath, keyPath string, err error) {
 		return "", "", fmt.Errorf("certificate file creation error: %w", err)
 	}
 	if err := os.Chmod(certFile.Name(), 0600); err != nil {
-		certFile.Close()
-		os.Remove(certFile.Name())
+		_ = certFile.Close()
+		_ = os.Remove(certFile.Name())
 		return "", "", fmt.Errorf("failed to set certificate file permissions: %w", err)
 	}
 
 	keyFile, err := os.CreateTemp("", "key-*.pem")
 	if err != nil {
-		certFile.Close()
-		os.Remove(certFile.Name())
+		_ = certFile.Close()
+		_ = os.Remove(certFile.Name())
 		return "", "", fmt.Errorf("key file creation error: %w", err)
 	}
 	if err := os.Chmod(keyFile.Name(), 0600); err != nil {
-		certFile.Close()
-		keyFile.Close()
-		os.Remove(certFile.Name())
-		os.Remove(keyFile.Name())
+		_ = certFile.Close()
+		_ = keyFile.Close()
+		_ = os.Remove(certFile.Name())
+		_ = os.Remove(keyFile.Name())
 		return "", "", fmt.Errorf("failed to set key file permissions: %w", err)
 	}
 
 	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
-		certFile.Close()
-		keyFile.Close()
-		os.Remove(certFile.Name())
-		os.Remove(keyFile.Name())
+		_ = certFile.Close()
+		_ = keyFile.Close()
+		_ = os.Remove(certFile.Name())
+		_ = os.Remove(keyFile.Name())
 		return "", "", fmt.Errorf("certificate write error: %w", err)
 	}
 
 	privateKeyDER, err := x509.MarshalECPrivateKey(privateKey)
 	if err != nil {
-		certFile.Close()
-		keyFile.Close()
-		os.Remove(certFile.Name())
-		os.Remove(keyFile.Name())
+		_ = certFile.Close()
+		_ = keyFile.Close()
+		_ = os.Remove(certFile.Name())
+		_ = os.Remove(keyFile.Name())
 		return "", "", fmt.Errorf("key marshaling error: %w", err)
 	}
 	if err := pem.Encode(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privateKeyDER}); err != nil {
-		certFile.Close()
-		keyFile.Close()
-		os.Remove(certFile.Name())
-		os.Remove(keyFile.Name())
+		_ = certFile.Close()
+		_ = keyFile.Close()
+		_ = os.Remove(certFile.Name())
+		_ = os.Remove(keyFile.Name())
 		return "", "", fmt.Errorf("key write error: %w", err)
 	}
 
