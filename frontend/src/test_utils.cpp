@@ -130,7 +130,7 @@ void TestUtils::testFormatDurationNegative()
 
 void TestUtils::testFormatDurationSecondsZero()
 {
-    QCOMPARE(Utils::formatDurationSeconds(0), QString("00:00:00"));
+    QCOMPARE(Utils::formatDurationSeconds(0), QString("00:00"));
 }
 
 void TestUtils::testFormatDurationSecondsOnlySec()
