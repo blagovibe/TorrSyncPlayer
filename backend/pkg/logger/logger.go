@@ -67,20 +67,20 @@ func Get() *Logger {
 
 // Debug logs a debug message
 func Debug(msg string, args ...any) {
-	Get().Logger.Debug(msg, args...)
+	Get().Debug(msg, args...)
 }
 
 // Info logs an informational message
 func Info(msg string, args ...any) {
-	Get().Logger.Info(msg, args...)
+	Get().Info(msg, args...)
 }
 
 // Warn logs a warning message
 func Warn(msg string, args ...any) {
-	Get().Logger.Warn(msg, args...)
+	Get().Warn(msg, args...)
 }
 
 // Error logs an error message
 func Error(msg string, args ...any) {
-	Get().Logger.Error(msg, args...)
+	Get().Error(msg, args...)
 }
