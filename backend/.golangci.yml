@@ -9,28 +9,25 @@ linters:
     - govet
     - staticcheck
     - bodyclose
-    - gofmt
-    - goimports
-    - misspell
-    - unconvert
     - gosec
     - ineffassign
+    - misspell
     - revive
+    - unconvert
     - unused
 
-  settings:
-    gofmt:
-      simplify: true
-    goimports:
-      local-prefixes: github.com/blagovibe/TorrSyncPlayer
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
-  exclusions:
-    rules:
-      - linters: [revive]
-        text: "unused-parameter"
-      - linters: [revive]
-        text: "exported"
-      - linters: [revive]
-        text: "package-comments"
-      - linters: [revive]
-        text: "empty-block"
+exclusions:
+  rules:
+    - linters: [revive]
+      text: "unused-parameter"
+    - linters: [revive]
+      text: "exported"
+    - linters: [revive]
+      text: "package-comments"
+    - linters: [revive]
+      text: "empty-block"
