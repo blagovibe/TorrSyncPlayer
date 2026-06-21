@@ -101,6 +101,38 @@ void TestUtils::testFormatDurationSecondsOnly()
     QCOMPARE(Utils::formatDuration(0), QString("00:00"));
 }
 
+void TestUtils::testFormatDurationMinutesSeconds()
+{
+    QCOMPARE(Utils::formatDuration(60000), QString("01:00"));
+    QCOMPARE(Utils::formatDuration(90000), QString("01:30"));
+    QCOMPARE(Utils::formatDuration(3599000), QString("59:59"));
+}
+
+void TestUtils::testFormatDurationHoursMinutesSeconds()
+{
+    QCOMPARE(Utils::formatDuration(3600000), QString("01:00:00"));
+    QCOMPARE(Utils::formatDuration(3661000), QString("01:01:01"));
+    QCOMPARE(Utils::formatDuration(7384000), QString("02:03:04"));
+}
+
+void TestUtils::testFormatDurationWithMilliseconds()
+{
+    QCOMPARE(Utils::formatDuration(100), QString("00:00.100"));
+    QCOMPARE(Utils::formatDuration(1100), QString("00:01.100"));
+    QCOMPARE(Utils::formatDuration(61100), QString("01:01.100"));
+}
+
+void TestUtils::testFormatDurationNegative()
+{
+    QCOMPARE(Utils::formatDuration(-1), QString("00:00"));
+    QCOMPARE(Utils::formatDuration(-1000), QString("00:00"));
+}
+
+void TestUtils::testFormatDurationSecondsZero()
+{
+    QCOMPARE(Utils::formatDurationSeconds(0), QString("00:00:00"));
+}
+
 void TestUtils::testFormatDurationSecondsOnlySec()
 {
     QCOMPARE(Utils::formatDurationSeconds(1), QString("00:01"));

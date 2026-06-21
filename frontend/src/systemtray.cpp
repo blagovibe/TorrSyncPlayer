@@ -15,7 +15,7 @@ SystemTray::SystemTray(MainWindow *mainWindow, QObject *parent)
     : QObject(parent)
     , m_mainWindow(mainWindow)
     , m_trayIcon(new QSystemTrayIcon(this))
-    , m_menu(new QMenu(this))
+    , m_menu(new QMenu(nullptr))
     , m_showAction(nullptr)   // Инициализация указателей
     , m_hideAction(nullptr)   // Инициализация указателей
     , m_quitAction(nullptr)   // Инициализация указателей

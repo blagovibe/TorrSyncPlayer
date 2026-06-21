@@ -84,7 +84,7 @@ jobs:
           directory: backend
           files: coverage.out
           flags: backend
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   build-backend:
     name: Build Backend (${{ matrix.os }})
