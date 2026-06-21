@@ -32,4 +32,4 @@ formatters:
     - goimports
   settings:
     goimports:
-      local-prefixes: github.com/blagovibe/TorrSyncPlayer
+      local-prefixes: ["github.com/blagovibe/TorrSyncPlayer"]
