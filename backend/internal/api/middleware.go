@@ -404,10 +404,10 @@ func Logger(next http.Handler) http.Handler {
 }
 
 var (
-	corsOriginsMu    sync.RWMutex
+	corsOriginsMu     sync.RWMutex
 	cachedCORSOrigins map[string]bool
-	corsLastLoad     time.Time
-	corsTTL          = 5 * time.Minute
+	corsLastLoad      time.Time
+	corsTTL           = 5 * time.Minute
 )
 
 // getCORSOrigins returns the list of allowed CORS origins.
@@ -484,7 +484,7 @@ func CORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Headers", constants.CORSAllowHeaders)
 		w.Header().Set("Access-Control-Max-Age", constants.CORSMaxAge)
 		w.Header().Set("Access-Control-Expose-Headers", constants.CORSExposeHeaders)
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)

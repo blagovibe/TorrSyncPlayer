@@ -206,5 +206,3 @@ func TestRemoveTorrent_Concurrent(t *testing.T) {
 		}
 	})
 }
-
-
