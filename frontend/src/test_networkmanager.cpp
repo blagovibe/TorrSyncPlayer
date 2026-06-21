@@ -179,8 +179,8 @@ void TestNetworkManager::testStreamUrl()
 
 void TestNetworkManager::testStreamUrlWithDifferentIds()
 {
-    QCOMPARE(m_manager->streamUrl("simple-id"),
-             QString("http://localhost:8889/api/v1/torrents/simple-id/stream"));
+    QCOMPARE(m_manager->streamUrl("abc123"),
+             QString("http://localhost:8889/api/v1/torrents/abc123/stream"));
 
     QCOMPARE(m_manager->streamUrl("0123456789abcdef0123456789abcdef01234567"),
              QString("http://localhost:8889/api/v1/torrents/0123456789abcdef0123456789abcdef01234567/stream"));

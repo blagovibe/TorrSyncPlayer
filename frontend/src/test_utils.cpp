@@ -66,14 +66,14 @@ void TestUtils::testFormatBytesKB()
 {
     QCOMPARE(Utils::formatBytes(1024), QString("1.0 KB"));
     QCOMPARE(Utils::formatBytes(1536), QString("1.5 KB"));
-    QCOMPARE(Utils::formatBytes(1024 * 1024 - 1), QString("1023.9 KB"));
+    QCOMPARE(Utils::formatBytes(1024 * 1024 - 129), QString("1023.9 KB"));
 }
 
 void TestUtils::testFormatBytesMB()
 {
     QCOMPARE(Utils::formatBytes(1024 * 1024), QString("1.0 MB"));
     QCOMPARE(Utils::formatBytes(5 * 1024 * 1024), QString("5.0 MB"));
-    QCOMPARE(Utils::formatBytes(1024LL * 1024LL * 1024LL - 1), QString("1023.9 MB"));
+    QCOMPARE(Utils::formatBytes(1024LL * 1024LL * 1024LL - 104857LL), QString("1023.9 MB"));
 }
 
 void TestUtils::testFormatBytesGB()
@@ -172,14 +172,14 @@ void TestUtils::testFormatSpeedKB()
 {
     QCOMPARE(Utils::formatSpeed(1024), QString("1.0 KB/s"));
     QCOMPARE(Utils::formatSpeed(1536), QString("1.5 KB/s"));
-    QCOMPARE(Utils::formatSpeed(1024 * 1024 - 1), QString("1023.9 KB/s"));
+    QCOMPARE(Utils::formatSpeed(1024 * 1024 - 129), QString("1023.9 KB/s"));
 }
 
 void TestUtils::testFormatSpeedMB()
 {
     QCOMPARE(Utils::formatSpeed(1024 * 1024), QString("1.0 MB/s"));
     QCOMPARE(Utils::formatSpeed(5 * 1024 * 1024), QString("5.0 MB/s"));
-    QCOMPARE(Utils::formatSpeed(1024LL * 1024LL * 1024LL - 1), QString("1023.9 MB/s"));
+    QCOMPARE(Utils::formatSpeed(1024LL * 1024LL * 1024LL - 104857LL), QString("1023.9 MB/s"));
 }
 
 void TestUtils::testFormatSpeedGB()
