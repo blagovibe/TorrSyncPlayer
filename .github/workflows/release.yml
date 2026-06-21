@@ -84,6 +84,7 @@ jobs:
           Categories=AudioVideo;
           EOF
           export QMAKE=$(which qmake6 || which qmake)
+          export APPIMAGE_EXTRACT_AND_RUN=1
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
@@ -145,11 +146,22 @@ jobs:
           cmake --build build
         shell: pwsh
 
-      - name: Upload portable EXE
+      - name: Deploy Qt runtime and package
+        working-directory: frontend/build
+        run: |
+          windeployqt --release TorrSyncPlayer.exe 2>&1
+          Remove-Item -Recurse -Force translations -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force qml -ErrorAction SilentlyContinue
+          Remove-Item -Force *.pdb -ErrorAction SilentlyContinue
+          cd ..
+          Compress-Archive -Path build/TorrSyncPlayer.exe,build/*.dll,build/platforms,build/styles,build/imageformats,build/iconengines -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
+        shell: pwsh
+
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v7
         with:
           name: release-windows-x64
-          path: frontend/build/TorrSyncPlayer.exe
+          path: frontend/TorrSyncPlayer-windows-x64.zip
           retention-days: 7
 
   build-macos:
@@ -186,8 +198,9 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: |
+          brew uninstall --ignore-dependencies mpv 2>/dev/null || true
           export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:${PKG_CONFIG_PATH}"
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_DISABLE_FIND_PACKAGE_MPV=ON
           cmake --build build
 
       - name: Create .app bundle and DMG
@@ -230,7 +243,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \) | sort | xargs sha256sum > SHA256SUMS
+          find . -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.dmg' -o -name '*.zip' \) | sort | xargs sha256sum > SHA256SUMS
           cat SHA256SUMS
 
       - name: Extract release notes from CHANGELOG.md
@@ -255,7 +268,7 @@ jobs:
           files: |
             artifacts/*.AppImage
             artifacts/*.dmg
-            artifacts/*.exe
+            artifacts/*.zip
             artifacts/SHA256SUMS
           draft: true
           prerelease: false
