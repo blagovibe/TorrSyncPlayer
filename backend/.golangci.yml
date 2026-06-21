@@ -15,19 +15,18 @@ linters:
     - revive
     - unconvert
     - unused
+  exclusions:
+    rules:
+      - linters: [revive]
+        text: "unused-parameter"
+      - linters: [revive]
+        text: "exported"
+      - linters: [revive]
+        text: "package-comments"
+      - linters: [revive]
+        text: "empty-block"
 
 formatters:
   enable:
     - gofmt
     - goimports
-
-exclusions:
-  rules:
-    - linters: [revive]
-      text: "unused-parameter"
-    - linters: [revive]
-      text: "exported"
-    - linters: [revive]
-      text: "package-comments"
-    - linters: [revive]
-      text: "empty-block"
