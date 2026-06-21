@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"

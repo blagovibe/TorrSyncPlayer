@@ -51,7 +51,9 @@ func (s *Store) SaveUsers(data *UserData) error {
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		if rmErr := os.Remove(tmpPath); rmErr != nil {
+			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
+		}
 		return fmt.Errorf("failed to rename users file: %w", err)
 	}
 
@@ -63,7 +65,7 @@ func (s *Store) LoadUsers() (*UserData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, "users.json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &UserData{
@@ -110,7 +112,9 @@ func (s *Store) SaveRevokedTokens(data *TokenRevocationData) error {
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		if rmErr := os.Remove(tmpPath); rmErr != nil {
+			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
+		}
 		return fmt.Errorf("failed to rename revoked tokens file: %w", err)
 	}
 
@@ -122,7 +126,7 @@ func (s *Store) LoadRevokedTokens() (*TokenRevocationData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, "revoked_tokens.json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &TokenRevocationData{

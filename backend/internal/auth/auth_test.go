@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // testAuthService creates an AuthService with a fixed secret for tests
