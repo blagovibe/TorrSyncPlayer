@@ -13,22 +13,20 @@ Desktop torrent player with P2P playback synchronization.
 - **Security** — JWT authentication (HS256), CSRF protection, rate limiting, bcrypt passwords
 - **Metrics** — Prometheus metrics for monitoring
 - **Buffering** — LRU cache with piece download priorities
-- **Docker** — ready-to-use multi-stage Docker configuration
 - **CI/CD** — GitHub Actions with golangci-lint, clang-tidy, tests, coverage ≥60%
 - **Swagger** — interactive API documentation at `/swagger/`
 
 ## Tech Stack
 
-- **Backend:** Go 1.25+, anacrolix/torrent v1.58.1, pion/webrtc v4, go-chi/chi/v5, golang-jwt/jwt/v5
+- **Backend:** Go 1.26+, anacrolix/torrent v1.61.0, pion/webrtc v4, go-chi/chi/v5, golang-jwt/jwt/v5
 - **Frontend:** C++17, Qt 6.5+, libmpv, CMake 3.16+
 - **Build:** Make (backend), CMake (frontend)
 - **CI/CD:** GitHub Actions
-- **Docker:** multi-stage build (golang:1.25-alpine → alpine:3.19)
 
 ## Documentation
 
 - [API documentation](docs/API.md) — complete REST API reference (22 routes)
-- [Architecture](docs/ARCHITECTURE.md) — backend and frontend architecture overview
+- [Architecture](docs/ARCHITECTURE.md) — backend, frontend, and P2P architecture
 - [User Guide](docs/USER_GUIDE.md) — usage instructions
 - [Installation Guide](docs/INSTALL.md) — installation and configuration
 - [Changelog](CHANGELOG.md) — version history
@@ -52,12 +50,6 @@ The server will start on port 8889.
 cd frontend
 ./build.sh  # Linux/macOS
 build.bat   # Windows
-```
-
-### Docker
-
-```bash
-docker-compose up -d
 ```
 
 ## Running
@@ -116,22 +108,15 @@ TorrSyncPlayer/
 │
 ├── docs/              # Documentation
 │   ├── API.md         # API documentation
-│   ├── ARCHITECTURE.md # Architecture overview
-│   ├── ARCHITECTURE_BACKEND.md # Backend architecture details
-│   ├── ARCHITECTURE_FRONTEND.md # Frontend architecture details
-│   ├── ARCHITECTURE_P2P.md # P2P/WebRTC architecture
+│   ├── ARCHITECTURE.md # Architecture (backend, frontend, P2P)
 │   ├── INSTALL.md     # Installation guide
-│   ├── USER_GUIDE.md  # User guide
-│   └── METRICS.md     # Prometheus metrics reference
+│   └── USER_GUIDE.md  # User guide
 │
 ├── .github/           # GitHub Actions workflows
 │   └── workflows/
 │       ├── ci.yml     # CI pipeline (lint, test, build, coverage)
 │       └── release.yml # Release pipeline
 │
-├── Dockerfile         # Multi-stage Docker image
-├── docker-compose.yml # Docker Compose config (backend + Prometheus + Grafana)
-├── Makefile           # Root Makefile
 ├── CHANGELOG.md       # Version history
 ├── CONTRIBUTING.md    # Contributor guide
 ├── AGENTS.md          # AI agent guide

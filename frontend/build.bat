@@ -1,5 +1,5 @@
 @echo off
-REM ── Скрипт сборки TorrPlayer для Windows ─────────────────────────────
+REM ── Скрипт сборки TorrSyncPlayer для Windows ─────────────────────────────
 REM Требования: Qt6, libmpv, CMake 3.16+, MinGW или MSVC
 
 setlocal enabledelayedexpansion
@@ -118,9 +118,9 @@ if %errorlevel% neq 0 (
 )
 
 REM ── Результат ───────────────────────────────────────────────────────
-if exist "%BUILD_TYPE%\TorrPlayer.exe" (
+if exist "%BUILD_TYPE%\TorrSyncPlayer.exe" (
     echo [INFO] Сборка завершена успешно!
-    echo [INFO] Исполняемый файл: %CD%\%BUILD_TYPE%\TorrPlayer.exe
+    echo [INFO] Исполняемый файл: %CD%\%BUILD_TYPE%\TorrSyncPlayer.exe
 
     REM Копирование ресурсов
     if exist "..\resources" (
@@ -132,11 +132,11 @@ if exist "%BUILD_TYPE%\TorrPlayer.exe" (
     where windeployqt >nul 2>nul
     if %errorlevel% == 0 (
         echo [INFO] Запуск windeployqt...
-        windeployqt "%BUILD_TYPE%\TorrPlayer.exe"
+        windeployqt "%BUILD_TYPE%\TorrSyncPlayer.exe"
     )
-) else if exist "TorrPlayer.exe" (
+) else if exist "TorrSyncPlayer.exe" (
     echo [INFO] Сборка завершена успешно!
-    echo [INFO] Исполняемый файл: %CD%\TorrPlayer.exe
+    echo [INFO] Исполняемый файл: %CD%\TorrSyncPlayer.exe
 
     REM Копирование ресурсов
     if exist "..\resources" (
@@ -154,11 +154,11 @@ echo [INFO] Готово!
 
 REM ── Запуск (опционально) ───────────────────────────────────────────
 if "%1"=="run" (
-    echo [INFO] Запуск TorrPlayer...
-    if exist "%BUILD_DIR%\%BUILD_TYPE%\TorrPlayer.exe" (
-        "%BUILD_DIR%\%BUILD_TYPE%\TorrPlayer.exe"
+    echo [INFO] Запуск TorrSyncPlayer...
+    if exist "%BUILD_DIR%\%BUILD_TYPE%\TorrSyncPlayer.exe" (
+        "%BUILD_DIR%\%BUILD_TYPE%\TorrSyncPlayer.exe"
     ) else (
-        "%BUILD_DIR%\TorrPlayer.exe"
+        "%BUILD_DIR%\TorrSyncPlayer.exe"
     )
 )
 

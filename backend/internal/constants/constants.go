@@ -2,8 +2,8 @@
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
 // See LICENSE file for full license text
 
-// Package constants содержит общие константы приложения.
-// Все магические числа из различных пакетов вынесены сюда для удобства поддержки.
+// Package constants contains common application constants.
+// All magic numbers from various packages are placed here for maintainability.
 package constants
 
 import "time"
@@ -11,192 +11,204 @@ import "time"
 // ── Server Constants ──────────────────────────────────────────────────────
 
 const (
-	// DefaultPort порт сервера по умолчанию
+	// DefaultPort default server port
 	DefaultPort = "8889"
 
-	// ServerShutdownTimeout таймаут для graceful shutdown сервера
+	// ServerShutdownTimeout timeout for graceful server shutdown
 	ServerShutdownTimeout = 30 * time.Second
 
-	// ServerReadTimeout таймаут чтения HTTP запроса
+	// ServerReadTimeout HTTP request read timeout
 	ServerReadTimeout = 30 * time.Second
 
-	// ServerWriteTimeout таймаут записи HTTP ответа
+	// ServerWriteTimeout HTTP response write timeout
 	ServerWriteTimeout = 30 * time.Second
 
-	// ServerIdleTimeout таймаут простоя HTTP соединения
+	// ServerIdleTimeout HTTP connection idle timeout
 	ServerIdleTimeout = 120 * time.Second
 )
 
 // ── CSRF Constants ────────────────────────────────────────────────────────
 
 const (
-	// CSRFTokenTTL время жизни CSRF токена
+	// CSRFTokenTTL CSRF token lifetime
 	CSRFTokenTTL = 1 * time.Hour
 
-	// CSRFTokenStoreMaxSize максимальное количество CSRF токенов в хранилище
+	// CSRFTokenStoreMaxSize maximum number of CSRF tokens in the store
 	CSRFTokenStoreMaxSize = 10000
 
-	// CSRFCleanupInterval интервал очистки истёкших CSRF токенов
+	// CSRFCleanupInterval interval for cleaning expired CSRF tokens
 	CSRFCleanupInterval = 5 * time.Minute
 
-	// CSRFShutdownTimeout таймаут ожидания завершения CSRF cleanup горутины
+	// CSRFShutdownTimeout timeout for waiting on CSRF cleanup goroutine
 	CSRFShutdownTimeout = 5 * time.Second
 
-	// CSRFTokenBytes количество байт для генерации CSRF токена
+	// CSRFTokenBytes number of bytes for CSRF token generation
 	CSRFTokenBytes = 32
 
-	// MinJWTTokenLength минимальная длина JWT токена для пропуска CSRF проверки
-	MinJWTTokenLength = 10
+	// UserIDBytes number of bytes for user ID generation
+	UserIDBytes = 16
 )
 
 // ── CORS Constants ────────────────────────────────────────────────────────
 
 const (
-	// CORSMaxAge время кэширования preflight запросов (24 часа)
+	// CORSMaxAge preflight request cache time (24 hours)
 	CORSMaxAge = "86400"
 
-	// CORSAllowMethods разрешённые HTTP методы для CORS
+	// CORSAllowMethods allowed HTTP methods for CORS
 	CORSAllowMethods = "GET, POST, PUT, DELETE, OPTIONS"
 
-	// CORSAllowHeaders разрешённые заголовки для CORS
+	// CORSAllowHeaders allowed headers for CORS
 	CORSAllowHeaders = "Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID"
 
-	// CORSExposeHeaders заголовки, доступные клиенту
+	// CORSExposeHeaders headers exposed to the client
 	CORSExposeHeaders = "X-CSRF-Token"
 
-	// HSTSMaxAge срок действия HSTS заголовка (1 год в секундах)
+	// HSTSMaxAge HSTS header lifetime (1 year in seconds)
 	HSTSMaxAge = "max-age=31536000; includeSubDomains"
 )
 
 // ── Rate Limiting Constants ───────────────────────────────────────────────
 
 const (
-	// AuthRateLimit лимит запросов для auth endpoints (запросов в секунду)
-	AuthRateLimit = 0.17 // ~10 запросов/минуту
+	// AuthRateLimit request limit for auth endpoints (requests per second)
+	AuthRateLimit = 0.17 // ~10 requests/minute
 
-	// AuthRateBurst размер burst для auth endpoints
+	// AuthRateBurst burst size for auth endpoints
 	AuthRateBurst = 5
 
-	// DefaultRateLimit лимит запросов для остальных endpoints (запросов в секунду)
-	DefaultRateLimit = 1 // 60 запросов/минуту
+	// DefaultRateLimit request limit for other endpoints (requests per second)
+	DefaultRateLimit = 1 // 60 requests/minute
 
-	// DefaultRateBurst размер burst для остальных endpoints
+	// DefaultRateBurst burst size for other endpoints
 	DefaultRateBurst = 10
 )
 
 // ── JWT Constants ─────────────────────────────────────────────────────────
 
 const (
-	// JWTTokenTTL время жизни JWT токена
+	// JWTTokenTTL JWT token lifetime
 	JWTTokenTTL = 24 * time.Hour
 
-	// JWTSecretLength длина JWT секрета в байтах
+	// JWTSecretLength JWT secret length in bytes
 	JWTSecretLength = 32
 
-	// JTIBytes количество байт для генерации JWT ID
+	// JTIBytes number of bytes for JWT ID generation
 	JTIBytes = 16
 
-	// BcryptCost стоимость bcrypt для хеширования паролей
+	// BcryptCost bcrypt cost for password hashing
 	BcryptCost = 12
 
-	// MaxPasswordLength максимальная длина пароля для bcrypt
+	// MaxPasswordLength maximum password length for bcrypt
 	MaxPasswordLength = 72
 
-	// RevocationStoreTTL время хранения отозванных токенов
+	// RevocationStoreTTL revoked token storage duration
 	RevocationStoreTTL = 24 * time.Hour
 )
 
 // ── P2P Constants ─────────────────────────────────────────────────────────
 
 const (
-	// P2PEventChannelSize размер буфера канала P2P событий
+	// P2PEventChannelSize P2P event channel buffer size
 	P2PEventChannelSize = 100
 
-	// PeerIDLength длина идентификатора пира в байтах
+	// PeerIDLength peer identifier length in bytes
 	PeerIDLength = 16
 
-	// P2PDefaultRoomAuth требовать аутентификацию по умолчанию
+	// P2PDefaultRoomAuth require authentication by default
 	P2PDefaultRoomAuth = true
 
-	// MaxSignalSize максимальный размер WebRTC сигнала в байтах (64 KB)
-	// Типичный SDP offer/answer редко превышает 8 KB, ICE candidates ещё меньше
+	// MaxSignalSize maximum WebRTC signal size in bytes (64 KB)
+	// Typical SDP offer/answer rarely exceeds 8 KB, ICE candidates are even smaller
 	MaxSignalSize = 64 * 1024
 )
 
 // ── Torrent Constants ─────────────────────────────────────────────────────
 
 const (
-	// TorrentGracefulShutdownTimeout таймаут для graceful shutdown торрент-сервиса
+	// TorrentGracefulShutdownTimeout timeout for graceful torrent service shutdown
 	TorrentGracefulShutdownTimeout = 30 * time.Second
+
+	// MaxStreamFileSize maximum file size for streaming (100 GB)
+	MaxStreamFileSize int64 = 100 * 1024 * 1024 * 1024
 )
 
 // ── Sync Constants ────────────────────────────────────────────────────────
 
 const (
-	// MaxPositionJump максимальный прыжок позиции в секундах для плавной подстройки
+	// MaxPositionJump maximum position jump in seconds for smooth adjustment
 	MaxPositionJump = 2.0
 
-	// SmoothAdjustmentRatio коэффициент плавной подстройки позиции
+	// SmoothAdjustmentRatio smooth position adjustment ratio
 	SmoothAdjustmentRatio = 0.3
 
-	// MsPerSecond количество миллисекунд в одной секунде
+	// MsPerSecond number of milliseconds in one second
 	MsPerSecond = 1000.0
 )
 
 // ── SSE Constants ─────────────────────────────────────────────────────────
 
 const (
-	// MaxSSEConnections максимальное количество одновременных SSE соединений на комнату
+	// MaxSSEConnections maximum number of concurrent SSE connections per room
 	MaxSSEConnections = 100
 
-	// SSETimeout таймаут для SSE соединения
+	// SSETimeout SSE connection timeout
 	SSETimeout = 30 * time.Minute
 
-	// SSEPingInterval интервал отправки ping для поддержания SSE соединения
+	// SSEPingInterval ping interval for keeping SSE connection alive
 	SSEPingInterval = 30 * time.Second
 )
 
 // ── Pagination Constants ──────────────────────────────────────────────────
 
 const (
-	// DefaultPaginationLimit лимит пагинации по умолчанию
+	// DefaultPaginationLimit default pagination limit
 	DefaultPaginationLimit = 20
 
-	// MaxPaginationLimit максимальный лимит пагинации
+	// MaxPaginationLimit maximum pagination limit
 	MaxPaginationLimit = 100
+
+	// MaxPaginationOffset maximum pagination offset (DoS protection)
+	MaxPaginationOffset = 10000
 )
 
 // ── Request Constants ─────────────────────────────────────────────────────
 
 const (
-	// MaxRequestSize максимальный размер тела запроса (1 MB)
+	// MaxRequestSize maximum request body size (1 MB)
 	MaxRequestSize = 1 << 20
 
-	// TorrentIDLength длина ID торрента (SHA1 infohash в hex)
+	// TorrentIDLength torrent ID length (SHA1 infohash in hex)
 	TorrentIDLength = 40
 )
 
 // ── Buffer Constants ──────────────────────────────────────────────────────
 
 const (
-	// DefaultBufferPercent процент буферизации от размера файла
+	// DefaultBufferPercent buffer percentage of file size
 	DefaultBufferPercent = 10
 
-	// DefaultBufferDuration длительность буфера в секундах
+	// DefaultBufferDuration buffer duration in seconds
 	DefaultBufferDuration = 60
 
-	// DefaultMaxBufferSize максимальный размер буфера (512 МБ)
+	// DefaultMaxBufferSize maximum buffer size (512 MB)
 	DefaultMaxBufferSize = 512 * 1024 * 1024
 
-	// BufferUpdateInterval интервал обновления приоритетов
+	// BufferUpdateInterval priority update interval
 	BufferUpdateInterval = 1 * time.Second
 
-	// BufferNowPieces количество кусков для немедленной загрузки
+	// BufferNowPieces number of pieces for immediate download
 	BufferNowPieces = 10
 
-	// BufferHighPieces количество кусков для высокого приоритета
+	// BufferHighPieces number of pieces for high priority
 	BufferHighPieces = 50
 
-	// MaxRoomPasswordLength максимальная длина пароля комнаты (bcrypt truncates at 72)
+	// MaxRoomPasswordLength maximum room password length (bcrypt truncates at 72)
 	MaxRoomPasswordLength = 72
+
+	// DefaultMemoryStorageCapacity default in-memory storage size (4 GB, 0 = unlimited)
+	DefaultMemoryStorageCapacity int64 = 4 * 1024 * 1024 * 1024
+
+	// MaxMemoryStorageCapacity maximum in-memory storage size (256 GB)
+	MaxMemoryStorageCapacity int64 = 256 * 1024 * 1024 * 1024
 )

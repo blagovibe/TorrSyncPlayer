@@ -1,60 +1,71 @@
-// Package validation предоставляет общие функции валидации.
-// Содержит утилиты для проверки корректности данных.
+// SPDX-License-Identifier: MIT
+
+// Package validation provides common validation functions.
+// Contains utilities for data correctness checks.
 package validation
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 )
 
-// Регулярные выражения для валидации
+// Regular expressions for validation
 var (
-	// roomNameRegex допускает буквы, цифры, пробелы, дефисы и подчёркивания
+	// roomNameRegex allows letters, digits, spaces, hyphens and underscores
 	roomNameRegex = regexp.MustCompile(`^[\p{L}\p{N}\s\-_]{1,50}$`)
-	// usernameRegex допускает буквы, цифры, подчёркивания и дефисы
+	// usernameRegex allows letters, digits, underscores and hyphens
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
-	// magnetRegex для валидации magnet-ссылок
-	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:[a-z0-9]+:[a-zA-Z0-9]`)
+	// magnetRegex for validating magnet links (xt=urn:btih:<hash> or other types)
+	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:(btih:[a-fA-F0-9]{40}|[a-z0-9]+:[a-zA-Z0-9]{20,})`)
 )
 
-// Ограничения размеров
+// Size limits
 const (
 	MaxUsernameLength    = 30
 	MinUsernameLength    = 3
-	MaxPasswordLength    = 72
 	MinPasswordLength    = 8
 	MaxRoomNameLength    = 50
 	MinRoomNameLength    = 1
 	MaxTorrentNameLength = 255
-	MaxFileSize          = 100 * 1024 * 1024 * 1024 // 100 GB
-	MaxRequestSize       = 1 << 20                  // 1 MB
+	MaxFileSize          = constants.MaxStreamFileSize
 )
 
-// ValidatePosition валидирует позицию воспроизведения.
-// Проверяет что позиция не NaN, не Inf, не отрицательная и не превышает 24 часа.
-// Возвращает ошибку если позиция некорректна.
+const (
+	MaxPasswordLength = constants.MaxPasswordLength
+	MaxRequestSize    = constants.MaxRequestSize
+)
+
+var ErrInvalidPosition = errors.New("invalid playback position")
+
+// ValidatePosition validates the playback position.
+// Checks that position is not NaN, Inf, negative and does not exceed 24 hours.
+// Returns an error if the position is invalid.
 func ValidatePosition(position float64) error {
 	if math.IsNaN(position) || math.IsInf(position, 0) {
-		return fmt.Errorf("некорректное значение позиции: NaN или Inf")
+		return fmt.Errorf("%w: NaN or Inf", ErrInvalidPosition)
 	}
 	if position < 0 {
-		return fmt.Errorf("позиция не может быть отрицательной: %f", position)
+		return fmt.Errorf("%w: negative value %f", ErrInvalidPosition, position)
 	}
 	if position > 86400 {
-		return fmt.Errorf("позиция превышает максимальное значение (24 часа): %f", position)
+		return fmt.Errorf("%w: exceeds 24 hours: %f", ErrInvalidPosition, position)
 	}
 	return nil
 }
 
-// ValidateUsername валидирует имя пользователя.
-// Проверяет длину, допустимые символы и отсутствие пробелов в начале/конце.
+// ValidateUsername validates the username.
+// Checks length, allowed characters and absence of leading/trailing spaces.
 func ValidateUsername(username string) error {
 	username = strings.TrimSpace(username)
 
-	if len(username) < MinUsernameLength || len([]rune(username)) > MaxUsernameLength {
+	usernameLen := utf8.RuneCountInString(username)
+	if usernameLen < MinUsernameLength || usernameLen > MaxUsernameLength {
 		return fmt.Errorf("username must be between %d and %d characters", MinUsernameLength, MaxUsernameLength)
 	}
 
@@ -65,145 +76,159 @@ func ValidateUsername(username string) error {
 	return nil
 }
 
-// ValidatePassword валидирует пароль.
-// Проверяет длину и сложность (наличие букв и цифр).
+// ValidatePassword validates the password.
+// Checks length and complexity (presence of upper, lower, digit, special).
 func ValidatePassword(password string) error {
 	if utf8.RuneCountInString(password) < MinPasswordLength {
-		return fmt.Errorf("пароль слишком короткий (минимум %d символов)", MinPasswordLength)
+		return fmt.Errorf("password too short (minimum %d characters)", MinPasswordLength)
 	}
 	if len(password) > MaxPasswordLength {
-		return fmt.Errorf("пароль слишком длинный (максимум %d байт)", MaxPasswordLength)
+		return fmt.Errorf("password too long (maximum %d bytes)", MaxPasswordLength)
 	}
 
-	// Проверяем наличие хотя бы одной буквы и одной цифры
-	hasLetter := false
+	hasUpper := false
+	hasLower := false
 	hasDigit := false
+	hasSpecial := false
 	for _, r := range password {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-			hasLetter = true
-		}
-		if r >= '0' && r <= '9' {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
 			hasDigit = true
+		default:
+			hasSpecial = true
 		}
 	}
 
-	if !hasLetter || !hasDigit {
-		return fmt.Errorf("пароль должен содержать хотя бы одну букву и одну цифру")
+	if !hasUpper {
+		return fmt.Errorf("password must contain at least one uppercase letter")
+	}
+	if !hasLower {
+		return fmt.Errorf("password must contain at least one lowercase letter")
+	}
+	if !hasDigit {
+		return fmt.Errorf("password must contain at least one digit")
+	}
+	if !hasSpecial {
+		return fmt.Errorf("password must contain at least one special character")
 	}
 
 	return nil
 }
 
-// ValidateRoomName валидирует название комнаты.
-// Проверяет длину и допустимые символы.
+// ValidateRoomName validates the room name.
+// Checks length and allowed characters.
 func ValidateRoomName(name string) error {
 	name = strings.TrimSpace(name)
 
 	if utf8.RuneCountInString(name) < MinRoomNameLength {
-		return fmt.Errorf("название комнаты не может быть пустым")
+		return fmt.Errorf("room name cannot be empty")
 	}
 	if utf8.RuneCountInString(name) > MaxRoomNameLength {
-		return fmt.Errorf("название комнаты слишком длинное (максимум %d символов)", MaxRoomNameLength)
+		return fmt.Errorf("room name too long (maximum %d characters)", MaxRoomNameLength)
 	}
 	if !roomNameRegex.MatchString(name) {
-		return fmt.Errorf("название комнаты содержит недопустимые символы")
+		return fmt.Errorf("room name contains invalid characters")
 	}
 	return nil
 }
 
-// ValidateMagnetURI валидирует формат magnet-ссылки.
+// ValidateMagnetURI validates the magnet link format.
 func ValidateMagnetURI(uri string) error {
 	if uri == "" {
-		return fmt.Errorf("magnet-ссылка не может быть пустой")
+		return fmt.Errorf("magnet link cannot be empty")
 	}
 	if len(uri) > 2048 {
-		return fmt.Errorf("magnet-ссылка слишком длинная")
+		return fmt.Errorf("magnet link too long")
 	}
 	if !magnetRegex.MatchString(uri) {
-		return fmt.Errorf("неверный формат magnet-ссылки")
+		return fmt.Errorf("invalid magnet link format")
 	}
 	return nil
 }
 
-// ValidateTorrentName валидирует название торрента.
+// ValidateTorrentName validates the torrent name.
 func ValidateTorrentName(name string) error {
 	name = strings.TrimSpace(name)
 
 	if name == "" {
-		return fmt.Errorf("название торрента не может быть пустым")
+		return fmt.Errorf("torrent name cannot be empty")
 	}
 	if utf8.RuneCountInString(name) > MaxTorrentNameLength {
-		return fmt.Errorf("название торрента слишком длинное (максимум %d символов)", MaxTorrentNameLength)
+		return fmt.Errorf("torrent name too long (maximum %d characters)", MaxTorrentNameLength)
 	}
 
-	// Проверяем на наличие управляющих символов
+	// Check for control characters
 	for _, r := range name {
 		if r < 32 && r != '\t' && r != '\n' {
-			return fmt.Errorf("название торрента содержит недопустимые символы")
+			return fmt.Errorf("torrent name contains invalid characters")
 		}
 	}
 
 	return nil
 }
 
-// ValidateFileSize валидирует размер файла.
+// ValidateFileSize validates the file size.
 func ValidateFileSize(size int64) error {
 	if size < 0 {
-		return fmt.Errorf("размер файла не может быть отрицательным")
+		return fmt.Errorf("file size cannot be negative")
 	}
 	if size > MaxFileSize {
-		return fmt.Errorf("файл слишком большой (максимум %d GB)", MaxFileSize/(1024*1024*1024))
+		return fmt.Errorf("file too large (maximum %d GB)", MaxFileSize/(1024*1024*1024))
 	}
 	return nil
 }
 
-// ValidateFileIndex валидирует индекс файла.
+// ValidateFileIndex validates the file index.
 func ValidateFileIndex(index, maxIndex int) error {
 	if index < 0 {
-		return fmt.Errorf("индекс файла не может быть отрицательным")
+		return fmt.Errorf("file index cannot be negative")
 	}
 	if maxIndex >= 0 && index > maxIndex {
-		return fmt.Errorf("индекс файла выходит за допустимые пределы")
+		return fmt.Errorf("file index out of range")
 	}
 	return nil
 }
 
-// ValidateTorrentID валидирует ID торрента (hex строка длиной 40 символов).
+// ValidateTorrentID validates the torrent ID (hex string of 40 characters).
 func ValidateTorrentID(id string) error {
 	if id == "" {
-		return fmt.Errorf("ID торрента не может быть пустым")
+		return fmt.Errorf("torrent ID cannot be empty")
 	}
 	if len(id) != 40 {
-		return fmt.Errorf("ID торрента должен быть 40 символов (получено %d)", len(id))
+		return fmt.Errorf("torrent ID must be 40 characters (got %d)", len(id))
 	}
 	for _, c := range id {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return fmt.Errorf("ID торрента содержит недопустимый символ: %c", c)
+			return fmt.Errorf("torrent ID contains invalid character: %c", c)
 		}
 	}
 	return nil
 }
 
-// ValidateRoomID валидирует ID комнаты (hex строка длиной 32 символа = 16 байт).
+// ValidateRoomID validates the room ID (hex string of 32 characters = 16 bytes).
 func ValidateRoomID(id string) error {
 	if id == "" {
-		return fmt.Errorf("ID комнаты не может быть пустым")
+		return fmt.Errorf("room ID cannot be empty")
 	}
 	if len(id) != 32 {
-		return fmt.Errorf("ID комнаты должен быть 32 символа (получено %d)", len(id))
+		return fmt.Errorf("room ID must be 32 characters (got %d)", len(id))
 	}
 	for _, c := range id {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return fmt.Errorf("ID комнаты содержит недопустимый символ: %c", c)
+			return fmt.Errorf("room ID contains invalid character: %c", c)
 		}
 	}
 	return nil
 }
 
-// SanitizeString очищает строку от потенциально опасных символов.
-// Используется для вывода пользовательского ввода.
+// SanitizeString cleans a string from potentially dangerous characters.
+// Used for displaying user input.
 func SanitizeString(s string) string {
-	// Удаляем управляющие символы
+	// Remove control characters
 	s = strings.Map(func(r rune) rune {
 		if r < 32 && r != '\t' && r != '\n' {
 			return -1
@@ -211,7 +236,7 @@ func SanitizeString(s string) string {
 		return r
 	}, s)
 
-	// Ограничиваем длину
+	// Limit length
 	if utf8.RuneCountInString(s) > 1000 {
 		s = string([]rune(s)[:1000])
 	}

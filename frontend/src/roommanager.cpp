@@ -7,6 +7,8 @@
 #include "networkmanager.h"
 
 #include <QDebug>
+#include <QtGlobal>
+#include <cmath>
 
 RoomManager::RoomManager(NetworkManager *network, QObject *parent)
     : QObject(parent)
@@ -116,8 +118,23 @@ void RoomManager::onRoomEvent(const QJsonObject &event)
 void RoomManager::onSignalReceived(const QJsonObject &signal)
 {
     QString action = signal["action"].toString();
-    double position = signal["position"].toDouble();
-    
-    qDebug() << "RoomManager: получен сигнал" << action;
+    double position = signal["position"].toDouble(0.0);
+
+    // Валидируем action — только play/pause/seek
+    static const QStringList validActions = {"play", "pause", "seek"};
+    if (!validActions.contains(action)) {
+        qWarning() << "RoomManager: невалидный action от пира:" << action;
+        return;
+    }
+
+    // Валидируем position — неотрицательное конечное число
+    if (action == "seek") {
+        if (!std::isfinite(position) || position < 0.0) {
+            qWarning() << "RoomManager: невалидная позиция от пира:" << position;
+            return;
+        }
+    }
+
+    qDebug() << "RoomManager: получен сигнал" << action << "позиция" << position;
     emit syncAction(action, position);
 }

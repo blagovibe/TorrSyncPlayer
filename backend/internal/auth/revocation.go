@@ -5,45 +5,56 @@
 package auth
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// TokenRevocationStore хранит отозванные JWT токены.
-// Использует in-memory хранилище с TTL для автоматической очистки.
-// Потокобезопасен для одновременного доступа из нескольких горутин.
+// TokenRevocationStore stores revoked JWT tokens.
+// Uses in-memory storage with TTL for automatic cleanup.
+// Thread-safe for concurrent access from multiple goroutines.
+// Optionally persists data to a JSON file when PersistDir is specified.
 type TokenRevocationStore struct {
 	mu            sync.RWMutex
 	revokedTokens map[string]time.Time // jti -> expiry time
 	ttl           time.Duration
 	stopChan      chan struct{}
 	stopOnce      sync.Once
-	wg            sync.WaitGroup // для ожидания завершения cleanup горутины
+	wg            sync.WaitGroup // for waiting on cleanup goroutine completion
+	persistDir    string
+	persistor     *persistence.Store
 }
 
-// NewTokenRevocationStore создаёт новое хранилище отозванных токенов.
-// Запускает фоновую горутину очистки истёкших записей.
-// Для корректного завершения вызовите Stop() после использования.
+// NewTokenRevocationStore creates a new token revocation store.
+// Starts a background goroutine for cleaning expired entries.
+// Call Stop() after use for proper shutdown.
 func NewTokenRevocationStore() *TokenRevocationStore {
 	store := &TokenRevocationStore{
 		revokedTokens: make(map[string]time.Time),
-		ttl:           constants.RevocationStoreTTL, // Храним отозванные токены 24 часа
+		ttl:           constants.RevocationStoreTTL, // Keep revoked tokens for 24 hours
 		stopChan:      make(chan struct{}),
 	}
 
-	// Запускаем периодическую очистку
+	// Start periodic cleanup
 	store.wg.Add(1)
 	go store.cleanup()
 
 	return store
 }
 
-// cleanup периодически удаляет истёкшие записи об отзыве.
-// Завершается при вызове Stop() или при закрытии stopChan.
+// cleanup periodically removes expired revocation entries.
+// Stops when Stop() is called or stopChan is closed.
 func (s *TokenRevocationStore) cleanup() {
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("TokenRevocationStore: cleanup goroutine exited with panic", "error", r)
+		}
+	}()
 	ticker := time.NewTicker(constants.CSRFCleanupInterval)
 	defer ticker.Stop()
 
@@ -64,42 +75,88 @@ func (s *TokenRevocationStore) cleanup() {
 	}
 }
 
-// Revoke отзывает токен по его JTI.
-// expiry - время истечения токена (для автоматической очистки).
-func (s *TokenRevocationStore) Revoke(jti string, expiry time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.revokedTokens[jti] = expiry
+// SetPersistence enables JSON-file persistence.
+// dataDir - directory for storing files. Loads data from file during initialization.
+func (s *TokenRevocationStore) SetPersistence(dataDir string) error {
+	p, err := persistence.NewStore(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to initialize persistence: %w", err)
+	}
+
+	data, err := p.LoadRevokedTokens()
+	if err != nil {
+		logger.Warn("auth: failed to load revoked tokens from disk", "error", err)
+	} else {
+		s.mu.Lock()
+		for jti, expiryUnix := range data.RevokedTokens {
+			s.revokedTokens[jti] = time.Unix(expiryUnix, 0)
+		}
+		s.mu.Unlock()
+		logger.Info("auth: loaded revoked tokens from disk", "count", len(data.RevokedTokens))
+	}
+
+	s.persistDir = dataDir
+	s.persistor = p
+	return nil
 }
 
-// IsRevoked проверяет, отозван ли токен.
-// Если токен истёк, удаляет запись и возвращает false.
-func (s *TokenRevocationStore) IsRevoked(jti string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *TokenRevocationStore) persist() {
+	if s.persistor == nil {
+		return
+	}
+	data := &persistence.TokenRevocationData{
+		RevokedTokens: make(map[string]int64, len(s.revokedTokens)),
+	}
+	for jti, expiry := range s.revokedTokens {
+		data.RevokedTokens[jti] = expiry.Unix()
+	}
+	if err := s.persistor.SaveRevokedTokens(data); err != nil {
+		logger.Error("auth: failed to persist revoked tokens", "error", err)
+	}
+}
 
+// Revoke revokes a token by its JTI.
+// expiry - token expiration time (for automatic cleanup).
+func (s *TokenRevocationStore) Revoke(jti string, expiry time.Time) {
+	s.mu.Lock()
+	s.revokedTokens[jti] = expiry
+	s.mu.Unlock()
+	s.persist()
+}
+
+// IsRevoked checks if a token is revoked.
+// Uses RLock for fast check first, then Lock only if deletion is needed.
+func (s *TokenRevocationStore) IsRevoked(jti string) bool {
+	s.mu.RLock()
 	expiry, exists := s.revokedTokens[jti]
+	s.mu.RUnlock()
+
 	if !exists {
 		return false
 	}
 
 	if time.Now().After(expiry) {
-		delete(s.revokedTokens, jti)
+		s.mu.Lock()
+		// Double-check: someone might have already deleted the entry
+		if e, ok := s.revokedTokens[jti]; ok && time.Now().After(e) {
+			delete(s.revokedTokens, jti)
+		}
+		s.mu.Unlock()
 		return false
 	}
 
 	return true
 }
 
-// Count возвращает количество отозванных токенов.
+// Count returns the number of revoked tokens.
 func (s *TokenRevocationStore) Count() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.revokedTokens)
 }
 
-// Stop останавливает горутину очистки и ждёт её завершения.
-// Безопасно вызывать несколько раз.
+// Stop stops the cleanup goroutine and waits for its completion.
+// Safe to call multiple times.
 func (s *TokenRevocationStore) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.stopChan)

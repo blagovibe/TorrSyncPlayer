@@ -59,21 +59,36 @@ MpvWidget::MpvWidget(QWidget *parent)
 
 MpvWidget::~MpvWidget()
 {
-    // Останавливаем debounce таймер
+#ifdef HAS_MPV
+    // Set destroying flag immediately to protect against concurrent render callback
+    m_destroying.storeRelaxed(1);
+
+    // Deregister the render callback (prevents any new callbacks)
+    if (m_mpvGL) {
+        mpv_render_context_set_update_callback(m_mpvGL, nullptr, nullptr);
+    }
+
+    // Step 3: Stop timers
     if (m_seekDebounceTimer) {
         m_seekDebounceTimer->stop();
     }
 
-#ifdef HAS_MPV
-    // Освобождаем ресурсы mpv
-    if (m_mpvGL) {
-        mpv_render_context_free(m_mpvGL);
-        m_mpvGL = nullptr;
+    // Step 4: Free mpv resources under mutex
+    {
+        QMutexLocker locker(&m_mutex);
+        if (m_mpvGL) {
+            mpv_render_context_free(m_mpvGL);
+            m_mpvGL = nullptr;
+        }
+        if (m_mpv) {
+            mpv_terminate_destroy(m_mpv);
+            m_mpv = nullptr;
+        }
     }
-
-    if (m_mpv) {
-        mpv_terminate_destroy(m_mpv);
-        m_mpv = nullptr;
+#else
+    m_destroying.storeRelaxed(1);
+    if (m_seekDebounceTimer) {
+        m_seekDebounceTimer->stop();
     }
 #endif
 }
@@ -81,97 +96,88 @@ MpvWidget::~MpvWidget()
 bool MpvWidget::initializeMpv()
 {
 #ifdef HAS_MPV
-    if (m_initialized) return true;
-    // Блокируем мьютекс для инициализации
-    {
-        QMutexLocker locker(&m_mutex);
-
-        // Создаём экземпляр mpv
-        m_mpv = mpv_create();
-        if (!m_mpv) {
-            // Буферизируем событие ошибки для безопасной эмиссии
-            MpvEventData event;
-            event.type = MpvEventData::Error;
-            event.message = tr("Не удалось создать mpv экземпляр");
-            m_eventBuffer.append(event);
-            QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
-            return false;
-        }
-
-        // Настройки mpv
-        mpv_set_option_string(m_mpv, "vo", "libmpv");  // Используем libmpv для рендеринга
-        mpv_set_option_string(m_mpv, "hwdec", "auto");  // Автоматическое аппаратное декодирование
-        mpv_set_option_string(m_mpv, "cache", "yes");   // Включаем кэширование
-        mpv_set_option_string(m_mpv, "cache-secs", "30"); // Кэш 30 секунд
-        mpv_set_option_string(m_mpv, "demuxer-max-bytes", "150M");
-        mpv_set_option_string(m_mpv, "demuxer-max-back-bytes", "50M");
-
-        // Отключаем аудио (опционально, можно включить)
-        mpv_set_option_string(m_mpv, "ao", "null");
-
-        // Инициализация mpv
-        int err = mpv_initialize(m_mpv);
-        if (err < 0) {
-            // Буферизируем событие ошибки для безопасной эмиссии
-            MpvEventData event;
-            event.type = MpvEventData::Error;
-            event.message = tr("Ошибка инициализации mpv: %1").arg(mpv_error_string(err));
-            m_eventBuffer.append(event);
-            mpv_terminate_destroy(m_mpv);
-            m_mpv = nullptr;
-            QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
-            return false;
-        }
-
-        // Настройка рендеринга OpenGL
-        // Используем static функцию для C callback (совместимо с MSVC)
-        mpv_opengl_init_params gl_init_params = {
-            mpvGetProcAddress,
-            nullptr
-        };
-
-        mpv_render_param params[] = {
-            {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
-            {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
-            {MPV_RENDER_PARAM_INVALID, nullptr}
-        };
-
-        // Создаём контекст рендеринга
-        err = mpv_render_context_create(&m_mpvGL, m_mpv, params);
-        if (err < 0) {
-            // Буферизируем событие ошибки для безопасной эмиссии
-            MpvEventData event;
-            event.type = MpvEventData::Error;
-            event.message = tr("Ошибка создания контекста рендеринга: %1").arg(mpv_error_string(err));
-            m_eventBuffer.append(event);
-            mpv_terminate_destroy(m_mpv);
-            m_mpv = nullptr;
-            QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
-            return false;
-        }
-
-        // Устанавливаем callback для обновления
-        mpv_render_context_set_update_callback(m_mpvGL,
-            [](void *ctx) {
-                MpvWidget *widget = static_cast<MpvWidget *>(ctx);
-                QTimer::singleShot(0, widget, &MpvWidget::onMpvEvents);
-            }, this);
-
-        // Запускаем таймер для обработки событий mpv
-        if (!m_eventTimer) {
-            m_eventTimer = new QTimer(this);
-            connect(m_eventTimer, &QTimer::timeout, this, &MpvWidget::onMpvEvents);
-        }
-        m_eventTimer->start(MPV_EVENT_TIMER_MS);
-
-        m_initialized = true;
-
-        // Буферизируем событие готовности для безопасной эмиссии
+    // Создаём экземпляр mpv
+    m_mpv = mpv_create();
+    if (!m_mpv) {
         MpvEventData event;
-        event.type = MpvEventData::Ready;
+        event.type = MpvEventData::Error;
+        event.message = tr("Не удалось создать mpv экземпляр");
         m_eventBuffer.append(event);
         QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
-    } // Мьютекс разблокирован здесь
+        return false;
+    }
+
+    // Настройки mpv
+    auto setOpt = [this](const char *name, const char *val) {
+        int err = mpv_set_option_string(m_mpv, name, val);
+        if (err < 0)
+            qWarning() << "mpv option failed:" << name << mpv_error_string(err);
+    };
+    setOpt("vo", "libmpv");
+    setOpt("hwdec", "auto");
+    setOpt("cache", "yes");
+    setOpt("cache-secs", "30");
+    setOpt("demuxer-max-bytes", "150M");
+    setOpt("demuxer-max-back-bytes", "50M");
+    setOpt("ao", "null");
+
+    int err = mpv_initialize(m_mpv);
+    if (err < 0) {
+        MpvEventData event;
+        event.type = MpvEventData::Error;
+        event.message = tr("Ошибка инициализации mpv: %1").arg(mpv_error_string(err));
+        m_eventBuffer.append(event);
+        mpv_terminate_destroy(m_mpv);
+        m_mpv = nullptr;
+        QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
+        return false;
+    }
+
+    mpv_opengl_init_params gl_init_params = {
+        mpvGetProcAddress,
+        nullptr
+    };
+
+    char apiType[] = MPV_RENDER_API_TYPE_OPENGL;
+    mpv_render_param params[] = {
+        {MPV_RENDER_PARAM_API_TYPE, apiType},
+        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
+        {MPV_RENDER_PARAM_INVALID, nullptr}
+    };
+
+    err = mpv_render_context_create(&m_mpvGL, m_mpv, params);
+    if (err < 0) {
+        MpvEventData event;
+        event.type = MpvEventData::Error;
+        event.message = tr("Ошибка создания контекста рендеринга: %1").arg(mpv_error_string(err));
+        m_eventBuffer.append(event);
+        mpv_terminate_destroy(m_mpv);
+        m_mpv = nullptr;
+        QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
+        return false;
+    }
+
+    mpv_render_context_set_update_callback(m_mpvGL,
+        [](void *ctx) {
+            MpvWidget *widget = static_cast<MpvWidget *>(ctx);
+            if (widget->m_destroying.loadRelaxed()) {
+                return;
+            }
+            QTimer::singleShot(0, widget, &MpvWidget::onMpvEvents);
+        }, this);
+
+    if (!m_eventTimer) {
+        m_eventTimer = new QTimer(this);
+        connect(m_eventTimer, &QTimer::timeout, this, &MpvWidget::onMpvEvents);
+    }
+    m_eventTimer->start(MPV_EVENT_TIMER_MS);
+
+    m_initialized = true;
+
+    MpvEventData event;
+    event.type = MpvEventData::Ready;
+    m_eventBuffer.append(event);
+    QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
 
     qDebug() << "MpvWidget: mpv успешно инициализирован";
 #else
@@ -183,13 +189,14 @@ bool MpvWidget::initializeMpv()
 void MpvWidget::play(const QString &url)
 {
 #ifdef HAS_MPV
+    QMutexLocker locker(&m_mutex);
+
     if (!m_mpv) {
         if (!initializeMpv()) {
             return;
         }
     }
-
-    QMutexLocker locker(&m_mutex);
+    locker.unlock();
 
     const QByteArray urlData = url.toUtf8();
     const char *args[] = {"loadfile", urlData.constData(), "replace", nullptr};
@@ -369,7 +376,10 @@ void MpvWidget::showEvent(QShowEvent *event)
 #ifdef HAS_MPV
     if (!m_initialized) {
         QTimer::singleShot(100, this, [this]() {
-            initializeMpv();
+            QMutexLocker locker(&m_mutex);
+            if (!m_mpv) {
+                initializeMpv();
+            }
         });
     }
 #endif
@@ -378,29 +388,23 @@ void MpvWidget::showEvent(QShowEvent *event)
 void MpvWidget::onMpvEvents()
 {
 #ifdef HAS_MPV
-    if (!m_mpv) return;
+    QMutexLocker locker(&m_mutex);
+    if (!m_mpv || m_destroying.loadRelaxed()) return;
 
-    // Обрабатываем события внутри блокировки мьютекса
-    bool hasEvents = false;
-    {
-        QMutexLocker locker(&m_mutex);
-
-        // Обрабатываем все накопившиеся события
-        while (true) {
-            mpv_event *event = mpv_wait_event(m_mpv, 0);
-            if (event->event_id == MPV_EVENT_NONE) {
-                break;
-            }
-
-            processMpvEvent(event);
+    // Обрабатываем все накопившиеся события
+    while (true) {
+        mpv_event *event = mpv_wait_event(m_mpv, 0);
+        if (event->event_id == MPV_EVENT_NONE) {
+            break;
         }
 
-        // Проверяем наличие событий под блокировкой
-        hasEvents = !m_eventBuffer.isEmpty();
-    } // Мьютекс разблокирован здесь
+        processMpvEvent(event);
+    }
+
+    bool hasEvents = !m_eventBuffer.isEmpty();
+    locker.unlock();
 
     // Эмитируем буферизированные события после разблокировки мьютекса
-    // Это предотвращает race condition и potential deadlock
     if (hasEvents) {
         emitBufferedEvents();
     }
@@ -465,14 +469,15 @@ void MpvWidget::processMpvEvent(mpv_event *event)
 
     case MPV_EVENT_LOG_MESSAGE: {
         mpv_event_log_message *msg = static_cast<mpv_event_log_message *>(event->data);
-        // Логируем ошибки и предупреждения mpv
         if (msg->log_level == MPV_LOG_LEVEL_ERROR) {
             qWarning() << "MPV Error:" << msg->prefix << msg->text;
-            // Буферизируем событие ошибки для безопасной эмиссии
-            MpvEventData eventData;
-            eventData.type = MpvEventData::Error;
-            eventData.message = tr("MPV: %1").arg(QString::fromUtf8(msg->text));
-            m_eventBuffer.append(eventData);
+            if (!m_lastErrorEmit.isValid() || m_lastErrorEmit.elapsed() >= 100) {
+                m_lastErrorEmit.start();
+                MpvEventData eventData;
+                eventData.type = MpvEventData::Error;
+                eventData.message = tr("MPV: %1").arg(QString::fromUtf8(msg->text));
+                m_eventBuffer.append(eventData);
+            }
         } else if (msg->log_level == MPV_LOG_LEVEL_WARN) {
             qDebug() << "MPV Warn:" << msg->prefix << msg->text;
         } else {

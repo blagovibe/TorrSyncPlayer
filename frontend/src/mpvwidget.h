@@ -16,6 +16,7 @@
 #include <QMutex>
 #include <QVector>
 #include <QTimer>
+#include <QElapsedTimer>
 
 // Обёртка для C-заголовка libmpv
 #ifdef HAS_MPV
@@ -201,6 +202,8 @@ private:
     void *m_mpvGL = nullptr;      ///< Заглушка для совместимости
 #endif
     mutable QMutex m_mutex;             ///< Мьютекс для потокобезопасности
+    QAtomicInt m_destroying{0};         ///< Флаг разрушения — защита от use-after-free в колбэке mpv
+    QElapsedTimer m_lastErrorEmit;      ///< Таймер для rate-limit ошибок mpv
     bool m_initialized = false;         ///< Флаг инициализации
     double m_position = 0.0;            ///< Текущая позиция
     double m_duration = 0.0;            ///< Длительность медиа

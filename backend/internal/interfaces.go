@@ -1,5 +1,5 @@
-// Package internal содержит интерфейсы для сервисов приложения.
-// Интерфейсы определяют контракты между слоями приложения.
+// Package internal contains interfaces for application services.
+// Interfaces define contracts between application layers.
 package internal
 
 import (
@@ -12,35 +12,35 @@ import (
 type TorrentService interface {
 	AddMagnet(ctx context.Context, magnetURI string) (*models.TorrentInfo, error)
 	RemoveTorrent(ctx context.Context, id string) error
-	ListTorrents() []*models.TorrentInfo
-	GetFiles(torrentID string) ([]models.FileInfo, error)
-	SelectFile(torrentID string, fileIndex int) error
+	ListTorrents(ctx context.Context) []*models.TorrentInfo
+	GetFiles(ctx context.Context, torrentID string) ([]models.FileInfo, error)
+	SelectFile(ctx context.Context, torrentID string, fileIndex int) error
 	ServeFile(w http.ResponseWriter, r *http.Request, torrentID string)
-	UpdateBufferPosition(torrentID string, position int64)
-	GetBufferInfo(torrentID string) (*models.BufferInfo, error)
+	UpdateBufferPosition(ctx context.Context, torrentID string, position int64)
+	GetBufferInfo(ctx context.Context, torrentID string) (*models.BufferInfo, error)
 	Close() error
 }
 
 type P2PService interface {
-	CreateRoom(name, password string) (*models.RoomInfo, error)
-	JoinRoom(roomID, password string) error
-	JoinRoomWithToken(roomID, password, token string) error
-	AuthenticatePeer(peerID, token string) error
+	CreateRoom(ctx context.Context, name, password string) (*models.RoomInfo, error)
+	JoinRoom(ctx context.Context, roomID, password string) error
+	JoinRoomWithToken(ctx context.Context, roomID, password, token string) error
+	AuthenticatePeer(ctx context.Context, peerID, token string) error
 	SetLocalUserID(userID string)
-	LeaveRoom() error
-	SendSignal(signal []byte) error
+	LeaveRoom(ctx context.Context) error
+	SendSignal(ctx context.Context, signal []byte) error
 	GetEvents() chan models.P2PEvent
-	GetRoomInfo() (*models.RoomInfo, error)
+	GetRoomInfo(ctx context.Context) (*models.RoomInfo, error)
 	Close() error
 }
 
 type SyncService interface {
-	Play() models.SyncStatus
-	Pause() models.SyncStatus
-	Seek(position float64) (models.SyncStatus, error)
-	GetStatus() models.SyncStatus
-	SetDuration(duration float64) error
-	SyncWithLatency(peerStatus models.SyncStatus, latencyMs int) models.SyncStatus
-	UpdatePosition(position float64) error
+	Play(ctx context.Context) models.SyncStatus
+	Pause(ctx context.Context) models.SyncStatus
+	Seek(ctx context.Context, position float64) (models.SyncStatus, error)
+	GetStatus(ctx context.Context) models.SyncStatus
+	SetDuration(ctx context.Context, duration float64) error
+	SyncWithLatency(ctx context.Context, peerStatus models.SyncStatus, latencyMs int) models.SyncStatus
+	UpdatePosition(ctx context.Context, position float64) error
 	Close()
 }

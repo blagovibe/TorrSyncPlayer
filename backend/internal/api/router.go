@@ -2,8 +2,8 @@
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
 // See LICENSE file for full license text
 
-// Package api предоставляет HTTP API для сервера.
-// Содержит роутер для маршрутизации HTTP запросов к обработчикам.
+// Package api provides HTTP API for the server.
+// Contains router for routing HTTP requests to handlers.
 package api
 
 import (
@@ -14,13 +14,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
+	// swagger docs import for side effects
 	_ "github.com/blagovibe/TorrSyncPlayer/backend/docs"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// RouterConfig конфигурация роутера.
+// RouterConfig router configuration.
 type RouterConfig struct {
 	TorrentSvc  internal.TorrentService
 	P2pSvc      internal.P2PService
@@ -29,38 +30,38 @@ type RouterConfig struct {
 	AuthService *auth.AuthService
 }
 
-// NewRouter создаёт и настраивает HTTP роутер.
-// Подключает middleware (SecurityHeaders, Recovery, CORS, ContentType, CSRF, Logger, RateLimit, Auth) и регистрирует маршруты.
-// Параметр config - конфигурация роутера с сервисами и хранилищем.
-// Возвращает настроенный http.Handler.
+// NewRouter creates and configures an HTTP router.
+// Attaches middleware (SecurityHeaders, Recovery, CORS, ContentType, CSRF, Logger, RateLimit, Auth) and registers routes.
+// Parameter config - router configuration with services and store.
+// Returns a configured http.Handler.
 func NewRouter(config RouterConfig) http.Handler {
 	r := chi.NewRouter()
 
-	// Подключаем базовые middleware (порядок важен!)
-	r.Use(SecurityHeadersMiddleware) // 1. Заголовки безопасности (первый слой)
-	r.Use(Recovery)                  // 2. Перехват паник
-	r.Use(CORS)                      // 3. CORS обработка
-	r.Use(ContentTypeMiddleware)     // 4. Content-Type валидация
-	r.Use(Logger)                    // 5. Логирование
+	// Attach base middleware (order matters!)
+	r.Use(SecurityHeadersMiddleware) // 1. Security headers (first layer)
+	r.Use(Recovery)                  // 2. Panic recovery
+	r.Use(CORS)                      // 3. CORS handling
+	r.Use(ContentTypeMiddleware)     // 4. Content-Type validation
+	r.Use(Logger)                    // 5. Logging
 
-	// Swagger UI (без rate limiting для удобства разработки)
+	// Swagger UI (without rate limiting for development convenience)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
-	// Health check (без CSRF и JWT аутентификации для мониторинга)
+	// Health check (without CSRF and JWT authentication for monitoring)
 	r.Get(APIPathHealth, HealthCheck())
 
 	// Version endpoint
 	r.Get(APIPathVersion, VersionHandler())
 
-	// Prometheus metrics endpoint (без CSRF/JWT)
-	r.Get(APIPathMetrics, MetricsHandler())
+	// Prometheus metrics endpoint (per-IP rate limited, without CSRF/JWT for monitoring tools)
+	r.With(PerIPRateLimiter).Get(APIPathMetrics, MetricsHandler())
 
-	// CSRF token endpoint для получения токена (per-IP rate limited)
+	// CSRF token endpoint for obtaining a token (per-IP rate limited)
 	r.With(PerIPRateLimiter).Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
 		sessionID := extractSessionID(r)
-		token, err := csrfStore.generateToken(sessionID)
+		token, err := CSRFStore.generateToken(sessionID)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "Ошибка генерации токена")
+			WriteError(w, http.StatusInternalServerError, "Token generation error")
 			return
 		}
 		w.Header().Set("X-CSRF-Token", token)
@@ -69,23 +70,22 @@ func NewRouter(config RouterConfig) http.Handler {
 		})
 	})
 
-	// Создаём обработчик аутентификации
+	// Create auth handler
 	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)
 
-	// Auth endpoints — без CSRF защиты (публичные endpoints)
-	// Rate limiting: 10 запросов/минуту (per-IP через NewRateLimiter)
+	// Auth endpoints — without CSRF protection (public endpoints)
+	// Rate limiting: 10 requests/minute (per-IP via NewRateLimiter)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Use(NewRateLimiter(rate.Limit(0.17), 5))
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
-		r.Post("/logout", config.AuthService.LogoutHandler)
 	})
 
-	// Защищённые endpoints — с CSRF, Rate limiting и JWT аутентификацией
+	// Protected endpoints — with Rate limiting, CSRF and JWT authentication
 	r.Group(func(r chi.Router) {
-		r.Use(CSRFMiddleware)                    // 6. CSRF защита
-		r.Use(NewRateLimiter(rate.Limit(1), 10)) // 60 запросов/минуту (per-IP)
-		r.Use(config.AuthService.JWTMiddleware)  // JWT аутентификация
+		r.Use(NewRateLimiter(rate.Limit(1), 10)) // 60 requests/minute (per-IP) — applied before CSRF to prevent DoS on token store
+		r.Use(CSRFMiddleware)                    // CSRF protection
+		r.Use(config.AuthService.JWTMiddleware)  // JWT authentication
 
 		// API v1
 		r.Route("/api/v1", func(r chi.Router) {
@@ -110,6 +110,9 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/{roomID}/events", RoomEvents(config.P2pSvc))
 			})
 
+			// Auth endpoints (protected — require JWT + CSRF)
+			r.Post("/auth/logout", config.AuthService.LogoutHandler)
+
 			// Sync endpoints
 			r.Route("/sync", func(r chi.Router) {
 				r.Post("/play", SyncPlay(config.SyncSvc))
@@ -118,21 +121,21 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/status", SyncStatus(config.SyncSvc))
 			})
 
-			// Detailed health check (требует JWT аутентификации)
+			// Detailed health check (requires JWT authentication)
 			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))
 		})
 
-		// Обработчик 404 для неизвестных маршрутов внутри защищённой группы
+		// 404 handler for unknown routes within the protected group
 		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-			WriteError(w, http.StatusNotFound, "Маршрут не найден")
+			WriteError(w, http.StatusNotFound, "Route not found")
 		})
 	})
 
-	// Обработчик 404 для всех остальных неизвестных маршрутов
+	// 404 handler for all other unknown routes
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, http.StatusNotFound, "Маршрут не найден")
+		WriteError(w, http.StatusNotFound, "Route not found")
 	})
 
-	logger.Info("HTTP роутер настроен")
+	logger.Info("HTTP router configured")
 	return r
 }

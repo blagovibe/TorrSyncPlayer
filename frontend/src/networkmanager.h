@@ -32,10 +32,34 @@
  * @struct RetryRequest
  * @brief Структура для хранения информации о повторном запросе
  */
+enum class RequestType {
+    ListTorrents,
+    AddTorrent,
+    RemoveTorrent,
+    GetFiles,
+    SelectFile,
+    StreamFile,
+    SetBufferPosition,
+    GetBufferInfo,
+    CreateRoom,
+    JoinRoom,
+    LeaveRoom,
+    Signal,
+    RoomEvents,
+    SyncPlay,
+    SyncPause,
+    SyncSeek,
+    SyncStatus,
+    HealthCheck,
+    Version,
+    Unknown
+};
+
 struct RetryRequest {
     QString path;
     QJsonObject body;
     QString method; // "GET", "POST", "DELETE"
+    RequestType type = RequestType::Unknown;
     int attempt = 0;
 };
 
@@ -177,25 +201,53 @@ public:
      * @param url Новый URL
      */
     void setServerUrl(const QUrl &url) {
-        if (!url.isEmpty() && url.scheme() != "https" && url.scheme() != "http") {
+        if (url.isEmpty()) {
+            qWarning() << "NetworkManager: empty URL, keeping default";
+            return;
+        }
+        if (url.scheme() != "https" && url.scheme() != "http") {
             qWarning() << "NetworkManager: unsupported URL scheme, defaulting to HTTPS";
-            m_serverUrl = QUrl("https://" + url.host() + ":" + QString::number(url.port(443)));
+            QUrl fixed(url);
+            fixed.setScheme("https");
+            if (fixed.port() == -1) {
+                fixed.setPort(443);
+            }
+            m_serverUrl = fixed;
         } else {
             m_serverUrl = url;
         }
+    }
+
+    void setAuthToken(const QString &token) {
+        QMutexLocker locker(&m_authTokenMutex);
+        m_authToken = token;
+    }
+    void clearAuthToken() {
+        QMutexLocker locker(&m_authTokenMutex);
+        m_authToken.clear();
+    }
+    QString authToken() const {
+        QMutexLocker locker(&m_authTokenMutex);
+        return m_authToken;
     }
     
     /**
      * @brief Проверить, подключен ли к комнате
      * @return true если в комнате
      */
-    bool isInRoom() const { return !m_currentRoomId.isEmpty(); }
+    bool isInRoom() const {
+        QMutexLocker locker(&m_roomIdMutex);
+        return !m_currentRoomId.isEmpty();
+    }
     
     /**
-     * @brief Получить ID текущей комнаты
+     * @brief Получить ID текущей комнаты (потокобезопасно)
      * @return ID комнаты
      */
-    QString currentRoomId() const { return m_currentRoomId; }
+    QString currentRoomId() const {
+        QMutexLocker locker(&m_roomIdMutex);
+        return m_currentRoomId;
+    }
     
     /**
      * @brief Проверить доступность сервера
@@ -203,6 +255,26 @@ public:
      */
     bool isServerAvailable() const { return m_serverAvailable.loadRelaxed(); }
     
+    /**
+     * @brief Режим проверки SSL-сертификатов
+     */
+    enum class SslMode {
+        Strict,     ///< Verify all certificates (production)
+        AllowSelfSigned  ///< Accept self-signed certs for localhost (development)
+    };
+
+    /**
+     * @brief Установить режим проверки SSL-сертификатов
+     * @param mode Strict — проверять все сертификаты (production),
+     *             AllowSelfSigned — принимать self-signed для localhost (разработка)
+     */
+    void setSslMode(SslMode mode) { m_sslMode = mode; }
+
+    /**
+     * @brief Получить текущий режим проверки SSL
+     */
+    SslMode sslMode() const { return m_sslMode; }
+
     /**
      * @brief Получить максимальное количество попыток
      * @return Максимум попыток
@@ -347,17 +419,13 @@ private slots:
     void onSsEReadyRead();
     
     /**
-     * @brief Обработка ошибки сети
-     * @param code Код ошибки
-     */
-    void onNetworkError(QNetworkReply::NetworkError code);
-    
-    /**
      * @brief Обработка SSL ошибок
      * @param reply Ответ с ошибкой
      * @param errors Список SSL ошибок
      */
     void onSslErrors(QNetworkReply *reply, const QList<QSslError> &errors);
+
+    void onNetworkError(QNetworkReply::NetworkError code);
     
     /**
      * @brief Повторная отправка запроса
@@ -376,20 +444,20 @@ private:
      * @brief Отправить GET запрос
      * @param path Путь API (без базового URL)
      */
-    void sendGet(const QString &path);
+    void sendGet(const QString &path, RequestType type);
     
     /**
      * @brief Отправить POST запрос
      * @param path Путь API (без базового URL)
      * @param body Тело запроса (JSON)
      */
-    void sendPost(const QString &path, const QJsonObject &body);
+    void sendPost(const QString &path, const QJsonObject &body, RequestType type);
     
     /**
      * @brief Отправить DELETE запрос
      * @param path Путь API (без базового URL)
      */
-    void sendDelete(const QString &path);
+    void sendDelete(const QString &path, RequestType type);
     
     /**
      * @brief Отправить запрос с поддержкой retry
@@ -397,7 +465,8 @@ private:
      * @param path Путь API
      * @param body Тело запроса (для POST)
      */
-    void sendWithRetry(const QString &method, const QString &path, const QJsonObject &body = QJsonObject());
+    void sendWithRetry(const QString &method, const QString &path, const QJsonObject &body);
+    void sendWithRetry(const QString &method, const QString &path, RequestType type, const QJsonObject &body = QJsonObject());
     
     /**
      * @brief Подключиться к SSE потоку
@@ -411,7 +480,13 @@ private:
      * Закрывает текущее SSE соединение
      */
     void disconnectSSE();
-    
+
+    /**
+     * @brief Применить Bearer-авторизацию к запросу
+     * @param request Запрос для модификации
+     */
+    void applyAuthHeader(QNetworkRequest &request);
+
     /**
      * @brief Обработка ошибки API
      * Парсит ошибку из ответа и испускает сигнал error
@@ -431,19 +506,45 @@ private:
     QPointer<QNetworkReply> m_sseReply;     ///< Текущий SSE ответ (QPointer для безопасности от nullptr)
     mutable QMutex m_roomIdMutex;
     QString m_currentRoomId;                ///< ID текущей комнаты
-    QMap<QNetworkReply*, QString> m_replyMap; ///< Карта запросов для идентификации
+    QMap<QNetworkReply*, RequestType> m_replyMap; ///< Карта запросов для идентификации
     mutable QMutex m_replyMutex;            ///< Мьютекс для потокобезопасного доступа к m_replyMap
     
     // ── Retry logic ───────────────────────────────────────────────────
     int m_maxRetries = 3;                   ///< Максимальное количество попыток
     int m_retryBaseDelay = 1000;            ///< Базовая задержка retry (мс)
     QTimer *m_retryTimer = nullptr;         ///< Таймер для retry
+    mutable QMutex m_retryMutex;            ///< Mutex for thread-safe retry state access
     RetryRequest m_pendingRetry;            ///< Ожидающий retry запрос
+    int m_retrySeq = 0;                     ///< Sequence number for the current pending retry
+    int m_pendingRetrySeq = 0;              ///< Sequence number captured at retry scheduling
     QAtomicInt m_serverAvailable{1};        ///< Флаг доступности сервера (потокобезопасный)
-    
+
+    // ── Auth ───────────────────────────────────────────────────────────
+    mutable QMutex m_authTokenMutex;        ///< Mutex for thread-safe auth token access
+    QString m_authToken;                    ///< JWT Bearer token for API auth
+    void fetchCsrfToken();                  ///< Запросить CSRF-токен с сервера
+    mutable QMutex m_csrfTokenMutex;
+    QString m_csrfToken;
+    bool m_csrfReady = false;
+    struct PendingCsrfRequest {
+        QString method;
+        QString path;
+        QJsonObject body;
+        RequestType type;
+    };
+    QVector<PendingCsrfRequest> m_csrfPendingQueue;
+    void applyCsrfHeader(QNetworkRequest &request);
+    void enqueueOrSend(const QString &method, const QString &path, const QJsonObject &body, RequestType type);
+    void flushCsrfQueue();
+
+    // ── SSL/TLS mode ───────────────────────────────────────────────────
+    SslMode m_sslMode = SslMode::Strict;    ///< Current SSL verification mode
+
     // ── SSE Reconnect ─────────────────────────────────────────────────
     QTimer *m_sseReconnectTimer = nullptr;  ///< Таймер для SSE переподключения
     QAtomicInt m_sseReconnectAttempts{0};   ///< Счётчик попыток SSE переподключения
+    QString m_sseReconnectPath;             ///< Путь для SSE переподключения
+    qint64 m_sseTotalBytesRead = 0;         ///< Общий объём данных SSE (защита от DoS)
 };
 
 #endif // NETWORKMANAGER_H

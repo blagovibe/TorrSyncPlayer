@@ -1,9 +1,12 @@
-// Package storage предоставляет in-memory хранилище для торрент-данных.
-// Все данные хранятся в оперативной памяти без записи на диск.
+// SPDX-License-Identifier: MIT
+
+// Package storage provides in-memory storage for torrent data.
+// All data is stored in RAM without writing to disk.
 package storage
 
 import (
 	"context"
+	"io"
 	"sync"
 	"sync/atomic"
 
@@ -11,7 +14,7 @@ import (
 	"github.com/anacrolix/torrent/storage"
 )
 
-// memoryPieceImpl реализует storage.PieceImpl для хранения данных куска в RAM.
+// memoryPieceImpl implements storage.PieceImpl for storing piece data in RAM.
 type memoryPieceImpl struct {
 	mu             sync.RWMutex
 	data           []byte
@@ -20,50 +23,51 @@ type memoryPieceImpl struct {
 	bytesAllocated int64
 }
 
-// ReadAt читает данные из куска.
+// ReadAt reads data from the piece.
 func (p *memoryPieceImpl) ReadAt(b []byte, off int64) (int, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	if off >= int64(len(p.data)) {
-		return 0, nil
+		return 0, io.EOF
 	}
 
 	end := off + int64(len(b))
 	if end > int64(len(p.data)) {
 		end = int64(len(p.data))
 	}
-	if off >= end {
-		return 0, nil
-	}
 
 	n := copy(b, p.data[off:end])
+	if n == 0 {
+		return 0, io.EOF
+	}
 	return n, nil
 }
 
-// WriteAt записывает данные в кусок.
+// WriteAt writes data to the piece.
 func (p *memoryPieceImpl) WriteAt(b []byte, off int64) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.data == nil {
 		p.data = make([]byte, p.length)
+		p.bytesAllocated = p.length
+	}
+
+	if off >= p.length {
+		return 0, nil
 	}
 
 	end := off + int64(len(b))
 	if end > p.length {
 		end = p.length
 	}
-	if off >= p.length {
-		return 0, nil
-	}
 
 	n := copy(p.data[off:end], b)
-	p.bytesAllocated += int64(n)
 	return n, nil
 }
 
-// MarkComplete помечает кусок как завершённый.
+// MarkComplete marks the piece as complete.
 func (p *memoryPieceImpl) MarkComplete() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -71,7 +75,7 @@ func (p *memoryPieceImpl) MarkComplete() error {
 	return nil
 }
 
-// MarkNotComplete помечает кусок как незавершённый.
+// MarkNotComplete marks the piece as not complete.
 func (p *memoryPieceImpl) MarkNotComplete() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -79,7 +83,7 @@ func (p *memoryPieceImpl) MarkNotComplete() error {
 	return nil
 }
 
-// Completion возвращает статус завершения куска.
+// Completion returns the completion status of the piece.
 func (p *memoryPieceImpl) Completion() storage.Completion {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -89,7 +93,7 @@ func (p *memoryPieceImpl) Completion() storage.Completion {
 	}
 }
 
-// memoryPieceProvider хранит куски одного торрента в памяти.
+// memoryPieceProvider stores pieces of a single torrent in memory.
 type memoryPieceProvider struct {
 	mu          sync.RWMutex
 	pieces      map[int]*memoryPieceImpl
@@ -99,7 +103,7 @@ type memoryPieceProvider struct {
 	totalBytes  atomic.Int64
 }
 
-// newMemoryPieceProvider создаёт новый провайдер кусков в памяти.
+// newMemoryPieceProvider creates a new in-memory piece provider.
 func newMemoryPieceProvider(infoHash metainfo.Hash, pieceLength int64, storage *memoryStorage) *memoryPieceProvider {
 	return &memoryPieceProvider{
 		pieces:      make(map[int]*memoryPieceImpl),
@@ -109,7 +113,9 @@ func newMemoryPieceProvider(infoHash metainfo.Hash, pieceLength int64, storage *
 	}
 }
 
-// Piece возвращает storage.PieceImpl для указанного куска.
+// Piece returns storage.PieceImpl for the specified piece.
+// Capacity check and allocation are performed atomically under the same lock
+// to prevent TOCTOU races when multiple goroutines allocate concurrently.
 func (p *memoryPieceProvider) Piece(piece metainfo.Piece) storage.PieceImpl {
 	p.mu.RLock()
 	index := piece.Index()
@@ -119,13 +125,17 @@ func (p *memoryPieceProvider) Piece(piece metainfo.Piece) storage.PieceImpl {
 	}
 	p.mu.RUnlock()
 
-	if p.storage.capacity > 0 {
-		currentUsed := p.storage.used.Load()
-		if currentUsed+piece.Length() > p.storage.capacity {
-			return &memoryPieceImpl{
-				data:   nil,
-				length: piece.Length(),
-			}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if impl, exists := p.pieces[index]; exists {
+		return impl
+	}
+
+	if !p.storage.tryAllocate(piece.Length()) {
+		return &memoryPieceImpl{
+			data:   nil,
+			length: piece.Length(),
 		}
 	}
 
@@ -134,16 +144,13 @@ func (p *memoryPieceProvider) Piece(piece metainfo.Piece) storage.PieceImpl {
 		length: piece.Length(),
 	}
 
-	p.storage.used.Add(piece.Length())
 	p.totalBytes.Add(piece.Length())
 
-	p.mu.Lock()
 	p.pieces[index] = impl
-	p.mu.Unlock()
 	return impl
 }
 
-// Close закрывает провайдер и освобождает память.
+// Close closes the provider and frees memory.
 func (p *memoryPieceProvider) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -152,7 +159,7 @@ func (p *memoryPieceProvider) Close() error {
 	return nil
 }
 
-// memoryStorage реализует storage.ClientImpl для хранения данных в RAM.
+// memoryStorage implements storage.ClientImpl for in-memory data storage.
 type memoryStorage struct {
 	mu        sync.RWMutex
 	providers map[metainfo.Hash]*memoryPieceProvider
@@ -160,8 +167,8 @@ type memoryStorage struct {
 	used      atomic.Int64
 }
 
-// NewMemoryStorage создаёт новое in-memory хранилище для торрентов.
-// capacity - максимальный размер хранилища в байтах (0 = без ограничений).
+// NewMemoryStorage creates a new in-memory storage for torrents.
+// capacity - maximum storage size in bytes (0 = unlimited).
 func NewMemoryStorage(capacity int64) storage.ClientImpl {
 	return &memoryStorage{
 		providers: make(map[metainfo.Hash]*memoryPieceProvider),
@@ -169,7 +176,7 @@ func NewMemoryStorage(capacity int64) storage.ClientImpl {
 	}
 }
 
-// OpenTorrent открывает торрент для хранения в памяти.
+// OpenTorrent opens a torrent for in-memory storage.
 func (s *memoryStorage) OpenTorrent(ctx context.Context, info *metainfo.Info, infoHash metainfo.Hash) (storage.TorrentImpl, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -190,17 +197,41 @@ func (s *memoryStorage) OpenTorrent(ctx context.Context, info *metainfo.Info, in
 	}, nil
 }
 
-// GetUsed возвращает текущее использование хранилища.
+// tryAllocate attempts to allocate 'size' bytes from the global pool
+// Returns true if allocation succeeded
+func (s *memoryStorage) tryAllocate(size int64) bool {
+	if s.capacity <= 0 {
+		s.used.Add(size)
+		return true
+	}
+	// Use a bounded retry with yield to avoid busy-loop on full capacity
+	for i := 0; i < 100; i++ {
+		current := s.used.Load()
+		if current+size > s.capacity {
+			return false
+		}
+		if s.used.CompareAndSwap(current, current+size) {
+			return true
+		}
+		// Yield to other goroutines contending on CAS
+		if i%10 == 9 {
+			continue
+		}
+	}
+	return false
+}
+
+// GetUsed returns the current storage usage.
 func (s *memoryStorage) GetUsed() int64 {
 	return s.used.Load()
 }
 
-// GetCapacity возвращает ёмкость хранилища.
+// GetCapacity returns the storage capacity.
 func (s *memoryStorage) GetCapacity() int64 {
 	return s.capacity
 }
 
-// Close закрывает хранилище и освобождает все ресурсы.
+// Close closes the storage and releases all resources.
 func (s *memoryStorage) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

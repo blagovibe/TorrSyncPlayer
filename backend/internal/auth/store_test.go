@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/utils"
 )
 
 func TestUserStoreCreate(t *testing.T) {
@@ -17,69 +19,69 @@ func TestUserStoreCreate(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "Валидный пользователь",
+			name:        "Valid user",
 			username:    "testuser",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: false,
 		},
 		{
-			name:        "Пустое имя пользователя",
+			name:        "Empty username",
 			username:    "",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: true,
 		},
 		{
-			name:        "Короткое имя пользователя",
+			name:        "Short username",
 			username:    "ab",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: true,
 		},
 		{
-			name:        "Длинное имя пользователя",
+			name:        "Long username",
 			username:    "abcdefghijklmnopqrstuvwxyz1234567890",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: true,
 		},
 		{
-			name:        "Пустой пароль",
+			name:        "Empty password",
 			username:    "testuser2",
 			password:    "",
 			expectError: true,
 		},
 		{
-			name:        "Короткий пароль (менее 8 символов)",
+			name:        "Short password (less than 8 characters)",
 			username:    "testuser3",
 			password:    "12345",
 			expectError: true,
 		},
 		{
-			name:        "Пароль без букв",
+			name:        "Password without letters",
 			username:    "testuser4",
 			password:    "12345678",
 			expectError: true,
 		},
 		{
-			name:        "Пароль без цифр",
+			name:        "Password without digits",
 			username:    "testuser5",
 			password:    "password",
 			expectError: true,
 		},
 		{
-			name:        "Имя с недопустимыми символами",
+			name:        "Name with invalid characters",
 			username:    "test@user!",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: true,
 		},
 		{
-			name:        "Валидный пользователь с дефисом",
+			name:        "Valid user with hyphen",
 			username:    "test-user",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: false,
 		},
 		{
-			name:        "Валидный пользователь с подчёркиванием",
+			name:        "Valid user with underscore",
 			username:    "test_user",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: false,
 		},
 	}
@@ -97,7 +99,7 @@ func TestUserStoreCreate(t *testing.T) {
 			assert.Equal(t, tt.username, user.Username)
 			assert.NotEmpty(t, user.ID)
 			assert.NotEmpty(t, user.PasswordHash)
-			assert.NotEqual(t, tt.password, user.PasswordHash) // Пароль должен быть хеширован
+			assert.NotEqual(t, tt.password, user.PasswordHash) // Password must be hashed
 		})
 	}
 }
@@ -105,21 +107,21 @@ func TestUserStoreCreate(t *testing.T) {
 func TestUserStoreCreateDuplicate(t *testing.T) {
 	store := NewUserStore()
 
-	// Создаём первого пользователя
-	_, err := store.Create("testuser", "password123")
+	// Create first user
+	_, err := store.Create("testuser", "TestPass1!")
 	require.NoError(t, err)
 
-	// Пытаемся создать дубликат
-	_, err = store.Create("testuser", "password456")
+	// Attempt to create duplicate
+	_, err = store.Create("testuser", "TestPass2!")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "уже существует")
+	assert.Contains(t, err.Error(), "already exists")
 }
 
 func TestUserStoreAuthenticate(t *testing.T) {
 	store := NewUserStore()
 
-	// Создаём пользователя
-	_, err := store.Create("testuser", "password123")
+	// Create user
+	_, err := store.Create("testuser", "TestPass1!")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -129,21 +131,21 @@ func TestUserStoreAuthenticate(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "Верные учётные данные",
+			name:        "Correct credentials",
 			username:    "testuser",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: false,
 		},
 		{
-			name:        "Неверный пароль",
+			name:        "Wrong password",
 			username:    "testuser",
 			password:    "wrongpassword",
 			expectError: true,
 		},
 		{
-			name:        "Несуществующий пользователь",
+			name:        "Non-existent user",
 			username:    "nonexistent",
-			password:    "password123",
+			password:    "TestPass1!",
 			expectError: true,
 		},
 	}
@@ -166,16 +168,16 @@ func TestUserStoreAuthenticate(t *testing.T) {
 func TestUserStoreGetByUsername(t *testing.T) {
 	store := NewUserStore()
 
-	// Создаём пользователя
-	created, err := store.Create("testuser", "password123")
+	// Create user
+	created, err := store.Create("testuser", "TestPass1!")
 	require.NoError(t, err)
 
-	// Получаем по имени
+	// Get by username
 	user, exists := store.GetByUsername("testuser")
 	assert.True(t, exists)
 	assert.Equal(t, created.ID, user.ID)
 
-	// Несуществующий пользователь
+	// Non-existent user
 	_, exists = store.GetByUsername("nonexistent")
 	assert.False(t, exists)
 }
@@ -183,28 +185,28 @@ func TestUserStoreGetByUsername(t *testing.T) {
 func TestUserStoreGetByID(t *testing.T) {
 	store := NewUserStore()
 
-	// Создаём пользователя
-	created, err := store.Create("testuser", "password123")
+	// Create user
+	created, err := store.Create("testuser", "TestPass1!")
 	require.NoError(t, err)
 
-	// Получаем по ID
+	// Get by ID
 	user, exists := store.GetByID(created.ID)
 	assert.True(t, exists)
 	assert.Equal(t, "testuser", user.Username)
 
-	// Несуществующий ID
+	// Non-existent ID
 	_, exists = store.GetByID("nonexistent-id")
 	assert.False(t, exists)
 }
 
 func TestGenerateID(t *testing.T) {
-	// Генерируем несколько ID и проверяем уникальность
+	// Generate several IDs and check uniqueness
 	ids := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		id, err := generateID()
+		id, err := utils.GenerateID(16)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, id)
-		assert.False(t, ids[id], "ID должен быть уникальным")
+		assert.False(t, ids[id], "ID must be unique")
 		ids[id] = true
 	}
 }

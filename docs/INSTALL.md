@@ -6,10 +6,9 @@
 2. [Installing Dependencies](#installing-dependencies)
 3. [Building from Source](#building-from-source)
 4. [Installing from Releases](#installing-from-releases)
-5. [Docker](#docker)
-6. [Configuration](#configuration)
-7. [Updating](#updating)
-8. [Uninstallation](#uninstallation)
+5. [Configuration](#configuration)
+6. [Updating](#updating)
+7. [Uninstallation](#uninstallation)
 
 ## System Requirements
 
@@ -36,16 +35,17 @@
 #### Ubuntu/Debian
 
 ```bash
-# Install Go 1.25+
-wget https://go.dev/dl/go1.25.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz
+# Install Go 1.26+
+wget https://go.dev/dl/go1.26.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 ```
 
 #### macOS
 
 ```bash
-brew install go@1.24
+# Requires Go 1.26 or newer
+brew install go
 ```
 
 #### Windows
@@ -95,7 +95,7 @@ cd backend
 make build
 ```
 
-The executable will be in `backend/build/` or `backend/bin/`.
+The executable will be in `backend/build/`.
 
 ### Build Frontend
 
@@ -122,7 +122,15 @@ cmake --build . --config Release
 ### Build Everything
 
 ```bash
-make all
+# Build backend
+cd backend && make build
+
+# Build frontend
+cd frontend
+mkdir -p build
+cd build
+cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+ninja
 ```
 
 ## Installing from Releases
@@ -157,41 +165,6 @@ hdiutil detach /Volumes/TorrSyncPlayer
 
 Extract the archive and run `TorrSyncPlayer.exe`.
 
-## Docker
-
-### Build Image
-
-```bash
-docker build -t torrsyncplayer:latest .
-```
-
-### Run Container
-
-```bash
-docker run -d \
-    --name torrsyncplayer \
-    -p 8889:8889 \
-    torrsyncplayer:latest
-```
-
-### Docker Compose
-
-```bash
-# Run backend only
-docker-compose up -d
-
-# Run backend + Prometheus + Grafana
-docker-compose --profile monitoring up -d
-```
-
-### Docker Compose Services
-
-| Service | Port | Description |
-|---------|------|-------------|
-| backend | 8889 | TorrSyncPlayer backend |
-| prometheus | 9090 | Prometheus metrics (profile: monitoring) |
-| grafana | 3000 | Grafana dashboards (profile: monitoring) |
-
 ## Configuration
 
 ### Environment Variables
@@ -204,6 +177,11 @@ docker-compose --profile monitoring up -d
 | `LOG_FORMAT` | text | Log format (text/json) |
 | `TLS_CERT` | (empty) | Path to TLS certificate |
 | `TLS_KEY` | (empty) | Path to TLS key |
+| `DATA_DIR` | data | Directory for storing data |
+| `CORS_ORIGINS` | * | Allowed CORS origins (comma-separated) |
+| `MEMORY_CAPACITY` | 4GB | Memory storage capacity per-user |
+| `ENV` | development | Environment (development/production) |
+| `TRUSTED_PROXIES` | (empty) | Comma-separated trusted proxy IPs |
 
 ### Command-Line Flags
 
@@ -301,28 +279,13 @@ nssm install TorrSyncPlayer "C:\path\to\server.exe"
 nssm start TorrSyncPlayer
 ```
 
-### Grafana Password Rotation
-
-1. Stop Grafana container
-2. Set new `GRAFANA_PASSWORD` in `.env`
-3. Restart Grafana container
-4. The new password takes effect on startup
-
 ## Updating
 
 ### Update from Source
 
 ```bash
 git pull origin main
-make clean
-make all
-```
-
-### Update Docker
-
-```bash
-docker pull torrsyncplayer:latest
-docker-compose up -d
+cd backend && make clean && make build
 ```
 
 ### Update from Releases
@@ -356,10 +319,3 @@ rm -rf /Applications/TorrSyncPlayer
 1. Stop the service: `nssm stop TorrSyncPlayer`
 2. Remove the service: `nssm remove TorrSyncPlayer`
 3. Delete the installation directory
-
-### Docker
-
-```bash
-docker-compose down
-docker rmi torrsyncplayer:latest
-```

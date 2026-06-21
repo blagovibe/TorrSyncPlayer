@@ -1,12 +1,14 @@
-// Package api предоставляет HTTP API для сервера.
-// Содержит middleware для логирования, CORS, recovery, rate limiting, CSRF и security headers.
+// Package api provides HTTP API for the server.
+// Contains middleware for logging, CORS, recovery, rate limiting, CSRF and security headers.
 package api
 
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -23,13 +25,13 @@ import (
 
 // ── CSRF Protection ─────────────────────────────────────────────────────
 
-// csrfTokenKey тип для хранения CSRF токена в контексте
+// csrfTokenKey type for storing CSRF token in context
 type csrfTokenKey struct{}
 
-// sessionIDKey тип для хранения session ID в контексте
+// sessionIDKey type for storing session ID in context
 type sessionIDKey struct{}
 
-// CSRFTokenFromContext извлекает CSRF токен из контекста запроса
+// CSRFTokenFromContext extracts CSRF token from the request context
 func CSRFTokenFromContext(ctx context.Context) string {
 	if token, ok := ctx.Value(csrfTokenKey{}).(string); ok {
 		return token
@@ -37,7 +39,7 @@ func CSRFTokenFromContext(ctx context.Context) string {
 	return ""
 }
 
-// SessionIDFromContext извлекает session ID из контекста запроса
+// SessionIDFromContext extracts session ID from the request context
 func SessionIDFromContext(ctx context.Context) string {
 	if sessionID, ok := ctx.Value(sessionIDKey{}).(string); ok {
 		return sessionID
@@ -45,13 +47,13 @@ func SessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// csrfTokenInfo хранит информацию о CSRF токене и связанной сессии
+// csrfTokenInfo stores information about a CSRF token and its associated session
 type csrfTokenInfo struct {
 	Expiry    time.Time
 	SessionID string
 }
 
-// csrfTokenStore хранит активные CSRF токены с TTL и привязкой к сессии
+// csrfTokenStore stores active CSRF tokens with TTL and session binding
 type csrfTokenStore struct {
 	mu      sync.RWMutex
 	tokens  map[string]*csrfTokenInfo
@@ -61,7 +63,7 @@ type csrfTokenStore struct {
 	wg      sync.WaitGroup
 }
 
-// newCSRFTokenStore создаёт новое хранилище CSRF токенов
+// newCSRFTokenStore creates a new CSRF token store
 func newCSRFTokenStore() *csrfTokenStore {
 	store := &csrfTokenStore{
 		tokens:  make(map[string]*csrfTokenInfo),
@@ -70,13 +72,13 @@ func newCSRFTokenStore() *csrfTokenStore {
 		stop:    make(chan struct{}),
 	}
 
-	// Запускаем периодическую очистку истёкших токенов
+	// Start periodic cleanup of expired tokens
 	store.wg.Add(1)
 	go func() {
 		defer store.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("CSRF: горутина cleanup завершилась с паникой", "error", r)
+				logger.Error("CSRF: cleanup goroutine exited with panic", "error", r)
 			}
 		}()
 		store.cleanup()
@@ -85,7 +87,7 @@ func newCSRFTokenStore() *csrfTokenStore {
 	return store
 }
 
-// cleanup периодически удаляет истёкшие токены
+// cleanup periodically removes expired tokens
 func (s *csrfTokenStore) cleanup() {
 	ticker := time.NewTicker(constants.CSRFCleanupInterval)
 	defer ticker.Stop()
@@ -107,11 +109,11 @@ func (s *csrfTokenStore) cleanup() {
 	}
 }
 
-// Stop останавливает горутину cleanup и освобождает ресурсы.
-// Блокирует выполнение до завершения горутины или до истечения таймаута.
+// Stop stops the cleanup goroutine and releases resources.
+// Blocks until the goroutine completes or a timeout occurs.
 func (s *csrfTokenStore) Stop() {
 	close(s.stop)
-	// Ожидаем завершения горутины с таймаутом
+	// Wait for goroutine completion with timeout
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -119,13 +121,13 @@ func (s *csrfTokenStore) Stop() {
 	}()
 	select {
 	case <-done:
-		logger.Info("CSRF: горутина cleanup завершена корректно")
+		logger.Info("CSRF: cleanup goroutine completed successfully")
 	case <-time.After(constants.CSRFShutdownTimeout):
-		logger.Warn("CSRF: таймаут ожидания завершения горутины cleanup")
+		logger.Warn("CSRF: timeout waiting for cleanup goroutine to finish")
 	}
 }
 
-// generateToken создаёт новый CSRF токен и привязывает его к сессии
+// generateToken creates a new CSRF token and binds it to a session
 func (s *csrfTokenStore) generateToken(sessionID string) (string, error) {
 	bytes := make([]byte, constants.CSRFTokenBytes)
 	if _, err := rand.Read(bytes); err != nil {
@@ -136,9 +138,9 @@ func (s *csrfTokenStore) generateToken(sessionID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Ограничиваем размер хранилища
+	// Limit store size
 	if len(s.tokens) >= s.maxSize {
-		// Удаляем самый старый токен (простая эвристика)
+		// Remove the oldest token (simple heuristic)
 		for k := range s.tokens {
 			delete(s.tokens, k)
 			break
@@ -152,7 +154,7 @@ func (s *csrfTokenStore) generateToken(sessionID string) (string, error) {
 	return token, nil
 }
 
-// validateToken проверяет CSRF токен и соответствие сессии
+// validateToken validates a CSRF token and its session binding
 func (s *csrfTokenStore) validateToken(token string, sessionID string) bool {
 	if token == "" {
 		return false
@@ -173,23 +175,20 @@ func (s *csrfTokenStore) validateToken(token string, sessionID string) bool {
 		return false
 	}
 
-	// Проверяем привязку к сессии (если sessionID указан)
+	// Check session binding (if sessionID is provided)
 	if sessionID != "" && info.SessionID != "" && info.SessionID != sessionID {
-		logger.Warn("CSRF: несоответствие session ID", "expected", info.SessionID, "got", sessionID)
+		logger.Warn("CSRF: session ID mismatch", "expected", info.SessionID, "got", sessionID)
 		return false
 	}
 
 	return true
 }
 
-// Глобальное хранилище CSRF токенов
-// Экспортировано для тестирования
+// CSRFStore global CSRF token store.
+// Exported for testing.
 var CSRFStore = newCSRFTokenStore()
 
-// csrfStore для обратной совместимости
-var csrfStore = CSRFStore
-
-// mutatingMethods HTTP методы, требующие CSRF защиты
+// mutatingMethods HTTP methods requiring CSRF protection
 var mutatingMethods = map[string]bool{
 	http.MethodPost:   true,
 	http.MethodPut:    true,
@@ -197,15 +196,15 @@ var mutatingMethods = map[string]bool{
 	http.MethodPatch:  true,
 }
 
-// extractSessionID извлекает session ID из запроса (из cookie или заголовка)
+// extractSessionID extracts session ID from the request (from cookie or header)
 func extractSessionID(r *http.Request) string {
-	// Пробуем получить из cookie
+	// Try to get from cookie
 	cookie, err := r.Cookie("session_id")
 	if err == nil && cookie.Value != "" {
 		return cookie.Value
 	}
 
-	// Пробуем получить из заголовка X-Session-ID
+	// Try to get from X-Session-ID header
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID != "" {
 		return sessionID
@@ -214,11 +213,19 @@ func extractSessionID(r *http.Request) string {
 	return ""
 }
 
-// CSRFMiddleware создаёт middleware для защиты от CSRF атак.
-// Проверяет CSRF токен для мутирующих запросов (POST, PUT, DELETE, PATCH).
-// Исключает проверку для запросов с валидным JWT токеном (Authorization header).
-// Токен может передаваться через заголовок X-CSRF-Token или параметр _csrf.
-// Токены привязаны к сессии пользователя для предотвращения атак межсессионного CSRF.
+// hasJWTAuthorization checks if the request carries JWT Bearer authentication.
+// API clients using JWT tokens are exempt from CSRF protection.
+func hasJWTAuthorization(r *http.Request) bool {
+	authHeader := r.Header.Get("Authorization")
+	return strings.HasPrefix(strings.ToLower(authHeader), "bearer ")
+}
+
+// CSRFMiddleware creates middleware for CSRF attack protection.
+// Validates CSRF token for all mutating requests (POST, PUT, DELETE, PATCH).
+// Requests with valid JWT Bearer tokens are exempt from CSRF protection,
+// as API clients are not vulnerable to browser-based CSRF attacks.
+// Token can be passed via X-CSRF-Token header or _csrf parameter.
+// Tokens are bound to user sessions to prevent cross-session CSRF attacks.
 func CSRFMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sessionID := extractSessionID(r)
@@ -227,7 +234,7 @@ func CSRFMiddleware(next http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			referer := r.Header.Get("Referer")
 			if origin != "" || referer != "" {
-				token, err := csrfStore.generateToken(sessionID)
+				token, err := CSRFStore.generateToken(sessionID)
 				if err == nil {
 					w.Header().Set("X-CSRF-Token", token)
 					ctx := context.WithValue(r.Context(), csrfTokenKey{}, token)
@@ -241,48 +248,46 @@ func CSRFMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Проверяем наличие JWT токена - если есть, CSRF не требуется
-		// JWT сам по себе защищает от CSRF при правильной реализации
-		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			token := strings.TrimSpace(authHeader[len("bearer "):])
-			if len(token) > constants.MinJWTTokenLength {
-				next.ServeHTTP(w, r)
-				return
-			}
+		// Requests with JWT Bearer tokens are exempt from CSRF protection.
+		// Browser-based CSRF attacks cannot forge Bearer tokens, so this is safe.
+		if hasJWTAuthorization(r) {
+			next.ServeHTTP(w, r)
+			return
 		}
 
-		// Для запросов без JWT проверяем CSRF токен
+		// For requests without JWT, check CSRF token
 		csrfToken := r.Header.Get("X-CSRF-Token")
 		if csrfToken == "" {
-			// Пробуем получить из параметра запроса
+			// Try to get from request parameter
 			csrfToken = r.FormValue("_csrf")
 		}
 
 		if csrfToken == "" {
-			logger.Warn("CSRF: отсутствует токен", "path", r.URL.Path, "method", r.Method)
-			WriteError(w, http.StatusForbidden, "Отсутствует CSRF токен")
+			logger.Warn("CSRF: missing token", "path", r.URL.Path, "method", r.Method)
+			WriteError(w, http.StatusForbidden, "Missing CSRF token")
 			return
 		}
 
-		// Валидируем токен через хранилище с проверкой сессии
-		if !csrfStore.validateToken(csrfToken, sessionID) {
-			logger.Warn("CSRF: невалидный токен или несоответствие сессии", "path", r.URL.Path, "method", r.Method, "sessionID", sessionID)
-			WriteError(w, http.StatusForbidden, "Невалидный CSRF токен")
+		// Validate token via store with session check
+		if !CSRFStore.validateToken(csrfToken, sessionID) {
+			hash := sha256.Sum256([]byte(sessionID))
+			truncatedSession := hex.EncodeToString(hash[:])[:8]
+			logger.Warn("CSRF: invalid token or session mismatch", "path", r.URL.Path, "method", r.Method, "sessionID", truncatedSession)
+			WriteError(w, http.StatusForbidden, "Invalid CSRF token")
 			return
 		}
 
-		// Токен валиден, пропускаем запрос
+		// Token is valid, allow the request
 		next.ServeHTTP(w, r)
 	})
 }
 
-// GetCSRFToken возвращает текущий CSRF токен из контекста или генерирует новый
+// GetCSRFToken returns the current CSRF token from context or generates a new one
 func GetCSRFToken(ctx context.Context) string {
 	token := CSRFTokenFromContext(ctx)
 	if token == "" {
 		sessionID := SessionIDFromContext(ctx)
-		newToken, err := csrfStore.generateToken(sessionID)
+		newToken, err := CSRFStore.generateToken(sessionID)
 		if err == nil {
 			token = newToken
 		}
@@ -300,9 +305,16 @@ func ContentTypeMiddleware(next http.Handler) http.Handler {
 		}
 
 		contentType := r.Header.Get("Content-Type")
-		if contentType == "" || !strings.Contains(contentType, "application/json") {
-			logger.Warn("Content-Type: неподдерживаемый тип", "contentType", contentType, "path", r.URL.Path, "method", r.Method)
-			WriteError(w, http.StatusUnsupportedMediaType, "Content-Type должен быть application/json")
+		if contentType != "" {
+			mediaType, _, err := mime.ParseMediaType(contentType)
+			if err != nil || mediaType != "application/json" {
+				logger.Warn("Content-Type: unsupported type", "contentType", contentType, "path", r.URL.Path, "method", r.Method)
+				WriteError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+				return
+			}
+		} else {
+			logger.Warn("Content-Type: unsupported type", "contentType", contentType, "path", r.URL.Path, "method", r.Method)
+			WriteError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 			return
 		}
 
@@ -312,27 +324,27 @@ func ContentTypeMiddleware(next http.Handler) http.Handler {
 
 // ── Security Headers ────────────────────────────────────────────────────
 
-// SecurityHeadersMiddleware добавляет заголовки безопасности ко всем ответам.
-// Защищает от XSS, clickjacking, MIME-sniffing и других атак.
+// SecurityHeadersMiddleware adds security headers to all responses.
+// Protects against XSS, clickjacking, MIME-sniffing and other attacks.
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Предотвращает MIME type sniffing
+		// Prevents MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 
-		// Защита от clickjacking - запрещает встраивание в iframe
+		// Clickjacking protection - prevents embedding in iframe
 		w.Header().Set("X-Frame-Options", "DENY")
 
-		// XSS Protection для старых браузеров
+		// XSS Protection for older browsers
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 
-		// Контроль информации о referrer
+		// Referrer information control
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-		// Content Security Policy - базовый набор правил
+		// Content Security Policy - basic rule set
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"script-src 'self'; "+
-				"style-src 'self' 'unsafe-inline'; "+
+				"style-src 'self'; "+
 				"img-src 'self' data:; "+
 				"font-src 'self'; "+
 				"connect-src 'self' ws: wss:; "+
@@ -342,13 +354,14 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 				"base-uri 'self'; "+
 				"form-action 'self'")
 
-		// Strict Transport Security (HSTS) - принудительное HTTPS соединение
-		// max-age=31536000 - 1 год, includeSubDomains - применять ко всем поддоменам
-		w.Header().Set("Strict-Transport-Security", constants.HSTSMaxAge)
+		// Strict Transport Security (HSTS) — only over TLS
+		if r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", constants.HSTSMaxAge)
+		}
 
-		// Permissions Policy - ограничение API браузера
+		// Permissions Policy - limit browser APIs
 		w.Header().Set("Permissions-Policy",
-			"camera=(), microphone=(), geolocation=(), payment=()")
+			"camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), midi=(), sync-xhr=()")
 
 		next.ServeHTTP(w, r)
 	})
@@ -356,15 +369,15 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 
 // ── Existing Middleware ─────────────────────────────────────────────────
 
-// Logger middleware для логирования HTTP запросов.
-// Записывает метод, путь, статус, длительность и удалённый адрес.
-// Использует slog для структурированного логирования.
+// Logger middleware for logging HTTP requests.
+// Records method, path, status, duration and remote address.
+// Uses slog for structured logging.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		metrics.GetInstance().RequestStarted()
 
-		// Оборачиваем ResponseWriter для получения статуса
+		// Wrap ResponseWriter to capture status
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
 		next.ServeHTTP(wrapped, r)
@@ -377,7 +390,7 @@ func Logger(next http.Handler) http.Handler {
 			metrics.GetInstance().RequestSuccess()
 		}
 
-		slog.Info("HTTP запрос",
+		slog.Info("HTTP request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", wrapped.statusCode,
@@ -387,10 +400,23 @@ func Logger(next http.Handler) http.Handler {
 	})
 }
 
-// getCORSOrigins возвращает список разрешённых CORS origins.
-// Читает из переменной окружения CORS_ORIGINS (comma-separated).
-// Если переменная не задана — использует defaults для разработки.
+var (
+	corsOriginsOnce   sync.Once
+	cachedCORSOrigins map[string]bool
+)
+
+// getCORSOrigins returns the list of allowed CORS origins.
+// Reads from the CORS_ORIGINS environment variable (comma-separated).
+// If the variable is not set — uses localhost defaults with a warning.
+// In production mode, CORS_ORIGINS must be explicitly set.
 func getCORSOrigins() map[string]bool {
+	corsOriginsOnce.Do(func() {
+		cachedCORSOrigins = loadCORSOrigins()
+	})
+	return cachedCORSOrigins
+}
+
+func loadCORSOrigins() map[string]bool {
 	origins := make(map[string]bool)
 
 	if corsOrigins := os.Getenv("CORS_ORIGINS"); corsOrigins != "" {
@@ -404,8 +430,7 @@ func getCORSOrigins() map[string]bool {
 	}
 
 	if os.Getenv("ENV") == "production" || os.Getenv("GO_ENV") == "production" {
-		logger.Warn("CORS_ORIGINS не задан в production — CORS отключён")
-		return origins
+		logger.Warn("CORS_ORIGINS not set in production — set the environment variable for cross-domain requests")
 	}
 
 	origins["http://localhost:8889"] = true
@@ -416,8 +441,8 @@ func getCORSOrigins() map[string]bool {
 	return origins
 }
 
-// normalizeOrigin нормализует origin для CORS проверки.
-// Удаляет trailing slash и приводит к нижнему регистру.
+// normalizeOrigin normalizes origin for CORS validation.
+// Removes trailing slash and converts to lowercase.
 func normalizeOrigin(origin string) string {
 	origin = strings.TrimSpace(origin)
 	origin = strings.TrimSuffix(origin, "/")
@@ -450,15 +475,15 @@ func CORS(next http.Handler) http.Handler {
 	})
 }
 
-// Recovery middleware для обработки паник в обработчиках.
-// Перехватывает паники и возвращает 500 ошибку вместо падения сервера.
-// Логирует информацию о панике для отладки.
+// Recovery middleware for handling panics in handlers.
+// Catches panics and returns a 500 error instead of crashing the server.
+// Logs the panic information for debugging.
 func Recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				logger.Error("Паника в обработчике", "error", err, "path", r.URL.Path)
-				WriteError(w, http.StatusInternalServerError, "Внутренняя ошибка сервера")
+				logger.Error("Panic in handler", "error", err, "path", r.URL.Path)
+				WriteError(w, http.StatusInternalServerError, "Internal server error")
 			}
 		}()
 
@@ -466,24 +491,25 @@ func Recovery(next http.Handler) http.Handler {
 	})
 }
 
-// clientLimiterEntry хранит rate limiter и время последнего использования
+// clientLimiterEntry stores a rate limiter and last usage time
 type clientLimiterEntry struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
 }
 
-// clientRateLimiter хранит rate limiter для каждого IP
+// clientRateLimiter stores a rate limiter for each IP
 type clientRateLimiter struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	limiters map[string]*clientLimiterEntry
 	rate     rate.Limit
 	burst    int
 	cleanup  time.Duration
 	stopChan chan struct{}
 	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
-// newClientRateLimiter создаёт per-IP rate limiter
+// newClientRateLimiter creates a per-IP rate limiter
 func newClientRateLimiter(r rate.Limit, b int) *clientRateLimiter {
 	cri := &clientRateLimiter{
 		limiters: make(map[string]*clientLimiterEntry),
@@ -492,6 +518,7 @@ func newClientRateLimiter(r rate.Limit, b int) *clientRateLimiter {
 		cleanup:  10 * time.Minute,
 		stopChan: make(chan struct{}),
 	}
+	cri.wg.Add(1)
 	go cri.cleanupLoop()
 	return cri
 }
@@ -500,10 +527,17 @@ func (cri *clientRateLimiter) Stop() {
 	cri.stopOnce.Do(func() {
 		close(cri.stopChan)
 	})
+	cri.wg.Wait()
 }
 
-// cleanupLoop периодически удаляет старые rate limiter entries
+// cleanupLoop periodically removes old rate limiter entries
 func (cri *clientRateLimiter) cleanupLoop() {
+	defer cri.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("RateLimiter: cleanup goroutine exited with panic", "error", r)
+		}
+	}()
 	ticker := time.NewTicker(cri.cleanup)
 	defer ticker.Stop()
 	for {
@@ -523,7 +557,7 @@ func (cri *clientRateLimiter) cleanupLoop() {
 	}
 }
 
-// getClientIP извлекает IP адрес клиента из запроса
+// getClientIP extracts the client IP address from the request
 func getClientIP(r *http.Request) string {
 	if isTrustedProxy(r.RemoteAddr) {
 		xff := r.Header.Get("X-Forwarded-For")
@@ -545,9 +579,32 @@ func getClientIP(r *http.Request) string {
 	return host
 }
 
+var (
+	trustedCIDRsOnce   sync.Once
+	cachedTrustedCIDRs []*net.IPNet
+	hasTrustedCIDRs    bool
+)
+
+func loadTrustedCIDRs() {
+	if trustedCIDRs := os.Getenv("TRUSTED_PROXIES"); trustedCIDRs != "" {
+		for _, cidr := range strings.Split(trustedCIDRs, ",") {
+			cidr = strings.TrimSpace(cidr)
+			if cidr == "" {
+				continue
+			}
+			_, ipNet, err := net.ParseCIDR(cidr)
+			if err == nil {
+				cachedTrustedCIDRs = append(cachedTrustedCIDRs, ipNet)
+				hasTrustedCIDRs = true
+			}
+		}
+	}
+}
+
 // isTrustedProxy checks if the request comes from a trusted proxy.
 // Reads from TRUSTED_PROXIES env var (comma-separated CIDRs).
 // If not set, defaults to localhost and private network ranges.
+// CIDR networks are cached after first parse for performance.
 func isTrustedProxy(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -558,63 +615,89 @@ func isTrustedProxy(remoteAddr string) bool {
 		return false
 	}
 
-	if trustedCIDRs := os.Getenv("TRUSTED_PROXIES"); trustedCIDRs != "" {
-		for _, cidr := range strings.Split(trustedCIDRs, ",") {
-			cidr = strings.TrimSpace(cidr)
-			if cidr == "" {
-				continue
-			}
-			_, ipNet, err := net.ParseCIDR(cidr)
-			if err == nil && ipNet.Contains(ip) {
+	trustedCIDRsOnce.Do(loadTrustedCIDRs)
+	if hasTrustedCIDRs {
+		for _, ipNet := range cachedTrustedCIDRs {
+			if ipNet.Contains(ip) {
 				return true
 			}
 		}
 		return false
 	}
 
-	_, private10, _ := net.ParseCIDR("10.0.0.0/8")
-	_, private172, _ := net.ParseCIDR("172.16.0.0/12")
-	_, private192, _ := net.ParseCIDR("192.168.0.0/16")
-	_, loopback, _ := net.ParseCIDR("127.0.0.0/8")
-	_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
-
-	return private10.Contains(ip) || private172.Contains(ip) ||
-		private192.Contains(ip) || loopback.Contains(ip) || linkLocal.Contains(ip) ||
-		ip.IsLoopback() || ip.IsLinkLocalUnicast()
+	return isPrivateIP(ip) || ip.IsLoopback() || ip.IsLinkLocalUnicast()
 }
 
-// getLimiter возвращает rate limiter для указанного IP
+var (
+	privateNetsOnce sync.Once
+	private10       *net.IPNet
+	private172      *net.IPNet
+	private192      *net.IPNet
+	loopbackNet     *net.IPNet
+	linkLocalNet    *net.IPNet
+)
+
+func initPrivateNets() {
+	_, private10, _ = net.ParseCIDR("10.0.0.0/8")
+	_, private172, _ = net.ParseCIDR("172.16.0.0/12")
+	_, private192, _ = net.ParseCIDR("192.168.0.0/16")
+	_, loopbackNet, _ = net.ParseCIDR("127.0.0.0/8")
+	_, linkLocalNet, _ = net.ParseCIDR("169.254.0.0/16")
+}
+
+func isPrivateIP(ip net.IP) bool {
+	privateNetsOnce.Do(initPrivateNets)
+	return private10.Contains(ip) || private172.Contains(ip) ||
+		private192.Contains(ip) || loopbackNet.Contains(ip) || linkLocalNet.Contains(ip)
+}
+
+// getLimiter returns the rate limiter for the specified IP
 func (cri *clientRateLimiter) getLimiter(ip string) *rate.Limiter {
+	cri.mu.RLock()
+	entry, exists := cri.limiters[ip]
+	cri.mu.RUnlock()
+	if exists {
+		cri.mu.Lock()
+		entry.lastSeen = time.Now()
+		cri.mu.Unlock()
+		return entry.limiter
+	}
+
 	cri.mu.Lock()
 	defer cri.mu.Unlock()
 
-	entry, exists := cri.limiters[ip]
-	if !exists {
-		limiter := rate.NewLimiter(cri.rate, cri.burst)
-		cri.limiters[ip] = &clientLimiterEntry{
-			limiter:  limiter,
-			lastSeen: time.Now(),
-		}
-		return limiter
+	if entry, exists := cri.limiters[ip]; exists {
+		entry.lastSeen = time.Now()
+		return entry.limiter
 	}
 
-	entry.lastSeen = time.Now()
-	return entry.limiter
+	limiter := rate.NewLimiter(cri.rate, cri.burst)
+	cri.limiters[ip] = &clientLimiterEntry{
+		limiter:  limiter,
+		lastSeen: time.Now(),
+	}
+	return limiter
 }
 
-// globalClientRateLimiter глобальный per-IP rate limiter для всех endpoints
+// globalClientRateLimiter global per-IP rate limiter for all endpoints
 var globalClientRateLimiter = newClientRateLimiter(rate.Limit(1), 10)
 
-// NewRateLimiter создаёт middleware для ограничения частоты запросов.
-// Параметр r - лимит запросов в секунду (rate.Limit).
-// Параметр b - максимальный burst (размер ведра токенов).
-// Возвращает 429 Too Many Requests при превышении лимита.
+// StopGlobalRateLimiters stops all background cleanup goroutines for rate limiters.
+// Call during graceful shutdown.
+func StopGlobalRateLimiters() {
+	globalClientRateLimiter.Stop()
+}
+
+// NewRateLimiter creates a middleware for rate limiting requests.
+// Parameter r - rate limit per second (rate.Limit).
+// Parameter b - maximum burst (token bucket size).
+// Returns 429 Too Many Requests when the limit is exceeded.
 func NewRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 	limiter := rate.NewLimiter(r, b)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if !limiter.Allow() {
-				WriteError(w, http.StatusTooManyRequests, "Слишком много запросов. Попробуйте позже.")
+				WriteError(w, http.StatusTooManyRequests, "Too many requests. Please try again later.")
 				return
 			}
 			next.ServeHTTP(w, req)
@@ -622,29 +705,29 @@ func NewRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 	}
 }
 
-// PerIPRateLimiter создаёт middleware для per-IP rate limiting.
-// Использует глобальный per-IP rate limiter.
+// PerIPRateLimiter creates middleware for per-IP rate limiting.
+// Uses the global per-IP rate limiter.
 func PerIPRateLimiter(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := getClientIP(r)
 		limiter := globalClientRateLimiter.getLimiter(ip)
 		if !limiter.Allow() {
-			WriteError(w, http.StatusTooManyRequests, "Слишком много запросов. Попробуйте позже.")
+			WriteError(w, http.StatusTooManyRequests, "Too many requests. Please try again later.")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// responseWriter обёртка для перехвата статуса ответа.
-// Позволяет middleware получить HTTP код ответа после обработки.
+// responseWriter wrapper for capturing the response status.
+// Allows middleware to get the HTTP response code after processing.
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
 }
 
-// WriteHeader перехватывает статус ответа.
-// Сохраняет код для последующего использования в middleware.
+// WriteHeader captures the response status.
+// Saves the code for later use in middleware.
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)

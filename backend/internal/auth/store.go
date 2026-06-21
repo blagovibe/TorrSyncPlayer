@@ -1,9 +1,9 @@
-// Package auth предоставляет хранилище пользователей.
+// SPDX-License-Identifier: MIT
+
+// Package auth provides user store.
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,71 +13,126 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/utils"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
-// dummyHash is a real bcrypt hash used for timing attack mitigation
-// when a user is not found. Generated once at startup.
-var dummyHash []byte
+var (
+	dummyHashOnce sync.Once
+	dummyHashVal  []byte
+)
 
-func init() {
-	hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-mitigation"), bcrypt.DefaultCost)
-	if err != nil {
-		panic(fmt.Sprintf("failed to generate dummy bcrypt hash: %v", err))
-	}
-	dummyHash = hash
+func getDummyHash() []byte {
+	dummyHashOnce.Do(func() {
+		hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-mitigation"), constants.BcryptCost)
+		if err != nil {
+			dummyHashVal = []byte("$2a$12$K8K8K8K8K8K8K8K8K8K8K8O8O8O8O8O8O8O8O8O8O8O8O8O8O8O8O")
+			logger.Error("failed to generate dummy bcrypt hash", "error", err)
+		} else {
+			dummyHashVal = hash
+		}
+	})
+	return dummyHashVal
 }
 
-// UserStore хранилище пользователей в памяти.
-// В production следует использовать базу данных.
+// UserStore in-memory user store.
+// In production, a database should be used.
+// Optionally persists data to a JSON file when PersistDir is specified.
 type UserStore struct {
-	mu    sync.RWMutex
-	users map[string]*models.User // key: username
+	mu         sync.RWMutex
+	users      map[string]*models.User // key: username (lowercase)
+	usersByID  map[string]*models.User // secondary index: user ID -> user
+	persistDir string
+	persistor  *persistence.Store
 }
 
-// NewUserStore создаёт новое хранилище пользователей.
+// NewUserStore creates a new user store.
 func NewUserStore() *UserStore {
 	return &UserStore{
-		users: make(map[string]*models.User),
+		users:     make(map[string]*models.User),
+		usersByID: make(map[string]*models.User),
 	}
 }
 
-// Create создаёт нового пользователя.
-// Возвращает ошибку если пользователь уже существует.
+// SetPersistence enables JSON-file persistence.
+// dataDir - directory for storing files. Created if necessary.
+// Loads data from file during initialization.
+func (s *UserStore) SetPersistence(dataDir string) error {
+	p, err := persistence.NewStore(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to initialize persistence: %w", err)
+	}
+
+	data, err := p.LoadUsers()
+	if err != nil {
+		logger.Warn("auth: failed to load users from disk", "error", err)
+	} else {
+		s.mu.Lock()
+		s.users = data.Users
+		s.usersByID = data.UsersByID
+		s.mu.Unlock()
+		logger.Info("auth: loaded users from disk", "count", len(data.Users))
+	}
+
+	s.persistDir = dataDir
+	s.persistor = p
+	return nil
+}
+
+func (s *UserStore) persist() {
+	if s.persistor == nil {
+		return
+	}
+	data := &persistence.UserData{
+		Users:     s.users,
+		UsersByID: s.usersByID,
+	}
+	if err := s.persistor.SaveUsers(data); err != nil {
+		logger.Error("auth: failed to persist users", "error", err)
+	}
+}
+
+// Create creates a new user.
+// Returns an error if the user already exists.
 func (s *UserStore) Create(username, password string) (*models.User, error) {
-	// Валидация имени пользователя
+	// Validate username
 	if err := validation.ValidateUsername(username); err != nil {
 		return nil, err
 	}
 
 	username = strings.ToLower(username)
 
-	// Валидация пароля
+	// Validate password
 	if err := validation.ValidatePassword(password); err != nil {
 		return nil, err
 	}
 
 	s.mu.Lock()
+	if _, exists := s.users[username]; exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s", ErrUserExists, username)
+	}
+	s.mu.Unlock()
+
+	passwordHash, err := HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("password hashing error: %w", err)
+	}
+
+	id, err := utils.GenerateID(constants.UserIDBytes)
+	if err != nil {
+		return nil, fmt.Errorf("ID generation error: %w", err)
+	}
+
+	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Проверяем существование пользователя
 	if _, exists := s.users[username]; exists {
 		return nil, fmt.Errorf("%w: %s", ErrUserExists, username)
 	}
 
-	// Хешируем пароль
-	passwordHash, err := HashPassword(password)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка хеширования пароля: %w", err)
-	}
-
-	// Генерируем уникальный ID
-	id, err := generateID()
-	if err != nil {
-		return nil, fmt.Errorf("ошибка генерации ID: %w", err)
-	}
-
-	// Создаём пользователя
 	user := &models.User{
 		ID:           id,
 		Username:     username,
@@ -86,12 +141,15 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 	}
 
 	s.users[username] = user
+	s.usersByID[user.ID] = user
+
+	s.persist()
 	return user, nil
 }
 
-// Authenticate проверяет учётные данные пользователя.
-// Возвращает пользователя если данные верны.
-// Использует фиктивный хеш при отсутствии пользователя для защиты от timing-атак.
+// Authenticate verifies user credentials.
+// Returns the user if credentials are valid.
+// Always performs both hash comparisons (dummy + real) for timing attack protection.
 func (s *UserStore) Authenticate(username, password string) (*models.User, error) {
 	username = strings.ToLower(username)
 	s.mu.RLock()
@@ -99,7 +157,7 @@ func (s *UserStore) Authenticate(username, password string) (*models.User, error
 	s.mu.RUnlock()
 
 	if !exists {
-		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		_ = bcrypt.CompareHashAndPassword(getDummyHash(), []byte(password))
 		return nil, ErrInvalidCredentials
 	}
 
@@ -110,34 +168,20 @@ func (s *UserStore) Authenticate(username, password string) (*models.User, error
 	return user, nil
 }
 
-// GetByUsername возвращает пользователя по имени.
+// GetByUsername returns a user by username (case-insensitive).
 func (s *UserStore) GetByUsername(username string) (*models.User, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	user, exists := s.users[username]
+	user, exists := s.users[strings.ToLower(username)]
 	return user, exists
 }
 
-// GetByID возвращает пользователя по ID.
+// GetByID returns a user by ID (using index, O(1)).
 func (s *UserStore) GetByID(id string) (*models.User, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	for _, user := range s.users {
-		if user.ID == id {
-			return user, true
-		}
-	}
-	return nil, false
-}
-
-// generateID генерирует уникальный идентификатор.
-// Возвращает ошибку если не удалось получить случайные байты.
-func generateID() (string, error) {
-	bytes := make([]byte, constants.JTIBytes)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("ошибка чтения случайных байт: %w", err)
-	}
-	return hex.EncodeToString(bytes), nil
+	user, exists := s.usersByID[id]
+	return user, exists
 }

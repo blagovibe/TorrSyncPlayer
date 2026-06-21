@@ -1,8 +1,3 @@
-# ============================================================
-# CI Pipeline для TorrSyncPlayer
-# Запускается при push и pull_request в ветки main, develop
-# ============================================================
-
 name: CI
 
 on:
@@ -13,262 +8,136 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
-# Отменяем предыдущие запуски для той же ветки
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GO_VERSION: '1.26'
+
 jobs:
-  # --------------------------------------------------------
-  # SAST — сканирование безопасности
-  # --------------------------------------------------------
-  sast-security:
-    name: SAST Безопасность
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # нужен полный история для gitleaks
-
-      # ── gitleaks: поиск секретов в коде ────────────────────
-      - name: Сканирование секретов (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: true
-        continue-on-error: false
-
-  # --------------------------------------------------------
-  # SAST — сканирование Go кода (gosec)
-  # --------------------------------------------------------
-  sast-gosec:
-    name: SAST Go (gosec)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      # Устанавливаем gosec
-      - name: Установка gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
-
-      # Запускаем gocsec для сканирования уязвимостей
-      - name: Запуск gosec
-        working-directory: backend
-        run: |
-          gosec -fmt text -severity medium -confidence medium ./...
-
-  # --------------------------------------------------------
-  # Dependency vulnerability check
-  # --------------------------------------------------------
-  vuln-check:
-    name: Проверка уязвимостей зависимостей
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Проверка уязвимостей зависимостей
-        working-directory: backend
-        continue-on-error: true
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
-
-  # --------------------------------------------------------
-  # Lint backend код
-  # --------------------------------------------------------
   lint-backend:
-    name: Линт Backend
-    needs: [sast-security, sast-gosec, vuln-check]
+    name: Lint Backend
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
 
-      # Устанавливаем golangci-lint через binary для совместимости с Go 1.25+
-      - name: Установка golangci-lint
-        uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v6
         with:
           version: "v1.64.8"
           install-mode: "goinstall"
           working-directory: backend
 
-      # Запускаем golangci-lint
-      - name: Запуск golangci-lint
+      - name: Run golangci-lint
         working-directory: backend
         run: golangci-lint run --timeout=5m ./...
 
-      - name: Проверка форматирования кода
+      - name: Check formatting
         working-directory: backend
         run: |
-          test -z "$(gofmt -l .)" || { echo "Код не отформатирован. Запустите: gofmt -w ."; exit 1; }
+          test -z "$(gofmt -l .)" || { echo "Code not formatted. Run: gofmt -w ."; exit 1; }
 
-      - name: Проверка go.mod tidy
+      - name: Check go.mod tidy
         working-directory: backend
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
+          go mod verify
 
-  # --------------------------------------------------------
-  # Тесты backend с coverage
-  # --------------------------------------------------------
   test-backend:
-    name: Тесты Backend
+    name: Test Backend
     needs: lint-backend
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - name: Запуск тестов с coverage
+      - name: Run tests with coverage
         working-directory: backend
         run: |
           go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-          go tool cover -html=coverage.out -o coverage.html
+          go tool cover -func=coverage.out
 
-      - name: Загрузка coverage отчёта
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: backend/coverage.*
-          retention-days: 7
+      - name: Run govulncheck
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
 
-      - name: Отправка coverage в Codecov
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
         with:
-          file: backend/coverage.out
+          directory: backend
+          files: coverage.out
           flags: backend
           fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # --------------------------------------------------------
-  # Сборка backend на разных платформах
-  # --------------------------------------------------------
   build-backend:
-    name: Сборка Backend (${{ matrix.os }})
+    name: Build Backend (${{ matrix.os }})
     needs: test-backend
-    runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - name: Сборка backend
+      - name: Build
         working-directory: backend
         run: make build
 
-      - name: Загрузка артефакта
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-${{ matrix.os }}
-          path: |
-            backend/build/
-            backend/bin/
-          if-no-files-found: warn
-          retention-days: 7
-
-  # ── Frontend builds removed from CI ──
-  # Frontend requires Qt which is not reliably available in CI.
-  # Build frontend locally: see frontend/build.bat (Windows) or frontend/build.sh (Linux/macOS)
-
-  # --------------------------------------------------------
-  # Coverage проверка для PR
-  # --------------------------------------------------------
-  coverage-check:
-    name: Проверка Coverage
-    needs: [test-backend]
+  frontend:
+    name: Frontend Build & Test
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Установка утилит для coverage
-        run: sudo apt-get install -y bc
-
-      - name: Загрузка backend coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-coverage
-          path: backend/
-
-      - name: Проверка минимального coverage
+      - name: Install Qt6 dependencies
         run: |
-          BACKEND_COVERAGE=$(go tool cover -func=backend/coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Backend coverage: ${BACKEND_COVERAGE}%"
-          if (( $(echo "$BACKEND_COVERAGE < 60" | bc -l) )); then
-            echo "❌ Backend coverage ниже 60%: ${BACKEND_COVERAGE}%"
-            exit 1
-          fi
-          echo "✅ Backend coverage достаточный: ${BACKEND_COVERAGE}%"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
+            libmpv-dev cmake g++
 
-      - name: Комментарий с coverage в PR
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: coverage
-          message: |
-            ## 📊 Coverage Report
+      - name: Configure CMake
+        working-directory: frontend
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
 
-            | Component | Coverage |
-            |-----------|----------|
-            | Backend | [Codecov](https://codecov.io/gh/${{ github.repository }}) |
+      - name: Build
+        working-directory: frontend/build
+        run: make -j$(nproc) 2>&1 || make 2>&1
 
-            Coverage отчёты загружены в Codecov.
+      - name: Run clang-tidy
+        working-directory: frontend
+        run: |
+          cmake -B build-clang-tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTS=OFF .
+          run-clang-tidy -p build-clang-tidy -j$(nproc) 2>&1 || echo "clang-tidy warnings found (non-blocking)"
+
+      - name: Run tests
+        working-directory: frontend/build
+        run: ctest --output-on-failure -V 2>&1

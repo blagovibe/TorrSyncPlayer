@@ -202,7 +202,7 @@ info:
     email: support@torrsyncplayer.local
     name: TorrSyncPlayer Support
     url: https://github.com/blagovibe/TorrSyncPlayer/issues
-  description: HTTP API для TorrSyncPlayer — торрент-плеера с P2P синхронизацией воспроизведения.
+  description: HTTP API for TorrSyncPlayer — a torrent player with P2P playback synchronization.
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -214,9 +214,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Аутентифицирует пользователя и возвращает JWT токен
+      description: Authenticates a user and returns a JWT token
       parameters:
-      - description: Данные для входа
+      - description: Login credentials
         in: body
         name: request
         required: true
@@ -233,12 +233,12 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Вход
+      summary: Login
       tags:
       - auth
   /api/v1/auth/logout:
     post:
-      description: Отзывает JWT токен (добавляет в список отозванных)
+      description: Revokes a JWT token (adds to the revoked list)
       produces:
       - application/json
       responses:
@@ -252,16 +252,16 @@ paths:
             $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Выход
+      summary: Logout
       tags:
       - auth
   /api/v1/auth/register:
     post:
       consumes:
       - application/json
-      description: Регистрирует нового пользователя и возвращает JWT токен
+      description: Registers a new user and returns a JWT token
       parameters:
-      - description: Данные для регистрации
+      - description: Registration data
         in: body
         name: request
         required: true
@@ -278,12 +278,12 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Регистрация
+      summary: Register
       tags:
       - auth
   /api/v1/csrf-token:
     get:
-      description: Возвращает CSRF токен для защиты от межсайтовой подделки
+      description: Returns a CSRF token for protection against cross-site request forgery
       produces:
       - application/json
       responses:
@@ -291,12 +291,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.CSRFTokenResponse'
-      summary: Получить CSRF токен
+      summary: Get CSRF token
       tags:
       - system
   /api/v1/health:
     get:
-      description: Базовая проверка работоспособности сервера (не требует аутентификации)
+      description: Basic server health check (does not require authentication)
       produces:
       - application/json
       responses:
@@ -304,12 +304,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.HealthResponse'
-      summary: Проверка здоровья
+      summary: Health check
       tags:
       - system
   /api/v1/health/detailed:
     get:
-      description: Расширенная проверка здоровья с проверкой состояния сервисов (требует JWT)
+      description: Detailed health check with service status verification (requires JWT)
       produces:
       - application/json
       responses:
@@ -323,16 +323,16 @@ paths:
             $ref: '#/definitions/models.HealthResponse'
       security:
       - BearerAuth: []
-      summary: Детальная проверка здоровья
+      summary: Detailed health check
       tags:
       - system
   /api/v1/rooms:
     post:
       consumes:
       - application/json
-      description: Создаёт новую P2P комнату для синхронизации воспроизведения
+      description: Creates a new P2P room for playback synchronization
       parameters:
-      - description: Данные комнаты
+      - description: Room data
         in: body
         name: request
         required: true
@@ -351,12 +351,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Создать комнату
+      summary: Create room
       tags:
       - rooms
   /api/v1/rooms/{roomID}/events:
     get:
-      description: Подписка на события P2P комнаты в реальном времени через Server-Sent
+      description: Subscribes to real-time P2P room events via Server-Sent
         Events
       parameters:
       - description: Room ID
@@ -373,16 +373,16 @@ paths:
             type: string
       security:
       - BearerAuth: []
-      summary: События комнаты (SSE)
+      summary: Room events (SSE)
       tags:
       - rooms
   /api/v1/rooms/join:
     post:
       consumes:
       - application/json
-      description: Присоединяет пользователя к существующей P2P комнате
+      description: Joins an existing P2P room
       parameters:
-      - description: Данные для входа
+      - description: Join room data
         in: body
         name: request
         required: true
@@ -401,12 +401,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Присоединиться к комнате
+      summary: Join room
       tags:
       - rooms
   /api/v1/rooms/leave:
     post:
-      description: Выходит из текущей P2P комнаты
+      description: Leaves the current P2P room
       produces:
       - application/json
       responses:
@@ -420,17 +420,17 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Покинуть комнату
+      summary: Leave room
       tags:
       - rooms
   /api/v1/rooms/signal:
     post:
       consumes:
       - application/json
-      description: Отправляет WebRTC сигнал (SDP offer/answer, ICE candidate) через
-        data channel
+      description: Sends a WebRTC signal (SDP offer/answer, ICE candidate) through
+        the data channel
       parameters:
-      - description: WebRTC сигнал
+      - description: WebRTC signal
         in: body
         name: request
         required: true
@@ -449,12 +449,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Отправить WebRTC сигнал
+      summary: Send WebRTC signal
       tags:
       - rooms
   /api/v1/sync/pause:
     post:
-      description: Приостанавливает синхронизированное воспроизведение
+      description: Pauses synchronized playback
       produces:
       - application/json
       responses:
@@ -464,12 +464,12 @@ paths:
             $ref: '#/definitions/models.SyncStatus'
       security:
       - BearerAuth: []
-      summary: Приостановить воспроизведение
+      summary: Pause playback
       tags:
       - sync
   /api/v1/sync/play:
     post:
-      description: Запускает синхронизированное воспроизведение
+      description: Starts synchronized playback
       produces:
       - application/json
       responses:
@@ -479,16 +479,16 @@ paths:
             $ref: '#/definitions/models.SyncStatus'
       security:
       - BearerAuth: []
-      summary: Запустить воспроизведение
+      summary: Start playback
       tags:
       - sync
   /api/v1/sync/seek:
     post:
       consumes:
       - application/json
-      description: Выполняет синхронизированную перемотку на указанную позицию
+      description: Performs a synchronized seek to the specified position
       parameters:
-      - description: Позиция перемотки
+      - description: Seek position
         in: body
         name: request
         required: true
@@ -507,12 +507,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Перемотка
+      summary: Seek
       tags:
       - sync
   /api/v1/sync/status:
     get:
-      description: Возвращает текущий статус синхронизации воспроизведения
+      description: Returns the current playback synchronization status
       produces:
       - application/json
       responses:
@@ -522,21 +522,21 @@ paths:
             $ref: '#/definitions/models.SyncStatus'
       security:
       - BearerAuth: []
-      summary: Статус синхронизации
+      summary: Sync status
       tags:
       - sync
   /api/v1/torrents:
     get:
-      description: Возвращает список всех торрентов с пагинацией
+      description: Returns a paginated list of all torrents
       parameters:
       - default: 20
-        description: Лимит записей
+        description: Record limit
         in: query
         maximum: 100
         name: limit
         type: integer
       - default: 0
-        description: Смещение
+        description: Offset
         in: query
         name: offset
         type: integer
@@ -549,13 +549,13 @@ paths:
             $ref: '#/definitions/models.TorrentListResponse'
       security:
       - BearerAuth: []
-      summary: Список торрентов
+      summary: Torrent list
       tags:
       - torrents
     post:
       consumes:
       - application/json
-      description: Добавляет торрент по magnet-ссылке и возвращает информацию о нём
+      description: Adds a torrent by magnet link and returns its information
       parameters:
       - description: Magnet URI
         in: body
@@ -580,12 +580,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Добавить торрент
+      summary: Add torrent
       tags:
       - torrents
   /api/v1/torrents/{id}:
     delete:
-      description: Удаляет торрент по его ID
+      description: Deletes a torrent by its ID
       parameters:
       - description: Torrent ID
         in: path
@@ -609,12 +609,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Удалить торрент
+      summary: Delete torrent
       tags:
       - torrents
   /api/v1/torrents/{id}/buffer/info:
     get:
-      description: Возвращает информацию о состоянии буфера торрента
+      description: Returns information about the torrent buffer state
       parameters:
       - description: Torrent ID
         in: path
@@ -638,21 +638,21 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Информация о буфере
+      summary: Buffer info
       tags:
       - torrents
   /api/v1/torrents/{id}/buffer/position:
     post:
       consumes:
       - application/json
-      description: Устанавливает позицию буфера для приоритетной загрузки
+      description: Sets the buffer position for prioritized downloading
       parameters:
       - description: Torrent ID
         in: path
         name: id
         required: true
         type: string
-      - description: Позиция буфера
+      - description: Buffer position
         in: body
         name: request
         required: true
@@ -671,12 +671,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Установить позицию буфера
+      summary: Set buffer position
       tags:
       - torrents
   /api/v1/torrents/{id}/files:
     get:
-      description: Возвращает список файлов торрента с пагинацией
+      description: Returns a paginated list of torrent files
       parameters:
       - description: Torrent ID
         in: path
@@ -684,13 +684,13 @@ paths:
         required: true
         type: string
       - default: 20
-        description: Лимит записей
+        description: Record limit
         in: query
         maximum: 100
         name: limit
         type: integer
       - default: 0
-        description: Смещение
+        description: Offset
         in: query
         name: offset
         type: integer
@@ -711,21 +711,21 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Список файлов торрента
+      summary: Torrent file list
       tags:
       - torrents
   /api/v1/torrents/{id}/select:
     post:
       consumes:
       - application/json
-      description: Выбирает файл торрента для стриминга по индексу
+      description: Selects a torrent file for streaming by index
       parameters:
       - description: Torrent ID
         in: path
         name: id
         required: true
         type: string
-      - description: Индекс файла
+      - description: File index
         in: body
         name: request
         required: true
@@ -744,12 +744,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Выбрать файл для стриминга
+      summary: Select file for streaming
       tags:
       - torrents
   /api/v1/torrents/{id}/stream:
     get:
-      description: Стримит выбранный файл торрента с поддержкой Range запросов
+      description: Streams the selected torrent file with Range request support
       parameters:
       - description: Torrent ID
         in: path
@@ -773,12 +773,12 @@ paths:
             $ref: '#/definitions/api.APIError'
       security:
       - BearerAuth: []
-      summary: Стриминг файла
+      summary: Stream file
       tags:
       - torrents
   /api/v1/version:
     get:
-      description: Возвращает версию сервера, коммит и время сборки
+      description: Returns the server version, commit hash, and build time
       produces:
       - application/json
       responses:
@@ -786,12 +786,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.VersionResponse'
-      summary: Версия сервера
+      summary: Server version
       tags:
       - system
   /health:
     get:
-      description: Базовая проверка работоспособности сервера (не требует аутентификации)
+      description: Basic server health check (does not require authentication)
       produces:
       - application/json
       responses:
@@ -799,12 +799,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.HealthResponse'
-      summary: Проверка здоровья
+      summary: Health check
       tags:
       - system
   /metrics:
     get:
-      description: Prometheus метрики сервера
+      description: Prometheus server metrics
       produces:
       - text/plain
       responses:
@@ -812,12 +812,12 @@ paths:
           description: OK
           schema:
             type: string
-      summary: Prometheus метрики
+      summary: Prometheus metrics
       tags:
       - system
 securityDefinitions:
   BearerAuth:
-    description: 'Введите JWT токен в формате: Bearer <token>'
+    description: 'Enter JWT token in the format: Bearer <token>'
     in: header
     name: Authorization
     type: apiKey

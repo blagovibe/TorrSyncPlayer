@@ -1,11 +1,12 @@
 # Dependencies
 node_modules/
+.kilo/node_modules/
+.kilo/worktrees/
 
 # Secrets and config
 .env
 .env.*
 !.env.example
-*.pem
 *.pem
 *.key
 *.secret
@@ -33,9 +34,11 @@ vendor/
 *.out
 .go/
 go.work
+backend/coverage.html
 
 # Qt
 frontend/build/
+frontend/build-clang-tidy/
 frontend/cmake-build-*/
 moc_*
 ui_*
@@ -50,3 +53,10 @@ build-*/
 
 # Editor
 *~
+
+# Dead artifacts
+backend/gosec-results.json
+apply_patch.js
+apply_patch.py
+package.json
+package-lock.json

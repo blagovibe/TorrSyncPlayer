@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(TorrSyncPlayer VERSION 1.0 LANGUAGES CXX)
 
 # ── Опция статической сборки ───────────────────────────────────────────
@@ -10,6 +10,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
+# ── Флаги безопасности (hardening) ────────────────────────────────────
+if(MSVC)
+    add_compile_options(/guard:cf /DYNAMICBASE /NXCOMPAT)
+    add_link_options(/GUARD:CF /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA)
+    add_compile_options($<$<CONFIG:Debug>:/W4>)
+    if(DEFINED ENV{CI})
+        add_compile_options(/WX)
+    endif()
+else()
+    add_compile_options(-fstack-protector-strong -D_FORTIFY_SOURCE=2)
+    add_link_options(-Wl,-z,relro,-z,now)
+endif()
 
 # ── Статическая сборка ─────────────────────────────────────────────────
 if(STATIC_BUILD)
@@ -38,10 +51,10 @@ set(SOURCES
     src/mainwindow.cpp
     src/mpvwidget.cpp
     src/networkmanager.cpp
+    src/roomdialog.cpp
+    src/roommanager.cpp
     src/torrentmodel.cpp
     src/torrentmanager.cpp
-    src/roommanager.cpp
-    src/roomdialog.cpp
     src/systemtray.cpp
     src/utils.cpp
     resources/resources.qrc
@@ -56,7 +69,15 @@ if(EMBED_BACKEND AND EMBED_BACKEND_PATH)
     file(WRITE "${EMBED_QRC}" "<!DOCTYPE RCC>\n<RCC version=\"1.0\">\n    <qresource prefix=\"/embedded\">\n        <file alias=\"torrsyncplayer.exe\">${EMBED_BACKEND_PATH}</file>\n    </qresource>\n</RCC>\n")
     list(APPEND SOURCES "${EMBED_QRC}")
     add_compile_definitions(HAS_EMBEDDED_BACKEND)
-    message(STATUS "Embedding backend: ${EMBED_BACKEND_PATH}")
+
+    set(EMBED_BACKEND_SHA256 "" CACHE STRING "SHA-256 hash of embedded backend binary for integrity verification (hex)")
+    if(EMBED_BACKEND_SHA256)
+        add_compile_definitions(EMBEDDED_BACKEND_SHA256="${EMBED_BACKEND_SHA256}")
+        message(STATUS "Embedding backend with integrity verification: ${EMBED_BACKEND_PATH}")
+    else()
+        message(STATUS "Embedding backend (no integrity hash): ${EMBED_BACKEND_PATH}")
+        message(WARNING "Set EMBED_BACKEND_SHA256 to enable binary integrity verification")
+    endif()
 endif()
 
 set(HEADERS
@@ -64,10 +85,10 @@ set(HEADERS
     src/mpvwidget.h
     src/inetworkmanager.h
     src/networkmanager.h
+    src/roomdialog.h
+    src/roommanager.h
     src/torrentmodel.h
     src/torrentmanager.h
-    src/roommanager.h
-    src/roomdialog.h
     src/systemtray.h
     src/utils.h
 )
@@ -174,10 +195,8 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_link_options(test_torrentmodel PRIVATE --coverage)
     endif()
     
-    # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_torrentmodel PROPERTIES
         AUTOMOC ON
-        AUTOMOC_SOURCE_FILE_EXTENSIONS "h"
     )
 
     # Добавляем директорию сборки и src в include-пути для поиска .moc файлов
@@ -208,10 +227,8 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_link_options(test_networkmanager PRIVATE --coverage)
     endif()
     
-    # Автоматическая регистрация moc - добавляем .cpp в HEADERS для AUTOMOC
     set_target_properties(test_networkmanager PROPERTIES
         AUTOMOC ON
-        AUTOMOC_SOURCE_FILE_EXTENSIONS "h"
     )
 
     # Добавляем директорию сборки и src в include-пути для поиска .мок файлов
@@ -222,6 +239,35 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     
     add_test(NAME NetworkManagerTest COMMAND test_networkmanager)
     
+    # Тесты для Utils
+    set(TEST_UTILS_SOURCES
+        src/test_utils.cpp
+        src/utils.cpp
+        src/utils.h
+    )
+
+    add_executable(test_utils ${TEST_UTILS_SOURCES})
+    target_link_libraries(test_utils PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    if(ENABLE_COVERAGE)
+        target_compile_options(test_utils PRIVATE --coverage)
+        target_link_options(test_utils PRIVATE --coverage)
+    endif()
+
+    set_target_properties(test_utils PROPERTIES
+        AUTOMOC ON
+    )
+
+    target_include_directories(test_utils PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    add_test(NAME UtilsTest COMMAND test_utils)
+
     message(STATUS "Unit tests enabled")
 endif()
 

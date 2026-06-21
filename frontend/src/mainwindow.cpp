@@ -12,6 +12,7 @@
 #include "networkmanager.h"
 #include "torrentmodel.h"
 #include "torrentmanager.h"
+#include "roomdialog.h"
 #include "roommanager.h"
 #include "utils.h"
 
@@ -365,41 +366,34 @@ void MainWindow::onFileSelectedByManager(const QString &torrentId, int fileIndex
 {
     Q_UNUSED(torrentId)
     Q_UNUSED(fileIndex)
+    if (url.isEmpty()) {
+        onPlaybackError(tr("Ошибка: URL потока пуст"));
+        return;
+    }
     m_mpvWidget->play(url);
     m_isPlaying = true;
     m_playPauseButton->setText(tr("⏸ Pause"));
     m_playPauseButton->setEnabled(true);
+    updateStatus(tr("Загрузка потока..."));
 }
 
 // ── Слоты управления комнатами ──────────────────────────────────────────
 
 void MainWindow::onCreateRoom()
 {
-    bool ok;
-    QString roomName = QInputDialog::getText(this, tr("Создание комнаты"),
-                                            tr("Имя комнаты:"),
-                                            QLineEdit::Normal, "", &ok);
-    if (!ok || roomName.isEmpty()) return;
+    RoomDialog dialog(RoomDialog::CreateMode, this);
+    if (dialog.exec() != QDialog::Accepted) return;
 
-    QString password = QInputDialog::getText(this, tr("Пароль комнаты"),
-                                            tr("Пароль (необязательно):"),
-                                            QLineEdit::Password, "", &ok);
-    m_roomManager->createRoom(roomName, ok ? password : "");
+    m_roomManager->createRoom(dialog.roomName(), dialog.password());
     updateStatus(tr("Создание комнаты..."));
 }
 
 void MainWindow::onJoinRoom()
 {
-    bool ok;
-    QString roomId = QInputDialog::getText(this, tr("Присоединение к комнате"),
-                                          tr("ID комнаты:"),
-                                          QLineEdit::Normal, "", &ok);
-    if (!ok || roomId.isEmpty()) return;
+    RoomDialog dialog(RoomDialog::JoinMode, this);
+    if (dialog.exec() != QDialog::Accepted) return;
 
-    QString password = QInputDialog::getText(this, tr("Пароль комнаты"),
-                                            tr("Пароль (если есть):"),
-                                            QLineEdit::Password, "", &ok);
-    m_roomManager->joinRoom(roomId, ok ? password : "");
+    m_roomManager->joinRoom(dialog.roomId(), dialog.password());
     updateStatus(tr("Присоединение к комнате..."));
 }
 

@@ -1,22 +1,24 @@
-// Package version предоставляет информацию о версии сервера.
-// Переменные устанавливаются при сборке через -ldflags.
+// SPDX-License-Identifier: MIT
+
+// Package version provides server version information.
+// Variables are set at build time via -ldflags.
 package version
 
 import "runtime"
 
-// Версионирование (устанавливается при сборке через -ldflags)
+// Versioning (set at build time via -ldflags)
 var (
-	// Version версия приложения
+	// Version application version
 	Version = "dev"
 
-	// Commit хеш коммита git
+	// Commit git commit hash
 	Commit = "unknown"
 
-	// BuildTime время сборки
+	// BuildTime build time
 	BuildTime = "unknown"
 )
 
-// Info возвращает информацию о версии
+// Info returns version information
 func Info() map[string]interface{} {
 	return map[string]interface{}{
 		"version": Version,

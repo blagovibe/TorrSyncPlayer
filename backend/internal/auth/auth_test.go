@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
-// testAuthService создаёт AuthService с фиксированным секретом для тестов
+// testAuthService creates an AuthService with a fixed secret for tests
 func testAuthService() *AuthService {
 	svc, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
 	if err != nil {
@@ -27,22 +28,22 @@ func TestHashPassword(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "Валидный пароль",
-			password:    "password123",
+			name:        "Valid password",
+			password:    "TestPass1!",
 			expectError: false,
 		},
 		{
-			name:        "Пустой пароль",
+			name:        "Empty password",
 			password:    "",
 			expectError: true,
 		},
 		{
-			name:        "Длинный пароль (>72 символа)",
+			name:        "Long password (>72 characters)",
 			password:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			expectError: true,
 		},
 		{
-			name:        "Минимальный пароль",
+			name:        "Minimal password",
 			password:    "123456",
 			expectError: false,
 		},
@@ -63,7 +64,7 @@ func TestHashPassword(t *testing.T) {
 }
 
 func TestCheckPassword(t *testing.T) {
-	password := "testpassword123"
+	password := "TestPass1!"
 	hash, err := HashPassword(password)
 	require.NoError(t, err)
 
@@ -74,19 +75,19 @@ func TestCheckPassword(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "Верный пароль",
+			name:        "Correct password",
 			password:    password,
 			hash:        hash,
 			expectError: false,
 		},
 		{
-			name:        "Неверный пароль",
+			name:        "Wrong password",
 			password:    "wrongpassword",
 			hash:        hash,
 			expectError: true,
 		},
 		{
-			name:        "Пустой пароль",
+			name:        "Empty password",
 			password:    "",
 			hash:        hash,
 			expectError: true,
@@ -117,9 +118,9 @@ func TestGenerateToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	// JWT токен должен содержать две точки (три части: header.payload.signature)
+	// JWT token must contain two dots (three parts: header.payload.signature)
 	parts := strings.Split(token, ".")
-	assert.Len(t, parts, 3, "JWT токен должен содержать 3 части")
+	assert.Len(t, parts, 3, "JWT token must contain 3 parts")
 }
 
 func TestValidateToken(t *testing.T) {
@@ -139,22 +140,22 @@ func TestValidateToken(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "Валидный токен",
+			name:        "Valid token",
 			token:       token,
 			expectError: false,
 		},
 		{
-			name:        "Пустой токен",
+			name:        "Empty token",
 			token:       "",
 			expectError: true,
 		},
 		{
-			name:        "Невалидный формат",
+			name:        "Invalid format",
 			token:       "invalid-token",
 			expectError: true,
 		},
 		{
-			name:        "Повреждённый токен",
+			name:        "Corrupted token",
 			token:       "abc.def.ghi",
 			expectError: true,
 		},
@@ -184,11 +185,11 @@ func TestValidateTokenExpired(t *testing.T) {
 		Username: "testuser",
 	}
 
-	// Создаём истёкший токен напрямую через jwt.NewWithClaims
+	// Create an expired token directly via jwt.NewWithClaims
 	claims := jwt.MapClaims{
 		"userId":   user.ID,
 		"username": user.Username,
-		"exp":      time.Now().Add(-1 * time.Hour).Unix(), // Истёк час назад
+		"exp":      time.Now().Add(-1 * time.Hour).Unix(), // Expired 1 hour ago
 		"iat":      time.Now().Add(-2 * time.Hour).Unix(),
 		"jti":      "test-expired-jti",
 	}
@@ -216,19 +217,19 @@ func TestExtractJTI(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, jti)
 
-	// Проверяем что JTI уникален
+	// Verify JTI is unique
 	token2, err := authService.GenerateToken(user)
 	require.NoError(t, err)
 
 	jti2, err := authService.ExtractJTI(token2)
 	require.NoError(t, err)
-	assert.NotEqual(t, jti, jti2, "JTI должен быть уникальным для каждого токена")
+	assert.NotEqual(t, jti, jti2, "JTI must be unique for each token")
 }
 
 func TestTokenRevocation(t *testing.T) {
 	authService := testAuthService()
 
-	// Получаем revocation store из auth service
+	// Get revocation store from auth service
 	store := authService.GetRevocationStore()
 
 	user := &models.User{
@@ -239,20 +240,20 @@ func TestTokenRevocation(t *testing.T) {
 	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
 
-	// Извлекаем JTI
+	// Extract JTI
 	jti, err := authService.ExtractJTI(token)
 	require.NoError(t, err)
 
-	// Токен не должен быть отозван
+	// Token should not be revoked
 	assert.False(t, store.IsRevoked(jti))
 
-	// Отзываем токен
+	// Revoke token
 	store.Revoke(jti, time.Now().Add(24*time.Hour))
 
-	// Токен должен быть отозван
+	// Token should be revoked
 	assert.True(t, store.IsRevoked(jti))
 
-	// Проверяем что валидный токен всё ещё проходит валидацию
+	// Verify that a valid token still passes validation
 	claims, err := authService.ValidateToken(token)
 	require.NoError(t, err)
 	assert.Equal(t, user.ID, claims.UserID)
@@ -264,19 +265,19 @@ func TestTokenRevocationStoreCleanup(t *testing.T) {
 		ttl:           100 * time.Millisecond,
 	}
 
-	// Добавляем токен с коротким TTL
+	// Add a token with short TTL
 	store.Revoke("jti1", time.Now().Add(100*time.Millisecond))
 	assert.Equal(t, 1, store.Count())
 
-	// Ждём истечения
+	// Wait for expiry
 	time.Sleep(200 * time.Millisecond)
 
-	// Проверяем что токен автоматически удалён при проверке
+	// Verify token is automatically removed on check
 	assert.False(t, store.IsRevoked("jti1"))
 }
 
 func TestValidateTokenWrongSecret(t *testing.T) {
-	// Создаём первый сервис
+	// Create first service
 	authService1, err := NewAuthService([]byte("test-secret-key-for-testing-32bytes!"))
 	require.NoError(t, err)
 
@@ -288,11 +289,11 @@ func TestValidateTokenWrongSecret(t *testing.T) {
 	token, err := authService1.GenerateToken(user)
 	require.NoError(t, err)
 
-	// Создаём второй сервис с другим секретом
-	authService2, err := NewAuthService([]byte("different-secret-key-for-testing!"))
+	// Create second service with different secret
+	authService2, err := NewAuthService([]byte("different-secret-key-for-testing-32bytes!"))
 	require.NoError(t, err)
 
-	// Токен не должен пройти валидацию с другим секретом
+	// Token should not validate with different secret
 	_, err = authService2.ValidateToken(token)
 	assert.Error(t, err)
 }
