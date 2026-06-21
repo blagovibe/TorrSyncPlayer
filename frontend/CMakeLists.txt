@@ -21,7 +21,9 @@ if(MSVC)
     endif()
 else()
     add_compile_options(-fstack-protector-strong -D_FORTIFY_SOURCE=2)
-    add_link_options(-Wl,-z,relro,-z,now)
+    if(NOT WIN32 AND NOT APPLE)
+        add_link_options(-Wl,-z,relro,-z,now)
+    endif()
 endif()
 
 # ── Статическая сборка ─────────────────────────────────────────────────

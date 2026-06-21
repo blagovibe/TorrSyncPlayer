@@ -51,17 +51,19 @@ jobs:
           cmake --build build
 
       - name: Create AppImage
-        env:
-          LINUXDEPLOY_SHA256: "8b7c0a8c5d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7"
-          LINUXDEPLOY_QT_SHA256: "9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"
         run: |
           cd frontend/build
           LINUXDEPLOY_VERSION="1.20250109"
-          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-x86_64.AppImage"
-          echo "${LINUXDEPLOY_SHA256}  linuxdeploy-x86_64.AppImage" | sha256sum --check || { echo "linuxdeploy checksum mismatch"; exit 1; }
+          BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}"
+
+          wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage"
+          wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage.sha256"
+          sha256sum --check linuxdeploy-x86_64.AppImage.sha256 || { echo "linuxdeploy checksum mismatch"; exit 1; }
           chmod +x linuxdeploy-x86_64.AppImage
-          wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-plugin-qt-x86_64.AppImage"
-          echo "${LINUXDEPLOY_QT_SHA256}  linuxdeploy-plugin-qt-x86_64.AppImage" | sha256sum --check || { echo "linuxdeploy-plugin-qt checksum mismatch"; exit 1; }
+
+          wget -q "${BASE_URL}/linuxdeploy-plugin-qt-x86_64.AppImage"
+          wget -q "${BASE_URL}/linuxdeploy-plugin-qt-x86_64.AppImage.sha256"
+          sha256sum --check linuxdeploy-plugin-qt-x86_64.AppImage.sha256 || { echo "linuxdeploy-plugin-qt checksum mismatch"; exit 1; }
           chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
