@@ -424,6 +424,8 @@ private slots:
      * @param errors Список SSL ошибок
      */
     void onSslErrors(QNetworkReply *reply, const QList<QSslError> &errors);
+
+    void onNetworkError(QNetworkReply::NetworkError code);
     
     /**
      * @brief Повторная отправка запроса

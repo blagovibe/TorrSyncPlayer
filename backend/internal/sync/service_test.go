@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
-	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 func init() {
