@@ -23,8 +23,8 @@ type TokenRevocationData struct {
 }
 
 type Store struct {
-	dir       string
-	mu        sync.RWMutex
+	dir string
+	mu  sync.RWMutex
 }
 
 func NewStore(dataDir string) (*Store, error) {

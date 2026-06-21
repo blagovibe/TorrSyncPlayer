@@ -130,7 +130,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 	registerBody := map[string]string{
 		"username": "testuser",
 		"password": "TestPass1!",
-	}	
+	}
 	body, _ := json.Marshal(registerBody)
 
 	resp, err := http.Post(server.URL+"/api/v1/auth/register", "application/json", bytes.NewReader(body))

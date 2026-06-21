@@ -271,8 +271,8 @@ func CSRFMiddleware(next http.Handler) http.Handler {
 		// Validate token via store with session check
 		if !CSRFStore.validateToken(csrfToken, sessionID) {
 			hash := sha256.Sum256([]byte(sessionID))
-		truncatedSession := hex.EncodeToString(hash[:])[:8]
-		logger.Warn("CSRF: invalid token or session mismatch", "path", r.URL.Path, "method", r.Method, "sessionID", truncatedSession)
+			truncatedSession := hex.EncodeToString(hash[:])[:8]
+			logger.Warn("CSRF: invalid token or session mismatch", "path", r.URL.Path, "method", r.Method, "sessionID", truncatedSession)
 			WriteError(w, http.StatusForbidden, "Invalid CSRF token")
 			return
 		}
@@ -401,8 +401,8 @@ func Logger(next http.Handler) http.Handler {
 }
 
 var (
-	corsOriginsOnce    sync.Once
-	cachedCORSOrigins  map[string]bool
+	corsOriginsOnce   sync.Once
+	cachedCORSOrigins map[string]bool
 )
 
 // getCORSOrigins returns the list of allowed CORS origins.
