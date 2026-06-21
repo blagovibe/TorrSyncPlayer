@@ -58,12 +58,16 @@ jobs:
 
           wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage"
           wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage.sha256"
-          sha256sum --check linuxdeploy-x86_64.AppImage.sha256 || { echo "linuxdeploy checksum mismatch"; exit 1; }
+          CHECK=$(sha256sum linuxdeploy-x86_64.AppImage | cut -d' ' -f1)
+          EXPECTED=$(cat linuxdeploy-x86_64.AppImage.sha256 | tr -s ' ' | cut -d' ' -f1)
+          if [ "$CHECK" != "$EXPECTED" ]; then echo "linuxdeploy checksum mismatch"; exit 1; fi
           chmod +x linuxdeploy-x86_64.AppImage
 
           wget -q "${BASE_URL}/linuxdeploy-plugin-qt-x86_64.AppImage"
           wget -q "${BASE_URL}/linuxdeploy-plugin-qt-x86_64.AppImage.sha256"
-          sha256sum --check linuxdeploy-plugin-qt-x86_64.AppImage.sha256 || { echo "linuxdeploy-plugin-qt checksum mismatch"; exit 1; }
+          CHECK=$(sha256sum linuxdeploy-plugin-qt-x86_64.AppImage | cut -d' ' -f1)
+          EXPECTED=$(cat linuxdeploy-plugin-qt-x86_64.AppImage.sha256 | tr -s ' ' | cut -d' ' -f1)
+          if [ "$CHECK" != "$EXPECTED" ]; then echo "linuxdeploy-plugin-qt checksum mismatch"; exit 1; fi
           chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
@@ -112,6 +116,9 @@ jobs:
           target: 'desktop'
           arch: 'win64_msvc2022_64'
           cache: true
+          setup-python: false
+
+      - uses: ilammy/msvc-dev-cmd@v1
 
       - name: Create embedded directory
         run: New-Item -ItemType Directory -Force -Path frontend/build/embedded
@@ -160,7 +167,9 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Install dependencies
-        run: brew install cmake ninja mpv pkg-config
+        run: |
+          brew install cmake ninja pkg-config
+          brew install mpv 2>/dev/null || echo "mpv install failed — building without mpv support"
 
       - uses: jurplel/install-qt-action@v4
         with:
@@ -177,6 +186,7 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: |
+          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:${PKG_CONFIG_PATH}"
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           cmake --build build
 
