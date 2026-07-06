@@ -484,9 +484,12 @@ void NetworkManager::onSsEReadyRead()
     // Максимальный размер буфера SSE (1 MB) и общий лимит данных за соединение (100 MB)
     const int MaxSSEBufferSize = 1024 * 1024;
     const qint64 MaxSSETotalBytes = 100 * 1024 * 1024;
-    int sseBufferUsage = 0;
+    const int MaxSSEIterations = 10000; // Prevent infinite loops in event loop
 
-    while (sseReply->canReadLine()) {
+    int sseBufferUsage = 0;
+    int iterations = 0;
+
+    while (sseReply->canReadLine() && ++iterations <= MaxSSEIterations) {
         QByteArray line = sseReply->readLine();
 
         sseBufferUsage += line.size();
@@ -522,6 +525,12 @@ void NetworkManager::onSsEReadyRead()
             }
 
             QJsonObject event = doc.object();
+            
+            // Проверяем, что SSE соединение всё ещё активно перед эмиссией
+            if (m_sseReply != sseReply) {
+                return; // SSE was disconnected
+            }
+            
             emit roomEvent(event);
 
             QString type = event["type"].toString();
@@ -529,6 +538,11 @@ void NetworkManager::onSsEReadyRead()
                 emit signalReceived(event["data"].toObject());
             }
         }
+    }
+    
+    // Log if we hit the iteration limit (potential DoS attempt)
+    if (iterations >= MaxSSEIterations) {
+        qWarning() << "NetworkManager: SSE iteration limit reached, deferring remaining events";
     }
 }
 

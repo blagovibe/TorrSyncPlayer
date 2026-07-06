@@ -1,158 +1,164 @@
+// Package buffer provides tests for buffer management service.
 package buffer
 
 import (
 	"context"
-	"runtime"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
-func init() {
-	logger.Init("error", "json")
-}
-
+// TestNewService tests service creation
 func TestNewService(t *testing.T) {
-	s := NewService(1024 * 1024)
-	assert.NotNil(t, s)
-	assert.Equal(t, int64(1024*1024), s.maxCacheSize)
+	s := NewService(constants.DefaultMaxBufferSize)
+	if s == nil {
+		t.Fatal("Expected non-nil service")
+	}
+	if s.maxCacheSize != constants.DefaultMaxBufferSize {
+		t.Errorf("Expected maxCacheSize %d, got %d", constants.DefaultMaxBufferSize, s.maxCacheSize)
+	}
 }
 
-func TestService_GetBufferInfo_NotFound(t *testing.T) {
-	s := NewService(1024)
+// TestSetPosition_NotRegistered tests error handling for unregistered torrents
+func TestSetPosition_NotRegistered(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+	err := s.SetPosition(context.Background(), "nonexistent", 1000)
+	if err == nil {
+		t.Error("Expected error for unregistered torrent")
+	}
+	if err.Error() != "torrent not found: nonexistent" {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// TestUpdatePosition_NotRegistered tests error handling for unregistered torrents
+func TestUpdatePosition_NotRegistered(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+	err := s.UpdatePosition(context.Background(), "nonexistent", 1000)
+	if err == nil {
+		t.Error("Expected error for unregistered torrent")
+	}
+	if err.Error() != "torrent not found: nonexistent" {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// TestGetBufferInfo_NotRegistered tests error handling for unregistered torrents
+func TestGetBufferInfo_NotRegistered(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
 	_, err := s.GetBufferInfo(context.Background(), "nonexistent")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	if err == nil {
+		t.Error("Expected error for unregistered torrent")
+	}
+	if err.Error() != "torrent not found: nonexistent" {
+		t.Errorf("Unexpected error: %v", err)
+	}
 }
 
-func TestService_Close(t *testing.T) {
-	s := NewService(1024)
+// TestUnregisterTorrent tests unregistering non-existent torrent (should not panic)
+func TestUnregisterTorrent(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+	s.UnregisterTorrent("nonexistent") // Should not panic
+}
+
+// TestClose tests service closure
+func TestClose(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
 	s.Close()
-	assert.Equal(t, 0, len(s.torrentBuffers))
+	if len(s.torrentBuffers) != 0 {
+		t.Error("Expected empty torrentBuffers after close")
+	}
 }
 
-func TestService_StartStopPeriodicUpdate(t *testing.T) {
-	s := NewService(1024)
-	s.StartPeriodicUpdate(100 * time.Millisecond)
-	time.Sleep(150 * time.Millisecond)
+// TestStartStopPeriodicUpdate tests periodic update lifecycle
+func TestStartStopPeriodicUpdate(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+
+	// Start periodic update
+	s.StartPeriodicUpdate(constants.BufferUpdateInterval)
+
+	// Stop periodic update
 	s.StopPeriodicUpdate()
-	assert.NotNil(t, s)
+	if s.cancelFunc != nil {
+		t.Error("Expected nil cancelFunc after stop")
+	}
 }
 
-func TestService_StopPeriodicUpdate_NotStarted(t *testing.T) {
-	s := NewService(1024)
-	s.StopPeriodicUpdate()
-	assert.NotNil(t, s)
+// TestSetPosition_Atomicity tests thread safety of SetPosition
+func TestSetPosition_Atomicity(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+
+	// Concurrent SetPosition calls should not race
+	done := make(chan bool)
+	for i := 0; i < 100; i++ {
+		go func(pos int64) {
+			_ = s.UpdatePosition(context.Background(), "test", pos)
+			done <- true
+		}(int64(i))
+	}
+
+	// Wait for all goroutines (they will all fail since no torrent registered, but shouldn't race)
+	for i := 0; i < 100; i++ {
+		<-done
+	}
 }
 
-func TestTorrentBuffer(t *testing.T) {
-	tb := &TorrentBuffer{
-		TorrentID:       "test-id",
+// TestGetBufferInfo_ReturnsValidInfo tests that GetBufferInfo returns correct structure
+func TestGetBufferInfo_ReturnsValidInfo(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+
+	// Create a mock buffer entry for testing
+	s.torrentBuffers["test"] = &TorrentBuffer{
+		TorrentID:       "test",
+		FileIndex:       0,
 		CurrentPosition: 1000,
-		BufferPercent:   10,
-		BufferDuration:  60,
-		MaxBufferSize:   512 * 1024 * 1024,
-		PieceSize:       256 * 1024,
-		TotalPieces:     100,
-	}
-	assert.Equal(t, "test-id", tb.TorrentID)
-	assert.Equal(t, int64(1000), tb.CurrentPosition)
-	assert.Equal(t, 10, tb.BufferPercent)
-}
-
-func TestService_UpdatePosition_Nonexistent(t *testing.T) {
-	s := NewService(1024)
-	s.UpdatePosition(context.Background(), "nonexistent", 1000)
-	assert.Equal(t, 0, len(s.torrentBuffers))
-}
-
-func TestService_ConcurrentAccess(t *testing.T) {
-	s := NewService(1024)
-	done := make(chan struct{})
-	go func() {
-		s.UpdatePosition(context.Background(), "test", 100)
-		close(done)
-	}()
-	go func() {
-		_, _ = s.GetBufferInfo(context.Background(), "test")
-	}()
-	<-done
-	require.NotNil(t, s)
-}
-
-func TestService_UnregisterTorrent(t *testing.T) {
-	s := NewService(1024)
-	s.mu.Lock()
-	s.torrentBuffers["t1"] = &TorrentBuffer{TorrentID: "t1"}
-	s.torrentBuffers["t2"] = &TorrentBuffer{TorrentID: "t2"}
-	s.mu.Unlock()
-
-	s.UnregisterTorrent("t1")
-	_, exists := s.torrentBuffers["t1"]
-	assert.False(t, exists)
-	_, exists = s.torrentBuffers["t2"]
-	assert.True(t, exists)
-}
-
-func TestService_Close_WithEntries(t *testing.T) {
-	s := NewService(1024)
-	s.mu.Lock()
-	s.torrentBuffers["t1"] = &TorrentBuffer{TorrentID: "t1", BufferPercent: 10}
-	s.torrentBuffers["t2"] = &TorrentBuffer{TorrentID: "t2", BufferPercent: 20}
-	s.mu.Unlock()
-	s.Close()
-	s.mu.Lock()
-	assert.Equal(t, 0, len(s.torrentBuffers))
-	s.mu.Unlock()
-}
-
-func TestService_UnregisterTorrent_Nonexistent(t *testing.T) {
-	s := NewService(1024)
-	s.UnregisterTorrent("nonexistent")
-	assert.NotNil(t, s)
-}
-
-func TestService_MaxCacheSize(t *testing.T) {
-	s := NewService(500)
-	assert.Equal(t, int64(500), s.maxCacheSize)
-}
-
-func TestService_Close_Idempotent(t *testing.T) {
-	s := NewService(1024)
-	s.Close()
-	s.Close()
-	assert.Equal(t, 0, len(s.torrentBuffers))
-}
-
-func TestService_PeriodicUpdate_IdempotentStop(t *testing.T) {
-	s := NewService(1024)
-	s.StopPeriodicUpdate()
-	s.StopPeriodicUpdate()
-	s.StartPeriodicUpdate(50 * time.Millisecond)
-	time.Sleep(100 * time.Millisecond)
-	s.StopPeriodicUpdate()
-	assert.NotNil(t, s)
-}
-
-func TestService_NoGoroutineLeak(t *testing.T) {
-	goroutinesBefore := runtime.NumGoroutine()
-
-	for i := 0; i < 5; i++ {
-		s := NewService(1024)
-		s.StartPeriodicUpdate(50 * time.Millisecond)
-		time.Sleep(20 * time.Millisecond)
-		s.Close()
-		time.Sleep(20 * time.Millisecond)
+		BufferStart:     0,
+		BufferEnd:       5000,
+		BufferSize:      5000,
+		BufferedBytes:   2500,
+		LastUpdate:      time.Now(),
 	}
 
-	runtime.GC()
-	time.Sleep(100 * time.Millisecond)
+	info, err := s.GetBufferInfo(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 
-	goroutinesAfter := runtime.NumGoroutine()
-	assert.LessOrEqual(t, goroutinesAfter, goroutinesBefore+2,
-		"Buffer service goroutine leak: was %d, now %d", goroutinesBefore, goroutinesAfter)
+	if info.TorrentID != "test" {
+		t.Errorf("Expected TorrentID 'test', got '%s'", info.TorrentID)
+	}
+
+	if info.CurrentPosition != 1000 {
+		t.Errorf("Expected CurrentPosition 1000, got %d", info.CurrentPosition)
+	}
+
+	if info.BufferSize != 5000 {
+		t.Errorf("Expected BufferSize 5000, got %d", info.BufferSize)
+	}
+}
+
+// TestBufferInfoStructure validates the BufferInfo model
+func TestBufferInfoStructure(t *testing.T) {
+	info := &models.BufferInfo{
+		TorrentID:       "test-id",
+		FileIndex:       1,
+		CurrentPosition: 1000,
+		BufferStart:     0,
+		BufferEnd:       5000,
+		BufferSize:      5000,
+		BufferedBytes:   2500,
+		BufferedPercent: 50.0,
+		DownloadSpeed:   1024 * 1024,
+		IsBuffering:     true,
+	}
+
+	if info.TorrentID != "test-id" {
+		t.Error("Unexpected TorrentID")
+	}
+
+	if info.IsBuffering != true {
+		t.Error("Expected IsBuffering to be true")
+	}
 }

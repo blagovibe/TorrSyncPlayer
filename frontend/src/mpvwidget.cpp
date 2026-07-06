@@ -1,6 +1,6 @@
 /**
  * @file mpvwidget.cpp
- * @brief Реализация виджета видеоплеера на базе libmpv
+ * @brief Реализация виджета видеоплеера на базе libmpv с OpenGL рендерингом
  */
 
 #include "mpvwidget.h"
@@ -19,7 +19,7 @@ static const int MPV_EVENT_TIMER_MS = 30;
 // Задержка debounce для перемотки (мс)
 static const int SEEK_DEBOUNCE_MS = 300;
 
-#ifdef HAS_MPV
+#ifdef HAS_MPV_RENDER
 // Static callback для mpv OpenGL (C-compatible, без capture)
 static void *mpvGetProcAddress(void *ctx, const char *name)
 {
@@ -31,24 +31,10 @@ static void *mpvGetProcAddress(void *ctx, const char *name)
 #endif
 
 MpvWidget::MpvWidget(QWidget *parent)
-    : QWidget(parent)
+    : QOpenGLWidget(parent)
 {
-    // Устанавливаем атрибуты для поддержки OpenGL
-    setAttribute(Qt::WA_NativeWindow, true);
-    setAttribute(Qt::WA_PaintOnScreen, true);
-    setAttribute(Qt::WA_NoSystemBackground, true);
-
     // Устанавливаем политику фокуса
     setFocusPolicy(Qt::StrongFocus);
-
-    // Устанавливаем минимальный размер
-    setMinimumSize(400, 300);
-
-    // Устанавливаем чёрный фон
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, Qt::black);
-    setAutoFillBackground(true);
-    setPalette(pal);
 
     // Создаём debounce таймер для перемотки
     m_seekDebounceTimer = new QTimer(this);
@@ -63,17 +49,20 @@ MpvWidget::~MpvWidget()
     // Set destroying flag immediately to protect against concurrent render callback
     m_destroying.storeRelaxed(1);
 
-    // Deregister the render callback (prevents any new callbacks)
+    // Step 1: Deregister the render callback (prevents any new callbacks)
     if (m_mpvGL) {
         mpv_render_context_set_update_callback(m_mpvGL, nullptr, nullptr);
     }
 
-    // Step 3: Stop timers
+    // Step 2: Stop timers
     if (m_seekDebounceTimer) {
         m_seekDebounceTimer->stop();
     }
+    if (m_eventTimer) {
+        m_eventTimer->stop();
+    }
 
-    // Step 4: Free mpv resources under mutex
+    // Step 3: Free mpv resources under mutex
     {
         QMutexLocker locker(&m_mutex);
         if (m_mpvGL) {
@@ -84,18 +73,112 @@ MpvWidget::~MpvWidget()
             mpv_terminate_destroy(m_mpv);
             m_mpv = nullptr;
         }
+        m_initialized.storeRelaxed(0);
     }
 #else
     m_destroying.storeRelaxed(1);
     if (m_seekDebounceTimer) {
         m_seekDebounceTimer->stop();
     }
+    if (m_eventTimer) {
+        m_eventTimer->stop();
+    }
 #endif
 }
+
+#ifdef HAS_MPV_RENDER
+void MpvWidget::initializeGL()
+{
+    QOpenGLWidget::initializeGL();
+
+    makeCurrent();
+
+    // Create render context if mpv is initialized
+    if (m_mpv && !m_mpvGL) {
+        mpv_opengl_init_params gl_init_params = {
+            mpvGetProcAddress,
+            nullptr
+        };
+
+        char apiType[] = MPV_RENDER_API_TYPE_OPENGL;
+        mpv_render_param params[] = {
+            {MPV_RENDER_PARAM_API_TYPE, apiType},
+            {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
+            {MPV_RENDER_PARAM_INVALID, nullptr}
+        };
+
+        int err = mpv_render_context_create(&m_mpvGL, m_mpv, params);
+        if (err < 0) {
+            qWarning() << "Failed to create mpv render context:" << mpv_error_string(err);
+        } else {
+            qDebug() << "MpvWidget: OpenGL render context initialized";
+        }
+    }
+
+    doneCurrent();
+}
+#endif
+
+#ifdef HAS_MPV_RENDER
+void MpvWidget::resizeGL(int w, int h)
+{
+    Q_UNUSED(w);
+    Q_UNUSED(h);
+    // mpv will handle scaling automatically
+    if (m_mpvGL) {
+        makeCurrent();
+        mpv_render_param param = {MPV_RENDER_PARAM_RESIZE, nullptr};
+        char resizeData[] = MPV_RENDER_RESIZE_FLAG_RECREATE;
+        param.data = resizeData;
+        mpv_render_context_render(m_mpvGL, &param);
+        doneCurrent();
+    }
+}
+#endif
+
+#ifdef HAS_MPV_RENDER
+void MpvWidget::paintGL()
+{
+    QOpenGLWidget::paintGL();
+
+    // Render video frame if mpv is initialized
+    if (m_mpv && m_mpvGL && !m_destroying.loadRelaxed()) {
+        makeCurrent();
+
+        int flip = 1;
+        mpv_render_param params[] = {
+            {MPV_RENDER_PARAM_FLIP_Y, &flip},
+            {MPV_RENDER_PARAM_INVALID, nullptr}
+        };
+
+        mpv_render_context_render(m_mpvGL, params);
+
+        doneCurrent();
+    }
+}
+#endif
 
 bool MpvWidget::initializeMpv()
 {
 #ifdef HAS_MPV
+    // Check if already initialized
+    if (m_initialized.loadRelaxed()) {
+        return m_mpv != nullptr;
+    }
+    
+    // Check if destroying
+    if (m_destroying.loadRelaxed()) {
+        return false;
+    }
+
+    QMutexLocker locker(&m_mutex);
+
+    // Double-check under lock
+    if (m_initialized.loadRelaxed() || m_mpv != nullptr) {
+        locker.unlock();
+        return m_mpv != nullptr;
+    }
+
     // Создаём экземпляр mpv
     m_mpv = mpv_create();
     if (!m_mpv) {
@@ -108,18 +191,18 @@ bool MpvWidget::initializeMpv()
     }
 
     // Настройки mpv
-    auto setOpt = [this](const char *name, const char *val) {
-        int err = mpv_set_option_string(m_mpv, name, val);
+    auto setOpt = [](mpv_handle *mpv, const char *name, const char *val) {
+        int err = mpv_set_option_string(mpv, name, val);
         if (err < 0)
             qWarning() << "mpv option failed:" << name << mpv_error_string(err);
     };
-    setOpt("vo", "libmpv");
-    setOpt("hwdec", "auto");
-    setOpt("cache", "yes");
-    setOpt("cache-secs", "30");
-    setOpt("demuxer-max-bytes", "150M");
-    setOpt("demuxer-max-back-bytes", "50M");
-    setOpt("ao", "null");
+    setOpt(m_mpv, "vo", "libmpv");
+    setOpt(m_mpv, "hwdec", "auto");
+    setOpt(m_mpv, "cache", "yes");
+    setOpt(m_mpv, "cache-secs", "30");
+    setOpt(m_mpv, "demuxer-max-bytes", "150M");
+    setOpt(m_mpv, "demuxer-max-back-bytes", "50M");
+    setOpt(m_mpv, "ao", "null");
 
     int err = mpv_initialize(m_mpv);
     if (err < 0) {
@@ -133,38 +216,10 @@ bool MpvWidget::initializeMpv()
         return false;
     }
 
-    mpv_opengl_init_params gl_init_params = {
-        mpvGetProcAddress,
-        nullptr
-    };
-
-    char apiType[] = MPV_RENDER_API_TYPE_OPENGL;
-    mpv_render_param params[] = {
-        {MPV_RENDER_PARAM_API_TYPE, apiType},
-        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
-        {MPV_RENDER_PARAM_INVALID, nullptr}
-    };
-
-    err = mpv_render_context_create(&m_mpvGL, m_mpv, params);
-    if (err < 0) {
-        MpvEventData event;
-        event.type = MpvEventData::Error;
-        event.message = tr("Ошибка создания контекста рендеринга: %1").arg(mpv_error_string(err));
-        m_eventBuffer.append(event);
-        mpv_terminate_destroy(m_mpv);
-        m_mpv = nullptr;
-        QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
-        return false;
-    }
-
-    mpv_render_context_set_update_callback(m_mpvGL,
-        [](void *ctx) {
-            MpvWidget *widget = static_cast<MpvWidget *>(ctx);
-            if (widget->m_destroying.loadRelaxed()) {
-                return;
-            }
-            QTimer::singleShot(0, widget, &MpvWidget::onMpvEvents);
-        }, this);
+#ifdef HAS_MPV_RENDER
+    // Create OpenGL render context - deferred to initializeGL()
+    // This is because QOpenGLWidget needs a valid context first
+#endif
 
     if (!m_eventTimer) {
         m_eventTimer = new QTimer(this);
@@ -172,7 +227,8 @@ bool MpvWidget::initializeMpv()
     }
     m_eventTimer->start(MPV_EVENT_TIMER_MS);
 
-    m_initialized = true;
+    // Mark as initialized atomically before releasing lock
+    m_initialized.storeRelaxed(1);
 
     MpvEventData event;
     event.type = MpvEventData::Ready;
@@ -189,21 +245,27 @@ bool MpvWidget::initializeMpv()
 void MpvWidget::play(const QString &url)
 {
 #ifdef HAS_MPV
-    QMutexLocker locker(&m_mutex);
-
-    if (!m_mpv) {
-        if (!initializeMpv()) {
-            return;
+    // Check initialization flag first without lock to avoid locking every call
+    if (!m_initialized.loadRelaxed()) {
+        // Need initialization - use mutex to protect the initialization
+        QMutexLocker locker(&m_mutex);
+        if (!m_mpv && !m_initialized.loadRelaxed()) {
+            locker.unlock();
+            // Initialize without holding the lock
+            initializeMpv();
+            locker.relock();
         }
     }
-    locker.unlock();
+
+    if (!m_mpv) {
+        return; // Initialization failed
+    }
 
     const QByteArray urlData = url.toUtf8();
     const char *args[] = {"loadfile", urlData.constData(), "replace", nullptr};
 
     int err = mpv_command_async(m_mpv, 0, args);
     if (err < 0) {
-        // Буферизируем событие ошибки для безопасной эмиссии
         MpvEventData event;
         event.type = MpvEventData::Error;
         event.message = tr("Ошибка загрузки файла: %1").arg(mpv_error_string(err));
@@ -256,10 +318,7 @@ void MpvWidget::resume()
 
 void MpvWidget::seek(double position)
 {
-#ifndef HAS_MPV
-    Q_UNUSED(position);
-    qWarning() << "mpv not available, seek ignored";
-#else
+#ifdef HAS_MPV
     if (!m_mpv) return;
 
     // Ограничиваем позицию допустимыми значениями
@@ -280,6 +339,9 @@ void MpvWidget::seek(double position)
     m_seekDebounceTimer->start();
 
     qDebug() << "MpvWidget: перемотка запрошена на" << position << "(debounce " << SEEK_DEBOUNCE_MS << "мс)";
+#else
+    Q_UNUSED(position);
+    qDebug() << "MpvWidget: перемотка невозможна (собрано без HAS_MPV)";
 #endif
 }
 
@@ -297,7 +359,6 @@ void MpvWidget::onSeekDebounceTimeout()
 
     int err = mpv_command_async(m_mpv, 0, args);
     if (err < 0) {
-        // Буферизируем событие ошибки для безопасной эмиссии
         MpvEventData event;
         event.type = MpvEventData::Error;
         event.message = tr("Ошибка перемотки: %1").arg(mpv_error_string(err));
@@ -366,20 +427,29 @@ bool MpvWidget::event(QEvent *event)
     }
 #endif
 
-    return QWidget::event(event);
+    return QOpenGLWidget::event(event);
 }
 
 void MpvWidget::showEvent(QShowEvent *event)
 {
-    QWidget::showEvent(event);
+    QOpenGLWidget::showEvent(event);
 
 #ifdef HAS_MPV
-    if (!m_initialized) {
-        QTimer::singleShot(100, this, [this]() {
+    if (!m_initialized.loadRelaxed()) {
+        // Use invokeMethod with a timer ID instead of singleShot with captured this
+        // to ensure the widget still exists when initializeMpv is called
+        QTimer::singleShot(100, [this]() {
+            if (m_destroying.loadRelaxed()) return;
             QMutexLocker locker(&m_mutex);
             if (!m_mpv) {
-                initializeMpv();
+                (void)initializeMpv();
             }
+#ifdef HAS_MPV_RENDER
+            // Reinitialize OpenGL context now that we have a valid surface
+            if (m_mpv && !m_mpvGL) {
+                initializeGL();
+            }
+#endif
         });
     }
 #endif
@@ -408,6 +478,8 @@ void MpvWidget::onMpvEvents()
     if (hasEvents) {
         emitBufferedEvents();
     }
+    // Trigger repaint after processing events
+    update();
 #else
     qDebug() << "MpvWidget: onMpvEvents вызван без поддержки mpv";
 #endif
@@ -421,55 +493,65 @@ void MpvWidget::processMpvEvent(mpv_event *event)
         mpv_event_property *prop = static_cast<mpv_event_property *>(event->data);
 
         if (strcmp(prop->name, "time-pos") == 0 && prop->format == MPV_FORMAT_DOUBLE) {
-            m_position = *static_cast<double *>(prop->data);
-            // Буферизируем событие вместо прямой эмиссии
+            // FIX: nullptr check for prop->data
+            double *posData = static_cast<double *>(prop->data);
+            if (posData != nullptr) {
+                m_position = *posData;
+            } else {
+                m_position = 0.0;
+            }
             MpvEventData eventData;
             eventData.type = MpvEventData::PositionChanged;
             eventData.value = m_position;
             m_eventBuffer.append(eventData);
         }
         else if (strcmp(prop->name, "duration") == 0 && prop->format == MPV_FORMAT_DOUBLE) {
-            m_duration = *static_cast<double *>(prop->data);
-            // Буферизируем событие вместо прямой эмиссии
+            // FIX: nullptr check for prop->data
+            double *durData = static_cast<double *>(prop->data);
+            if (durData != nullptr) {
+                m_duration = *durData;
+            } else {
+                m_duration = 0.0;
+            }
             MpvEventData eventData;
             eventData.type = MpvEventData::DurationChanged;
             eventData.value = m_duration;
             m_eventBuffer.append(eventData);
         }
         else if (strcmp(prop->name, "pause") == 0 && prop->format == MPV_FORMAT_FLAG) {
-            m_paused = *static_cast<int *>(prop->data) != 0;
+            // FIX: nullptr check for prop->data
+            int *pauseData = static_cast<int *>(prop->data);
+            if (pauseData != nullptr) {
+                m_paused = *pauseData != 0;
+            }
         }
         break;
     }
 
     case MPV_EVENT_END_FILE: {
         mpv_event_end_file *endFile = static_cast<mpv_event_end_file *>(event->data);
-        if (endFile->reason == MPV_END_FILE_REASON_EOF) {
-            // Буферизируем событие вместо прямой эмиссии
+        if (endFile && endFile->reason == MPV_END_FILE_REASON_EOF) {
             MpvEventData eventData;
             eventData.type = MpvEventData::PlaybackFinished;
             m_eventBuffer.append(eventData);
         }
-        else if (endFile->reason == MPV_END_FILE_REASON_ERROR) {
-            // Обработка ошибки завершения файла
+        else if (endFile && endFile->reason == MPV_END_FILE_REASON_ERROR) {
             MpvEventData eventData;
             eventData.type = MpvEventData::Error;
-            eventData.message = tr("Ошибка воспроизведения: код ошибки %1").arg(endFile->error);
+            eventData.message = tr("Ошибка воспроизведения: код ошибки %1").arg(endFile ? endFile->error : -1);
             m_eventBuffer.append(eventData);
         }
         break;
     }
 
-    // Обработка ошибки загрузки файла (исправление: добавлена обработка ошибок mpv)
     case MPV_EVENT_FILE_LOADED: {
-        // Файл успешно загружен — можно сбросить ошибки
         qDebug() << "MpvWidget: файл успешно загружен";
         break;
     }
 
     case MPV_EVENT_LOG_MESSAGE: {
         mpv_event_log_message *msg = static_cast<mpv_event_log_message *>(event->data);
-        if (msg->log_level == MPV_LOG_LEVEL_ERROR) {
+        if (msg && msg->log_level == MPV_LOG_LEVEL_ERROR) {
             qWarning() << "MPV Error:" << msg->prefix << msg->text;
             if (!m_lastErrorEmit.isValid() || m_lastErrorEmit.elapsed() >= 100) {
                 m_lastErrorEmit.start();
@@ -478,9 +560,9 @@ void MpvWidget::processMpvEvent(mpv_event *event)
                 eventData.message = tr("MPV: %1").arg(QString::fromUtf8(msg->text));
                 m_eventBuffer.append(eventData);
             }
-        } else if (msg->log_level == MPV_LOG_LEVEL_WARN) {
+        } else if (msg && msg->log_level == MPV_LOG_LEVEL_WARN) {
             qDebug() << "MPV Warn:" << msg->prefix << msg->text;
-        } else {
+        } else if (msg) {
             qDebug() << "MPV Log:" << msg->prefix << msg->text;
         }
         break;

@@ -369,10 +369,12 @@ func (s *Service) SelectFile(ctx context.Context, torrentID string, fileIndex in
 // UpdateBufferPosition updates the current playback position for buffering.
 // Parameter torrentID - torrent identifier.
 // Parameter position - position in bytes.
-func (s *Service) UpdateBufferPosition(ctx context.Context, torrentID string, position int64) {
+// Returns an error if the buffer service fails.
+func (s *Service) UpdateBufferPosition(ctx context.Context, torrentID string, position int64) error {
 	if s.bufferService != nil {
-		s.bufferService.UpdatePosition(ctx, torrentID, position)
+		return s.bufferService.UpdatePosition(ctx, torrentID, position)
 	}
+	return nil
 }
 
 // GetBufferInfo returns buffer state information.

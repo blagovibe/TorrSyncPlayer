@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
@@ -59,7 +60,14 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		room, err := p2pSvc.CreateRoom(r.Context(), req.Name, req.Password)
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		room, err := p2pSvc.CreateRoom(r.Context(), userID, req.Name, req.Password)
 		if err != nil {
 			handleError(w, r, err, "creating room")
 			return
@@ -105,8 +113,15 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		// Do NOT log req.Password — password must not appear in logs
-		if err := p2pSvc.JoinRoom(r.Context(), req.RoomID, req.Password); err != nil {
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		// Do NOT log req.Password - password must not appear in logs
+		if err := p2pSvc.JoinRoom(r.Context(), userID, req.RoomID, req.Password); err != nil {
 			logger.Warn("P2P: failed to join room", "roomID", req.RoomID, "error", err)
 			handleError(w, r, err, "joining room")
 			return
@@ -128,7 +143,14 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Router       /api/v1/rooms/leave [post]
 func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := p2pSvc.LeaveRoom(r.Context()); err != nil {
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		if err := p2pSvc.LeaveRoom(r.Context(), userID); err != nil {
 			handleError(w, r, err, "leaving room")
 			return
 		}
@@ -177,7 +199,14 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		if err := p2pSvc.SendSignal(r.Context(), req.Signal); err != nil {
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		if err := p2pSvc.SendSignal(r.Context(), userID, req.Signal); err != nil {
 			handleError(w, r, err, "sending signal")
 			return
 		}
@@ -208,15 +237,27 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
 		// Check room membership before subscribing to SSE
-		roomInfo, err := p2pSvc.GetRoomInfo(r.Context())
+		roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), userID)
 		if err != nil || roomInfo == nil || roomInfo.ID != roomID {
 			logger.Warn("SSE: attempt to subscribe to another room", "roomID", roomID, "error", err)
 			WriteError(w, http.StatusForbidden, "You are not a member of this room")
 			return
 		}
 
-		events := p2pSvc.GetEvents()
+		events := p2pSvc.GetEvents(userID)
+		if events == nil {
+			WriteError(w, http.StatusServiceUnavailable, "Event streaming not yet implemented for multi-session")
+			return
+		}
+
 		SSEEventHandler(w, r, events, roomID, r.URL.Path)
 	}
 }

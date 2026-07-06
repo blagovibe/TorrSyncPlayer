@@ -120,20 +120,27 @@ func (s *TokenRevocationStore) persist() {
 // schedulePersist schedules a debounced persist.
 // The actual write to disk happens at most once per debounce interval.
 func (s *TokenRevocationStore) schedulePersist() {
-	const debounceInterval = 5 * time.Second
+	s.mu.Lock()
 	s.dirty = true
 	if s.persistTimer == nil {
-		s.persistTimer = time.AfterFunc(debounceInterval, func() {
+		s.persistTimer = time.AfterFunc(constants.P2PDebounceInterval, func() {
 			s.mu.Lock()
 			if s.dirty && s.persistor != nil {
 				s.dirty = false
 				s.mu.Unlock()
 				s.persist()
+				s.mu.Lock()
+				s.persistTimer = nil
+				s.mu.Unlock()
 				return
+			}
+			if s.persistTimer != nil {
+				s.persistTimer = nil
 			}
 			s.mu.Unlock()
 		})
 	}
+	s.mu.Unlock()
 }
 
 // Revoke revokes a token by its JTI.

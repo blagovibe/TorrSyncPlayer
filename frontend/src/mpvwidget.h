@@ -7,12 +7,15 @@
  * - Пауза/возобновление
  * - Перемотка
  * - Синхронизация позиции воспроизведения
+ * - OpenGL рендеринг видеокадров (C3 fix)
  */
 
 #ifndef MPVWIDGET_H
 #define MPVWIDGET_H
 
-#include <QWidget>
+#include <QOpenGLWidget>
+#include <QOpenGLFramebufferObject>
+#include <QOpenGLContext>
 #include <QMutex>
 #include <QVector>
 #include <QTimer>
@@ -28,20 +31,20 @@ extern "C" {
 
 /**
  * @class MpvWidget
- * @brief Виджет для воспроизведения видео через libmpv
+ * @brief Виджет для воспроизведения видео через libmpv с OpenGL рендерингом
  * 
+ * Наследуется от QOpenGLWidget для правильного рендеринга видеокадров.
  * Использует mpv_create() для создания экземпляра плеера
  * и mpv_render_context для рендеринга видео в Qt окне.
- * Потокобезопасен благодаря использованию QMutex.
  */
-class MpvWidget : public QWidget
+class MpvWidget : public QOpenGLWidget
 {
     Q_OBJECT
 
 public:
     /**
      * @brief Конструктор виджета mpv
-     * Инициализирует mpv экземпляр и контекст рендеринга
+     * Инициализирует mpv экземпляр и OpenGL контекст
      * @param parent Родительский виджет
      */
     explicit MpvWidget(QWidget *parent = nullptr);
@@ -136,6 +139,26 @@ signals:
 
 protected:
     /**
+     * @brief Инициализация OpenGL контекста
+     * Вызывается при создании OpenGL контекста
+     */
+    void initializeGL() override;
+
+    /**
+     * @brief Отрисовка виджета
+     * Рендерит видеокадр через mpv_render_context
+     */
+    void paintGL() override;
+
+    /**
+     * @brief Обработка изменения размера
+     * Обновляет размер рендеринга mpv
+     * @param w Ширина
+     * @param h Высота
+     */
+    void resizeGL(int w, int h) override;
+
+    /**
      * @brief Обработка событий виджета
      * Перехватывает события mpv для обработки в основном потоке
      * @param event Событие Qt
@@ -195,6 +218,20 @@ private:
      */
     int getProperty(const char *name, mpv_format format, void *data);
 
+#ifdef HAS_MPV_RENDER
+    /**
+     * @brief Рендеринг видеокадра
+     * Выполняет рендеринг через mpv_render_context
+     */
+    void renderMpvFrame();
+
+    /**
+     * @brief Получение OpenGL функций для mpv
+     * @return Функции OpenGL
+     */
+    static void *mpvGetProcAddress(void *ctx, const char *name);
+#endif
+
     mpv_handle *m_mpv = nullptr;        ///< Экземпляр mpv
     mpv_render_context *m_mpvGL = nullptr; ///< Контекст рендеринга OpenGL
 #else
@@ -203,15 +240,15 @@ private:
 #endif
     mutable QMutex m_mutex;             ///< Мьютекс для потокобезопасности
     QAtomicInt m_destroying{0};         ///< Флаг разрушения — защита от use-after-free в колбэке mpv
+    QAtomicInt m_initialized{0};        ///< Флаг инициализации (атомарный для потокобезопасности)
     QElapsedTimer m_lastErrorEmit;      ///< Таймер для rate-limit ошибок mpv
-    bool m_initialized = false;         ///< Флаг инициализации
     double m_position = 0.0;            ///< Текущая позиция
     double m_duration = 0.0;            ///< Длительность медиа
     bool m_paused = false;              ///< Флаг паузы
     QTimer *m_seekDebounceTimer = nullptr;   ///< Таймер debounce для перемотки
     QTimer *m_eventTimer = nullptr;          ///< Таймер для обработки событий mpv
     double m_pendingSeekPosition = 0.0;      ///< Ожидающая позиция перемотки
-    
+
     // Буфер для событий, ожидающих эмиссии сигналов (защищён m_mutex)
     struct MpvEventData {
         enum Type {

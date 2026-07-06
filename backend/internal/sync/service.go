@@ -173,7 +173,7 @@ func (s *Service) SyncWithLatency(ctx context.Context, peerStatus models.SyncSta
 	expectedPosition := peerStatus.Position
 	if peerStatus.IsPlaying {
 		diff := time.Now().UnixMilli() - peerStatus.Timestamp
-		if diff > 3600000 {
+		if diff > constants.MaxSyncTimestampDiff {
 			diff = 0
 		}
 		elapsed := float64(diff) / constants.MsPerSecond

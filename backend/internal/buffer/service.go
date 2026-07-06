@@ -70,13 +70,23 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 		"pieceSize", pieceSize)
 }
 
-func (s *Service) UpdatePosition(ctx context.Context, torrentID string, position int64) {
+// SetPosition sets the buffer position for a torrent.
+// Returns an error if the torrent is not found.
+// Alias for UpdatePosition for interface compatibility.
+func (s *Service) SetPosition(ctx context.Context, torrentID string, position int64) error {
+	_ = ctx // Context is reserved for future cancellation support
+	return s.UpdatePosition(ctx, torrentID, position)
+}
+
+// UpdatePosition updates the current playback position for buffering.
+func (s *Service) UpdatePosition(ctx context.Context, torrentID string, position int64) error {
+	_ = ctx // Context is reserved for future cancellation support
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	tb, exists := s.torrentBuffers[torrentID]
 	if !exists {
-		return
+		return fmt.Errorf("torrent not found: %s", torrentID)
 	}
 
 	tb.CurrentPosition = position
@@ -97,6 +107,8 @@ func (s *Service) UpdatePosition(ctx context.Context, torrentID string, position
 	}
 
 	s.updatePiecePriorities(tb)
+
+	return nil
 }
 
 func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
@@ -108,7 +120,7 @@ func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
 
 	nowEndPiece := startPiece + constants.BufferNowPieces
 	highEndPiece := startPiece + constants.BufferHighPieces
-	readAheadEnd := endPiece + 20
+	readAheadEnd := endPiece + constants.BufferReadAheadPieces
 
 	// Scan only the relevant range instead of all pieces
 	low := 0

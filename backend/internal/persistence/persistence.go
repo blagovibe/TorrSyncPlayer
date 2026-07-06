@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 package persistence
 
 import (
@@ -13,12 +12,17 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
+// PersistenceVersion is the current format version for migration handling
+const PersistenceVersion = 1
+
 type UserData struct {
-	Users     map[string]*models.User `json:"users"`
+	Version int                      `json:"version"`
+	Users   map[string]*models.User `json:"users"`
 	UsersByID map[string]*models.User `json:"usersByID"`
 }
 
 type TokenRevocationData struct {
+	Version      int                 `json:"version"`
 	RevokedTokens map[string]int64 `json:"revokedTokens"`
 }
 
@@ -37,6 +41,9 @@ func NewStore(dataDir string) (*Store, error) {
 func (s *Store) SaveUsers(data *UserData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Set version for future migration support
+	data.Version = PersistenceVersion
 
 	path := filepath.Join(s.dir, "users.json")
 	tmpPath := path + ".tmp"
@@ -69,7 +76,8 @@ func (s *Store) LoadUsers() (*UserData, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &UserData{
-				Users:     make(map[string]*models.User),
+				Version:     PersistenceVersion,
+				Users:       make(map[string]*models.User),
 				UsersByID: make(map[string]*models.User),
 			}, nil
 		}
@@ -80,9 +88,15 @@ func (s *Store) LoadUsers() (*UserData, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		logger.Warn("persistence: corrupted users.json, starting fresh", "error", err)
 		return &UserData{
-			Users:     make(map[string]*models.User),
+			Version:     PersistenceVersion,
+			Users:       make(map[string]*models.User),
 			UsersByID: make(map[string]*models.User),
 		}, nil
+	}
+
+	// Version check for migration (future-proofing)
+	if result.Version == 0 {
+		result.Version = PersistenceVersion // Assume v1 for legacy files without version
 	}
 
 	if result.Users == nil {
@@ -98,6 +112,9 @@ func (s *Store) LoadUsers() (*UserData, error) {
 func (s *Store) SaveRevokedTokens(data *TokenRevocationData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Set version for future migration support
+	data.Version = PersistenceVersion
 
 	path := filepath.Join(s.dir, "revoked_tokens.json")
 	tmpPath := path + ".tmp"
@@ -130,6 +147,7 @@ func (s *Store) LoadRevokedTokens() (*TokenRevocationData, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &TokenRevocationData{
+				Version:      PersistenceVersion,
 				RevokedTokens: make(map[string]int64),
 			}, nil
 		}
@@ -140,8 +158,14 @@ func (s *Store) LoadRevokedTokens() (*TokenRevocationData, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		logger.Warn("persistence: corrupted revoked_tokens.json, starting fresh", "error", err)
 		return &TokenRevocationData{
+			Version:      PersistenceVersion,
 			RevokedTokens: make(map[string]int64),
 		}, nil
+	}
+
+	// Version check for migration (future-proofing)
+	if result.Version == 0 {
+		result.Version = PersistenceVersion // Assume v1 for legacy files without version
 	}
 
 	if result.RevokedTokens == nil {

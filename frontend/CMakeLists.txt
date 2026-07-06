@@ -112,7 +112,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 if(MPV_FOUND)
     target_include_directories(${PROJECT_NAME} PRIVATE ${MPV_INCLUDE_DIRS})
     target_link_libraries(${PROJECT_NAME} PRIVATE ${MPV_LIBRARIES})
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HAS_MPV)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAS_MPV HAS_MPV_RENDER)
+    message(STATUS "libmpv found: enabling OpenGL rendering support")
 else()
     message(WARNING "libmpv not found, building without mpv support")
 endif()
@@ -201,14 +202,13 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         AUTOMOC ON
     )
 
-    # Добавляем директорию сборки и src в include-пути для поиска .moc файлов
     target_include_directories(test_torrentmodel PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-    
+
     add_test(NAME TorrentModelTest COMMAND test_torrentmodel)
-    
+
     # Тесты для NetworkManager
     set(TEST_NETWORK_MANAGER_SOURCES
         src/test_networkmanager.cpp
@@ -216,31 +216,30 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         src/networkmanager.h
         src/inetworkmanager.h
     )
-    
+
     add_executable(test_networkmanager ${TEST_NETWORK_MANAGER_SOURCES})
     target_link_libraries(test_networkmanager PRIVATE
         Qt6::Core
         Qt6::Network
         Qt6::Test
     )
-    
+
     if(ENABLE_COVERAGE)
         target_compile_options(test_networkmanager PRIVATE --coverage)
         target_link_options(test_networkmanager PRIVATE --coverage)
     endif()
-    
+
     set_target_properties(test_networkmanager PROPERTIES
         AUTOMOC ON
     )
 
-    # Добавляем директорию сборки и src в include-пути для поиска .мок файлов
     target_include_directories(test_networkmanager PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-    
+
     add_test(NAME NetworkManagerTest COMMAND test_networkmanager)
-    
+
     # Тесты для Utils
     set(TEST_UTILS_SOURCES
         src/test_utils.cpp
@@ -269,6 +268,40 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     )
 
     add_test(NAME UtilsTest COMMAND test_utils)
+
+    # Тесты для MpvWidget (требуют libmpv)
+    if(MPV_FOUND)
+        set(TEST_MPVWIDGET_SOURCES
+            src/test_mpvwidget.cpp
+            src/mpvwidget.cpp
+            src/mpvwidget.h
+        )
+
+        add_executable(test_mpvwidget ${TEST_MPVWIDGET_SOURCES})
+        target_link_libraries(test_mpvwidget PRIVATE
+            Qt6::Core
+            Qt6::Gui
+            Qt6::OpenGL
+            Qt6::OpenGLWidgets
+            Qt6::Test
+        )
+
+        if(ENABLE_COVERAGE)
+            target_compile_options(test_mpvwidget PRIVATE --coverage)
+            target_link_options(test_mpvwidget PRIVATE --coverage)
+        endif()
+
+        set_target_properties(test_mpvwidget PROPERTIES
+            AUTOMOC ON
+        )
+
+        target_include_directories(test_mpvwidget PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+
+        add_test(NAME MpvWidgetTest COMMAND test_mpvwidget)
+    endif()
 
     message(STATUS "Unit tests enabled")
 endif()

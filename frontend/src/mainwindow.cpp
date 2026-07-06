@@ -47,9 +47,6 @@ MainWindow::MainWindow(QWidget *parent)
     setupUI();
     setupConnections();
 
-    // Загружаем список торрентов при запуске
-    m_torrentManager->listTorrents();
-
     updateStatus(tr("Готово к работе"));
     qDebug() << "MainWindow: инициализировано";
 }
@@ -69,6 +66,14 @@ void MainWindow::setServerUrl(const QUrl &url)
         m_network->setServerUrl(url);
         qDebug() << "MainWindow: установлен URL сервера:" << url.toString();
     }
+}
+
+void MainWindow::initialize()
+{
+    // Загружаем список торрентов после установки URL сервера
+    m_torrentManager->listTorrents();
+    updateStatus(tr("Готово к работе"));
+    qDebug() << "MainWindow: инициализация завершена, загрузка торрентов...";
 }
 
 // ── Инициализация UI ────────────────────────────────────────────────────

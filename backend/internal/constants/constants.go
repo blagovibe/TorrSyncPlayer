@@ -66,6 +66,9 @@ const (
 
 	// HSTSMaxAge HSTS header lifetime (1 year in seconds)
 	HSTSMaxAge = "max-age=31536000; includeSubDomains"
+
+	// CORSCacheTTL time-to-live for cached CORS origins
+	CORSCacheTTL = 5 * time.Minute
 )
 
 // ── Rate Limiting Constants ───────────────────────────────────────────────
@@ -82,6 +85,9 @@ const (
 
 	// DefaultRateBurst burst size for other endpoints
 	DefaultRateBurst = 10
+
+	// ClientRateLimiterCleanup cleanup interval for per-IP rate limiter
+	ClientRateLimiterCleanup = 10 * time.Minute
 )
 
 // ── JWT Constants ─────────────────────────────────────────────────────────
@@ -89,6 +95,8 @@ const (
 const (
 	// JWTTokenTTL JWT token lifetime
 	JWTTokenTTL = 24 * time.Hour
+n		// RefreshTokenTTL refresh token lifetime (7 days)
+		RefreshTokenTTL = 7 * 24 * time.Hour
 
 	// JWTSecretLength JWT secret length in bytes
 	JWTSecretLength = 32
@@ -104,6 +112,9 @@ const (
 
 	// RevocationStoreTTL revoked token storage duration
 	RevocationStoreTTL = 24 * time.Hour
+
+	// MinTokenLength minimum JWT token length for validation
+	MinTokenLength = 30
 )
 
 // ── P2P Constants ─────────────────────────────────────────────────────────
@@ -121,6 +132,15 @@ const (
 	// MaxSignalSize maximum WebRTC signal size in bytes (64 KB)
 	// Typical SDP offer/answer rarely exceeds 8 KB, ICE candidates are even smaller
 	MaxSignalSize = 64 * 1024
+
+	// MaxRooms maximum number of concurrent P2P rooms
+	MaxRooms = 1000
+
+	// P2PCloseTimeoutDefault timeout for graceful P2P service shutdown
+	P2PCloseTimeoutDefault = 5 * time.Second
+
+	// P2PDebounceInterval debounce interval for token revocation persistence
+	P2PDebounceInterval = 5 * time.Second
 )
 
 // ── Torrent Constants ─────────────────────────────────────────────────────
@@ -144,6 +164,10 @@ const (
 
 	// MsPerSecond number of milliseconds in one second
 	MsPerSecond = 1000.0
+
+	// MaxSyncTimestampDiff maximum allowed timestamp difference in milliseconds (1 hour)
+	// Prevents synchronization with stale data
+	MaxSyncTimestampDiff = 3600000
 )
 
 // ── SSE Constants ─────────────────────────────────────────────────────────
@@ -202,6 +226,9 @@ const (
 
 	// BufferHighPieces number of pieces for high priority
 	BufferHighPieces = 50
+
+	// BufferReadAheadPieces number of pieces to read ahead for buffer extension
+	BufferReadAheadPieces = 20
 
 	// MaxRoomPasswordLength maximum room password length (bcrypt truncates at 72)
 	MaxRoomPasswordLength = 72

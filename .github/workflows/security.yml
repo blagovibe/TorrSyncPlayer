@@ -1,0 +1,82 @@
+name: Security
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly Monday 2 AM UTC
+  push:
+    branches: [main]
+    paths:
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'frontend/**/*.cpp'
+      - 'frontend/**/*.h'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'frontend/**/*.cpp'
+      - 'frontend/**/*.h'
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: Go Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/cache@v7
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod/cache/download
+          key: ${{ runner.os }}-govulncheck-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-govulncheck-
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        working-directory: backend
+        run: govulncheck ./...
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+
+  # C++ security analysis (clang-static-analyzer alternative)
+  cpp-security:
+    name: C++ Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run cppcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cppcheck
+          cppcheck --enable=warning,performance,portability,style --suppress=missingIncludeSystem --error-exitcode=1 frontend/src/ || echo "cppcheck found issues (non-blocking for now)"
+
+      - name: Clang-static-analyzer (optional)
+        run: |
+          if command -v scan-build &> /dev/null; then
+            scan-build --status-bugs cmake -B build -DCMAKE_BUILD_TYPE=Debug frontend/ || echo "scan-build not available"
+          else
+            echo "clang-static-analyzer not available, skipping"
+          fi

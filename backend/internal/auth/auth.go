@@ -41,6 +41,8 @@ type AuthService struct {
 	jwtSecret       []byte
 	revocationStore *TokenRevocationStore
 	tokenTTL        time.Duration
+	issuer          string   // Optional issuer claim
+	audience        []string // Optional audience claims
 }
 
 // NewAuthService creates a new authentication service.
@@ -84,6 +86,18 @@ func (s *AuthService) SetTokenTTL(ttl time.Duration) {
 	s.tokenTTL = ttl
 }
 
+// SetIssuer sets the issuer claim for generated tokens.
+// If set, tokens will include this issuer and validation will require it.
+func (s *AuthService) SetIssuer(issuer string) {
+	s.issuer = issuer
+}
+
+// SetAudience sets the audience claim(s) for generated tokens.
+// If set, tokens will include these audiences and validation will require at least one to match.
+func (s *AuthService) SetAudience(audience ...string) {
+	s.audience = audience
+}
+
 // Stop stops internal AuthService services.
 // Call during graceful shutdown.
 func (s *AuthService) Stop() {
@@ -119,6 +133,7 @@ func CheckPassword(password, hash string) error {
 
 // GenerateToken creates a JWT authentication token using HMAC-SHA256.
 // Token contains claims: userId, username, exp, iat, jti (JWT ID for revocation).
+// Optionally includes issuer (iss) and audience (aud) claims if configured.
 // Token expiration: 24 hours.
 func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 	// Generate unique token ID for revocation support
@@ -136,6 +151,16 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 		"jti":      jti,
 	}
 
+	// Add issuer claim if configured
+	if s.issuer != "" {
+		claims["iss"] = s.issuer
+	}
+
+	// Add audience claim if configured
+	if len(s.audience) > 0 {
+		claims["aud"] = s.audience
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(s.jwtSecret)
 	if err != nil {
@@ -146,7 +171,7 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 }
 
 // ValidateToken validates a JWT token and returns user data.
-// Checks signature, expiration and required claims.
+// Checks signature, expiration, required claims, and optionally issuer/audience.
 // Returns an error if the token is invalid or expired.
 func (s *AuthService) ValidateToken(tokenString string) (*models.Claims, error) {
 	if tokenString == "" {
@@ -179,6 +204,57 @@ func (s *AuthService) ValidateToken(tokenString string) (*models.Claims, error) 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, ErrInvalidToken
+	}
+
+	// Validate issuer claim if configured
+	if s.issuer != "" {
+		iss, ok := claims["iss"].(string)
+		if !ok || iss != s.issuer {
+			return nil, fmt.Errorf("%w: invalid issuer", ErrInvalidToken)
+		}
+	}
+
+	// Validate audience claim if configured
+	if len(s.audience) > 0 {
+		audClaim, ok := claims["aud"]
+		if !ok {
+			return nil, fmt.Errorf("%w: missing audience", ErrInvalidToken)
+		}
+
+		// Audience can be string or []string
+		var tokenAudiences []string
+		switch aud := audClaim.(type) {
+		case string:
+			tokenAudiences = []string{aud}
+		case []interface{}:
+			for _, a := range aud {
+				if s, ok := a.(string); ok {
+					tokenAudiences = append(tokenAudiences, s)
+				}
+			}
+		}
+
+		if len(tokenAudiences) == 0 {
+			return nil, fmt.Errorf("%w: invalid audience format", ErrInvalidToken)
+		}
+
+		// Check if at least one token audience matches configured audiences
+		matched := false
+		for _, tokenAud := range tokenAudiences {
+			for _, configuredAud := range s.audience {
+				if tokenAud == configuredAud {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+
+		if !matched {
+			return nil, fmt.Errorf("%w: audience not allowed", ErrInvalidToken)
+		}
 	}
 
 	// Extract user data
@@ -260,4 +336,109 @@ func (s *AuthService) ExtractJTI(tokenString string) (string, error) {
 	}
 
 	return jti, nil
+}
+
+// GenerateRefreshToken creates a long-lived refresh token.
+// Refresh tokens have longer TTL (7 days default) and are used to obtain new access tokens.
+// H1: Added for refresh token support.
+func (s *AuthService) GenerateRefreshToken(user *models.User) (string, error) {
+	jtiBytes := make([]byte, constants.JTIBytes)
+	if _, err := rand.Read(jtiBytes); err != nil {
+		return "", fmt.Errorf("JTI generation error: %w", err)
+	}
+	jti := hex.EncodeToString(jtiBytes)
+
+	// Refresh tokens live longer (7 days)
+	refreshTTL := constants.RefreshTokenTTL
+	if refreshTTL == 0 {
+		refreshTTL = 7 * 24 * time.Hour
+	}
+
+	claims := jwt.MapClaims{
+		"userId":    user.ID,
+		"username":  user.Username,
+		"exp":       time.Now().Add(refreshTTL).Unix(),
+		"iat":       time.Now().Unix(),
+		"jti":       jti,
+		"tokenType": "refresh",
+	}
+
+	// Add issuer claim if configured
+	if s.issuer != "" {
+		claims["iss"] = s.issuer
+	}
+
+	// Add audience claim if configured
+	if len(s.audience) > 0 {
+		claims["aud"] = s.audience
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(s.jwtSecret)
+	if err != nil {
+		return "", fmt.Errorf("refresh token signing error: %w", err)
+	}
+
+	return tokenString, nil
+}
+
+// ValidateRefreshToken validates a refresh token and returns user data.
+// H1: Added for refresh token support.
+func (s *AuthService) ValidateRefreshToken(tokenString string) (*models.Claims, error) {
+	if tokenString == "" {
+		return nil, ErrInvalidToken
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.jwtSecret, nil
+	},
+		jwt.WithValidMethods([]string{"HS256"}),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, ErrInvalidToken
+	}
+
+	// Check token type
+	tokenType, _ := claims["tokenType"].(string)
+	if tokenType != "refresh" {
+		return nil, fmt.Errorf("%w: not a refresh token", ErrInvalidToken)
+	}
+
+	userID, ok := claims["userId"].(string)
+	if !ok || userID == "" {
+		return nil, fmt.Errorf("%w: missing userId", ErrInvalidToken)
+	}
+
+	username, _ := claims["username"].(string)
+
+	jti, ok := claims["jti"].(string)
+	if !ok || jti == "" {
+		return nil, fmt.Errorf("%w: missing jti", ErrInvalidToken)
+	}
+
+	var expiresAt int64
+	switch exp := claims["exp"].(type) {
+	case float64:
+		expiresAt = int64(exp)
+	case int64:
+		expiresAt = exp
+	case json.Number:
+		expiresAt, _ = exp.Int64()
+	}
+
+	return &models.Claims{
+		UserID:    userID,
+		Username:  username,
+		ExpiresAt: expiresAt,
+		JTI:       jti,
+	}, nil
 }

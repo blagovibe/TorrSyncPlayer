@@ -455,6 +455,9 @@ int main(int argc, char *argv[])
         qDebug() << "URL сервера:" << serverUrl.toString();
     }
 
+    // Инициализируем главное окно (загружает список торрентов)
+    mainWindow.initialize();
+
     // Показываем окно
     mainWindow.show();
 

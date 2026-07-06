@@ -365,7 +365,7 @@ func TestCreateRoom_InvalidJSON(t *testing.T) {
 }
 
 func TestJoinRoom_Success(t *testing.T) {
-	room, err := apiP2pSvc.CreateRoom(context.Background(), "Test Room", "")
+	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "")
 	require.NoError(t, err)
 
 	handler := JoinRoom(apiP2pSvc)
@@ -408,9 +408,9 @@ func TestJoinRoom_InvalidJSON(t *testing.T) {
 }
 
 func TestLeaveRoom_Success(t *testing.T) {
-	room, err := apiP2pSvc.CreateRoom(context.Background(), "Test Room", "")
+	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "")
 	require.NoError(t, err)
-	err = apiP2pSvc.JoinRoom(context.Background(), room.ID, "")
+	err = apiP2pSvc.JoinRoom(context.Background(), "test-user-1", room.ID, "")
 	require.NoError(t, err)
 
 	handler := LeaveRoom(apiP2pSvc)
@@ -931,7 +931,8 @@ func TestSecurity_Router_ProtectedEndpointRejectsNoAuth(t *testing.T) {
 
 func TestSecurity_Router_CSRFOnProtectedEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
-	req.Header.Set("Authorization", "Bearer test.jwt.token")
+	// Use a valid-length JWT-like token (minimum 30 chars)
+	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)

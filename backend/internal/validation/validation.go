@@ -21,9 +21,34 @@ var (
 	roomNameRegex = regexp.MustCompile(`^[\p{L}\p{N}\s\-_]{1,50}$`)
 	// usernameRegex allows letters, digits, underscores and hyphens
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
-	// magnetRegex for validating magnet links (xt=urn:btih:<hash> or other types)
-	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:(btih:[a-fA-F0-9]{40}|[a-z0-9]+:[a-zA-Z0-9]{20,})`)
+	// magnetRegex for validating magnet links - restricted to btih URN type only
+	// This provides security by limiting to BitTorrent infohash URNs and preventing SSRF
+	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
 )
+
+// Common passwords blacklist - passwords that should never be allowed
+var commonPasswords = map[string]bool{
+	"password":    true,
+	"password1":   true,
+	"password123": true,
+	"123456":      true,
+	"12345678":    true,
+	"qwerty":      true,
+	"abc123":      true,
+	"monkey":      true,
+	"master":      true,
+	"dragon":      true,
+	"letmein":     true,
+	"login":       true,
+	"admin":       true,
+	"welcome":     true,
+	"football":    true,
+	"iloveyou":    true,
+	"starwars":    true,
+	"batman":      true,
+	"trustno1":    true,
+	"password1!":  true,
+}
 
 // Size limits
 const (
@@ -41,6 +66,16 @@ const (
 	MaxRequestSize    = constants.MaxRequestSize
 )
 
+// ── Validation Constants ──────────────────────────────────────────────────
+
+const (
+	// MaxStringLength maximum length for sanitized strings
+	MaxStringLength = 1000
+
+	// MaxPositionSeconds maximum playback position in seconds (24 hours)
+	MaxPositionSeconds = 86400
+)
+
 var ErrInvalidPosition = errors.New("invalid playback position")
 
 // ValidatePosition validates the playback position.
@@ -53,7 +88,7 @@ func ValidatePosition(position float64) error {
 	if position < 0 {
 		return fmt.Errorf("%w: negative value %f", ErrInvalidPosition, position)
 	}
-	if position > 86400 {
+	if position > MaxPositionSeconds {
 		return fmt.Errorf("%w: exceeds 24 hours: %f", ErrInvalidPosition, position)
 	}
 	return nil
@@ -77,13 +112,19 @@ func ValidateUsername(username string) error {
 }
 
 // ValidatePassword validates the password.
-// Checks length and complexity (presence of upper, lower, digit, special).
+// Checks length, complexity (presence of upper, lower, digit, special), and common password blacklist.
 func ValidatePassword(password string) error {
 	if utf8.RuneCountInString(password) < MinPasswordLength {
 		return fmt.Errorf("password too short (minimum %d characters)", MinPasswordLength)
 	}
 	if len(password) > MaxPasswordLength {
 		return fmt.Errorf("password too long (maximum %d bytes)", MaxPasswordLength)
+	}
+
+	// Check against common passwords blacklist (case-insensitive)
+	lowerPassword := strings.ToLower(password)
+	if commonPasswords[lowerPassword] {
+		return fmt.Errorf("password is too common, please choose a stronger password")
 	}
 
 	hasUpper := false
@@ -237,8 +278,8 @@ func SanitizeString(s string) string {
 	}, s)
 
 	// Limit length
-	if utf8.RuneCountInString(s) > 1000 {
-		s = string([]rune(s)[:1000])
+	if utf8.RuneCountInString(s) > MaxStringLength {
+		s = string([]rune(s)[:MaxStringLength])
 	}
 
 	return strings.TrimSpace(s)

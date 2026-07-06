@@ -45,7 +45,7 @@ func TestCreateRoom(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	room, err := svc.CreateRoom(context.Background(), "Test Room", "")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Test Room", "")
 	require.NoError(t, err)
 	require.NotNil(t, room)
 
@@ -63,7 +63,7 @@ func TestCreateRoom_WithPassword(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	room, err := svc.CreateRoom(context.Background(), "Private Room", "secret123")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "secret123")
 	require.NoError(t, err)
 	require.NotNil(t, room)
 
@@ -79,7 +79,7 @@ func TestJoinRoom_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	err = svc.JoinRoom(context.Background(), "nonexistent", "")
+	err = svc.JoinRoom(context.Background(), "test-user", "nonexistent", "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -93,11 +93,11 @@ func TestJoinRoom_WrongPassword(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create a room with a password
-	room, err := svc.CreateRoom(context.Background(), "Private Room", "correct_password")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "correct_password")
 	require.NoError(t, err)
 
 	// Attempt to join with wrong password
-	err = svc.JoinRoom(context.Background(), room.ID, "wrong_password")
+	err = svc.JoinRoom(context.Background(), "test-user", room.ID, "wrong_password")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid password")
 }
@@ -111,15 +111,15 @@ func TestJoinRoom_CorrectPassword(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create a room with a password
-	room, err := svc.CreateRoom(context.Background(), "Private Room", "secret123")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "secret123")
 	require.NoError(t, err)
 
 	// Join with correct password
-	err = svc.JoinRoom(context.Background(), room.ID, "secret123")
+	err = svc.JoinRoom(context.Background(), "test-user", room.ID, "secret123")
 	assert.NoError(t, err)
 
 	// Verify we are in the room
-	info, err := svc.GetRoomInfo(context.Background())
+	info, err := svc.GetRoomInfo(context.Background(), "test-user")
 	require.NoError(t, err)
 	assert.Equal(t, 1, info.PeerCount)
 }
@@ -137,7 +137,7 @@ func TestJoinRoom_NoPassword(t *testing.T) {
 	require.NoError(t, err)
 
 	// Join without password
-	err = svc.JoinRoom(context.Background(), room.ID, "")
+	err = svc.JoinRoom(context.Background(), "test-user", room.ID, "")
 	assert.NoError(t, err)
 }
 
@@ -149,7 +149,7 @@ func TestLeaveRoom_NotJoined(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	err = svc.LeaveRoom(context.Background())
+	err = svc.LeaveRoom(context.Background(), "test-user")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected")
 }
@@ -162,7 +162,7 @@ func TestSendSignal_NotJoined(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	err = svc.SendSignal(context.Background(), []byte("test"))
+	err = svc.SendSignal(context.Background(), "test-user", []byte("test"))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected")
 }
@@ -187,7 +187,7 @@ func TestGetRoomInfo_NotJoined(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	_, err = svc.GetRoomInfo(context.Background())
+	_, err = svc.GetRoomInfo(context.Background(), "test-user")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected")
 }
@@ -213,20 +213,20 @@ func TestCreateAndJoinRoom(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create room
-	room, err := svc.CreateRoom(context.Background(), "Test Room", "")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Test Room", "")
 	require.NoError(t, err)
 
 	// Join room
-	err = svc.JoinRoom(context.Background(), room.ID, "")
+	err = svc.JoinRoom(context.Background(), "test-user", room.ID, "")
 	require.NoError(t, err)
 
 	// Check room info
-	info, err := svc.GetRoomInfo(context.Background())
+	info, err := svc.GetRoomInfo(context.Background(), "test-user")
 	require.NoError(t, err)
 	assert.Equal(t, 1, info.PeerCount)
 
 	// Leave room
-	err = svc.LeaveRoom(context.Background())
+	err = svc.LeaveRoom(context.Background(), "test-user")
 	require.NoError(t, err)
 }
 
@@ -254,18 +254,18 @@ func TestFullRoomLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Check room info
-	info, err := svc.GetRoomInfo(context.Background())
+	info, err := svc.GetRoomInfo(context.Background(), "test-user")
 	require.NoError(t, err)
 	assert.Equal(t, room.ID, info.ID)
 	assert.Equal(t, "Lifecycle Room", info.Name)
 	assert.Equal(t, 1, info.PeerCount)
 
 	// 5. Leave room
-	err = svc.LeaveRoom(context.Background())
+	err = svc.LeaveRoom(context.Background(), "test-user")
 	require.NoError(t, err)
 
 	// 6. Verify we are no longer in the room
-	_, err = svc.GetRoomInfo(context.Background())
+	_, err = svc.GetRoomInfo(context.Background(), "test-user")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected")
 }
@@ -298,7 +298,7 @@ func TestClose_EmptiesState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a room
-	_, err = svc.CreateRoom(context.Background(), "Test Room", "")
+	_, err = svc.CreateRoom(context.Background(), "test-user", "Test Room", "")
 	require.NoError(t, err)
 
 	// Close service
@@ -336,10 +336,10 @@ func TestConcurrentGetRoomInfo(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	room, err := svc.CreateRoom(context.Background(), "Test Room", "")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Test Room", "")
 	require.NoError(t, err)
 
-	err = svc.JoinRoom(context.Background(), room.ID, "")
+	err = svc.JoinRoom(context.Background(), "test-user", room.ID, "")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -349,7 +349,7 @@ func TestConcurrentGetRoomInfo(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
-			_, _ = svc.GetRoomInfo(context.Background())
+			_, _ = svc.GetRoomInfo(context.Background(), "test-user")
 		}()
 	}
 
