@@ -20,7 +20,7 @@ static const int MPV_EVENT_TIMER_MS = 30;
 static const int SEEK_DEBOUNCE_MS = 300;
 
 #ifdef HAS_MPV_RENDER
-void MpvWidget::mpvGetProcAddress(void *ctx, const char *name)
+void* MpvWidget::mpvGetProcAddress(void *ctx, const char *name)
 {
     Q_UNUSED(ctx);
     QOpenGLContext *glctx = QOpenGLContext::currentContext();
