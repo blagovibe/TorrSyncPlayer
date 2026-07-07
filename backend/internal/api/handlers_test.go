@@ -928,9 +928,8 @@ func TestSecurity_Router_ProtectedEndpointRejectsNoAuth(t *testing.T) {
 
 func TestSecurity_Router_CSRFOnProtectedEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
-	// Use a test JWT-like token (clearly not a real secret - for testing only)
-	const testJWTToken = "test-jwt-token-for-unit-testing-purposes-only"
-	req.Header.Set("Authorization", "Bearer "+testJWTToken)
+	// nolint:gosec // Test token, not a real credential
+	req.Header.Set("Authorization", "Bearer test-jwt-token-for-unit-testing-purposes-only")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
