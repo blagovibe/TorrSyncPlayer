@@ -294,10 +294,12 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_compile_definitions(test_mpvwidget PRIVATE
             HAS_MPV
             HAS_MPV_RENDER
-            SKIP_AUTOMOC
         )
 
         add_test(NAME MpvWidgetTest COMMAND test_mpvwidget)
+        set_tests_properties(MpvWidgetTest PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
     endif()
 
     message(STATUS "Unit tests enabled")
