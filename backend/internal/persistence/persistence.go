@@ -16,13 +16,13 @@ import (
 const PersistenceVersion = 1
 
 type UserData struct {
-	Version int                      `json:"version"`
-	Users   map[string]*models.User `json:"users"`
+	Version   int                     `json:"version"`
+	Users     map[string]*models.User `json:"users"`
 	UsersByID map[string]*models.User `json:"usersByID"`
 }
 
 type TokenRevocationData struct {
-	Version      int                 `json:"version"`
+	Version       int              `json:"version"`
 	RevokedTokens map[string]int64 `json:"revokedTokens"`
 }
 
@@ -76,8 +76,8 @@ func (s *Store) LoadUsers() (*UserData, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &UserData{
-				Version:     PersistenceVersion,
-				Users:       make(map[string]*models.User),
+				Version:   PersistenceVersion,
+				Users:     make(map[string]*models.User),
 				UsersByID: make(map[string]*models.User),
 			}, nil
 		}
@@ -88,8 +88,8 @@ func (s *Store) LoadUsers() (*UserData, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		logger.Warn("persistence: corrupted users.json, starting fresh", "error", err)
 		return &UserData{
-			Version:     PersistenceVersion,
-			Users:       make(map[string]*models.User),
+			Version:   PersistenceVersion,
+			Users:     make(map[string]*models.User),
 			UsersByID: make(map[string]*models.User),
 		}, nil
 	}
@@ -147,7 +147,7 @@ func (s *Store) LoadRevokedTokens() (*TokenRevocationData, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &TokenRevocationData{
-				Version:      PersistenceVersion,
+				Version:       PersistenceVersion,
 				RevokedTokens: make(map[string]int64),
 			}, nil
 		}
@@ -158,7 +158,7 @@ func (s *Store) LoadRevokedTokens() (*TokenRevocationData, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		logger.Warn("persistence: corrupted revoked_tokens.json, starting fresh", "error", err)
 		return &TokenRevocationData{
-			Version:      PersistenceVersion,
+			Version:       PersistenceVersion,
 			RevokedTokens: make(map[string]int64),
 		}, nil
 	}

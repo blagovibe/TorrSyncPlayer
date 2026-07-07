@@ -124,15 +124,8 @@ void MpvWidget::resizeGL(int w, int h)
 {
     Q_UNUSED(w);
     Q_UNUSED(h);
-    // mpv will handle scaling automatically
-    if (m_mpvGL) {
-        makeCurrent();
-        mpv_render_param param = {MPV_RENDER_PARAM_RESIZE, nullptr};
-        char resizeData[] = MPV_RENDER_RESIZE_FLAG_RECREATE;
-        param.data = resizeData;
-        mpv_render_context_render(m_mpvGL, &param);
-        doneCurrent();
-    }
+    // mpv handles scaling automatically via OPENGL_FBO in paintGL
+    // No explicit resize needed with newer mpv versions
 }
 #endif
 

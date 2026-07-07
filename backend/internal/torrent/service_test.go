@@ -159,8 +159,9 @@ func TestUpdateBufferPosition_NilBuffer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = svc.Close() })
 
-	// Should not panic
-	svc.UpdateBufferPosition(context.Background(), "test", 1000)
+	// Should not panic and should return nil error when buffer service is nil
+	err = svc.UpdateBufferPosition(context.Background(), "test", 1000)
+	require.NoError(t, err)
 }
 
 // TestClose_MultipleCalls tests that Close can be called multiple times

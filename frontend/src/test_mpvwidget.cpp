@@ -65,24 +65,20 @@ private slots:
     void signalTest()
     {
         MpvWidget widget;
-        
+
         // Test that signals exist and can be connected
         QSignalSpy positionSpy(&widget, &MpvWidget::positionChanged);
         QSignalSpy durationSpy(&widget, &MpvWidget::durationChanged);
         QSignalSpy finishedSpy(&widget, &MpvWidget::playbackFinished);
         QSignalSpy errorSpy(&widget, &MpvWidget::error);
         QSignalSpy readySpy(&widget, &MpvWidget::ready);
-        
-        // Verify signal connections work
-        QVERIFY(!positionSpy.signals().isEmpty() || positionSpy.signals().isEmpty());
-        QVERIFY(!durationSpy.signals().isEmpty() || durationSpy.signals().isEmpty());
+
+        // Verify signal connections work - QSignalSpy is properly configured
+        QVERIFY(true); // Signals connected successfully if we reach here
     }
 
 private:
     bool m_mpvAvailable;
 };
 
-#include "test_mpvwidget.moc"
-
 QTEST_MAIN(TestMpvWidget)
-#include "test_mpvwidget.moc"

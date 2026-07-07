@@ -696,20 +696,19 @@ func isPrivateIP(ip net.IP) bool {
 func (cri *clientRateLimiter) getLimiter(ip string) *rate.Limiter {
 	// First check with read lock
 	cri.mu.RLock()
-	entry, exists := cri.limiters[ip]
+	_, exists := cri.limiters[ip]
 	cri.mu.RUnlock()
 
 	if exists {
 		// Entry exists - update lastSeen under write lock
 		cri.mu.Lock()
 		// Re-check after acquiring write lock (double-checked locking)
-		if entry, exists = cri.limiters[ip]; exists {
-			entry.lastSeen = time.Now()
+		if current, ok := cri.limiters[ip]; ok {
+			current.lastSeen = time.Now()
+			cri.mu.Unlock()
+			return current.limiter
 		}
 		cri.mu.Unlock()
-		if exists {
-			return entry.limiter
-		}
 		// Entry was removed, fall through to create new one
 	}
 

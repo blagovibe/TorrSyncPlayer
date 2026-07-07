@@ -50,7 +50,7 @@ type P2PSession interface {
 	SetRoom(roomID string)
 	// WebRTC operations
 	PeerConnection() interface{} // *webrtc.PeerConnection
-	DataChannel() interface{}  // *webrtc.DataChannel
+	DataChannel() interface{}    // *webrtc.DataChannel
 }
 
 type SyncService interface {
