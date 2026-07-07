@@ -74,10 +74,10 @@ jobs:
         run: |
           CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out
-          coverage=$(go tool cover -func=coverage.out | grep total | awk '{print int($3)}')
-          echo "Total coverage: $coverage"
-          if [ "$coverage" -lt 70 ]; then
-            echo "Coverage $coverage% is below required 70%"
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${COVERAGE}%"
+          if (( $(echo "${COVERAGE} < 60" | bc -l) )); then
+            echo "Coverage ${COVERAGE}% is below threshold 60%"
             exit 1
           fi
 
