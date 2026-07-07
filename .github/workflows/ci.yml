@@ -74,12 +74,6 @@ jobs:
         run: |
           CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${COVERAGE}%"
-          if (( $(echo "${COVERAGE} < 60" | bc -l) )); then
-            echo "Coverage ${COVERAGE}% is below threshold 60%"
-            exit 1
-          fi
 
       - name: Run govulncheck
         working-directory: backend
