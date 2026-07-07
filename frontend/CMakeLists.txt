@@ -284,20 +284,16 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
             Qt6::OpenGL
             Qt6::OpenGLWidgets
             Qt6::Test
-        )
-
-        if(ENABLE_COVERAGE)
-            target_compile_options(test_mpvwidget PRIVATE --coverage)
-            target_link_options(test_mpvwidget PRIVATE --coverage)
-        endif()
-
-        set_target_properties(test_mpvwidget PROPERTIES
-            AUTOMOC ON
+            ${MPV_LIBRARIES}
         )
 
         target_include_directories(test_mpvwidget PRIVATE
-            ${CMAKE_CURRENT_BINARY_DIR}
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${MPV_INCLUDE_DIRS}
+        )
+
+        target_compile_definitions(test_mpvwidget PRIVATE
+            HAS_MPV
+            HAS_MPV_RENDER
         )
 
         add_test(NAME MpvWidgetTest COMMAND test_mpvwidget)

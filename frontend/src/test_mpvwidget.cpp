@@ -81,6 +81,4 @@ private:
     bool m_mpvAvailable;
 };
 
-#include "test_mpvwidget.moc"
-
 QTEST_MAIN(TestMpvWidget)
