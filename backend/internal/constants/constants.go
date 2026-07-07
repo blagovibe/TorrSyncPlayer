@@ -95,8 +95,8 @@ const (
 const (
 	// JWTTokenTTL JWT token lifetime
 	JWTTokenTTL = 24 * time.Hour
-n		// RefreshTokenTTL refresh token lifetime (7 days)
-		RefreshTokenTTL = 7 * 24 * time.Hour
+	// RefreshTokenTTL refresh token lifetime (7 days)
+	RefreshTokenTTL = 7 * 24 * time.Hour
 
 	// JWTSecretLength JWT secret length in bytes
 	JWTSecretLength = 32

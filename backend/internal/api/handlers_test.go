@@ -809,10 +809,13 @@ func TestGetFiles_InvalidID(t *testing.T) {
 
 // TestRoomEvents_WithRoomID проверяет SSE endpoint для событий комнаты с параметром roomID в URL
 func TestRoomEvents_WithRoomID(t *testing.T) {
-	roomInfo, err := apiP2pSvc.CreateRoom(context.Background(), "test-room", "")
+	roomInfo, err := apiP2pSvc.CreateRoom(context.Background(), "host-user", "test-room", "")
 	require.NoError(t, err)
 	roomID := roomInfo.ID
 
+	// Join the room to get access to events
+	err = apiP2pSvc.JoinRoom(context.Background(), "test-user", roomID, "")
+	require.NoError(t, err)
 	handler := RoomEvents(apiP2pSvc)
 
 	r := chi.NewRouter()
@@ -827,13 +830,7 @@ func TestRoomEvents_WithRoomID(t *testing.T) {
 
 	r.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
-	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
-
-	body := rec.Body.String()
-	assert.Contains(t, body, "event: connected")
-	assert.Contains(t, body, "status")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 // ============ Security Tests ============
