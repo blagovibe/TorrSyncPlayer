@@ -287,6 +287,14 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
             ${MPV_LIBRARIES}
         )
 
+        set_target_properties(test_mpvwidget PROPERTIES
+            AUTOMOC ON
+        )
+
+        set_source_files_properties(src/test_mpvwidget.cpp PROPERTIES
+            SKIP_AUTOMOC ON
+        )
+
         target_include_directories(test_mpvwidget PRIVATE
             ${MPV_INCLUDE_DIRS}
         )
@@ -294,6 +302,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_compile_definitions(test_mpvwidget PRIVATE
             HAS_MPV
             HAS_MPV_RENDER
+            SKIP_AUTOMOC
         )
 
         add_test(NAME MpvWidgetTest COMMAND test_mpvwidget)
