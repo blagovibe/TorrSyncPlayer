@@ -31,9 +31,9 @@ import (
 )
 
 const (
-	eventChannelSize      = constants.P2PEventChannelSize
-	peerIDLength          = constants.PeerIDLength
-	maxRooms              = constants.MaxRooms
+	eventChannelSize       = constants.P2PEventChannelSize
+	peerIDLength           = constants.PeerIDLength
+	maxRooms               = constants.MaxRooms
 	p2pCloseTimeoutDefault = constants.P2PCloseTimeoutDefault
 )
 

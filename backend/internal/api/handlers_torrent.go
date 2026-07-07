@@ -287,18 +287,18 @@ func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-// Validate position
-	if req.Position < 0 {
-		WriteError(w, http.StatusBadRequest, "Position cannot be negative")
-		return
-	}
+		// Validate position
+		if req.Position < 0 {
+			WriteError(w, http.StatusBadRequest, "Position cannot be negative")
+			return
+		}
 
-	if err := torrentSvc.UpdateBufferPosition(r.Context(), torrentID, req.Position); err != nil {
-		handleError(w, r, err, "updating buffer position")
-		return
-	}
+		if err := torrentSvc.UpdateBufferPosition(r.Context(), torrentID, req.Position); err != nil {
+			handleError(w, r, err, "updating buffer position")
+			return
+		}
 
-	WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Position updated"})
+		WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Position updated"})
 	}
 }
 
