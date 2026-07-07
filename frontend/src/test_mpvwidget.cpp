@@ -17,8 +17,6 @@
 
 class TestMpvWidget : public QObject
 {
-    Q_OBJECT
-
 private slots:
     void initTestCase()
     {
@@ -80,7 +78,5 @@ private slots:
 private:
     bool m_mpvAvailable;
 };
-
-#include "test_mpvwidget.moc"
 
 QTEST_MAIN(TestMpvWidget)

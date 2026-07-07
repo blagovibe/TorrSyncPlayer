@@ -287,14 +287,6 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
             ${MPV_LIBRARIES}
         )
 
-        set_target_properties(test_mpvwidget PROPERTIES
-            AUTOMOC ON
-        )
-
-        set_source_files_properties(src/test_mpvwidget.cpp PROPERTIES
-            SKIP_AUTOMOC ON
-        )
-
         target_include_directories(test_mpvwidget PRIVATE
             ${MPV_INCLUDE_DIRS}
         )
