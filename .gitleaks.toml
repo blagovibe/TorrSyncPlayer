@@ -1,0 +1,9 @@
+# Gitleaks configuration for TorrSyncPlayer
+# This file excludes test tokens and other expected patterns
+
+[allowlist]
+# Allow test files to contain example/test tokens
+paths = [
+    '''_test\.go$''',
+    '''test_.*\.py$''',
+]

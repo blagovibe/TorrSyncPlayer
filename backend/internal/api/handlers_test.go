@@ -928,8 +928,9 @@ func TestSecurity_Router_ProtectedEndpointRejectsNoAuth(t *testing.T) {
 
 func TestSecurity_Router_CSRFOnProtectedEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
-	// Use a valid-length JWT-like token (minimum 30 chars)
-	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
+	// Use a test JWT-like token (clearly not a real secret - for testing only)
+	const testJWTToken = "test-jwt-token-for-unit-testing-purposes-only"
+	req.Header.Set("Authorization", "Bearer "+testJWTToken)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
