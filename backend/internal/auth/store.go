@@ -187,3 +187,42 @@ func (s *UserStore) GetByID(id string) (*models.User, bool) {
 	user, exists := s.usersByID[id]
 	return user, exists
 }
+
+// ChangePassword changes a user's password.
+// Requires the current password to be verified before changing.
+// Returns an error if the current password is incorrect or user doesn't exist.
+func (s *UserStore) ChangePassword(username, currentPassword, newPassword string) error {
+	username = strings.ToLower(username)
+
+	// Validate new password
+	if err := validation.ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	user, exists := s.users[username]
+	if !exists {
+		// Still perform dummy hash comparison for timing attack protection
+		if dummyHash := getDummyHash(); dummyHash != nil {
+			_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(currentPassword))
+		}
+		return ErrInvalidCredentialsAppError
+	}
+
+	// Verify current password
+	if err := CheckPassword(currentPassword, user.PasswordHash); err != nil {
+		return err
+	}
+
+	// Hash and update new password
+	passwordHash, err := HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("password hashing error: %w", err)
+	}
+
+	user.PasswordHash = passwordHash
+	s.persist()
+	return nil
+}

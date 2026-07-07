@@ -23,7 +23,8 @@ var (
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
 	// magnetRegex for validating magnet links - restricted to btih URN type only
 	// This provides security by limiting to BitTorrent infohash URNs and preventing SSRF
-	magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
+	magnetRegex      = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
+	magnetParamsRegex  = regexp.MustCompile(`^[a-zA-Z0-9\-._~%!$&'()*+,;=:@/?]+$`)
 )
 
 // Common passwords blacklist - passwords that should never be allowed
@@ -178,6 +179,7 @@ func ValidateRoomName(name string) error {
 }
 
 // ValidateMagnetURI validates the magnet link format.
+// Ensures the link uses btih URN (not other schemes) and validates parameter format.
 func ValidateMagnetURI(uri string) error {
 	if uri == "" {
 		return fmt.Errorf("magnet link cannot be empty")
@@ -186,8 +188,37 @@ func ValidateMagnetURI(uri string) error {
 		return fmt.Errorf("magnet link too long")
 	}
 	if !magnetRegex.MatchString(uri) {
-		return fmt.Errorf("invalid magnet link format")
+		return fmt.Errorf("invalid magnet link format: must start with 'magnet:?xt=urn:btih:' followed by 40 hex characters")
 	}
+
+	// Extract and validate parameters (after xt=urn:btih)
+	paramsPart := ""
+	for i, c := range uri {
+		if i >= 19 && c == '&' {
+			paramsPart = uri[20:]
+			break
+		}
+		if i >= 19 {
+			paramsPart = uri[20:]
+			break
+		}
+	}
+
+	// Allow empty params or validate each param
+	if paramsPart != "" {
+		// Split by & and validate each parameter
+		params := strings.Split(paramsPart, "&")
+		for _, param := range params {
+			if param == "" {
+				continue
+			}
+			// Check for dangerous characters that could be used for injection
+			if strings.ContainsAny(param, "<>\"'{}|\\^[]`") {
+				return fmt.Errorf("magnet link contains invalid characters in parameters")
+			}
+		}
+	}
+
 	return nil
 }
 

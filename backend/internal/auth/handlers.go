@@ -141,3 +141,56 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		User:  user.ToUserResponse(),
 	})
 }
+
+// ChangePassword handler for changing user password.
+// Accepts JSON with currentPassword and newPassword fields.
+// Requires JWT authentication.
+//
+// @Summary      Change password
+// @Description  Changes the current user's password
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.ChangePasswordRequest  true  "Password change data"
+// @Success      200      {object}  models.SuccessResponse
+// @Failure      400      {object}  models.ErrorResponse
+// @Failure      401      {object}  models.ErrorResponse
+// @Router       /api/v1/auth/change-password [post]
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.ContentLength > constants.MaxRequestSize {
+		response.WriteJSON(w, http.StatusRequestEntityTooLarge, models.ErrorResponse{Error: "Request body too large"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, constants.MaxRequestSize)
+
+	var req models.ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request format"})
+		return
+	}
+
+	// Get user ID from context (set by JWT middleware)
+	claims := GetClaims(r)
+	if claims == nil || claims.UserID == "" {
+		response.WriteJSON(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Authentication required"})
+		return
+	}
+
+	// Get user to get username
+	user, exists := h.store.GetByID(claims.UserID)
+	if !exists {
+		response.WriteJSON(w, http.StatusUnauthorized, models.ErrorResponse{Error: "User not found"})
+		return
+	}
+
+	// Change password
+	err := h.store.ChangePassword(user.Username, req.CurrentPassword, req.NewPassword)
+	if err != nil {
+		auditLog("change_password", user.Username, r.RemoteAddr, r.UserAgent(), false)
+		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Password change failed"})
+		return
+	}
+
+	auditLog("change_password", user.Username, r.RemoteAddr, r.UserAgent(), true)
+	response.WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Password changed successfully"})
+}

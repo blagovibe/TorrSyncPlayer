@@ -104,6 +104,12 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// ChangePasswordRequest password change request
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
 // UserResponse is the API-safe user representation (no password hash)
 type UserResponse struct {
 	ID        string `json:"id"`

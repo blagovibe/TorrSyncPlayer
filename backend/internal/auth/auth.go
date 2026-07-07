@@ -7,6 +7,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -104,6 +105,30 @@ func (s *AuthService) Stop() {
 	if s.revocationStore != nil {
 		s.revocationStore.Stop()
 	}
+}
+
+// ReloadTLSConfiguration reloads TLS certificates from disk.
+// Designed to be called on SIGHUP for certificate rotation.
+// Returns an error if certificates cannot be loaded.
+func (s *AuthService) ReloadTLSConfiguration(certPath, keyPath string) (*tls.Config, error) {
+	// Load new certificates
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("certificate loading error: %w", err)
+	}
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+	}, nil
 }
 
 // HashPassword hashes a password using bcrypt.
@@ -411,6 +436,49 @@ func (s *AuthService) ValidateRefreshToken(tokenString string) (*models.Claims, 
 	tokenType, _ := claims["tokenType"].(string)
 	if tokenType != "refresh" {
 		return nil, fmt.Errorf("%w: not a refresh token", ErrInvalidToken)
+	}
+
+	// Validate audience claim if configured
+	if len(s.audience) > 0 {
+		audClaim, ok := claims["aud"]
+		if !ok {
+			return nil, fmt.Errorf("%w: missing audience", ErrInvalidToken)
+		}
+
+		// Audience can be string or []string
+		var tokenAudiences []string
+		switch aud := audClaim.(type) {
+		case string:
+			tokenAudiences = []string{aud}
+		case []interface{}:
+			for _, a := range aud {
+				if s, ok := a.(string); ok {
+					tokenAudiences = append(tokenAudiences, s)
+				}
+			}
+		}
+
+		if len(tokenAudiences) == 0 {
+			return nil, fmt.Errorf("%w: invalid audience format", ErrInvalidToken)
+		}
+
+		// Check if at least one token audience matches configured audiences
+		matched := false
+		for _, tokenAud := range tokenAudiences {
+			for _, configuredAud := range s.audience {
+				if tokenAud == configuredAud {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+
+		if !matched {
+			return nil, fmt.Errorf("%w: audience not allowed", ErrInvalidToken)
+		}
 	}
 
 	userID, ok := claims["userId"].(string)

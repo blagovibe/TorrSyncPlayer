@@ -787,7 +787,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 // PerUserRateLimiter creates middleware for per-user rate limiting.
 // Uses the user ID from JWT claims in request context.
 // Falls back to per-IP limiting if user ID is not available.
-func PerUserRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
+// Returns a middleware function and a cleanup function for graceful shutdown.
+func PerUserRateLimiter(r rate.Limit, b int) (func(http.Handler) http.Handler, func()) {
 	type userLimiterEntry struct {
 		limiter  *rate.Limiter
 		lastSeen time.Time
@@ -797,11 +798,38 @@ func PerUserRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 		limiters = make(map[string]*userLimiterEntry)
 	)
 
-	// Note: Without cleanup goroutine, old entries will accumulate.
-	// For long-running servers, consider periodic cleanup or use LRU cache.
-	// Current implementation is acceptable for moderate user counts (< 10K active users).
+	// Start cleanup goroutine to prevent memory exhaustion
+	cleanupStop := make(chan struct{})
+	var cleanupWg sync.WaitGroup
+	cleanupWg.Add(1)
+	go func() {
+		defer cleanupWg.Done()
+		ticker := time.NewTicker(constants.ClientRateLimiterCleanup)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				now := time.Now()
+				for userID, entry := range limiters {
+					// Remove entries not used for 30 minutes
+					if now.Sub(entry.lastSeen) > 30*time.Minute {
+						delete(limiters, userID)
+					}
+				}
+				mu.Unlock()
+			case <-cleanupStop:
+				return
+			}
+		}
+	}()
 
-	return func(next http.Handler) http.Handler {
+	cleanup := func() {
+		close(cleanupStop)
+		cleanupWg.Wait()
+	}
+
+	middleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			// Get user ID from JWT claims
 			claims := auth.GetClaims(req)
@@ -838,6 +866,7 @@ func PerUserRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 			mu.Lock()
 			// Double-check pattern - another goroutine may have created while we waited
 			if entry, exists = limiters[userID]; exists {
+				entry.lastSeen = time.Now()
 				mu.Unlock()
 				if !entry.limiter.Allow() {
 					WriteError(w, http.StatusTooManyRequests, "Too many requests. Please try again later.")
@@ -857,4 +886,6 @@ func PerUserRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	}
+
+	return middleware, cleanup
 }

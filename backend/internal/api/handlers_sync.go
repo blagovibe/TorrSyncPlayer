@@ -8,13 +8,13 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // SyncPlay handler for starting synchronized playback.
@@ -76,7 +76,8 @@ func SyncSeek(syncSvc internal.SyncService) http.HandlerFunc {
 
 		// Validate position via centralized function
 		if err := validation.ValidatePosition(req.Position); err != nil {
-			WriteError(w, http.StatusBadRequest, fmt.Sprintf("Invalid position: %s", err.Error()))
+			logger.Warn("SyncSeek: invalid position provided", "error", err)
+			WriteError(w, http.StatusBadRequest, "Invalid position")
 			return
 		}
 

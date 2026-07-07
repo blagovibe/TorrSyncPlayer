@@ -210,3 +210,101 @@ func TestGenerateID(t *testing.T) {
 		ids[id] = true
 	}
 }
+
+func TestUserStoreChangePassword(t *testing.T) {
+	store := NewUserStore()
+
+	// Create user
+	_, err := store.Create("testuser", "TestPass1!")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name            string
+		username        string
+		currentPassword string
+		newPassword     string
+		expectError     bool
+	}{
+		{
+			name:            "Valid password change",
+			username:        "testuser",
+			currentPassword: "TestPass1!",
+			newPassword:     "NewPass1!",
+			expectError:     false,
+		},
+		{
+			name:            "Wrong current password",
+			username:        "testuser",
+			currentPassword: "WrongPass1!",
+			newPassword:     "NewPass1!",
+			expectError:     true,
+		},
+		{
+			name:            "Non-existent user",
+			username:        "nonexistent",
+			currentPassword: "TestPass1!",
+			newPassword:     "NewPass1!",
+			expectError:     true,
+		},
+		{
+			name:            "Invalid new password (too short)",
+			username:        "testuser",
+			currentPassword: "TestPass1!",
+			newPassword:     "short",
+			expectError:     true,
+		},
+		{
+			name:            "Invalid new password (common password)",
+			username:        "testuser",
+			currentPassword: "TestPass1!",
+			newPassword:     "password",
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.name == "Non-existent user" {
+				err = store.ChangePassword(tt.username, tt.currentPassword, tt.newPassword)
+			} else if tt.name == "Invalid new password (too short)" || tt.name == "Invalid new password (common password)" {
+				// Recreate user for these tests
+				_, err = store.Create("testuser2", "TestPass1!")
+				require.NoError(t, err)
+				err = store.ChangePassword("testuser2", "TestPass1!", tt.newPassword)
+			} else {
+				err = store.ChangePassword(tt.username, tt.currentPassword, tt.newPassword)
+			}
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+
+				// Verify new password works
+				user, authErr := store.Authenticate(tt.username, tt.newPassword)
+				require.NoError(t, authErr)
+				assert.NotNil(t, user)
+			}
+		})
+	}
+
+	// Test case-insensitive username
+	t.Run("Case insensitive username", func(t *testing.T) {
+		_, err := store.Create("caseuser", "TestPass1!")
+		require.NoError(t, err)
+
+		// Change password with different case
+		err = store.ChangePassword("CASEUSER", "TestPass1!", "NewPass1!")
+		require.NoError(t, err)
+
+		// Verify old password doesn't work
+		_, err = store.Authenticate("caseuser", "TestPass1!")
+		assert.Error(t, err)
+
+		// Verify new password works
+		user, err := store.Authenticate("caseuser", "NewPass1!")
+		require.NoError(t, err)
+		assert.NotNil(t, user)
+	})
+}

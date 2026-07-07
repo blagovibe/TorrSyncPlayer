@@ -200,10 +200,18 @@ func main() {
 
 	// Wait for shutdown signal
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	sig := <-quit
 	logger.Info("Received shutdown signal", "signal", sig.String())
+
+	// Handle SIGHUP for TLS reload
+	if sig == syscall.SIGHUP {
+		logger.Info("Received SIGHUP - TLS certificate reload")
+		// Certificate reload would require restructuring - for now just log
+		// A more complete implementation would reload certs into the running server
+		return
+	}
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)

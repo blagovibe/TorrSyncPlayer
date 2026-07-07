@@ -88,6 +88,13 @@ const (
 
 	// ClientRateLimiterCleanup cleanup interval for per-IP rate limiter
 	ClientRateLimiterCleanup = 10 * time.Minute
+
+	// CSRFRateLimit rate limit for CSRF endpoint (requests per second)
+	// Very strict: ~5 requests/minute to prevent token flooding attacks
+	CSRFRateLimit = 0.083 // ~5 requests/minute
+
+	// CSRFRateBurst burst size for CSRF endpoint
+	CSRFRateBurst = 2
 )
 
 // ── JWT Constants ─────────────────────────────────────────────────────────
