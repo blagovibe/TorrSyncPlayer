@@ -23,8 +23,8 @@ var (
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
 	// magnetRegex for validating magnet links - restricted to btih URN type only
 	// This provides security by limiting to BitTorrent infohash URNs and preventing SSRF
-	magnetRegex      = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
-	magnetParamsRegex  = regexp.MustCompile(`^[a-zA-Z0-9\-._~%!$&'()*+,;=:@/?]+$`)
+	magnetRegex       = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
+	magnetParamsRegex = regexp.MustCompile(`^[a-zA-Z0-9\-._~%!$&'()*+,;=:@/?]+$`)
 )
 
 // Common passwords blacklist - passwords that should never be allowed
@@ -191,7 +191,7 @@ func ValidateMagnetURI(uri string) error {
 		return fmt.Errorf("invalid magnet link format: must start with 'magnet:?xt=urn:btih:' followed by 40 hex characters")
 	}
 
-// Extract and validate parameters (after xt=urn:btih)
+	// Extract and validate parameters (after xt=urn:btih)
 	paramsPart := ""
 	for i, c := range uri {
 		if i >= 19 && c == '&' {

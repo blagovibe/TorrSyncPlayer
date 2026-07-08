@@ -28,6 +28,13 @@ Checks: >
   # Портабельность
   portability-*,
   
+  # Clang Static Analyzer (отключаем false positives из Qt/system headers)
+  clang-analyzer-*,
+  -clang-analyzer-cplusplus.NewDelete,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
+  -clang-analyzer-core.NullDereference,
+  -clang-analyzer-core.DivideZero,
+  
   # Общие проверки
   google-*,
   -google-readability-todo,
