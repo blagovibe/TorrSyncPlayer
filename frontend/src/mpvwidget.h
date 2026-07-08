@@ -13,13 +13,23 @@
 #ifndef MPVWIDGET_H
 #define MPVWIDGET_H
 
-#include <QOpenGLWidget>
-#include <QOpenGLFramebufferObject>
-#include <QOpenGLContext>
+#include <QWidget>
 #include <QMutex>
 #include <QVector>
 #include <QTimer>
 #include <QElapsedTimer>
+
+// macOS 14+ removed AGL framework, QOpenGLWidget cannot be used without it
+// Use QWidget as base when NO_OPENGL is defined (macOS without AGL)
+#ifdef NO_OPENGL
+    #define MPVWIDGET_BASE_CLASS QWidget
+    #undef HAS_MPV_RENDER
+#else
+    #include <QOpenGLWidget>
+    #include <QOpenGLFramebufferObject>
+    #include <QOpenGLContext>
+    #define MPVWIDGET_BASE_CLASS QOpenGLWidget
+#endif
 
 // Обёртка для C-заголовка libmpv
 #ifdef HAS_MPV
@@ -31,13 +41,14 @@ extern "C" {
 
 /**
  * @class MpvWidget
- * @brief Виджет для воспроизведения видео через libmpv с OpenGL рендерингом
+ * @brief Виджет для воспроизведения видео через libmpv
  * 
- * Наследуется от QOpenGLWidget для правильного рендеринга видеокадров.
+ * Наследуется от QOpenGLWidget (или QWidget на macOS 14+ без AGL) для рендеринга видеокадров.
  * Использует mpv_create() для создания экземпляра плеера
  * и mpv_render_context для рендеринга видео в Qt окне.
+ * На macOS 14+ без AGL framework работает как заглушка без видеорендеринга.
  */
-class MpvWidget : public QOpenGLWidget
+class MpvWidget : public MPVWIDGET_BASE_CLASS
 {
     Q_OBJECT
 
@@ -138,6 +149,7 @@ signals:
     void ready();
 
 protected:
+#ifndef NO_OPENGL
     /**
      * @brief Инициализация OpenGL контекста
      * Вызывается при создании OpenGL контекста
@@ -157,6 +169,21 @@ protected:
      * @param h Высота
      */
     void resizeGL(int w, int h) override;
+#endif
+    /**
+     * @brief Обработка событий виджета
+     * Перехватывает события mpv для обработки в основном потоке
+     * @param event Событие Qt
+     * @return true если событие обработано
+     */
+    bool event(QEvent *event) override;
+
+    /**
+     * @brief Обработка показа виджета
+     * Инициализирует контекст рендеринга при первом показе
+     * @param event Событие показа
+     */
+    void showEvent(QShowEvent *event) override;
 
     /**
      * @brief Обработка событий виджета
