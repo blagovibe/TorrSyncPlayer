@@ -38,6 +38,35 @@ func NewStore(dataDir string) (*Store, error) {
 	return &Store{dir: dataDir}, nil
 }
 
+// persistedUser is an internal representation for JSON serialization.
+// Unlike models.User, it includes PasswordHash for persistence.
+type persistedUser struct {
+	ID           string `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"passwordHash"`
+	CreatedAt    int64  `json:"createdAt"`
+}
+
+// toPersistedUser converts a models.User to persistedUser for serialization.
+func toPersistedUser(u *models.User) *persistedUser {
+	return &persistedUser{
+		ID:           u.ID,
+		Username:     u.Username,
+		PasswordHash: u.PasswordHash,
+		CreatedAt:    u.CreatedAt,
+	}
+}
+
+// fromPersistedUser converts a persistedUser back to models.User.
+func fromPersistedUser(p *persistedUser) *models.User {
+	return &models.User{
+		ID:           p.ID,
+		Username:     p.Username,
+		PasswordHash: p.PasswordHash,
+		CreatedAt:    p.CreatedAt,
+	}
+}
+
 func (s *Store) SaveUsers(data *UserData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -48,7 +77,24 @@ func (s *Store) SaveUsers(data *UserData) error {
 	path := filepath.Join(s.dir, "users.json")
 	tmpPath := path + ".tmp"
 
-	encoded, err := json.Marshal(data)
+	// Convert users to persistedUser format for serialization
+	persistedData := struct {
+		Version   int                       `json:"version"`
+		Users     map[string]*persistedUser `json:"users"`
+		UsersByID map[string]*persistedUser `json:"usersByID"`
+	}{
+		Version: PersistenceVersion,
+	}
+	persistedData.Users = make(map[string]*persistedUser, len(data.Users))
+	persistedData.UsersByID = make(map[string]*persistedUser, len(data.UsersByID))
+	for k, v := range data.Users {
+		persistedData.Users[k] = toPersistedUser(v)
+	}
+	for k, v := range data.UsersByID {
+		persistedData.UsersByID[k] = toPersistedUser(v)
+	}
+
+	encoded, err := json.Marshal(persistedData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal users: %w", err)
 	}
@@ -84,14 +130,33 @@ func (s *Store) LoadUsers() (*UserData, error) {
 		return nil, fmt.Errorf("failed to read users file: %w", err)
 	}
 
-	var result UserData
-	if err := json.Unmarshal(data, &result); err != nil {
+	// Use internal type for deserialization to include PasswordHash
+	var persistedData struct {
+		Version   int                       `json:"version"`
+		Users     map[string]*persistedUser `json:"users"`
+		UsersByID map[string]*persistedUser `json:"usersByID"`
+	}
+	if err := json.Unmarshal(data, &persistedData); err != nil {
 		logger.Warn("persistence: corrupted users.json, starting fresh", "error", err)
 		return &UserData{
 			Version:   PersistenceVersion,
 			Users:     make(map[string]*models.User),
 			UsersByID: make(map[string]*models.User),
 		}, nil
+	}
+
+	result := &UserData{
+		Version:   persistedData.Version,
+		Users:     make(map[string]*models.User),
+		UsersByID: make(map[string]*models.User),
+	}
+
+	// Convert back to models.User
+	for k, v := range persistedData.Users {
+		result.Users[k] = fromPersistedUser(v)
+	}
+	for k, v := range persistedData.UsersByID {
+		result.UsersByID[k] = fromPersistedUser(v)
 	}
 
 	// Version check for migration (future-proofing)
@@ -106,7 +171,7 @@ func (s *Store) LoadUsers() (*UserData, error) {
 		result.UsersByID = make(map[string]*models.User)
 	}
 
-	return &result, nil
+	return result, nil
 }
 
 func (s *Store) SaveRevokedTokens(data *TokenRevocationData) error {

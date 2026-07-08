@@ -23,37 +23,35 @@ var (
 // Init initializes the global logger.
 // Safe for concurrent calls - initialization occurs only once.
 func Init(level string, format string) {
-	initOnce.Do(func() {
-		var logLevel slog.Level
+	var logLevel slog.Level
 
-		switch strings.ToLower(level) {
-		case "debug":
-			logLevel = slog.LevelDebug
-		case "info":
-			logLevel = slog.LevelInfo
-		case "warn", "warning":
-			logLevel = slog.LevelWarn
-		case "error":
-			logLevel = slog.LevelError
-		default:
-			logLevel = slog.LevelInfo
-		}
+	switch strings.ToLower(level) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "info":
+		logLevel = slog.LevelInfo
+	case "warn", "warning":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
 
-		var handler slog.Handler
-		opts := &slog.HandlerOptions{
-			Level: logLevel,
-		}
+	var handler slog.Handler
+	opts := &slog.HandlerOptions{
+		Level: logLevel,
+	}
 
-		if strings.ToLower(format) == "json" {
-			handler = slog.NewJSONHandler(os.Stdout, opts)
-		} else {
-			handler = slog.NewTextHandler(os.Stdout, opts)
-		}
+	if strings.ToLower(format) == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
 
-		defaultLogger = &Logger{
-			Logger: slog.New(handler),
-		}
-	})
+	defaultLogger = &Logger{
+		Logger: slog.New(handler),
+	}
 }
 
 // Get returns the global logger.
