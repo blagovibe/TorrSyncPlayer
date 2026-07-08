@@ -85,9 +85,9 @@ MpvWidget::~MpvWidget()
 #endif
 }
 
-#ifdef HAS_MPV_RENDER
 void MpvWidget::initializeGL()
 {
+#ifdef HAS_MPV_RENDER
     QOpenGLWidget::initializeGL();
 
     makeCurrent();
@@ -115,22 +115,22 @@ void MpvWidget::initializeGL()
     }
 
     doneCurrent();
-}
 #endif
+}
 
-#ifdef HAS_MPV_RENDER
 void MpvWidget::resizeGL(int w, int h)
 {
+#ifdef HAS_MPV_RENDER
     Q_UNUSED(w);
     Q_UNUSED(h);
     // mpv handles scaling automatically via OPENGL_FBO in paintGL
     // No explicit resize needed with newer mpv versions
-}
 #endif
+}
 
-#ifdef HAS_MPV_RENDER
 void MpvWidget::paintGL()
 {
+#ifdef HAS_MPV_RENDER
     QOpenGLWidget::paintGL();
 
     // Render video frame if mpv is initialized
@@ -147,8 +147,8 @@ void MpvWidget::paintGL()
 
         doneCurrent();
     }
-}
 #endif
+}
 
 bool MpvWidget::initializeMpv()
 {

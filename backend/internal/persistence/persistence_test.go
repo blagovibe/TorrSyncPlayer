@@ -39,7 +39,7 @@ func TestSaveAndLoadUsers(t *testing.T) {
 				"testuser": {
 					ID:           "user-id-123",
 					Username:     "testuser",
-					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash",
+					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash", // #nosec G101
 					CreatedAt:    1234567890,
 				},
 			},
@@ -47,7 +47,7 @@ func TestSaveAndLoadUsers(t *testing.T) {
 				"user-id-123": {
 					ID:           "user-id-123",
 					Username:     "testuser",
-					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash",
+					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash", // #nosec G101
 					CreatedAt:    1234567890,
 				},
 			},
@@ -167,7 +167,7 @@ func TestAtomicWrites(t *testing.T) {
 				"testuser": {
 					ID:           "user-id-123",
 					Username:     "testuser",
-					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash",
+					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash", // #nosec G101
 				},
 			},
 		}

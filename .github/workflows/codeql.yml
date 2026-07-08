@@ -39,7 +39,7 @@ jobs:
         working-directory: frontend
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qt6-base-dev qt6-svg-dev libgl1-mesa-dev cmake g++
+          sudo apt-get install -y -qq qt6-base-dev qt6-svg-dev libmpv-dev libgl1-mesa-dev cmake g++
           cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=OFF
           cmake --build build
 

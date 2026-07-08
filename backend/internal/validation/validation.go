@@ -191,7 +191,7 @@ func ValidateMagnetURI(uri string) error {
 		return fmt.Errorf("invalid magnet link format: must start with 'magnet:?xt=urn:btih:' followed by 40 hex characters")
 	}
 
-	// Extract and validate parameters (after xt=urn:btih)
+// Extract and validate parameters (after xt=urn:btih)
 	paramsPart := ""
 	for i, c := range uri {
 		if i >= 19 && c == '&' {
@@ -212,8 +212,8 @@ func ValidateMagnetURI(uri string) error {
 			if param == "" {
 				continue
 			}
-			// Check for dangerous characters that could be used for injection
-			if strings.ContainsAny(param, "<>\"'{}|\\^[]`") {
+			// Use regex for parameter validation
+			if !magnetParamsRegex.MatchString(param) {
 				return fmt.Errorf("magnet link contains invalid characters in parameters")
 			}
 		}

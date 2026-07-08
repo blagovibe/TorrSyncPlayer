@@ -59,19 +59,19 @@ func NewRouter(config RouterConfig) http.Handler {
 	// Prometheus metrics endpoint (per-IP rate limited, without CSRF/JWT for monitoring tools)
 	r.With(PerIPRateLimiter).Get(APIPathMetrics, MetricsHandler())
 
-// CSRF token endpoint for obtaining a token (per-IP rate limited with stricter limits)
-		r.With(NewRateLimiter(rate.Limit(constants.CSRFRateLimit), constants.CSRFRateBurst)).Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
-			sessionID := extractSessionID(r)
-			token, err := CSRFStore.generateToken(sessionID)
-			if err != nil {
-				WriteError(w, http.StatusInternalServerError, "Token generation error")
-				return
-			}
-			w.Header().Set("X-CSRF-Token", token)
-			WriteJSON(w, http.StatusOK, map[string]string{
-				"csrfToken": token,
-			})
+	// CSRF token endpoint for obtaining a token (per-IP rate limited with stricter limits)
+	r.With(NewRateLimiter(rate.Limit(constants.CSRFRateLimit), constants.CSRFRateBurst)).Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
+		sessionID := extractSessionID(r)
+		token, err := CSRFStore.generateToken(sessionID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "Token generation error")
+			return
+		}
+		w.Header().Set("X-CSRF-Token", token)
+		WriteJSON(w, http.StatusOK, map[string]string{
+			"csrfToken": token,
 		})
+	})
 
 	// Apply JWT TTL if configured
 	if config.JWTTokenTTL > 0 {
@@ -81,13 +81,13 @@ func NewRouter(config RouterConfig) http.Handler {
 	// Create auth handler
 	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)
 
-// Auth endpoints — without CSRF protection (public endpoints)
-		// Rate limiting: 10 requests/minute (per-IP via NewRateLimiter)
-		r.Route("/api/v1/auth", func(r chi.Router) {
-			r.Use(NewRateLimiter(rate.Limit(0.17), 5))
-			r.Post("/register", authHandler.Register)
-			r.Post("/login", authHandler.Login)
-		})
+	// Auth endpoints — without CSRF protection (public endpoints)
+	// Rate limiting: 10 requests/minute (per-IP via NewRateLimiter)
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Use(NewRateLimiter(rate.Limit(0.17), 5))
+		r.Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+	})
 
 	// Protected endpoints — with Rate limiting, CSRF and JWT authentication
 	r.Group(func(r chi.Router) {
@@ -118,9 +118,9 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/{roomID}/events", RoomEvents(config.P2pSvc))
 			})
 
-// Auth endpoints (protected — require JWT + CSRF)
-				r.Post("/auth/logout", config.AuthService.LogoutHandler)
-				r.Post("/auth/change-password", authHandler.ChangePassword)
+			// Auth endpoints (protected — require JWT + CSRF)
+			r.Post("/auth/logout", config.AuthService.LogoutHandler)
+			r.Post("/auth/change-password", authHandler.ChangePassword)
 
 			// Sync endpoints
 			r.Route("/sync", func(r chi.Router) {

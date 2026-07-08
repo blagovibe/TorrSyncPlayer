@@ -262,17 +262,18 @@ func TestUserStoreChangePassword(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var err error
-			if tt.name == "Non-existent user" {
+			switch tt.name {
+			case "Non-existent user":
 				err = store.ChangePassword(tt.username, tt.currentPassword, tt.newPassword)
-			} else if tt.name == "Invalid new password (too short)" || tt.name == "Invalid new password (common password)" {
+			case "Invalid new password (too short)", "Invalid new password (common password)":
 				// Recreate user for these tests
 				_, err = store.Create("testuser2", "TestPass1!")
 				require.NoError(t, err)
 				err = store.ChangePassword("testuser2", "TestPass1!", tt.newPassword)
-			} else {
+			default:
 				err = store.ChangePassword(tt.username, tt.currentPassword, tt.newPassword)
 			}
 

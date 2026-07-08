@@ -34,7 +34,7 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - uses: actions/cache@v7
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
