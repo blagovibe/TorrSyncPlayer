@@ -29,8 +29,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake ninja-build pkg-config \
-            libmpv-dev libgl1-mesa-dev \
-            libxkbcommon-dev libxcb-cursor0 libfuse2
+            libmpv-dev libgl1-mesa-dev libgl1-mesa-glx \
+            libxkbcommon-dev libxcb-cursor0 libxcb-iccc libfuse2
 
       - uses: jurplel/install-qt-action@v4
         with:
@@ -53,7 +53,7 @@ jobs:
       - name: Create AppImage
         run: |
           cd frontend/build
-          LINUXDEPLOY_VERSION="1.20250109"
+          LINUXDEPLOY_VERSION="1-alpha-20251107-1"
           BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}"
 
           wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage"
@@ -86,8 +86,10 @@ jobs:
           EOF
           export QMAKE=$(which qmake6 || which qmake)
           export LDAI_OUTPUT=TorrSyncPlayer
+          export QT_QPA_PLATFORM=offscreen
           # Extract and run without FUSE
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run --appdir AppDir --plugin qt --output appimage 2>&1
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run --appdir AppDir --plugin qt --output appimage -v 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la AppDir/usr/bin/ 2>&1; exit 1; }
+          if [ ! -f TorrSyncPlayer-x86_64.AppImage ]; then echo "AppImage not created"; exit 1; fi
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
       - name: Upload AppImage
