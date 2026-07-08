@@ -6,14 +6,14 @@
 
 /**
  * @file main.cpp
- * @brief Точка входа приложения TorrPlayer
+ * @brief Application entry point for TorrPlayer
  *
- * Инициализирует:
- * - QApplication с настройками
- * - Главное окно MainWindow
- * - Системный трей (если доступен)
- * - Опционально: автозапуск Go backend
- * - Обработчики сигналов для graceful shutdown
+ * Initializes:
+ * - QApplication with settings
+ * - MainWindow window
+ * - System tray (if available)
+ * - Optional: auto-start Go backend
+ * - Signal handlers for graceful shutdown
  */
 
 #include <QApplication>
@@ -46,8 +46,8 @@
 #include <unistd.h>
 #endif
 
-// QPointer для потокобезопасного доступа к процессу сервера
-// QPointer автоматически становится nullptr при удалении объекта
+// QPointer for thread-safe access to server process
+// QPointer automatically becomes nullptr when object is deleted
 static QPointer<QProcess> g_serverProcess;
 
 // Atomic flag to prevent re-entrant shutdown across threads (signal handlers)
@@ -56,8 +56,18 @@ static QAtomicInt g_shuttingDown{0};
 
 #ifdef Q_OS_WIN
 /**
- * @brief Обработчик консольных событий Windows (Ctrl+C, Close, Logoff, Shutdown)
- * Безопасен: только устанавливает атомарный флаг, без вызова Qt API.
+ * @brief Set up UTF-8 console output on Windows to prevent garbled output
+ * Windows console uses CP866/CP1251 by default, but Qt outputs UTF-8.
+ */
+static void setupConsoleUTF8()
+{
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+}
+
+/**
+ * @brief Windows console event handler (Ctrl+C, Close, Logoff, Shutdown)
+ * Async-signal-safe: only sets an atomic flag, does not call Qt API.
  */
 static BOOL WINAPI consoleHandler(DWORD signal)
 {
@@ -74,8 +84,8 @@ static BOOL WINAPI consoleHandler(DWORD signal)
 }
 #else
 /**
- * @brief Обработчик POSIX сигналов (SIGINT, SIGTERM)
- * Безопасен: только устанавливает атомарный флаг, без вызова Qt API.
+ * @brief POSIX signal handler (SIGINT, SIGTERM)
+ * Async-signal-safe: only sets an atomic flag, does not call Qt API.
  */
 static void signalHandler(int)
 {
@@ -84,16 +94,16 @@ static void signalHandler(int)
 #endif
 
 /**
- * @brief Настройка обработчиков сигналов для graceful shutdown
- * Поддерживает Windows (Ctrl+C, Close) и POSIX (SIGINT, SIGTERM)
+ * @brief Setup signal handlers for graceful shutdown
+ * Supports Windows (Ctrl+C, Close) and POSIX (SIGINT, SIGTERM)
  */
 static void setupSignalHandlers()
 {
 #ifdef Q_OS_WIN
     if (!SetConsoleCtrlHandler(consoleHandler, TRUE)) {
-        qWarning() << "Не удалось установить обработчик консольных событий Windows";
+        qWarning() << "Failed to set Windows console event handler";
     } else {
-        qDebug() << "Обработчик консольных событий Windows установлен";
+        qDebug() << "Windows console event handler installed";
     }
 #else
     struct sigaction sa;
@@ -102,23 +112,23 @@ static void setupSignalHandlers()
     sa.sa_flags = 0;
 
     if (sigaction(SIGINT, &sa, nullptr) != 0) {
-        qWarning() << "Не удалось установить обработчик SIGINT";
+        qWarning() << "Failed to set SIGINT handler";
     } else {
-        qDebug() << "Обработчик SIGINT установлен";
+        qDebug() << "SIGINT handler installed";
     }
 
     if (sigaction(SIGTERM, &sa, nullptr) != 0) {
-        qWarning() << "Не удалось установить обработчик SIGTERM";
+        qWarning() << "Failed to set SIGTERM handler";
     } else {
-        qDebug() << "Обработчик SIGTERM установлен";
+        qDebug() << "SIGTERM handler installed";
     }
 #endif
 }
 
 /**
- * @brief Запуск Go backend сервера
- * @param parent Родительский объект для QProcess (обеспечивает автоматическое удаление)
- * @return true если сервер запущен успешно
+ * @brief Start Go backend server
+ * @param parent Parent object for QProcess (ensures automatic deletion)
+ * @return true if server started successfully
  */
 // Uses QTemporaryDir + QTemporaryFile for safe extraction — eliminates TOCTOU symlink race
 // by creating a uniquely-named directory and file that cannot be predicted by an attacker.
@@ -143,7 +153,7 @@ bool extractEmbeddedBackend()
     }
 
     if (!resourceFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "Не удалось открыть embedded backend resource";
+        qWarning() << "Failed to open embedded backend resource";
         return false;
     }
     QByteArray resourceData = resourceFile.readAll();
@@ -161,7 +171,7 @@ bool extractEmbeddedBackend()
     g_embeddedBackendDir = QSharedPointer<QTemporaryDir>::create(
         QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/TorrSyncPlayer_XXXXXX");
     if (!g_embeddedBackendDir || !g_embeddedBackendDir->isValid()) {
-        qWarning() << "Не удалось создать временную директорию";
+        qWarning() << "Failed to create temp directory";
         return false;
     }
     g_embeddedBackendDir->setAutoRemove(true);
@@ -171,12 +181,12 @@ bool extractEmbeddedBackend()
     g_embeddedBackendFile->setAutoRemove(false);
 
     if (!g_embeddedBackendFile->open()) {
-        qWarning() << "Не удалось создать временный файл:" << g_embeddedBackendFile->errorString();
+        qWarning() << "Failed to create temp file:" << g_embeddedBackendFile->errorString();
         return false;
     }
 
     if (g_embeddedBackendFile->write(resourceData) != resourceData.size()) {
-        qWarning() << "Не удалось записать embedded backend:" << g_embeddedBackendFile->errorString();
+        qWarning() << "Failed to write embedded backend:" << g_embeddedBackendFile->errorString();
         return false;
     }
 
@@ -185,7 +195,7 @@ bool extractEmbeddedBackend()
     QFile::setPermissions(g_embeddedBackendFile->fileName(),
         QFileDevice::ExeOwner | QFileDevice::ReadOwner | QFileDevice::WriteOwner);
 
-    qDebug() << "Embedded backend извлечён:" << g_embeddedBackendFile->fileName();
+    qDebug() << "Embedded backend extracted:" << g_embeddedBackendFile->fileName();
     return true;
 }
 
@@ -223,18 +233,18 @@ bool startGoServer(QObject *parent)
     }
 
     if (serverPath.isEmpty()) {
-        qWarning() << "Go backend не найден";
+        qWarning() << "Go backend not found";
         return false;
     }
 
-    qDebug() << "Запуск Go backend:" << serverPath;
+    qDebug() << "Starting Go backend:" << serverPath;
 
-    // Создаём процесс с родительским объектом для автоматического удаления
+    // Create process with parent object for automatic deletion
     QProcess *process = new QProcess(parent);
     process->setProgram(serverPath);
     process->setArguments(QStringList() << "--port" << "8889");
 
-    // Подключаем сигналы для логирования (с лимитом на чтение)
+    // Connect logging signals (with read limit)
     QPointer<QProcess> p = process;
     QObject::connect(process, &QProcess::readyReadStandardOutput, [p]() {
         if (p) {
@@ -261,38 +271,38 @@ bool startGoServer(QObject *parent)
 
     QObject::connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
         [](int exitCode, QProcess::ExitStatus exitStatus) {
-            qWarning() << "Server завершился с кодом:" << exitCode
-                      << "статус:" << exitStatus;
-            // QPointer автоматически станет nullptr при удалении объекта
+            qWarning() << "Server exited with code:" << exitCode
+                      << "status:" << exitStatus;
+            // QPointer automatically becomes nullptr when object is deleted
         });
 
-    // Сохраняем указатель через QPointer
+    // Save pointer via QPointer
     g_serverProcess = process;
 
-    // Подключаем сигнал успешного запуска (асинхронно, не блокируем UI)
+    // Connect started signal (async, non-blocking UI)
     QObject::connect(process, &QProcess::started, [p]() {
         if (p) {
-            qDebug() << "Go backend запущен, PID:" << p->processId();
+            qDebug() << "Go backend started, PID:" << p->processId();
         }
 
-        // Асинхронное ожидание готовности сервера
+        // Async wait for server readiness
         QTimer::singleShot(2000, []() {
             QProcess *server = g_serverProcess;
             if (server && server->state() == QProcess::Running) {
-                qDebug() << "Сервер готов к работе";
+                qDebug() << "Server ready for work";
             } else {
-                qWarning() << "Сервер не готов после ожидания";
+                qWarning() << "Server not ready after wait";
             }
         });
     });
 
-    // Таймаут запуска (не блокируем UI)
+    // Startup timeout (non-blocking UI)
     QTimer *startTimeout = new QTimer(process);
     startTimeout->setSingleShot(true);
     QObject::connect(startTimeout, &QTimer::timeout, [p, startTimeout]() {
         QProcess *proc = p;
         if (proc && proc->state() != QProcess::Running) {
-            qWarning() << "Не удалось запустить Go backend: timeout";
+            qWarning() << "Failed to start Go backend: timeout";
             g_serverProcess = nullptr;
             proc->kill();
             proc->deleteLater();
@@ -301,15 +311,15 @@ bool startGoServer(QObject *parent)
     });
     startTimeout->start(5000);
 
-    // Запускаем
+    // Start process
     process->start();
 
     return true;
 }
 
 /**
- * @brief Корректное завершение серверного процесса
- * Вызывается при выходе из приложения
+ * @brief Gracefully stop server process
+ * Called on application exit
  */
 void stopGoServer()
 {
@@ -318,29 +328,29 @@ void stopGoServer()
     }
     g_shuttingDown.storeRelaxed(1);
 
-    // QPointer безопасен от nullptr dereference
+    // QPointer is safe for nullptr dereference
     QProcess *process = g_serverProcess;
     g_serverProcess = nullptr;
     
     if (process && process->state() == QProcess::Running) {
-        qDebug() << "Завершение серверного процесса...";
+        qDebug() << "Terminating server process...";
 
-        // Отключаем сигналы чтобы избежать вызовов на удаляемом объекте
+        // Disconnect signals to avoid calls on deleted object
         process->disconnect();
 
-        // Мягкое завершение
+        // Graceful termination
         process->terminate();
 
-        // Асинхронное ожидание — не блокируем UI-поток
+        // Async wait — non-blocking UI thread
         if (!process->waitForFinished(5000)) {
-            qWarning() << "Сервер не завершился за 5с, принудительное убийство...";
+            qWarning() << "Server did not terminate in 5s, force killing...";
             process->kill();
-            // Минимальное ожидание kill (300ms вместо 3000ms)
+            // Minimal kill wait (300ms instead of 3000ms)
             process->waitForFinished(300);
         }
     }
 
-    // Удаляем временную директорию после завершения процесса сервера
+    // Clean up temp directory after server process ends
     if (g_embeddedBackendFile) {
         g_embeddedBackendFile->close();
         g_embeddedBackendFile.clear();
@@ -352,7 +362,7 @@ void stopGoServer()
 }
 
 /**
- * @brief Настройка стиля приложения
+ * @brief Setup application style
  */
 void setupStyle()
 {
@@ -360,61 +370,65 @@ void setupStyle()
 }
 
 /**
- * @brief Главная функция
- * @param argc Количество аргументов
- * @param argv Аргументы командной строки
- * @return Код возврата
+ * @brief Main function
+ * @param argc argument count
+ * @param argv arguments
+ * @return exit code
  */
 int main(int argc, char *argv[])
 {
-    // ── Настройка обработчиков сигналов (до создания QApplication) ──────
+    // ── Setup signal handlers (before QApplication creation) ──────
     setupSignalHandlers();
 
-    // ── Настройка приложения ──────────────────────────────────────────
+#ifdef Q_OS_WIN
+    setupConsoleUTF8();
+#endif
 
-    // Создаём приложение
+    // ── Application setup ──────────────────────────────────────────
+
+    // Create application
     QApplication app(argc, argv);
 
-    // Метаданные приложения
+    // Application metadata
     QApplication::setApplicationName("TorrPlayer");
     QApplication::setApplicationVersion("1.0.0");
     QApplication::setOrganizationName("TorrPlayer");
     QApplication::setOrganizationDomain("torrplayer.app");
 
-    // Логирование
+    // Logging
     qDebug() << "=== TorrPlayer v1.0.0 ===";
-    qDebug() << "Qt версия:" << QT_VERSION_STR;
-    qDebug() << "Директория приложения:" << QApplication::applicationDirPath();
+    qDebug() << "Qt version:" << QT_VERSION_STR;
+    qDebug() << "Application directory:" << QApplication::applicationDirPath();
 
-    // ── Парсинг аргументов ────────────────────────────────────────────
+    // ── Parse arguments ────────────────────────────────────────────────
     QCommandLineParser parser;
-    parser.setApplicationDescription("TorrPlayer — торрент-плеер с P2P синхронизацией");
+    parser.setApplicationDescription("TorrPlayer - torrent player with P2P sync");
     parser.addHelpOption();
     parser.addVersionOption();
 
-    // Опция: URL сервера
+    // Option: server URL
     QCommandLineOption serverUrlOption(
         QStringList() << "s" << "server-url",
-        "URL сервера (например, http://localhost:8889)",
+        "Server URL (e.g., http://localhost:8889)",
         "url");
     parser.addOption(serverUrlOption);
 
-    // Опция: без трея
+    // Option: no tray
     QCommandLineOption noTrayOption(
         QStringList() << "no-tray",
-        "Не использовать системный трей");
+        "Don't use system tray");
     parser.addOption(noTrayOption);
 
-    // Опция: тёмная тема
+    // Option: dark theme
     QCommandLineOption darkThemeOption(
         QStringList() << "dark-theme",
-        "Использовать тёмную тему");
+        "Use dark theme");
     parser.addOption(darkThemeOption);
 
-    // Парсим
+    // Parse
     parser.process(app);
 
-    // ── Настройка стиля ───────────────────────────────────────────────
+    // ── Setup style ────────────────────────────────────────────────
     setupStyle();
 
     if (parser.isSet(darkThemeOption)) {
@@ -435,45 +449,45 @@ int main(int argc, char *argv[])
         app.setPalette(darkPalette);
     }
 
-    // ── Запуск Go backend ─────────────────────────────────────────────
+    // ── Start Go backend ─────────────────────────────────────────────
     bool serverStarted = false;
     if (!parser.isSet(serverUrlOption)) {
-        // Запускаем встроенный сервер если URL не указан
+        // Start embedded server if URL not specified
         serverStarted = startGoServer(&app);
         if (!serverStarted) {
-            qWarning() << "Не удалось запустить встроенный сервер";
+            qWarning() << "Failed to start embedded server";
         }
     }
 
-    // ── Создание главного окна ────────────────────────────────────────
+    // ── Create main window ─────────────────────────────────────────────
     MainWindow mainWindow;
 
-    // Устанавливаем URL сервера если указан
+    // Set server URL if specified
     if (parser.isSet(serverUrlOption)) {
         QUrl serverUrl(parser.value(serverUrlOption));
         mainWindow.setServerUrl(serverUrl);
-        qDebug() << "URL сервера:" << serverUrl.toString();
+        qDebug() << "Server URL:" << serverUrl.toString();
     }
 
-    // Инициализируем главное окно (загружает список торрентов)
+    // Initialize main window (loads torrent list)
     mainWindow.initialize();
 
-    // Показываем окно
+    // Show window
     mainWindow.show();
 
-    // ── Создание системного трея ──────────────────────────────────────
+    // ── Create system tray ─────────────────────────────────────────────
     SystemTray *tray = nullptr;
 
     if (!parser.isSet(noTrayOption)) {
         tray = new SystemTray(&mainWindow);
 
         if (tray->init()) {
-            qDebug() << "Системный трей инициализирован";
+            qDebug() << "System tray initialized";
 
-            // Подключаем сигналы трея
+            // Connect tray signals
             QObject::connect(tray, &SystemTray::quitRequested, &app, &QApplication::quit);
         } else {
-            qDebug() << "Системный трей недоступен";
+            qDebug() << "System tray unavailable";
             delete tray;
             tray = nullptr;
         }
@@ -487,19 +501,19 @@ int main(int argc, char *argv[])
     shutdownPollTimer.setInterval(200);
     QObject::connect(&shutdownPollTimer, &QTimer::timeout, [&app]() {
         if (g_shuttingDown.loadRelaxed()) {
-            qDebug() << "Получен сигнал завершения, инициирую shutdown";
+            qDebug() << "Shutdown signal received, initiating shutdown";
             app.quit();
         }
     });
     shutdownPollTimer.start();
 
-    // ── Запуск цикла событий ─────────────────────────────────────────
-    qDebug() << "Запуск цикла событий...";
+    // ── Run event loop ───────────────────────────────────────────
+    qDebug() << "Launching event loop...";
 
     int result = app.exec();
 
-    // ── Очистка ───────────────────────────────────────────────────────
-    qDebug() << "Завершение приложения...";
+    // ── Cleanup ───────────────────────────────────────────────────────
+    qDebug() << "Application shutdown...";
 
     if (tray) {
         tray->setVisible(false);
@@ -508,6 +522,6 @@ int main(int argc, char *argv[])
 
     stopGoServer();
 
-    qDebug() << "Код возврата:" << result;
+    qDebug() << "Exit code:" << result;
     return result;
 }
