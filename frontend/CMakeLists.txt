@@ -120,14 +120,23 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # OpenGL/OpenGLWidgets linking (optional on macOS due to AGL removal in macOS 14+)
 if(APPLE)
     # On macOS 14+, AGL framework was removed - Qt6::OpenGLWidgets requires it
-    # We must NOT use Qt6::OpenGLWidgets at all when AGL is missing
+    # Check if AGL framework actually exists (not just a stale path)
     find_library(AGL_FRAMEWORK AGL)
     if(AGL_FRAMEWORK)
-        # AGL exists (macOS < 14), can use full OpenGL
-        if(TARGET Qt6::OpenGL AND TARGET Qt6::OpenGLWidgets)
-            target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::OpenGL Qt6::OpenGLWidgets)
+        # Verify the framework actually exists and is accessible
+        get_filename_component(AGL_PARENT "${AGL_FRAMEWORK}" DIRECTORY)
+        get_filename_component(AGL_NAME "${AGL_FRAMEWORK}" NAME)
+        if(EXISTS "${AGL_FRAMEWORK}")
+            # AGL exists (macOS < 14), can use full OpenGL
+            if(TARGET Qt6::OpenGL AND TARGET Qt6::OpenGLWidgets)
+                target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::OpenGL Qt6::OpenGLWidgets)
+            endif()
+            message(STATUS "OpenGL support enabled with AGL framework")
+        else()
+            # AGL path exists but framework not accessible - macOS 14+
+            message(WARNING "AGL framework not accessible on macOS 14+ — building without OpenGL support")
+            target_compile_definitions(${PROJECT_NAME} PRIVATE NO_OPENGL)
         endif()
-        message(STATUS "OpenGL support enabled with AGL framework")
     else()
         # No AGL (macOS 14+) - use NO_OPENGL stub mode
         message(WARNING "AGL framework not found on macOS 14+ — building without OpenGL support")

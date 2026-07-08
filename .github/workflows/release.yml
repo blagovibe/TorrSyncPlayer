@@ -30,7 +30,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake ninja-build pkg-config \
             libmpv-dev libgl1-mesa-dev libgl1-mesa-glx \
-            libxkbcommon-dev libxcb-cursor0 libxcb-iccc libfuse2
+            libxkbcommon-dev libxcb-cursor0 libfuse2
 
       - uses: jurplel/install-qt-action@v4
         with:

@@ -30,6 +30,7 @@ void* MpvWidget::mpvGetProcAddress(void *ctx, const char *name)
     return nullptr;
 #endif
 }
+#endif // HAS_MPV_RENDER
 
 #ifndef NO_OPENGL
 MpvWidget::MpvWidget(QWidget *parent)
@@ -92,6 +93,8 @@ MpvWidget::~MpvWidget()
 #endif
 }
 
+// All GL functions must be defined when QOpenGLWidget is the base class
+#ifndef NO_OPENGL
 void MpvWidget::initializeGL()
 {
 #ifdef HAS_MPV_RENDER
@@ -122,7 +125,7 @@ void MpvWidget::initializeGL()
     }
 
     doneCurrent();
-#endif
+#endif // HAS_MPV_RENDER
 }
 
 void MpvWidget::resizeGL(int w, int h)
@@ -132,7 +135,7 @@ void MpvWidget::resizeGL(int w, int h)
     Q_UNUSED(h);
     // mpv handles scaling automatically via OPENGL_FBO in paintGL
     // No explicit resize needed with newer mpv versions
-#endif
+#endif // HAS_MPV_RENDER
 }
 
 void MpvWidget::paintGL()
@@ -154,7 +157,7 @@ void MpvWidget::paintGL()
 
         doneCurrent();
     }
-#endif
+#endif // HAS_MPV_RENDER
 }
 #else // NO_OPENGL
 // Stub implementations for macOS without AGL
@@ -163,9 +166,9 @@ void MpvWidget::resizeGL(int w, int h) { Q_UNUSED(w); Q_UNUSED(h); }
 void MpvWidget::paintGL() {}
 #endif // NO_OPENGL
 
+#ifdef HAS_MPV
 bool MpvWidget::initializeMpv()
 {
-#ifdef HAS_MPV
     // Check if already initialized
     if (m_initialized.loadRelaxed()) {
         return m_mpv != nullptr;
@@ -221,11 +224,6 @@ bool MpvWidget::initializeMpv()
         return false;
     }
 
-#ifdef HAS_MPV_RENDER
-    // Create OpenGL render context - deferred to initializeGL()
-    // This is because QOpenGLWidget needs a valid context first
-#endif
-
     if (!m_eventTimer) {
         m_eventTimer = new QTimer(this);
         connect(m_eventTimer, &QTimer::timeout, this, &MpvWidget::onMpvEvents);
@@ -241,11 +239,15 @@ bool MpvWidget::initializeMpv()
     QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
 
     qDebug() << "MpvWidget: mpv успешно инициализирован";
-#else
-    qDebug() << "MpvWidget: mpv не поддерживается (собрано без HAS_MPV)";
-#endif
     return true;
 }
+#else // !HAS_MPV
+bool MpvWidget::initializeMpv()
+{
+    qDebug() << "MpvWidget: mpv не поддерживается (собрано без HAS_MPV)";
+    return false;
+}
+#endif // HAS_MPV
 
 void MpvWidget::play(const QString &url)
 {
@@ -284,7 +286,7 @@ void MpvWidget::play(const QString &url)
 #else
     Q_UNUSED(url);
     qDebug() << "MpvWidget: воспроизведение невозможно (собрано без HAS_MPV)";
-#endif
+#endif // HAS_MPV
 }
 
 void MpvWidget::pause()
@@ -301,7 +303,7 @@ void MpvWidget::pause()
     qDebug() << "MpvWidget: пауза";
 #else
     qDebug() << "MpvWidget: пауза невозможна (собрано без HAS_MPV)";
-#endif
+#endif // HAS_MPV
 }
 
 void MpvWidget::resume()
@@ -318,7 +320,7 @@ void MpvWidget::resume()
     qDebug() << "MpvWidget: возобновление";
 #else
     qDebug() << "MpvWidget: возобновление невозможно (собрано без HAS_MPV)";
-#endif
+#endif // HAS_MPV
 }
 
 void MpvWidget::seek(double position)
@@ -347,7 +349,7 @@ void MpvWidget::seek(double position)
 #else
     Q_UNUSED(position);
     qDebug() << "MpvWidget: перемотка невозможна (собрано без HAS_MPV)";
-#endif
+#endif // HAS_MPV
 }
 
 void MpvWidget::onSeekDebounceTimeout()
@@ -375,7 +377,7 @@ void MpvWidget::onSeekDebounceTimeout()
     qDebug() << "MpvWidget: перемотка выполнена на" << position;
 #else
     qDebug() << "MpvWidget: перемотка невозможна (собрано без HAS_MPV)";
-#endif
+#endif // HAS_MPV
 }
 
 double MpvWidget::position() const
@@ -389,7 +391,7 @@ double MpvWidget::position() const
     return m_position;
 #else
     return 0.0;
-#endif
+#endif // HAS_MPV
 }
 
 double MpvWidget::duration() const
@@ -403,7 +405,7 @@ double MpvWidget::duration() const
     return m_duration;
 #else
     return 0.0;
-#endif
+#endif // HAS_MPV
 }
 
 bool MpvWidget::isPaused() const
@@ -419,7 +421,7 @@ bool MpvWidget::isPaused() const
     return paused != 0;
 #else
     return true;
-#endif
+#endif // HAS_MPV
 }
 
 bool MpvWidget::event(QEvent *event)
@@ -458,21 +460,21 @@ void MpvWidget::showEvent(QShowEvent *event)
                 (void)initializeMpv();
             }
 #ifdef HAS_MPV_RENDER
-            // Reinitialize OpenGL context now that we have a valid surface
 #ifndef NO_OPENGL
-            if (m_mpv && !m_mpvGL) {
-                initializeGL();
-            }
-#endif
-#endif
+                // Reinitialize OpenGL context now that we have a valid surface
+                if (m_mpv && !m_mpvGL) {
+                    initializeGL();
+                }
+#endif // NO_OPENGL
+#endif // HAS_MPV_RENDER
         });
     }
-#endif
+#endif // HAS_MPV
 }
 
+#ifdef HAS_MPV
 void MpvWidget::onMpvEvents()
 {
-#ifdef HAS_MPV
     QMutexLocker locker(&m_mutex);
     if (!m_mpv || m_destroying.loadRelaxed()) return;
 
@@ -495,10 +497,10 @@ void MpvWidget::onMpvEvents()
     }
     // Trigger repaint after processing events
     update();
-#else
-    qDebug() << "MpvWidget: onMpvEvents вызван без поддержки mpv";
-#endif
 }
+#else
+void MpvWidget::onMpvEvents() { qDebug() << "MpvWidget: onMpvEvents вызван без поддержки mpv"; }
+#endif // HAS_MPV
 
 #ifdef HAS_MPV
 void MpvWidget::processMpvEvent(mpv_event *event)
@@ -592,7 +594,7 @@ void MpvWidget::processMpvEvent(mpv_event *event)
         break;
     }
 }
-#endif
+#endif // HAS_MPV
 
 void MpvWidget::emitBufferedEvents()
 {
@@ -633,4 +635,4 @@ int MpvWidget::getProperty(const char *name, mpv_format format, void *data)
 
     return mpv_get_property(m_mpv, name, format, data);
 }
-#endif
+#endif // HAS_MPV
