@@ -185,21 +185,6 @@ protected:
      */
     void showEvent(QShowEvent *event) override;
 
-    /**
-     * @brief Обработка событий виджета
-     * Перехватывает события mpv для обработки в основном потоке
-     * @param event Событие Qt
-     * @return true если событие обработано
-     */
-    bool event(QEvent *event) override;
-
-    /**
-     * @brief Обработка показа виджета
-     * Инициализирует контекст рендеринга при первом показе
-     * @param event Событие показа
-     */
-    void showEvent(QShowEvent *event) override;
-
 private slots:
     /**
      * @brief Обработка событий mpv в основном потоке

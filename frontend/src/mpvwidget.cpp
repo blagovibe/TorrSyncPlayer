@@ -5,8 +5,10 @@
 
 #include "mpvwidget.h"
 
-#include <QDebug>
-#include <QTimer>
+#ifndef NO_OPENGL
+#include <QOpenGLContext>
+#include <QOpenGLFramebufferObject>
+#endif
 #include <QWindow>
 #include <QGuiApplication>
 #include <QMetaObject>
@@ -17,15 +19,9 @@ static const int MPV_EVENT_TIMER_MS = 30;
 // Задержка debounce для перемотки (мс)
 static const int SEEK_DEBOUNCE_MS = 300;
 
-#ifndef NO_OPENGL
-#include <QOpenGLContext>
-#include <QOpenGLFramebufferObject>
-#endif
-
 #ifdef HAS_MPV_RENDER
 void* MpvWidget::mpvGetProcAddress(void *ctx, const char *name)
 {
-    Q_UNUSED(ctx);
 #ifndef NO_OPENGL
     QOpenGLContext *glctx = QOpenGLContext::currentContext();
     if (!glctx) return nullptr;
@@ -34,7 +30,6 @@ void* MpvWidget::mpvGetProcAddress(void *ctx, const char *name)
     return nullptr;
 #endif
 }
-#endif
 
 #ifndef NO_OPENGL
 MpvWidget::MpvWidget(QWidget *parent)
@@ -97,8 +92,6 @@ MpvWidget::~MpvWidget()
 #endif
 }
 
-
-#ifndef NO_OPENGL
 void MpvWidget::initializeGL()
 {
 #ifdef HAS_MPV_RENDER
@@ -134,9 +127,12 @@ void MpvWidget::initializeGL()
 
 void MpvWidget::resizeGL(int w, int h)
 {
+#ifdef HAS_MPV_RENDER
     Q_UNUSED(w);
     Q_UNUSED(h);
-    // mpv handles scaling automatically
+    // mpv handles scaling automatically via OPENGL_FBO in paintGL
+    // No explicit resize needed with newer mpv versions
+#endif
 }
 
 void MpvWidget::paintGL()
@@ -155,6 +151,7 @@ void MpvWidget::paintGL()
         };
 
         mpv_render_context_render(m_mpvGL, params);
+
         doneCurrent();
     }
 #endif
@@ -166,6 +163,67 @@ void MpvWidget::resizeGL(int w, int h) { Q_UNUSED(w); Q_UNUSED(h); }
 void MpvWidget::paintGL() {}
 #endif // NO_OPENGL
 
+bool MpvWidget::initializeMpv()
+{
+#ifdef HAS_MPV
+    // Check if already initialized
+    if (m_initialized.loadRelaxed()) {
+        return m_mpv != nullptr;
+    }
+    
+    // Check if destroying
+    if (m_destroying.loadRelaxed()) {
+        return false;
+    }
+
+    QMutexLocker locker(&m_mutex);
+
+    // Double-check under lock
+    if (m_initialized.loadRelaxed() || m_mpv != nullptr) {
+        locker.unlock();
+        return m_mpv != nullptr;
+    }
+
+    // Создаём экземпляр mpv
+    m_mpv = mpv_create();
+    if (!m_mpv) {
+        MpvEventData event;
+        event.type = MpvEventData::Error;
+        event.message = tr("Не удалось создать mpv экземпляр");
+        m_eventBuffer.append(event);
+        QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
+        return false;
+    }
+
+    // Настройки mpv
+    auto setOpt = [](mpv_handle *mpv, const char *name, const char *val) {
+        int err = mpv_set_option_string(mpv, name, val);
+        if (err < 0)
+            qWarning() << "mpv option failed:" << name << mpv_error_string(err);
+    };
+    setOpt(m_mpv, "vo", "libmpv");
+    setOpt(m_mpv, "hwdec", "auto");
+    setOpt(m_mpv, "cache", "yes");
+    setOpt(m_mpv, "cache-secs", "30");
+    setOpt(m_mpv, "demuxer-max-bytes", "150M");
+    setOpt(m_mpv, "demuxer-max-back-bytes", "50M");
+    setOpt(m_mpv, "ao", "null");
+
+    int err = mpv_initialize(m_mpv);
+    if (err < 0) {
+        MpvEventData event;
+        event.type = MpvEventData::Error;
+        event.message = tr("Ошибка инициализации mpv: %1").arg(mpv_error_string(err));
+        m_eventBuffer.append(event);
+        mpv_terminate_destroy(m_mpv);
+        m_mpv = nullptr;
+        QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
+        return false;
+    }
+
+#ifdef HAS_MPV_RENDER
+    // Create OpenGL render context - deferred to initializeGL()
+    // This is because QOpenGLWidget needs a valid context first
 #endif
 
     if (!m_eventTimer) {
@@ -400,8 +458,8 @@ void MpvWidget::showEvent(QShowEvent *event)
                 (void)initializeMpv();
             }
 #ifdef HAS_MPV_RENDER
-#ifndef NO_OPENGL
             // Reinitialize OpenGL context now that we have a valid surface
+#ifndef NO_OPENGL
             if (m_mpv && !m_mpvGL) {
                 initializeGL();
             }
