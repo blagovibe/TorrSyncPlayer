@@ -35,6 +35,7 @@ jobs:
           version: "v2.12.2"
           install-mode: "binary"
           working-directory: backend
+          skip-cache: true
 
       - name: Run golangci-lint
         working-directory: backend
