@@ -40,9 +40,9 @@ endif()
 # AGL framework was removed in macOS 14+. We create stub framework to satisfy linker.
 # Qt6::Widgets may transitively add -framework AGL even when OpenGLWidgets is not linked.
 if(APPLE)
-    # Create AGL.framework structure in build directory BEFORE any targets are linked
+    # Create AGL.framework structure in build directory
     set(AGL_FW_PATH "${CMAKE_BINARY_DIR}/AGL.framework")
-    set(AGL_DYLIB "${AGL_FW_PATH}/Versions/A/AGL")
+    set(AGL_LIB_PATH "${AGL_FW_PATH}/AGL")
     
     # Create framework directory structure
     file(MAKE_DIRECTORY "${AGL_FW_PATH}/Versions/A/Headers")
@@ -50,50 +50,30 @@ if(APPLE)
     file(MAKE_DIRECTORY "${AGL_FW_PATH}/Headers")
     file(MAKE_DIRECTORY "${AGL_FW_PATH}/Resources")
     
-    # Write minimal Info.plist for framework (must exist for valid framework)
+    # Write minimal Info.plist for framework
     file(WRITE "${AGL_FW_PATH}/Versions/A/Resources/Info.plist"
-"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-    <key>CFBundlePackageType</key>
-    <string>FMWK</string>
-</dict>
-</plist>"
+"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>CFBundlePackageType</key>\n    <string>FMWK</string>\n</dict>\n</plist>"
     )
     
-    # Find clang for creating stub dylib (CMAKE_C_COMPILER may not be set yet)
-    find_program(CLANG_EXE "clang")
-    if(NOT CLANG_EXE)
-        find_program(CLANG_EXE "clang++")
-    endif()
-    
-    # Create minimal empty dylib using clang
-    # We create a truly empty dynamic library that satisfies -framework AGL requirement
+    # Create stub source file (minimal C file)
     set(AGL_STUB_SRC "${CMAKE_BINARY_DIR}/agl_stub.c")
-    file(WRITE "${AGL_STUB_SRC}" "void _agl_stub_placeholder(){}")
+    file(WRITE "${AGL_STUB_SRC}" "void aglDummySymbol(){}")
     
+    # Try to create dylib using clang from PATH
+    find_program(CLANG_EXE "clang")
     if(CLANG_EXE)
         execute_process(
             COMMAND ${CLANG_EXE} -dynamiclib -install_name AGL.framework/AGL
-                    -o "${AGL_DYLIB}" "${AGL_STUB_SRC}" -lc
-            RESULT_VARIABLE AGL_STUB_RESULT
-            ERROR_QUIET
+                    -o "${AGL_LIB_PATH}" "${AGL_STUB_SRC}" -lc
+            RESULT_VARIABLE AGL_RESULT
+            ERROR_VARIABLE AGL_ERROR
+            OUTPUT_VARIABLE AGL_OUTPUT
         )
-    else()
-        set(AGL_STUB_RESULT 1)
-    endif()
-    
-    if(EXISTS "${AGL_DYLIB}")
-        message(STATUS "Created AGL.framework stub at ${AGL_FW_PATH}")
-        # Create symlink for framework top-level
-        file(CREATE_LINK "${AGL_FW_PATH}/Versions/A/AGL" "${AGL_FW_PATH}/AGL" SYMBOLIC)
-        # Prepend to framework search paths so linker finds our AGL.framework before system framework
-        set(CMAKE_FRAMEWORK_PATH "${CMAKE_BINARY_DIR}" CACHE STRING "Framework search paths" FORCE)
-    else()
-        # Fallback: use -weak_framework flag for linker to make AGL optional
-        message(STATUS "AGL.framework stub creation failed - using weak_framework fallback")
-        set(CMAKE_EXE_LINKER_FLAGS "-Wl,-weak_framework,AGL" CACHE STRING "Linker flags" FORCE)
+        if(EXISTS "${AGL_LIB_PATH}")
+            message(STATUS "Created AGL.framework stub at ${AGL_FW_PATH}")
+        else()
+            message(STATUS "AGL.framework stub creation failed: ${AGL_ERROR}")
+        endif()
     endif()
 endif()
 
@@ -182,12 +162,13 @@ if(NOT APPLE)
     )
 else()
     # On macOS 14+, AGL framework was removed - use NO_OPENGL mode
-    # We have stub AGL.framework created above or weak_framework fallback
     target_link_libraries(${PROJECT_NAME} PRIVATE
         Qt6::Widgets
         Qt6::Svg
     )
     target_compile_definitions(${PROJECT_NAME} PRIVATE NO_OPENGL)
+    # Add framework search path for our AGL.framework stub
+    target_link_options(${PROJECT_NAME} PRIVATE "-F${CMAKE_BINARY_DIR}")
 endif()
 
 if(MPV_FOUND)
