@@ -79,18 +79,24 @@ jobs:
           Type=Application
           Categories=AudioVideo;
           EOF
-          export QMAKE=$(which qmake6 || which qmake)
+export QMAKE=$(which qmake6 || which qmake)
           export LDAI_OUTPUT=TorrSyncPlayer
           export QT_QPA_PLATFORM=offscreen
           echo "=== Running linuxdeploy ==="
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la *.AppImage 2>&1; exit 1; }
-          # linuxdeploy may create either TorrSyncPlayer-x86_64.AppImage or TorrSyncPlayer.AppImage depending on version
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la; exit 1; }
+          echo "=== Checking for AppImage ==="
+          # appimagetool creates file without .AppImage extension by default
+          # Need to add extension and make it executable
           if [ -f TorrSyncPlayer-x86_64.AppImage ]; then
               mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
+          elif [ -f "TorrSyncPlayer" ] && [ ! -f TorrSyncPlayer-x86_64.AppImage ]; then
+              # Rename to proper AppImage name (appimagetool creates file without extension)
+              mv TorrSyncPlayer ../../TorrSyncPlayer-linux-x64.AppImage
           elif [ -f TorrSyncPlayer.AppImage ]; then
               mv TorrSyncPlayer.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
           else
-              echo "AppImage not created"; exit 1
+              echo "AppImage not found, listing all files:"; ls -la
+              exit 1
           fi
 
       - name: Upload AppImage
