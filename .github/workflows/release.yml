@@ -55,20 +55,35 @@ jobs:
           cd frontend/build
           LINUXDEPLOY_VERSION="1-alpha-20251107-1"
           BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}"
+          PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1"
 
-          wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage"
-          wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage.sha256"
+          wget "${BASE_URL}/linuxdeploy-x86_64.AppImage" || { echo "Failed to download linuxdeploy"; exit 1; }
+          wget "${BASE_URL}/linuxdeploy-x86_64.AppImage.sha256" || { echo "Failed to download linuxdeploy sha256"; exit 1; }
           CHECK=$(sha256sum linuxdeploy-x86_64.AppImage | cut -d' ' -f1)
           EXPECTED=$(cat linuxdeploy-x86_64.AppImage.sha256 | tr -s ' ' | cut -d' ' -f1)
           if [ "$CHECK" != "$EXPECTED" ]; then echo "linuxdeploy checksum mismatch"; exit 1; fi
           chmod +x linuxdeploy-x86_64.AppImage
 
-          wget -q "${BASE_URL}/linuxdeploy-plugin-qt-x86_64.AppImage"
-          wget -q "${BASE_URL}/linuxdeploy-plugin-qt-x86_64.AppImage.sha256"
+          # Download and make plugin executable
+          wget "${PLUGIN_URL}/linuxdeploy-plugin-qt-x86_64.AppImage" || { echo "Failed to download linuxdeploy-plugin-qt"; exit 1; }
+          wget "${PLUGIN_URL}/linuxdeploy-plugin-qt-x86_64.AppImage.sha256" || { echo "Failed to download linuxdeploy-plugin-qt sha256"; exit 1; }
           CHECK=$(sha256sum linuxdeploy-plugin-qt-x86_64.AppImage | cut -d' ' -f1)
           EXPECTED=$(cat linuxdeploy-plugin-qt-x86_64.AppImage.sha256 | tr -s ' ' | cut -d' ' -f1)
           if [ "$CHECK" != "$EXPECTED" ]; then echo "linuxdeploy-plugin-qt checksum mismatch"; exit 1; fi
           chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
+
+          # Debug: show what files we have
+          echo "=== Build directory contents ==="
+          ls -la TorrSyncPlayer 2>&1 || echo "TorrSyncPlayer not found in build dir"
+          ls -la *.so 2>&1 || echo "No .so files in build dir"
+          echo "=== Plugin check ==="
+          file linuxdeploy-plugin-qt-x86_64.AppImage 2>&1 || echo "Plugin not found"
+          
+          # Debug: show what files we have
+          echo "=== Build directory contents ==="
+          ls -la TorrSyncPlayer 2>&1 || echo "TorrSyncPlayer not found in build dir"
+          ls -la *.so 2>&1 || echo "No .so files in build dir"
+          
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
@@ -87,8 +102,13 @@ jobs:
           export QMAKE=$(which qmake6 || which qmake)
           export LDAI_OUTPUT=TorrSyncPlayer
           export QT_QPA_PLATFORM=offscreen
-          # Extract and run without FUSE
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run --appdir AppDir --plugin qt --output appimage -v 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la AppDir/usr/bin/ 2>&1; exit 1; }
+          # Check available plugins
+          echo "=== Available plugins ==="
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run --list-plugins 2>&1 || true
+          echo "=== Running linuxdeploy ==="
+          # Extract and run without FUSE - plugin should be in same directory
+          # Use -e to specify executable explicitly
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage -v 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la AppDir/usr/bin/ 2>&1; exit 1; }
           if [ ! -f TorrSyncPlayer-x86_64.AppImage ]; then echo "AppImage not created"; exit 1; fi
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
