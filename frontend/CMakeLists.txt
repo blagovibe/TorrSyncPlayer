@@ -36,14 +36,55 @@ if(STATIC_BUILD)
     endif()
 endif()
 
-# ── macOS AGL framework handling (framework removed in macOS 14+) ───────────
-# AGL framework was removed in macOS 14+. Use linker flag to ignore missing frameworks.
+# ── macOS AGL framework handling (removed in macOS 14+) ────────────────────
+# AGL framework was removed in macOS 14+. We create stub framework to satisfy linker.
 # Qt6::Widgets may transitively add -framework AGL even when OpenGLWidgets is not linked.
 if(APPLE)
-    # Add linker flag to allow missing framework symbols
-    # -undefined dynamic_lookup makes all symbols optional at link time
-    # This is safe because NO_OPENGL is defined and we don't use AGL symbols
-    add_link_options(-Wl,-undefined,dynamic_lookup)
+    # Create AGL.framework structure in build directory BEFORE any targets are linked
+    set(AGL_FW_PATH "${CMAKE_BINARY_DIR}/AGL.framework")
+    set(AGL_DYLIB "${AGL_FW_PATH}/Versions/A/AGL")
+    
+    # Create framework directory structure
+    file(MAKE_DIRECTORY "${AGL_FW_PATH}/Versions/A/Headers")
+    file(MAKE_DIRECTORY "${AGL_FW_PATH}/Versions/A/Resources")
+    file(MAKE_DIRECTORY "${AGL_FW_PATH}/Headers")
+    file(MAKE_DIRECTORY "${AGL_FW_PATH}/Resources")
+    
+    # Write minimal Info.plist for framework (must exist for valid framework)
+    file(WRITE "${AGL_FW_PATH}/Versions/A/Resources/Info.plist"
+"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+</dict>
+</plist>"
+    )
+    
+    # Create minimal empty dylib
+    # We create a truly empty dynamic library that satisfies -framework AGL requirement
+    set(AGL_STUB_SRC "${CMAKE_BINARY_DIR}/agl_stub.c")
+    file(WRITE "${AGL_STUB_SRC}" "void _agl_stub_placeholder(){}")
+    
+    execute_process(
+        COMMAND ${CMAKE_C_COMPILER} -dynamiclib -install_name AGL.framework/AGL
+                -o "${AGL_DYLIB}" "${AGL_STUB_SRC}" -lc
+        RESULT_VARIABLE AGL_STUB_RESULT
+        ERROR_QUIET
+    )
+    
+    if(EXISTS "${AGL_DYLIB}")
+        message(STATUS "Created AGL.framework stub at ${AGL_FW_PATH}")
+        # Create symlink for framework top-level
+        file(CREATE_LINK "${AGL_FW_PATH}/Versions/A/AGL" "${AGL_FW_PATH}/AGL" SYMBOLIC)
+        # Prepend to framework search paths so linker finds our AGL.framework before system framework
+        set(CMAKE_FRAMEWORK_PATH "${CMAKE_BINARY_DIR}" CACHE STRING "Framework search paths" FORCE)
+    else()
+        # Fallback: use -weak_framework flag for linker to make AGL optional
+        message(STATUS "AGL.framework stub creation failed - using weak_framework fallback")
+        set(CMAKE_EXE_LINKER_FLAGS "-Wl,-weak_framework,AGL" CACHE STRING "Linker flags" FORCE)
+    endif()
 endif()
 
 # ── Поиск зависимостей ────────────────────────────────────────────────
@@ -118,20 +159,25 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core
     Qt6::Gui
-    Qt6::Widgets
     Qt6::Network
-    Qt6::Svg
 )
 
-# OpenGL/OpenGLWidgets linking (optional on macOS due to AGL removal in macOS 14+)
-if(APPLE)
-    # On macOS 14+, AGL framework was removed - Qt6::OpenGLWidgets cannot be used
-    # Always build without OpenGL on macOS to avoid AGL linker errors
-    message(WARNING "macOS: building without OpenGL/AGL support (macOS 14+ compatibility)")
-    target_compile_definitions(${PROJECT_NAME} PRIVATE NO_OPENGL)
-else()
+if(NOT APPLE)
     # Not macOS - use OpenGL/OpenGLWidgets normally
-    target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::OpenGL Qt6::OpenGLWidgets)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        Qt6::Widgets
+        Qt6::Svg
+        Qt6::OpenGL
+        Qt6::OpenGLWidgets
+    )
+else()
+    # On macOS 14+, AGL framework was removed - use NO_OPENGL mode
+    # We have stub AGL.framework created above or weak_framework fallback
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        Qt6::Widgets
+        Qt6::Svg
+    )
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NO_OPENGL)
 endif()
 
 if(MPV_FOUND)
@@ -306,19 +352,31 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_link_libraries(test_mpvwidget PRIVATE
             Qt6::Core
             Qt6::Gui
-            Qt6::OpenGL
-            Qt6::OpenGLWidgets
             Qt6::Test
             ${MPV_LIBRARIES}
         )
 
+        # OpenGL/OpenGLWidgets not available on macOS 14+ due to AGL removal
+        if(NOT APPLE)
+            target_link_libraries(test_mpvwidget PRIVATE
+                Qt6::OpenGL
+                Qt6::OpenGLWidgets
+            )
+            target_compile_definitions(test_mpvwidget PRIVATE
+                HAS_MPV
+                HAS_MPV_RENDER
+            )
+        else()
+            # macOS: NO_OPENGL mode - test will have limited functionality
+            target_compile_definitions(test_mpvwidget PRIVATE
+                HAS_MPV
+                HAS_MPV_RENDER
+                NO_OPENGL
+            )
+        endif()
+
         target_include_directories(test_mpvwidget PRIVATE
             ${MPV_INCLUDE_DIRS}
-        )
-
-        target_compile_definitions(test_mpvwidget PRIVATE
-            HAS_MPV
-            HAS_MPV_RENDER
         )
 
         add_test(NAME MpvWidgetTest COMMAND test_mpvwidget)
