@@ -36,31 +36,53 @@ if(STATIC_BUILD)
     endif()
 endif()
 
-# ── macOS AGL framework stub (removed in macOS 14+) ────────────────────────
-# Create AGL.framework stub BEFORE find_package(Qt6) to satisfy -framework AGL linking
-# Qt6::Widgets may transitively add -framework AGL even when OpenGLWidgets is not linked
+# ── macOS AGL framework stub (removed in macOS 14+) ───────────────────────
+# AGL framework was removed in macOS 14+. We create stub frameworks to satisfy linker.
+# Qt6::Widgets may transitively add -framework AGL even when OpenGLWidgets is not linked.
 if(APPLE)
-    set(AGL_FRAMEWORK_PATH "${CMAKE_BINARY_DIR}/AGL.framework")
-    set(OPENGL_FRAMEWORK_PATH "${CMAKE_BINARY_DIR}/OpenGL.framework")
+    # Create complete AGL.framework structure
+    # On macOS, -framework AGL looks for AGL.framework/AGL (dylib with framework name)
+    set(AGL_FW "${CMAKE_BINARY_DIR}/AGL.framework")
+    set(OPENGL_FW "${CMAKE_BINARY_DIR}/OpenGL.framework")
     
-    # Create AGL.framework structure
-    file(MAKE_DIRECTORY "${AGL_FRAMEWORK_PATH}/Versions/A")
-    file(MAKE_DIRECTORY "${AGL_FRAMEWORK_PATH}/Headers")
-    file(MAKE_DIRECTORY "${AGL_FRAMEWORK_PATH}/Resources")
-    file(WRITE "${AGL_FRAMEWORK_PATH}/Headers/AGL.h" "// AGL stub - framework removed in macOS 14+")
-    file(WRITE "${AGL_FRAMEWORK_PATH}/Resources/Info.plist" 
-"<?xml version='1.0' encoding='UTF-8'?><plist version='1.0'><dict><key>CFBundlePackageType</key><string>FMWK</string></dict></plist>")
+    file(MAKE_DIRECTORY "${AGL_FW}/Versions/A/Headers")
+    file(MAKE_DIRECTORY "${AGL_FW}/Versions/A/Resources")
+    file(MAKE_DIRECTORY "${AGL_FW}/Headers")
+    file(MAKE_DIRECTORY "${AGL_FW}/Resources")
     
-    # Create OpenGL.framework structure
-    file(MAKE_DIRECTORY "${OPENGL_FRAMEWORK_PATH}/Versions/A")
-    file(MAKE_DIRECTORY "${OPENGL_FRAMEWORK_PATH}/Headers")
-    file(MAKE_DIRECTORY "${OPENGL_FRAMEWORK_PATH}/Resources")
-    file(WRITE "${OPENGL_FRAMEWORK_PATH}/Headers/OpenGL.h" "// OpenGL stub - deprecated in macOS 14+")
-    file(WRITE "${OPENGL_FRAMEWORK_PATH}/Resources/Info.plist" 
-"<?xml version='1.0' encoding='UTF-8'?><plist version='1.0'><dict><key>CFBundlePackageType</key><string>FMWK</string></dict></plist>")
+    file(MAKE_DIRECTORY "${OPENGL_FW}/Versions/A/Headers")
+    file(MAKE_DIRECTORY "${OPENGL_FW}/Versions/A/Resources")
+    file(MAKE_DIRECTORY "${OPENGL_FW}/Headers")
+    file(MAKE_DIRECTORY "${OPENGL_FW}/Resources")
     
-    # Add to framework search path - must be set before linking
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " -F${CMAKE_BINARY_DIR}")
+    # Write Info.plist files
+    file(WRITE "${AGL_FW}/Versions/A/Resources/Info.plist" "<!DOCTYPE plist><plist><dict><key>CFBundlePackageType</key><string>FMWK</string></dict></plist>")
+    file(WRITE "${OPENGL_FW}/Versions/A/Resources/Info.plist" "<!DOCTYPE plist><plist><dict><key>CFBundlePackageType</key><string>FMWK</string></dict></plist>")
+    
+    # Create empty stubs with actual code that will compile to dylib
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/agl_stub.c" "void __agl_stub_placeholder(){}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/opengl_stub.c" "void __opengl_stub_placeholder(){}")
+    
+    # Create stub libraries - dylib must be named exactly "AGL" and "OpenGL"
+    # Using SHARED creates .dylib with lib prefix, so we remove prefix
+    add_library(agl_stub SHARED "${CMAKE_CURRENT_BINARY_DIR}/agl_stub.c")
+    add_library(opengl_stub SHARED "${CMAKE_CURRENT_BINARY_DIR}/opengl_stub.c")
+    
+    # Produce AGL.dylib (not libAGL.dylib) in framework dirs
+    set_target_properties(agl_stub PROPERTIES 
+        POSITION_INDEPENDENT_CODE ON
+        LIBRARY_OUTPUT_DIRECTORY "${AGL_FW}/Versions/A"
+        PREFIX ""
+        OUTPUT_NAME "AGL"
+        SUFFIX ".dylib"
+    )
+    set_target_properties(opengl_stub PROPERTIES 
+        POSITION_INDEPENDENT_CODE ON
+        LIBRARY_OUTPUT_DIRECTORY "${OPENGL_FW}/Versions/A"
+        PREFIX ""
+        OUTPUT_NAME "OpenGL"
+        SUFFIX ".dylib"
+    )
 endif()
 
 # ── Поиск зависимостей ────────────────────────────────────────────────
@@ -354,22 +376,3 @@ message(STATUS "libmpv найден: ${MPV_VERSION}")
 
 # ── Установка ──────────────────────────────────────────────────────────
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
-
-# ── macOS AGL/OpenGL stub libraries (frameworks removed in macOS 14+) ───────
-# Create empty static libraries that satisfy -framework AGL/OpenGL linking
-if(APPLE)
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/agl_stub.c" "")
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/opengl_stub.c" "")
-    add_library(agl_stub_lib STATIC "${CMAKE_CURRENT_BINARY_DIR}/agl_stub.c")
-    add_library(opengl_stub_lib STATIC "${CMAKE_CURRENT_BINARY_DIR}/opengl_stub.c")
-    set_target_properties(agl_stub_lib PROPERTIES 
-        OUTPUT_NAME "AGL" 
-        POSITION_INDEPENDENT_CODE ON
-        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/AGL.framework/Versions/A"
-    )
-    set_target_properties(opengl_stub_lib PROPERTIES 
-        OUTPUT_NAME "OpenGL" 
-        POSITION_INDEPENDENT_CODE ON
-        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OpenGL.framework/Versions/A"
-    )
-endif()
