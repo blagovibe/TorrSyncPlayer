@@ -62,17 +62,27 @@ if(APPLE)
 </plist>"
     )
     
-    # Create minimal empty dylib
+    # Find clang for creating stub dylib (CMAKE_C_COMPILER may not be set yet)
+    find_program(CLANG_EXE "clang")
+    if(NOT CLANG_EXE)
+        find_program(CLANG_EXE "clang++")
+    endif()
+    
+    # Create minimal empty dylib using clang
     # We create a truly empty dynamic library that satisfies -framework AGL requirement
     set(AGL_STUB_SRC "${CMAKE_BINARY_DIR}/agl_stub.c")
     file(WRITE "${AGL_STUB_SRC}" "void _agl_stub_placeholder(){}")
     
-    execute_process(
-        COMMAND ${CMAKE_C_COMPILER} -dynamiclib -install_name AGL.framework/AGL
-                -o "${AGL_DYLIB}" "${AGL_STUB_SRC}" -lc
-        RESULT_VARIABLE AGL_STUB_RESULT
-        ERROR_QUIET
-    )
+    if(CLANG_EXE)
+        execute_process(
+            COMMAND ${CLANG_EXE} -dynamiclib -install_name AGL.framework/AGL
+                    -o "${AGL_DYLIB}" "${AGL_STUB_SRC}" -lc
+            RESULT_VARIABLE AGL_STUB_RESULT
+            ERROR_QUIET
+        )
+    else()
+        set(AGL_STUB_RESULT 1)
+    endif()
     
     if(EXISTS "${AGL_DYLIB}")
         message(STATUS "Created AGL.framework stub at ${AGL_FW_PATH}")
