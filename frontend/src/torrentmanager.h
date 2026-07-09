@@ -70,6 +70,12 @@ public slots:
      * @param magnetUri Magnet-ссылка
      */
     void addTorrent(const QString &magnetUri);
+
+    /**
+     * @brief Добавить торрент из файла .torrent
+     * @param torrentData Содержимое файла .torrent (bencoded)
+     */
+    void addTorrentFile(const QByteArray &torrentData);
     
     /**
      * @brief Удалить торрент по ID

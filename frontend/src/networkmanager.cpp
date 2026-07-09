@@ -141,6 +141,28 @@ void NetworkManager::addTorrent(const QString &magnetUri)
     sendWithRetry("POST", "/api/v1/torrents", RequestType::AddTorrent, body);
 }
 
+void NetworkManager::addTorrentFile(const QByteArray &torrentData)
+{
+    // Валидация размера файла
+    if (torrentData.isEmpty()) {
+        emit error(tr("Файл .torrent пуст"));
+        return;
+    }
+
+    const qint64 maxTorrentSize = 1024 * 1024; // 1MB max (matches backend MaxTorrentFileSize)
+    if (torrentData.size() > maxTorrentSize) {
+        emit error(tr("Файл .torrent слишком большой (максимум %1 МБ)").arg(maxTorrentSize / (1024 * 1024)));
+        return;
+    }
+
+    // Кодируем в base64
+    QByteArray base64Data = torrentData.toBase64();
+
+    QJsonObject body;
+    body["torrentFile"] = QString::fromUtf8(base64Data);
+    sendWithRetry("POST", "/api/v1/torrents", RequestType::AddTorrent, body);
+}
+
 void NetworkManager::removeTorrent(const QString &id)
 {
     // Валидация ID торрента

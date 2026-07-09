@@ -4,6 +4,7 @@ package internal
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 type TorrentService interface {
 	AddMagnet(ctx context.Context, magnetURI string) (*models.TorrentInfo, error)
+	AddTorrent(ctx context.Context, torrentData io.Reader) (*models.TorrentInfo, error)
 	RemoveTorrent(ctx context.Context, id string) error
 	ListTorrents(ctx context.Context) []*models.TorrentInfo
 	GetFiles(ctx context.Context, torrentID string) ([]models.FileInfo, error)

@@ -41,7 +41,8 @@ type P2PEvent struct {
 
 // AddTorrentRequest request to add a torrent
 type AddTorrentRequest struct {
-	MagnetURI string `json:"magnetUri"`
+	MagnetURI   string `json:"magnetUri,omitempty"`
+	TorrentFile string `json:"torrentFile,omitempty"` // base64 encoded torrent file content
 }
 
 // CreateRoomRequest request to create a room

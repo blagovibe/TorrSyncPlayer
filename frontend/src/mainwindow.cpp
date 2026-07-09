@@ -31,6 +31,8 @@
 #include <QApplication>
 #include <QThread>
 #include <QTimer>
+#include <QFileDialog>
+#include <QFile>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -135,6 +137,11 @@ QWidget* MainWindow::createLeftPanel()
     m_addButton->setToolTip(tr("Добавить торрент"));
     m_addButton->setFixedWidth(40);
     inputLayout->addWidget(m_addButton);
+
+    m_addFileButton = new QPushButton(tr("📁"), this);
+    m_addFileButton->setToolTip(tr("Добавить .torrent файл"));
+    m_addFileButton->setFixedWidth(40);
+    inputLayout->addWidget(m_addFileButton);
     layout->addLayout(inputLayout);
 
     // Список торрентов
@@ -249,6 +256,7 @@ void MainWindow::setupConnections()
 {
     // UI элементы
     connect(m_addButton, &QPushButton::clicked, this, &MainWindow::onAddTorrent);
+    connect(m_addFileButton, &QPushButton::clicked, this, &MainWindow::onAddTorrentFile);
     connect(m_magnetInput, &QLineEdit::returnPressed, this, &MainWindow::onAddTorrent);
     connect(m_torrentList, &QListView::doubleClicked, this, &MainWindow::onTorrentSelected);
     connect(m_fileList, &QListView::doubleClicked, this, &MainWindow::onFileSelected);
@@ -307,6 +315,38 @@ void MainWindow::onAddTorrent()
     m_torrentManager->addTorrent(magnetUri);
     m_magnetInput->clear();
     updateStatus(tr("Добавление торрента..."));
+}
+
+void MainWindow::onAddTorrentFile()
+{
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        tr("Выберите .torrent файл"),
+        QString(),
+        tr("Torrent files (*.torrent);;All files (*.*)")
+    );
+
+    if (fileName.isEmpty()) {
+        return; // Пользователь отменил выбор файла
+    }
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Ошибка"),
+            tr("Не удалось открыть файл: %1").arg(file.errorString()));
+        return;
+    }
+
+    QByteArray fileContent = file.readAll();
+    file.close();
+
+    if (fileContent.isEmpty()) {
+        QMessageBox::warning(this, tr("Ошибка"), tr("Файл .torrent пуст"));
+        return;
+    }
+
+    m_torrentManager->addTorrentFile(fileContent);
+    updateStatus(tr("Добавление торрента из файла..."));
 }
 
 void MainWindow::onTorrentSelected(const QModelIndex &index)

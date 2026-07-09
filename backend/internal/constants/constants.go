@@ -156,6 +156,10 @@ const (
 	// TorrentGracefulShutdownTimeout timeout for graceful torrent service shutdown
 	TorrentGracefulShutdownTimeout = 30 * time.Second
 
+	// MaxTorrentFileSize maximum torrent file size (1 MB)
+	// Torrent files are small metadata files, 1MB is more than enough
+	MaxTorrentFileSize int64 = 1 * 1024 * 1024
+
 	// MaxStreamFileSize maximum file size for streaming (100 GB)
 	MaxStreamFileSize int64 = 100 * 1024 * 1024 * 1024
 )
