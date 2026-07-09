@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(TorrSyncPlayer VERSION 1.0 LANGUAGES CXX)
+project(TorrSyncPlayer VERSION 1.1 LANGUAGES CXX)
 
 # ── Опция статической сборки ───────────────────────────────────────────
 option(STATIC_BUILD "Build static executable" OFF)

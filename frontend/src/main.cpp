@@ -242,7 +242,15 @@ bool startGoServer(QObject *parent)
     // Create process with parent object for automatic deletion
     QProcess *process = new QProcess(parent);
     process->setProgram(serverPath);
-    process->setArguments(QStringList() << "--port" << "8889");
+    process->setArguments(QStringList() << "--port" << "8889" << "--auto-tls");
+
+    // Set JWT_SECRET for authentication (required for backend to start)
+    // Use default dev secret if not already set - in production, this should be set externally
+    QString jwtSecret = qgetenv("JWT_SECRET");
+    if (jwtSecret.isEmpty()) {
+        jwtSecret = "dev-secret-key-for-torrsyncplayer-development-min-32";
+    }
+    process->setEnvironment(process->environment() << QString("JWT_SECRET=%1").arg(jwtSecret));
 
     // Connect logging signals (with read limit)
     QPointer<QProcess> p = process;
@@ -391,12 +399,12 @@ int main(int argc, char *argv[])
 
     // Application metadata
     QApplication::setApplicationName("TorrPlayer");
-    QApplication::setApplicationVersion("1.0.0");
+    QApplication::setApplicationVersion("1.1.0");
     QApplication::setOrganizationName("TorrPlayer");
     QApplication::setOrganizationDomain("torrplayer.app");
 
     // Logging
-    qDebug() << "=== TorrPlayer v1.0.0 ===";
+    qDebug() << "=== TorrPlayer v1.1.0 ===";
     qDebug() << "Qt version:" << QT_VERSION_STR;
     qDebug() << "Application directory:" << QApplication::applicationDirPath();
 
