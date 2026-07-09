@@ -313,9 +313,12 @@ func parseFlags() Config {
 
 	flag.Parse()
 
-	config.JWTSecret = getEnv("JWT_SECRET", "")
+	// JWT_SECRET: command-line flag takes precedence over environment variable
 	if config.JWTSecret == "" {
-		logger.Error("JWT_SECRET environment variable is not set. Set it to a secure random string of at least 32 characters.")
+		config.JWTSecret = getEnv("JWT_SECRET", "")
+	}
+	if config.JWTSecret == "" {
+		logger.Error("JWT_SECRET is required - set via --jwt-secret flag or JWT_SECRET environment variable (min 32 chars)")
 		os.Exit(1)
 	}
 
