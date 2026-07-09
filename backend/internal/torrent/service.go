@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
@@ -34,6 +35,7 @@ const (
 	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
 	maxTorrents             = 100
 	maxStreamFileSize       = constants.MaxStreamFileSize
+	maxTorrentFileSize      = constants.MaxTorrentFileSize
 )
 
 // Service torrent management service.
@@ -195,7 +197,75 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 		logger.Warn("Torrent: invalid torrent size", "torrentID", torrentID, "size", info.Size, "error", err)
 	}
 
-	logger.Info("Torrent: torrent added",
+logger.Info("Torrent: torrent added",
+			"torrentID", torrentID,
+			"name", info.Name,
+			"size", info.Size,
+			"files", len(t.Files()),
+	)
+
+	return info, nil
+}
+
+// AddTorrent adds a torrent from a torrent file (metadata).
+// Parameter ctx - context for operation cancellation.
+// Parameter torrentData - reader containing torrent file content (bencoded .torrent).
+// Waits for metadata reception (timeout via context).
+// Returns torrent information or an error.
+func (s *Service) AddTorrent(ctx context.Context, torrentData io.Reader) (*models.TorrentInfo, error) {
+	s.mu.RLock()
+	overLimit := len(s.torrents) >= maxTorrents
+	s.mu.RUnlock()
+	if overLimit {
+		logger.Warn("Torrent: torrent limit exceeded", "max", maxTorrents)
+		return nil, errors.New(errors.ErrUnavailable, "maximum number of torrents exceeded")
+	}
+
+	logger.Info("Torrent: adding torrent from file")
+
+	// Parse the torrent file using metainfo.Load
+	mi, err := metainfo.Load(torrentData)
+	if err != nil {
+		logger.Error("Torrent: failed to parse torrent file", "error", err)
+		return nil, fmt.Errorf("failed to parse torrent file: %w", err)
+	}
+
+	t, err := s.client.AddTorrent(mi)
+	if err != nil {
+		logger.Error("Torrent: failed to add torrent from file", "error", err)
+		return nil, fmt.Errorf("failed to add torrent from file: %w", err)
+	}
+
+	// Wait for metadata reception
+	select {
+	case <-t.GotInfo():
+		logger.Debug("Torrent: metadata received from file")
+	case <-ctx.Done():
+		t.Drop()
+		logger.Warn("Torrent: timeout waiting for metadata", "error", ctx.Err())
+		return nil, fmt.Errorf("timeout waiting for metadata: %w", ctx.Err())
+	}
+
+	torrentID := t.InfoHash().HexString()
+
+	s.mu.Lock()
+	s.torrents[torrentID] = t
+	s.mu.Unlock()
+
+	info := s.torrentToInfo(t)
+
+	// Validate torrent name
+	if err := validation.ValidateTorrentName(info.Name); err != nil {
+		logger.Warn("Torrent: invalid torrent name", "torrentID", torrentID, "error", err)
+		// Do not abort the operation, just log
+	}
+
+	// Validate file size
+	if err := validation.ValidateFileSize(info.Size); err != nil {
+		logger.Warn("Torrent: invalid torrent size", "torrentID", torrentID, "size", info.Size, "error", err)
+	}
+
+	logger.Info("Torrent: torrent added from file",
 		"torrentID", torrentID,
 		"name", info.Name,
 		"size", info.Size,

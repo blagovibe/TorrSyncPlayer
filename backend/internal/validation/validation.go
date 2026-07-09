@@ -5,8 +5,11 @@
 package validation
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"regexp"
 	"strings"
@@ -21,10 +24,10 @@ var (
 	roomNameRegex = regexp.MustCompile(`^[\p{L}\p{N}\s\-_]{1,50}$`)
 	// usernameRegex allows letters, digits, underscores and hyphens
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
-	// magnetRegex for validating magnet links - restricted to btih URN type only
-	// This provides security by limiting to BitTorrent infohash URNs and preventing SSRF
-	magnetRegex       = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
-	magnetParamsRegex = regexp.MustCompile(`^[a-zA-Z0-9\-._~%!$&'()*+,;=:@/?]+$`)
+// magnetRegex for validating magnet links - restricted to btih URN type only
+// This provides security by limiting to BitTorrent infohash URNs and preventing SSRF
+magnetRegex = regexp.MustCompile(`^magnet:\?xt=urn:btih:[a-fA-F0-9]{40}`)
+magnetParamsRegex = regexp.MustCompile(`^[a-zA-Z0-9\-._~%!$&'()*+,;=:@/?]+$`)
 )
 
 // Common passwords blacklist - passwords that should never be allowed
@@ -314,4 +317,46 @@ func SanitizeString(s string) string {
 	}
 
 	return strings.TrimSpace(s)
+}
+
+// ValidateTorrentFile validates a base64-encoded torrent file content.
+// Checks for valid base64 format and size limits.
+func ValidateTorrentFile(data string) error {
+	if data == "" {
+		return fmt.Errorf("torrent file cannot be empty")
+	}
+
+	// Decode to check actual size
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return fmt.Errorf("invalid base64 format for torrent file: %w", err)
+	}
+
+	// Validate decoded size
+	return ValidateDecodedTorrentSize(int64(len(decoded)))
+}
+
+// DecodeTorrentFile decodes a base64-encoded torrent file and returns a reader.
+func DecodeTorrentFile(data string) (io.Reader, error) {
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode torrent file: %w", err)
+	}
+	return bytes.NewReader(decoded), nil
+}
+
+// ValidateDecodedTorrentSize validates the decoded torrent file size.
+func ValidateDecodedTorrentSize(size int64) error {
+	if size <= 0 {
+		return fmt.Errorf("torrent file size must be positive")
+	}
+	// Minimum torrent file size (bencoded .torrent files are at least ~100 bytes)
+	minTorrentSize := int64(50)
+	if size < minTorrentSize {
+		return fmt.Errorf("torrent file too small (minimum %d bytes)", minTorrentSize)
+	}
+	if size > constants.MaxTorrentFileSize {
+		return fmt.Errorf("torrent file too large (maximum %d MB)", constants.MaxTorrentFileSize/(1024*1024))
+	}
+	return nil
 }

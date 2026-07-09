@@ -649,6 +649,7 @@ func TestWriteError_JSONStructure(t *testing.T) {
 
 // ============ ValidateMagnetURI Tests ============
 
+// TestValidateMagnetURI проверяет валидацию magnet URI
 func TestValidateMagnetURI(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -665,6 +666,30 @@ func TestValidateMagnetURI(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validation.ValidateMagnetURI(tt.uri)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestValidateTorrentFile проверяет валидацию base64 торрент-файла
+func TestValidateTorrentFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    string
+		wantErr bool
+	}{
+		{"valid empty", "", true}, // empty is invalid
+		{"invalid base64", "not-base64!@#$", true},
+		{"valid base64 but empty decoded", "Zg==", true}, // "f" as base64, but torrent parsing will fail later
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validation.ValidateTorrentFile(tt.data)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

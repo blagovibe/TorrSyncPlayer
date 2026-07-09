@@ -96,13 +96,19 @@ public:
     void initialize();
 
 private slots:
-    // ── Слоты управления торрентами ───────────────────────────────────
+    // ── Слоты управления торрентами ────────────────────────────────────
 
     /**
      * @brief Обработка нажатия кнопки "Добавить торрент"
      * Отправляет magnet-ссылку на сервер
      */
     void onAddTorrent();
+
+    /**
+     * @brief Обработка выбора торрент-файла через диалог
+     * Читает файл и отправляет на сервер
+     */
+    void onAddTorrentFile();
 
     /**
      * @brief Обработка выбора торрента в списке
@@ -339,7 +345,8 @@ private:
 
     // Левая панель
     QLineEdit *m_magnetInput = nullptr;           ///< Поле ввода magnet-ссылки
-    QPushButton *m_addButton = nullptr;           ///< Кнопка добавления торрента
+    QPushButton *m_addButton = nullptr;           ///< Кнопка добавления торрента (magnet)
+    QPushButton *m_addFileButton = nullptr;       ///< Кнопка добавления торрента (файл)
     QListView *m_torrentList = nullptr;           ///< Список торрентов
     QListView *m_fileList = nullptr;              ///< Список файлов торрента
     QPushButton *m_removeTorrentButton = nullptr; ///< Кнопка удаления торрента

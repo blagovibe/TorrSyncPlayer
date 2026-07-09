@@ -100,6 +100,13 @@ public:
      * @param magnetUri Magnet-ссылка на торрент
      */
     void addTorrent(const QString &magnetUri);
+
+    /**
+     * @brief Добавить торрент из файла .torrent
+     * Отправляет POST запрос на /api/v1/torrents с base64 закодированным содержимым файла
+     * @param torrentData Содержимое файла .torrent (bencoded)
+     */
+    void addTorrentFile(const QByteArray &torrentData);
     
     /**
      * @brief Удалить торрент

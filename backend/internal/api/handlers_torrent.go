@@ -18,16 +18,16 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 )
 
-// AddTorrent handler for adding a torrent via magnet link.
-// Accepts JSON with the magnetURI field.
+// AddTorrent handler for adding a torrent via magnet link or torrent file.
+// Accepts JSON with either magnetUri or torrentFile field (base64 encoded).
 // Returns information about the added torrent or an error.
 //
 // @Summary      Add torrent
-// @Description  Adds a torrent via magnet link and returns its information
+// @Description  Adds a torrent via magnet link or torrent file and returns its information
 // @Tags         torrents
 // @Accept       json
 // @Produce      json
-// @Param        request  body      models.AddTorrentRequest  true  "Magnet URI"
+// @Param        request  body      models.AddTorrentRequest  true  "Magnet URI or Torrent File (base64)"
 // @Success      201      {object}  models.TorrentInfo
 // @Failure      400      {object}  APIError
 // @Failure      500      {object}  APIError
@@ -42,13 +42,46 @@ func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		// Validate magnet URI
-		if err := validation.ValidateMagnetURI(req.MagnetURI); err != nil {
-			WriteError(w, http.StatusBadRequest, "Invalid magnet URI format")
+		// Validate that exactly one of magnetUri or torrentFile is provided
+		hasMagnet := req.MagnetURI != ""
+		hasTorrentFile := req.TorrentFile != ""
+
+		if !hasMagnet && !hasTorrentFile {
+			WriteError(w, http.StatusBadRequest, "Either magnetUri or torrentFile is required")
+			return
+		}
+		if hasMagnet && hasTorrentFile {
+			WriteError(w, http.StatusBadRequest, "Only one of magnetUri or torrentFile should be provided")
 			return
 		}
 
-		info, err := torrentSvc.AddMagnet(r.Context(), req.MagnetURI)
+		var info *models.TorrentInfo
+		var err error
+
+		if hasMagnet {
+			// Validate magnet URI
+			if err = validation.ValidateMagnetURI(req.MagnetURI); err != nil {
+				WriteError(w, http.StatusBadRequest, "Invalid magnet URI format")
+				return
+			}
+
+			info, err = torrentSvc.AddMagnet(r.Context(), req.MagnetURI)
+		} else {
+			// Validate and decode torrent file
+			if err = validation.ValidateTorrentFile(req.TorrentFile); err != nil {
+				WriteError(w, http.StatusBadRequest, "Invalid torrent file")
+				return
+			}
+
+			decoded, decodeErr := validation.DecodeTorrentFile(req.TorrentFile)
+			if decodeErr != nil {
+				WriteError(w, http.StatusBadRequest, "Failed to decode torrent file")
+				return
+			}
+
+			info, err = torrentSvc.AddTorrent(r.Context(), decoded)
+		}
+
 		if err != nil {
 			handleError(w, r, err, "adding torrent")
 			return

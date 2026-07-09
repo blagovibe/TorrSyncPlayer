@@ -50,6 +50,24 @@ void TorrentManager::addTorrent(const QString &magnetUri)
     qDebug() << "TorrentManager: запрошено добавление торрента";
 }
 
+void TorrentManager::addTorrentFile(const QByteArray &torrentData)
+{
+    // Валидация торрент-данных
+    if (torrentData.isEmpty()) {
+        emit error(tr("Данные торрент-файла не могут быть пустыми"));
+        return;
+    }
+
+    const qint64 maxTorrentSize = 1024 * 1024; // 1MB
+    if (torrentData.size() > maxTorrentSize) {
+        emit error(tr("Файл .torrent слишком большой (максимум %1 МБ)").arg(maxTorrentSize / (1024 * 1024)));
+        return;
+    }
+
+    m_network->addTorrentFile(torrentData);
+    qDebug() << "TorrentManager: запрошено добавление торрента из файла";
+}
+
 void TorrentManager::removeTorrent(const QString &id)
 {
     if (id.isEmpty()) {
