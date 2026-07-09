@@ -399,12 +399,15 @@ int main(int argc, char *argv[])
 
     // Application metadata
     QApplication::setApplicationName("TorrPlayer");
-    QApplication::setApplicationVersion("1.1.0");
+#ifndef APP_VERSION
+#define APP_VERSION "1.1.0"
+#endif
+    QApplication::setApplicationVersion(APP_VERSION);
     QApplication::setOrganizationName("TorrPlayer");
     QApplication::setOrganizationDomain("torrplayer.app");
 
     // Logging
-    qDebug() << "=== TorrPlayer v1.1.0 ===";
+    qDebug() << "=== TorrPlayer v" << APP_VERSION << "===";
     qDebug() << "Qt version:" << QT_VERSION_STR;
     qDebug() << "Application directory:" << QApplication::applicationDirPath();
 

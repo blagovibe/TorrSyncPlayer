@@ -1,5 +1,23 @@
 cmake_minimum_required(VERSION 3.20)
-project(TorrSyncPlayer VERSION 1.1 LANGUAGES CXX)
+
+# ── Auto-detect version from Git tag or GitHub Actions ───────────────────────
+# Priority: CI_TAG > CI_COMMIT_TAG > git describe > default
+set(PROJECT_VERSION_FROM_CI "1.1.0") # Default fallback
+
+# Try GitHub Actions tag (refs/tags/v1.1.1 -> 1.1.1)
+if(DEFINED ENV{GITHUB_REF_NAME} AND ENV{GITHUB_REF_NAME} MATCHES "^v?[0-9]+\\.[0-9]+\\..+$")
+    set(PROJECT_VERSION_FROM_CI "$ENV{GITHUB_REF_NAME}")
+elseif(DEFINED ENV{CI_COMMIT_TAG} AND ENV{CI_COMMIT_TAG} MATCHES "^v?[0-9]+\\.[0-9]+\\..+$")
+    set(PROJECT_VERSION_FROM_CI "$ENV{CI_COMMIT_TAG}")
+endif()
+
+# Extract major.minor for VERSION (1.1.1 -> 1.1)
+string(REGEX REPLACE "^v?([0-9]+\\.[0-9]+)\\..*$" "\\1" VERSION_MAJOR_MINOR "${PROJECT_VERSION_FROM_CI}")
+
+project(TorrSyncPlayer VERSION "${VERSION_MAJOR_MINOR}" LANGUAGES CXX)
+
+# Export for C++ preprocessor
+add_compile_definitions(APP_VERSION="${PROJECT_VERSION_FROM_CI}")
 
 # ── Опция статической сборки ───────────────────────────────────────────
 option(STATIC_BUILD "Build static executable" OFF)
