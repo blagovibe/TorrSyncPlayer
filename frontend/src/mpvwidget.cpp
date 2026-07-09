@@ -159,12 +159,6 @@ void MpvWidget::paintGL()
     }
 #endif // HAS_MPV_RENDER
 }
-#else // NO_OPENGL
-// Stub implementations for macOS without AGL
-void MpvWidget::initializeGL() {}
-void MpvWidget::resizeGL(int w, int h) { Q_UNUSED(w); Q_UNUSED(h); }
-void MpvWidget::paintGL() {}
-#endif // NO_OPENGL
 
 #ifdef HAS_MPV
 bool MpvWidget::initializeMpv()
