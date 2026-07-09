@@ -83,9 +83,15 @@ jobs:
           export LDAI_OUTPUT=TorrSyncPlayer
           export QT_QPA_PLATFORM=offscreen
           echo "=== Running linuxdeploy ==="
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la AppDir/usr/bin/ 2>&1; exit 1; }
-          if [ ! -f TorrSyncPlayer-x86_64.AppImage ]; then echo "AppImage not created"; exit 1; fi
-          mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la *.AppImage 2>&1; exit 1; }
+          # linuxdeploy may create either TorrSyncPlayer-x86_64.AppImage or TorrSyncPlayer.AppImage depending on version
+          if [ -f TorrSyncPlayer-x86_64.AppImage ]; then
+              mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
+          elif [ -f TorrSyncPlayer.AppImage ]; then
+              mv TorrSyncPlayer.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
+          else
+              echo "AppImage not created"; exit 1
+          fi
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v7
