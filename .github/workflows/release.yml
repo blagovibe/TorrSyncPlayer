@@ -79,7 +79,7 @@ jobs:
           Type=Application
           Categories=AudioVideo;
           EOF
-export QMAKE=$(which qmake6 || which qmake)
+          export QMAKE=$(which qmake6 || which qmake)
           export LDAI_OUTPUT=TorrSyncPlayer
           export QT_QPA_PLATFORM=offscreen
           echo "=== Running linuxdeploy ==="
