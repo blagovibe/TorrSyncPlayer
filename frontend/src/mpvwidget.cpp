@@ -159,6 +159,7 @@ void MpvWidget::paintGL()
     }
 #endif // HAS_MPV_RENDER
 }
+#endif // NO_OPENGL
 
 #ifdef HAS_MPV
 bool MpvWidget::initializeMpv()
