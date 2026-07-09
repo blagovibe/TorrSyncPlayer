@@ -36,53 +36,14 @@ if(STATIC_BUILD)
     endif()
 endif()
 
-# ── macOS AGL framework stub (removed in macOS 14+) ───────────────────────
-# AGL framework was removed in macOS 14+. We create stub frameworks to satisfy linker.
+# ── macOS AGL framework handling (framework removed in macOS 14+) ───────────
+# AGL framework was removed in macOS 14+. Use linker flag to ignore missing frameworks.
 # Qt6::Widgets may transitively add -framework AGL even when OpenGLWidgets is not linked.
 if(APPLE)
-    # Create complete AGL.framework structure
-    # On macOS, -framework AGL looks for AGL.framework/AGL (dylib with framework name)
-    set(AGL_FW "${CMAKE_BINARY_DIR}/AGL.framework")
-    set(OPENGL_FW "${CMAKE_BINARY_DIR}/OpenGL.framework")
-    
-    file(MAKE_DIRECTORY "${AGL_FW}/Versions/A/Headers")
-    file(MAKE_DIRECTORY "${AGL_FW}/Versions/A/Resources")
-    file(MAKE_DIRECTORY "${AGL_FW}/Headers")
-    file(MAKE_DIRECTORY "${AGL_FW}/Resources")
-    
-    file(MAKE_DIRECTORY "${OPENGL_FW}/Versions/A/Headers")
-    file(MAKE_DIRECTORY "${OPENGL_FW}/Versions/A/Resources")
-    file(MAKE_DIRECTORY "${OPENGL_FW}/Headers")
-    file(MAKE_DIRECTORY "${OPENGL_FW}/Resources")
-    
-    # Write Info.plist files
-    file(WRITE "${AGL_FW}/Versions/A/Resources/Info.plist" "<!DOCTYPE plist><plist><dict><key>CFBundlePackageType</key><string>FMWK</string></dict></plist>")
-    file(WRITE "${OPENGL_FW}/Versions/A/Resources/Info.plist" "<!DOCTYPE plist><plist><dict><key>CFBundlePackageType</key><string>FMWK</string></dict></plist>")
-    
-    # Create empty stubs with actual code that will compile to dylib
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/agl_stub.c" "void __agl_stub_placeholder(){}")
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/opengl_stub.c" "void __opengl_stub_placeholder(){}")
-    
-    # Create stub libraries - dylib must be named exactly "AGL" and "OpenGL"
-    # Using SHARED creates .dylib with lib prefix, so we remove prefix
-    add_library(agl_stub SHARED "${CMAKE_CURRENT_BINARY_DIR}/agl_stub.c")
-    add_library(opengl_stub SHARED "${CMAKE_CURRENT_BINARY_DIR}/opengl_stub.c")
-    
-    # Produce AGL.dylib (not libAGL.dylib) in framework dirs
-    set_target_properties(agl_stub PROPERTIES 
-        POSITION_INDEPENDENT_CODE ON
-        LIBRARY_OUTPUT_DIRECTORY "${AGL_FW}/Versions/A"
-        PREFIX ""
-        OUTPUT_NAME "AGL"
-        SUFFIX ".dylib"
-    )
-    set_target_properties(opengl_stub PROPERTIES 
-        POSITION_INDEPENDENT_CODE ON
-        LIBRARY_OUTPUT_DIRECTORY "${OPENGL_FW}/Versions/A"
-        PREFIX ""
-        OUTPUT_NAME "OpenGL"
-        SUFFIX ".dylib"
-    )
+    # Add linker flag to allow missing framework symbols
+    # -undefined dynamic_lookup makes all symbols optional at link time
+    # This is safe because NO_OPENGL is defined and we don't use AGL symbols
+    add_link_options(-Wl,-undefined,dynamic_lookup)
 endif()
 
 # ── Поиск зависимостей ────────────────────────────────────────────────
