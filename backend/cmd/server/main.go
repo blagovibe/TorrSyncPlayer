@@ -295,6 +295,7 @@ func parseFlags() Config {
 	var config Config
 
 	flag.StringVar(&config.Port, "port", getEnv("PORT", defaultPort), "Server port")
+	flag.StringVar(&config.JWTSecret, "jwt-secret", getEnv("JWT_SECRET", ""), "JWT secret for authentication (min 32 chars)")
 	flag.StringVar(&config.DataDir, "data-dir", getEnv("DATA_DIR", ""), "Directory for persistent data (empty = in-memory only)")
 	flag.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", func() int64 {
 		if v := os.Getenv("MEMORY_CAPACITY"); v != "" {

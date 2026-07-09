@@ -242,16 +242,16 @@ bool startGoServer(QObject *parent)
     // Create process with parent object for automatic deletion
     QProcess *process = new QProcess(parent);
     process->setProgram(serverPath);
+    
     // Desktop version uses HTTP (safe for localhost-only connections)
-    process->setArguments(QStringList() << "--port" << "8889");
-
-    // Set JWT_SECRET for authentication (required for backend to start)
-    // Use default dev secret if not already set - in production, this should be set externally
+    // Use default dev secret if not already set via environment variable
     QString jwtSecret = qgetenv("JWT_SECRET");
     if (jwtSecret.isEmpty()) {
         jwtSecret = "dev-secret-key-for-torrsyncplayer-development-min-32";
     }
-    process->setEnvironment(process->environment() << QString("JWT_SECRET=%1").arg(jwtSecret));
+    
+    // Pass JWT_SECRET via command line (more reliable than environment on Windows)
+    process->setArguments(QStringList() << "--port" << "8889" << "--jwt-secret" << jwtSecret);
 
     // Connect logging signals (with read limit)
     QPointer<QProcess> p = process;
