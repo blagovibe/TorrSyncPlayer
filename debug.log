@@ -1,6 +1,0 @@
-[0708/192003.420:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
-[0708/192010.839:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
-[0708/192254.842:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
-[0708/192255.801:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
-[0708/192357.592:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
-[0708/192516.598:ERROR:third_party\crashpad\crashpad\client\crashpad_client_win.cc:186] crash server did not respond, self-terminating
