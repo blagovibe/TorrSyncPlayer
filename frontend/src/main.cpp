@@ -242,7 +242,8 @@ bool startGoServer(QObject *parent)
     // Create process with parent object for automatic deletion
     QProcess *process = new QProcess(parent);
     process->setProgram(serverPath);
-    process->setArguments(QStringList() << "--port" << "8889" << "--auto-tls");
+    // Desktop version uses HTTP (safe for localhost-only connections)
+    process->setArguments(QStringList() << "--port" << "8889");
 
     // Set JWT_SECRET for authentication (required for backend to start)
     // Use default dev secret if not already set - in production, this should be set externally

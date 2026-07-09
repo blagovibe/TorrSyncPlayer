@@ -57,15 +57,19 @@ namespace {
 NetworkManager::NetworkManager(QObject *parent)
     : INetworkManager(parent)
     , m_network(new QNetworkAccessManager(this))
-    , m_serverUrl(QStringLiteral("https://localhost:8889"))
+    , m_serverUrl(QStringLiteral("http://localhost:8889"))
     , m_sseReply(nullptr)
     , m_retryTimer(new QTimer(this))
     , m_sseReconnectTimer(new QTimer(this))
 {
-    // SSL mode: default to AllowSelfSigned for development (embedded backend uses self-signed certs)
-    // Set SSL_MODE=strict to enforce strict verification
-    m_sslMode = SslMode::AllowSelfSigned;
-    qDebug() << "NetworkManager: SSL mode set to AllowSelfSigned (development)";
+    // SSL mode: default to Strict (production). Set SSL_MODE=allow-self-signed for development.
+    if (qEnvironmentVariable("SSL_MODE", "strict") == "allow-self-signed") {
+        m_sslMode = SslMode::AllowSelfSigned;
+        qDebug() << "NetworkManager: SSL mode set to AllowSelfSigned (development)";
+    } else {
+        m_sslMode = SslMode::Strict;
+        qDebug() << "NetworkManager: SSL mode set to Strict (production)";
+    }
     // Подключаем сигналы менеджера сети
     connect(m_network, &QNetworkAccessManager::finished,
             this, &NetworkManager::onReplyFinished);

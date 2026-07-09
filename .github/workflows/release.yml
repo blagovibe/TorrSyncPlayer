@@ -127,6 +127,8 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
+          addTools: true
+          additionalLibraries: 'openssl'
           cache: true
           setup-python: false
 
@@ -156,13 +158,19 @@ jobs:
             -DEMBED_BACKEND_SHA256="$env:EMBEDDED_HASH"
           cmake --build build
         shell: pwsh
+        env:
+          # Frontend connects to localhost via HTTP (safe for embedded server)
+          # Backend runs locally without external network exposure
+          SERVER_SCHEME: "http"
 
       - name: Deploy Qt runtime and package
         working-directory: frontend/build
         run: |
-          windeployqt --release TorrSyncPlayer.exe 2>&1
+          # Deploy with all required dependencies including SSL
+          windeployqt --release --no-translations TorrSyncPlayer.exe 2>&1
           Remove-Item -Recurse -Force translations -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force qml -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force scintilla -ErrorAction SilentlyContinue
           Remove-Item -Force *.pdb -ErrorAction SilentlyContinue
           cd ..
           Compress-Archive -Path build/TorrSyncPlayer.exe,build/*.dll,build/platforms,build/styles,build/imageformats,build/iconengines -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
