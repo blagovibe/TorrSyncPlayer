@@ -53,9 +53,9 @@ jobs:
       - name: Create AppImage
         run: |
           cd frontend/build
-          LINUXDEPLOY_VERSION="1-alpha-20251107-1"
-          BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}"
-          PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1"
+          LINUXDEPLOY_VERSION="1-alpha-20240828-1"
+          BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
+          PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous"
 
           wget "${BASE_URL}/linuxdeploy-x86_64.AppImage" || { echo "Failed to download linuxdeploy"; exit 1; }
           chmod +x linuxdeploy-x86_64.AppImage
@@ -70,7 +70,7 @@ jobs:
           cp TorrSyncPlayer AppDir/usr/bin/
           cp ../../backend/build/torrsyncplayer AppDir/usr/bin/
           chmod +x AppDir/usr/bin/torrsyncplayer AppDir/usr/bin/TorrSyncPlayer
-          cp ../resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png
+          cp ../resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png 2>/dev/null || true
           cat > AppDir/usr/share/applications/torrsyncplayer.desktop << 'EOF'
           [Desktop Entry]
           Name=TorrSyncPlayer
@@ -82,13 +82,8 @@ jobs:
           export QMAKE=$(which qmake6 || which qmake)
           export LDAI_OUTPUT=TorrSyncPlayer
           export QT_QPA_PLATFORM=offscreen
-          # Check available plugins
-          echo "=== Available plugins ==="
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run --list-plugins 2>&1 || true
           echo "=== Running linuxdeploy ==="
-          # Extract and run without FUSE - plugin should be in same directory
-          # Use -e to specify executable explicitly
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage -v 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la AppDir/usr/bin/ 2>&1; exit 1; }
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la AppDir/usr/bin/ 2>&1; exit 1; }
           if [ ! -f TorrSyncPlayer-x86_64.AppImage ]; then echo "AppImage not created"; exit 1; fi
           mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
 
