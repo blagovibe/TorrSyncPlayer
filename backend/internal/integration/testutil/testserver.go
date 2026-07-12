@@ -171,6 +171,23 @@ func handleSync(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleSyncDetail(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path[len("/sync/"):]
+
+	switch {
+	case path == "play" && r.Method == http.MethodPost:
+		handleSyncPlay(w, r)
+	case path == "pause" && r.Method == http.MethodPost:
+		handleSyncPause(w, r)
+	case path == "seek" && r.Method == http.MethodPost:
+		handleSyncSeek(w, r)
+	case path == "status" && r.Method == http.MethodGet:
+		handleSyncStatus(w, r)
+	default:
+		http.Error(w, "Not found", http.StatusNotFound)
+	}
+}
+
 func handleAuth(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/auth"):]
 

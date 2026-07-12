@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.26.5'
+  GO_VERSION: '1.23.0'
 
 jobs:
   lint-backend:
@@ -54,7 +54,7 @@ jobs:
           go mod verify
 
       - name: Secrets scanning
-        uses: trufflesecurity/trufflehog@stable
+        uses: trufflesecurity/trufflehog@v3.95.9
         with:
           path: .
           base: ""
