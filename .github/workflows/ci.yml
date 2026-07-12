@@ -186,7 +186,7 @@ jobs:
           echo "Server startup attempted, proceeding to ZAP scan..."
 
       - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: 'https://127.0.0.1:8889'
           cmd_options: '-a -config api.addrs.hostname.empty=false -config ssl.ignore.connection.failure=true -config connection.ssl.routable.enabled=false'
