@@ -54,9 +54,12 @@ jobs:
           go mod verify
 
       - name: Secrets scanning
-        uses: gitleaks/gitleaks-action@v2
+        uses: trufflesecurity/trufflehog@stable
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          path: .
+          base: ""
+          head: ""
+          extra_args: "--only-verified --fail"
 
   test-backend:
     name: Test Backend

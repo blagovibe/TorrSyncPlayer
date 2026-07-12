@@ -58,7 +58,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: trufflesecurity/trufflehog@stable
+        with:
+          path: ./
+          base: ""
+          head: ""
+          extra_args: "--only-verified --fail"
 
   # C++ security analysis (clang-static-analyzer alternative)
   cpp-security:
