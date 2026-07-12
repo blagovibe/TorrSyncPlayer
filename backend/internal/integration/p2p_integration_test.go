@@ -1,7 +1,4 @@
-/**
- * @file p2p_integration_test.go
- * @brief Integration tests for P2P room and signaling functionality
- */
+// Package integration provides integration tests for P2P functionality.
 
 package integration
 
@@ -48,9 +45,9 @@ func TestP2PSignaling(t *testing.T) {
 
 	// Send WebRTC offer signal
 	offer := map[string]interface{}{
-		"type":   "offer",
-		"from":   "peer-1",
-		"to":     "peer-2",
+		"type": "offer",
+		"from": "peer-1",
+		"to":   "peer-2",
 		"payload": map[string]string{
 			"sdp": "v=0\r\no=- 1234567890 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n...",
 		},
@@ -61,9 +58,9 @@ func TestP2PSignaling(t *testing.T) {
 
 	// Send answer signal
 	answer := map[string]interface{}{
-		"type":   "answer",
-		"from":   "peer-2",
-		"to":     "peer-1",
+		"type": "answer",
+		"from": "peer-2",
+		"to":   "peer-1",
 		"payload": map[string]string{
 			"sdp": "v=0\r\no=- 1234567891 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n...",
 		},
@@ -74,12 +71,12 @@ func TestP2PSignaling(t *testing.T) {
 
 	// Send ICE candidate
 	candidate := map[string]interface{}{
-		"type":   "candidate",
-		"from":   "peer-1",
-		"to":     "peer-2",
+		"type": "candidate",
+		"from": "peer-1",
+		"to":   "peer-2",
 		"payload": map[string]interface{}{
-			"candidate": "candidate:1 1 UDP 2122260223 192.168.1.1 54400 typ host",
-			"sdpMid":    "0",
+			"candidate":     "candidate:1 1 UDP 2122260223 192.168.1.1 54400 typ host",
+			"sdpMid":        "0",
 			"sdpMLineIndex": 0,
 		},
 	}
@@ -262,9 +259,9 @@ func TestP2PConcurrentSignaling(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		go func(n int) {
 			signal := map[string]interface{}{
-				"type":   "candidate",
-				"from":   "peer-1",
-				"to":     "peer-2",
+				"type": "candidate",
+				"from": "peer-1",
+				"to":   "peer-2",
 				"payload": map[string]string{
 					"candidate": "candidate:1 1 UDP 2122260223 192.168.1." + string(rune('0'+n%10)) + " 54400 typ host",
 				},

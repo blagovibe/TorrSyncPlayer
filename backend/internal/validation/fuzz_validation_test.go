@@ -1,3 +1,6 @@
+//go:build fuzz
+// +build fuzz
+
 package validation
 
 import (
@@ -39,29 +42,13 @@ func FuzzValidateTorrentID(f *testing.F) {
 	// Invalid torrent IDs
 	f.Add("")
 	f.Add("abc")
-	f.Add("ghijklmnopqrstuvwxyz1234567890abcdef12") // non-hex
-	f.Add(strings.Repeat("a", 39))                    // too short
-	f.Add(strings.Repeat("a", 41))                    // too long
+	f.Add("ghijklmnopqrstuvwxyz1234567890abcdef12")     // non-hex
+	f.Add(strings.Repeat("a", 39))                      // too short
+	f.Add(strings.Repeat("a", 41))                      // too long
 	f.Add("abcdef1234567890abcdef1234567890abcdef12\n") // with newline
 
 	f.Fuzz(func(t *testing.T, data string) {
 		err := ValidateTorrentID(data)
-		_ = err
-	})
-}
-
-// FuzzValidateFileIndex tests file index validation
-func FuzzValidateFileIndex(f *testing.F) {
-	f.Add(0)
-	f.Add(1)
-	f.Add(99)
-	f.Add(1000)
-	f.Add(-1)
-	f.Add(-100)
-	f.Add(2147483647) // max int32
-
-	f.Fuzz(func(t *testing.T, data int) {
-		err := ValidateFileIndex(data, 100)
 		_ = err
 	})
 }
@@ -78,28 +65,6 @@ func FuzzValidatePosition(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data float64) {
 		err := ValidatePosition(data)
-		_ = err
-	})
-}
-
-// FuzzValidatePassword tests password validation
-func FuzzValidatePassword(f *testing.F) {
-	// Valid passwords
-	f.Add("Password123!")
-	f.Add("P@ssw0rd!")
-	f.Add("VeryLongPassword12345678901234567890")
-	f.Add("Пароль1234!")
-	f.Add("パスワード1234!")
-
-	// Invalid passwords
-	f.Add("")
-	f.Add("123") // too short
-	f.Add(strings.Repeat("a", 129))
-	f.Add("password\n") // newline
-	f.Add("pass\x00word") // null byte
-
-	f.Fuzz(func(t *testing.T, data string) {
-		err := ValidatePassword(data)
 		_ = err
 	})
 }

@@ -1,11 +1,7 @@
-/**
- * @file api_integration_test.go
- * @brief Integration tests for the full HTTP API
- * 
- * Tests complete API flows including torrent management,
- * room operations, and sync functionality.
- * Run with: go test -tags=integration -v ./internal/integration/...
- */
+// Package integration provides integration tests for the HTTP API.
+
+//go:build integration
+// +build integration
 
 package integration
 
@@ -14,9 +10,6 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/integration/testutil"
 )
-
-//go:build integration
-// +build integration
 
 func TestHealthEndpoint(t *testing.T) {
 	server := testutil.NewTestServer(t)

@@ -106,20 +106,20 @@ TEST_F(RoomManagerGMockTest, SetHost)
 
 TEST_F(RoomManagerGMockTest, CreateRoom)
 {
-    EXPECT_CALL(*m_mockRoomManager, createRoom("Test Room", ""));
-    m_mockRoomManager->createRoom("Test Room", "");
+    EXPECT_CALL(*m_mockRoomManager, createRoom(QString("Test Room"), QString("")));
+    m_mockRoomManager->createRoom(QString("Test Room"), QString(""));
     
-    EXPECT_CALL(*m_mockRoomManager, createRoom("Private Room", "secret123"));
-    m_mockRoomManager->createRoom("Private Room", "secret123");
+    EXPECT_CALL(*m_mockRoomManager, createRoom(QString("Private Room"), QString("secret123")));
+    m_mockRoomManager->createRoom(QString("Private Room"), QString("secret123"));
 }
 
 TEST_F(RoomManagerGMockTest, JoinRoom)
 {
-    EXPECT_CALL(*m_mockRoomManager, joinRoom("room-123", ""));
-    m_mockRoomManager->joinRoom("room-123", "");
+    EXPECT_CALL(*m_mockRoomManager, joinRoom(QString("room-123"), QString("")));
+    m_mockRoomManager->joinRoom(QString("room-123"), QString(""));
     
-    EXPECT_CALL(*m_mockRoomManager, joinRoom("private-room", "password"));
-    m_mockRoomManager->joinRoom("private-room", "password");
+    EXPECT_CALL(*m_mockRoomManager, joinRoom(QString("private-room"), QString("password")));
+    m_mockRoomManager->joinRoom(QString("private-room"), QString("password"));
 }
 
 TEST_F(RoomManagerGMockTest, LeaveRoom)
@@ -178,7 +178,7 @@ TEST_F(RoomManagerGMockTest, RoomCreatedSignal)
 {
     QSignalSpy spy(m_mockRoomManager, &IRoomManager::roomCreated);
     
-    emit m_mockRoomManager->roomCreated("room-123");
+    emit m_mockRoomManager->roomCreated(QString("room-123"));
     
     EXPECT_EQ(spy.count(), 1);
     EXPECT_EQ(spy.takeFirst().at(0).toString(), "room-123");
@@ -188,7 +188,7 @@ TEST_F(RoomManagerGMockTest, RoomJoinedSignal)
 {
     QSignalSpy spy(m_mockRoomManager, &IRoomManager::roomJoined);
     
-    emit m_mockRoomManager->roomJoined("room-123");
+    emit m_mockRoomManager->roomJoined(QString("room-123"));
     
     EXPECT_EQ(spy.count(), 1);
     EXPECT_EQ(spy.takeFirst().at(0).toString(), "room-123");
@@ -211,26 +211,26 @@ TEST_F(RoomManagerGMockTest, RoomEventSignal)
     emit m_mockRoomManager->roomEvent(event);
     
     EXPECT_EQ(spy.count(), 1);
-    EXPECT_EQ(spy.takeFirst().at(0).toObject()["type"].toString(), "peer-joined");
+    EXPECT_EQ(spy.takeFirst().at(0).value<QJsonObject>()["type"].toString(), "peer-joined");
 }
 
 TEST_F(RoomManagerGMockTest, SyncActionSignal)
 {
     QSignalSpy spy(m_mockRoomManager, &IRoomManager::syncAction);
     
-    emit m_mockRoomManager->syncAction("play", 0.0);
+    emit m_mockRoomManager->syncAction(QString("play"), 0.0);
     
     EXPECT_EQ(spy.count(), 1);
     auto args = spy.takeFirst();
     EXPECT_EQ(args.at(0).toString(), "play");
     EXPECT_EQ(args.at(1).toDouble(), 0.0);
     
-    emit m_mockRoomManager->syncAction("pause", 0.0);
+    emit m_mockRoomManager->syncAction(QString("pause"), 0.0);
     EXPECT_EQ(spy.count(), 1);
     args = spy.takeFirst();
     EXPECT_EQ(args.at(0).toString(), "pause");
     
-    emit m_mockRoomManager->syncAction("seek", 120.5);
+    emit m_mockRoomManager->syncAction(QString("seek"), 120.5);
     EXPECT_EQ(spy.count(), 1);
     args = spy.takeFirst();
     EXPECT_EQ(args.at(0).toString(), "seek");
@@ -241,7 +241,7 @@ TEST_F(RoomManagerGMockTest, PeerJoinedSignal)
 {
     QSignalSpy spy(m_mockRoomManager, &IRoomManager::peerJoined);
     
-    emit m_mockRoomManager->peerJoined("peer-123");
+    emit m_mockRoomManager->peerJoined(QString("peer-123"));
     
     EXPECT_EQ(spy.count(), 1);
     EXPECT_EQ(spy.takeFirst().at(0).toString(), "peer-123");
@@ -251,7 +251,7 @@ TEST_F(RoomManagerGMockTest, PeerLeftSignal)
 {
     QSignalSpy spy(m_mockRoomManager, &IRoomManager::peerLeft);
     
-    emit m_mockRoomManager->peerLeft("peer-123");
+    emit m_mockRoomManager->peerLeft(QString("peer-123"));
     
     EXPECT_EQ(spy.count(), 1);
     EXPECT_EQ(spy.takeFirst().at(0).toString(), "peer-123");
@@ -261,7 +261,7 @@ TEST_F(RoomManagerGMockTest, ErrorSignal)
 {
     QSignalSpy spy(m_mockRoomManager, &IRoomManager::error);
     
-    emit m_mockRoomManager->error("Room error message");
+    emit m_mockRoomManager->error(QString("Room error message"));
     
     EXPECT_EQ(spy.count(), 1);
     EXPECT_EQ(spy.takeFirst().at(0).toString(), "Room error message");
@@ -273,12 +273,12 @@ TEST_F(RoomManagerGMockTest, VerifyCallOrder)
 {
     testing::InSequence seq;
     
-    EXPECT_CALL(*m_mockRoomManager, createRoom("Test Room", ""));
+    EXPECT_CALL(*m_mockRoomManager, createRoom(QString("Test Room"), QString("")));
     EXPECT_CALL(*m_mockRoomManager, syncPlay());
     EXPECT_CALL(*m_mockRoomManager, syncSeek(60.0));
     EXPECT_CALL(*m_mockRoomManager, leaveRoom());
     
-    m_mockRoomManager->createRoom("Test Room", "");
+    m_mockRoomManager->createRoom(QString("Test Room"), QString(""));
     m_mockRoomManager->syncPlay();
     m_mockRoomManager->syncSeek(60.0);
     m_mockRoomManager->leaveRoom();
@@ -310,14 +310,14 @@ TEST_F(RoomManagerGMockTest, MultipleRoomEvents)
 
 TEST_F(RoomManagerGMockTest, EmptyRoomName)
 {
-    EXPECT_CALL(*m_mockRoomManager, createRoom("", ""));
-    m_mockRoomManager->createRoom("", "");
+    EXPECT_CALL(*m_mockRoomManager, createRoom(QString(""), QString("")));
+    m_mockRoomManager->createRoom(QString(""), QString(""));
 }
 
 TEST_F(RoomManagerGMockTest, UnicodeRoomName)
 {
-    EXPECT_CALL(*m_mockRoomManager, createRoom("日本語ルーム", ""));
-    m_mockRoomManager->createRoom("日本語ルーム", "");
+    EXPECT_CALL(*m_mockRoomManager, createRoom(QString("日本語ルーム"), QString("")));
+    m_mockRoomManager->createRoom(QString("日本語ルーム"), QString(""));
     
     EXPECT_CALL(*m_mockRoomManager, createRoom("Комната 🎬", "пароль"));
     m_mockRoomManager->createRoom("Комната 🎬", "пароль");
@@ -325,8 +325,8 @@ TEST_F(RoomManagerGMockTest, UnicodeRoomName)
 
 TEST_F(RoomManagerGMockTest, SpecialCharsInRoomName)
 {
-    EXPECT_CALL(*m_mockRoomManager, createRoom("Room with 'quotes' & <tags>", ""));
-    m_mockRoomManager->createRoom("Room with 'quotes' & <tags>", "");
+    EXPECT_CALL(*m_mockRoomManager, createRoom(QString("Room with quotes createRoom("Room with ' <tags>"), QString(""))createRoom(QString("Room with quotes quotes' <tags>"), QString(""))createRoom(QString("Room with quotes  & < <tags>"), QString(""))tags>createRoom(QString("Room with quotes ", "") <tags>"), QString("")));
+    m_mockRoomManager->createRoom(QString("Room with quotes createRoom("Room with ' <tags>"), QString(""))createRoom(QString("Room with quotes quotes' <tags>"), QString(""))createRoom(QString("Room with quotes  & < <tags>"), QString(""))tags>createRoom(QString("Room with quotes ", "") <tags>"), QString(""));
 }
 
 int main(int argc, char **argv)

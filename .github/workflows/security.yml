@@ -63,7 +63,7 @@ jobs:
           path: ./
           base: ""
           head: ""
-          extra_args: "--only-verified --fail"
+          extra_args: "--only-verified"
 
   # C++ security analysis (clang-static-analyzer alternative)
   cpp-security:

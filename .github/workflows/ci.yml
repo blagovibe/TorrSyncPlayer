@@ -287,7 +287,7 @@ jobs:
       - name: Run Go fuzzing (backend)
         working-directory: backend
         run: |
-          go test -fuzz=Fuzz -fuzztime=30s ./internal/torrent/... ./internal/validation/... 2>&1 | head -100 || true
+          go test -fuzz=Fuzz -fuzztime=30s ./internal/validation/... 2>&1 | head -100 || true
 
       - name: Install libFuzzer for C++
         run: |

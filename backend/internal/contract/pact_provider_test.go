@@ -1,11 +1,7 @@
-/**
- * @file pact_provider_test.go
- * @brief Pact Provider Verification Tests for Go Backend
- * 
- * These tests verify that the Go backend API satisfies the contract
- * defined by the frontend consumer (pacts/frontend-backend.json).
- * Run with: go test -v -run TestPactProvider ./internal/contract/...
- */
+// Package contract provides Pact provider verification tests.
+
+//go:build contract
+// +build contract
 
 package contract
 
@@ -17,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/pact-foundation/pact-go/v2/provider"
 )
@@ -27,7 +22,7 @@ import (
 func TestPactProvider(t *testing.T) {
 	// Get the path to the pact file
 	pactPath := filepath.Join("..", "..", "..", "..", "pacts", "frontend-backend.json")
-	
+
 	// Create a test HTTP server that simulates the backend API
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleMockRequest(w, r)
@@ -45,12 +40,12 @@ func TestPactProvider(t *testing.T) {
 		BrokerToken:     os.Getenv("PACT_BROKER_TOKEN"),
 		// Custom state handlers for provider states
 		StateHandlers: map[string]func() error{
-			"torrent exists":         setupTorrentExists,
-			"no torrents exist":      setupNoTorrents,
-			"user is in a room":      setupUserInRoom,
+			"torrent exists":                setupTorrentExists,
+			"no torrents exist":             setupNoTorrents,
+			"user is in a room":             setupUserInRoom,
 			"user is in a room and is host": setupUserInRoomAsHost,
-			"user exists":            setupUserExists,
-			"user does not exist":    setupUserNotExists,
+			"user exists":                   setupUserExists,
+			"user does not exist":           setupUserNotExists,
 		},
 		// Request/response filtering
 		RequestFilter: func(req *http.Request) error {
@@ -100,29 +95,29 @@ func handleMockRequest(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		// Try to match with path parameters
-		if len(r.URL.Path) > len("/api/v1/torrents/") && 
-		   r.URL.Path[:len("/api/v1/torrents/")] == "/api/v1/torrents/" {
+		if len(r.URL.Path) > len("/api/v1/torrents/") &&
+			r.URL.Path[:len("/api/v1/torrents/")] == "/api/v1/torrents/" {
 			handleTorrentByID(w, r)
 			return
 		}
 
 		// Room endpoints
-		if len(r.URL.Path) > len("/api/v1/rooms") && 
-		   r.URL.Path[:len("/api/v1/rooms")] == "/api/v1/rooms" {
+		if len(r.URL.Path) > len("/api/v1/rooms") &&
+			r.URL.Path[:len("/api/v1/rooms")] == "/api/v1/rooms" {
 			handleRooms(w, r)
 			return
 		}
 
 		// Sync endpoints
-		if len(r.URL.Path) > len("/api/v1/sync") && 
-		   r.URL.Path[:len("/api/v1/sync")] == "/api/v1/sync" {
+		if len(r.URL.Path) > len("/api/v1/sync") &&
+			r.URL.Path[:len("/api/v1/sync")] == "/api/v1/sync" {
 			handleSync(w, r)
 			return
 		}
 
 		// Auth endpoints
-		if len(r.URL.Path) > len("/api/v1/auth") && 
-		   r.URL.Path[:len("/api/v1/auth")] == "/api/v1/auth" {
+		if len(r.URL.Path) > len("/api/v1/auth") &&
+			r.URL.Path[:len("/api/v1/auth")] == "/api/v1/auth" {
 			handleAuth(w, r)
 			return
 		}
@@ -150,7 +145,7 @@ func handleAddTorrent(w http.ResponseWriter, r *http.Request) {
 
 func handleTorrentByID(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/api/v1/torrents/"):]
-	
+
 	if path == "" {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -216,7 +211,7 @@ func handleSelectFile(w http.ResponseWriter, r *http.Request, torrentID string) 
 
 func handleRooms(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/api/v1/rooms"):]
-	
+
 	switch {
 	case path == "" && r.Method == "POST":
 		handleCreateRoom(w, r)
@@ -261,12 +256,12 @@ func handleRoomEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
-	
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		return
 	}
-	
+
 	// Send a mock event
 	fmt.Fprint(w, "data: {\"type\":\"peer-joined\",\"peerId\":\"peer-2\"}\n\n")
 	flusher.Flush()
@@ -274,7 +269,7 @@ func handleRoomEvents(w http.ResponseWriter, r *http.Request) {
 
 func handleSync(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/api/v1/sync"):]
-	
+
 	switch {
 	case path == "/play" && r.Method == "POST":
 		w.Header().Set("Content-Type", "application/json")
@@ -299,7 +294,7 @@ func handleSync(w http.ResponseWriter, r *http.Request) {
 
 func handleAuth(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/api/v1/auth"):]
-	
+
 	switch {
 	case path == "/login" && r.Method == "POST":
 		w.Header().Set("Content-Type", "application/json")
