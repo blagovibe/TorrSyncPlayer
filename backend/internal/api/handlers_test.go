@@ -109,6 +109,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	apiAuthStore = auth.NewUserStore()
 	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
 		panic(err)
@@ -119,13 +120,6 @@ func TestMain(m *testing.M) {
 	initTorrentService()
 	if torrentInitErr != nil {
 		panic(torrentInitErr)
-	}
-
-	// Создаём auth store и auth service для тестов
-	apiAuthStore = auth.NewUserStore()
-	authService, err = auth.NewAuthService([]byte("test-secret-for-api-tests-32bytes!"))
-	if err != nil {
-		panic(err)
 	}
 
 	apiRouter = NewRouter(RouterConfig{
