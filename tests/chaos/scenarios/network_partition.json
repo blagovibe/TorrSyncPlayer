@@ -1,0 +1,22 @@
+{
+  "name": "network_partition",
+  "description": "Simulate network partition between peers in a P2P room",
+  "duration_seconds": 60,
+  "toxics": [
+    {
+      "name": "partition_peers",
+      "type": "timeout",
+      "stream": "downstream",
+      "attributes": {
+        "timeout": 5000
+      }
+    }
+  ],
+  "verification": {
+    "checks": [
+      "peer_reconnection_after_partition",
+      "room_state_consistency",
+      "signal_queue_drains"
+    ]
+  }
+}

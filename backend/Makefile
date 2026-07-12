@@ -1,4 +1,5 @@
-.PHONY: build run clean test lint help check-version test-race check vet
+.PHONY: build run clean test lint help check-version test-race check vet fmt tidy deps \
+    test-fuzz test-mutation contract-test test-integration
 
 # Переменные
 BINARY_NAME=torrsyncplayer
@@ -78,6 +79,33 @@ test-coverage:
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Отчёт о покрытии: coverage.html"
 
+## test-fuzz: Запустить фаззинг тесты (30 секунд на каждый)
+test-fuzz:
+	@echo "Запуск фаззинг тестов..."
+	go test -fuzz=Fuzz -fuzztime=30s ./internal/torrent/... ./internal/validation/... ./internal/torrent/... 2>&1 | head -100
+
+## test-mutation: Запустить мутационное тестирование (go-mutesting)
+test-mutation:
+	@echo "Запуск мутационного тестирования..."
+	@which go-mutesting > /dev/null || (echo "Installing go-mutesting..." && go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest)
+	go-mutesting ./internal/... 2>&1 | tee mutation.log
+	@MUTATION_SCORE=$$(grep -oP 'Mutation score: \K\d+(\.\d+)?' mutation.log | head -1); \
+	if [ -n "$$MUTATION_SCORE" ] && [ $$(echo "$$MUTATION_SCORE < 80" | bc -l 2>/dev/null || echo 0) -eq 1 ]; then \
+		echo "Mutation score $$MUTATION_SCORE% is below 80% threshold"; \
+		exit 1; \
+	fi; \
+	echo "Mutation score: $$MUTATION_SCORE%"
+
+## contract-test: Запустить Pact contract тесты (provider verification)
+contract-test:
+	@echo "Запуск Pact contract тестов (provider)..."
+	go test -v -run TestPactProvider ./internal/contract/...
+
+## test-integration: Запустить интеграционные тесты
+test-integration:
+	@echo "Запуск интеграционных тестов..."
+	go test -v -tags=integration ./internal/integration/...
+
 ## test-short: Запустить только быстрые тесты (без интеграционных)
 test-short:
 	@echo "Запуск быстрых тестов..."
@@ -87,7 +115,7 @@ test-short:
 clean:
 	@echo "Очистка..."
 	@rm -rf $(BUILD_DIR)
-	@rm -f coverage.out coverage.html
+	@rm -f coverage.out coverage.html mutation.log
 	@echo "Очистка завершена"
 
 ## check: Run vet, tests, and race detection

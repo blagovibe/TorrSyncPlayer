@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # Backend service
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: torrsync-backend
+    ports:
+      - "8889:8889"
+    environment:
+      - JWT_SECRET=test-jwt-secret-key-for-chaos-testing-min-32-chars
+      - LOG_LEVEL=debug
+    networks:
+      - chaos-net
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8889/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Frontend service (for testing)
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: torrsync-frontend
+    environment:
+      - TORRSYNC_BACKEND_URL=https://backend:8889
+      - QT_QPA_PLATFORM=offscreen
+    networks:
+      - chaos-net
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Toxiproxy for chaos injection
+  toxiproxy:
+    image: shopify/toxiproxy:2.7
+    container_name: torrsync-toxiproxy
+    ports:
+      - "8474:8474"  # Toxiproxy API
+      - "8666:8666"  # Proxied backend port
+    networks:
+      - chaos-net
+    command: ["--config", "/config/toxiproxy.json"]
+    volumes:
+      - ./toxiproxy.json:/config/toxiproxy.json:ro
+    depends_on:
+      - backend
+
+  # Chaos controller - runs scenarios
+  chaos-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.chaos
+    container_name: torrsync-chaos-controller
+    environment:
+      - TOXIPROXY_API=http://toxiproxy:8474
+      - BACKEND_URL=https://backend:8889
+      - FRONTEND_URL=http://frontend:8080
+    networks:
+      - chaos-net
+    depends_on:
+      - toxiproxy
+      - backend
+      - frontend
+    volumes:
+      - ./scenarios:/scenarios:ro
+      - ./results:/results
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:v2.47
+    container_name: torrsync-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - chaos-net
+
+  grafana:
+    image: grafana/grafana:10.1
+    container_name: torrsync-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - chaos-net
+    depends_on:
+      - prometheus
+
+networks:
+  chaos-net:
+    driver: bridge
