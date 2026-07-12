@@ -58,7 +58,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: trufflesecurity/trufflehog@stable
+      - uses: trufflesecurity/trufflehog@v3.95.9
         with:
           path: ./
           base: ""

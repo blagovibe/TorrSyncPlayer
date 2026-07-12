@@ -21,8 +21,7 @@
  */
 enum class SslMode {
     Strict,
-    AllowSelfSigned,
-    Insecure
+    AllowSelfSigned
 };
 
 /**
