@@ -13,7 +13,7 @@
 #include <QJsonDocument>
 #include <QSignalSpy>
 
-#include "interfaces/inetworkmanager.h"
+#include "inetworkmanager.h"
 #include "mocks/mock_networkmanager.h"
 
 using ::testing::_;

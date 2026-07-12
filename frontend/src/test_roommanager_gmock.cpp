@@ -11,7 +11,7 @@
 #include <QSignalSpy>
 
 #include "interfaces/iroommanager.h"
-#include "interfaces/inetworkmanager.h"
+#include "inetworkmanager.h"
 #include "mocks/mock_networkmanager.h"
 #include "mocks/mock_roommanager.h"
 

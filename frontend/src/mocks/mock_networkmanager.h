@@ -10,7 +10,15 @@
 #define MOCK_NETWORKMANAGER_H
 
 #include "gmock/gmock.h"
-#include "../inetworkmanager.h"
+
+// Forward declare SslMode enum from NetworkManager
+enum class SslMode {
+    Strict,
+    AllowSelfSigned,
+    Insecure
+};
+
+#include "interfaces/inetworkmanager.h"
 
 /**
  * @class MockNetworkManager
@@ -46,7 +54,7 @@ public:
     MOCK_METHOD(void, syncPause, (), (override));
     MOCK_METHOD(void, syncSeek, (double position), (override));
 
-    // ── Utilities ─────────────────────────────────────────────────────────
+    // ── Утилиты ─────────────────────────────────────────────────────────
     
     MOCK_METHOD(QString, streamUrl, (const QString &torrentId), (const, override));
     MOCK_METHOD(QString, serverUrl, (), (const, override));
@@ -54,8 +62,8 @@ public:
     MOCK_METHOD(bool, isInRoom, (), (const, override));
     MOCK_METHOD(QString, currentRoomId, (), (const, override));
     MOCK_METHOD(bool, isServerAvailable, (), (const, override));
-    
-    // Additional NetworkManager specific methods
+
+    // Additional NetworkManager specific methods (for extended testing)
     MOCK_METHOD(void, setAuthToken, (const QString &token), (override));
     MOCK_METHOD(void, clearAuthToken, (), (override));
     MOCK_METHOD(QString, authToken, (), (const, override));
