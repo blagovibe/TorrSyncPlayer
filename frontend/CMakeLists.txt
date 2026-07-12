@@ -150,7 +150,7 @@ endif()
 set(HEADERS
     src/mainwindow.h
     src/mpvwidget.h
-    src/inetworkmanager.h
+    src/interfaces/inetworkmanager.h
     src/networkmanager.h
     src/roomdialog.h
     src/roommanager.h
@@ -365,7 +365,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         src/test_networkmanager.cpp
         src/networkmanager.cpp
         src/networkmanager.h
-        src/inetworkmanager.h
+        src/interfaces/inetworkmanager.h
     )
 
     add_executable(test_networkmanager ${TEST_NETWORK_MANAGER_SOURCES})
