@@ -6,7 +6,7 @@
 #ifndef MOCK_ROOMMANAGER_H
 #define MOCK_ROOMMANAGER_H
 
-#include "interfaces/iroommanager.h"
+#include "../interfaces/iroommanager.h"
 #include <gmock/gmock.h>
 
 /**

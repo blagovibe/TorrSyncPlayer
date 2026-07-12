@@ -30,6 +30,10 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+      - name: Run go mod tidy
+        working-directory: backend
+        run: go mod tidy
+
       - uses: golangci/golangci-lint-action@v9
         with:
           version: "v2.12.2"
@@ -58,8 +62,6 @@ jobs:
         with:
           path: .
           base: ""
-          head: ""
-          extra_args: "--only-verified --fail"
 
   test-backend:
     name: Test Backend

@@ -10,7 +10,7 @@
 #define MOCK_NETWORKMANAGER_H
 
 #include "gmock/gmock.h"
-#include "interfaces/inetworkmanager.h"
+#include "../inetworkmanager.h"
 
 /**
  * @class MockNetworkManager

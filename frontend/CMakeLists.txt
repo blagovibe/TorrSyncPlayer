@@ -522,6 +522,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_link_libraries(test_networkmanager_gmock PRIVATE
             Qt6::Core
             Qt6::Network
+            Qt6::Test
             gmock_main
         )
         set_target_properties(test_networkmanager_gmock PROPERTIES AUTOMOC ON)
@@ -547,6 +548,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         )
         target_link_libraries(test_torrentmanager_gmock PRIVATE
             Qt6::Core
+            Qt6::Test
             gmock_main
         )
         set_target_properties(test_torrentmanager_gmock PROPERTIES AUTOMOC ON)
@@ -571,6 +573,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         )
         target_link_libraries(test_roommanager_gmock PRIVATE
             Qt6::Core
+            Qt6::Test
             gmock_main
         )
         set_target_properties(test_roommanager_gmock PROPERTIES AUTOMOC ON)

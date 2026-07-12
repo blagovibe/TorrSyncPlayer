@@ -6,7 +6,7 @@
 #ifndef MOCK_TORRENTMANAGER_H
 #define MOCK_TORRENTMANAGER_H
 
-#include "interfaces/itorrentmanager.h"
+#include "../interfaces/itorrentmanager.h"
 #include <gmock/gmock.h>
 
 /**
