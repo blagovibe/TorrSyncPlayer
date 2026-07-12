@@ -13,7 +13,7 @@
 #include <QByteArray>
 
 #include "interfaces/itorrentmanager.h"
-#include "inetworkmanager.h"
+#include "interfaces/inetworkmanager.h"
 #include "mocks/mock_networkmanager.h"
 #include "mocks/mock_torrentmanager.h"
 

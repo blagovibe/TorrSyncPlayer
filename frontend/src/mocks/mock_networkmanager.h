@@ -10,15 +10,7 @@
 #define MOCK_NETWORKMANAGER_H
 
 #include "gmock/gmock.h"
-
-// Forward declare SslMode enum from NetworkManager
-enum class SslMode {
-    Strict,
-    AllowSelfSigned,
-    Insecure
-};
-
-#include "interfaces/inetworkmanager.h"
+#include "../interfaces/inetworkmanager.h"
 
 /**
  * @class MockNetworkManager

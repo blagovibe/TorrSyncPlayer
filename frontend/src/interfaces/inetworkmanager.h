@@ -13,6 +13,17 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QUrl>
+#include <QJsonDocument>
+
+/**
+ * @enum SslMode
+ * @brief SSL verification mode
+ */
+enum class SslMode {
+    Strict,
+    AllowSelfSigned,
+    Insecure
+};
 
 /**
  * @class INetworkManager
@@ -144,6 +155,25 @@ public:
      * @return true если сервер доступен
      */
     virtual bool isServerAvailable() const = 0;
+
+    // ── Authentication ────────────────────────────────────────────────────
+    
+    virtual void setAuthToken(const QString &token) = 0;
+    virtual void clearAuthToken() = 0;
+    virtual QString authToken() const = 0;
+
+    // ── Retry configuration ──────────────────────────────────────────────────
+    
+    virtual void setMaxRetries(int retries) = 0;
+    virtual int maxRetries() const = 0;
+    virtual void setRetryBaseDelay(int delayMs) = 0;
+    virtual int retryBaseDelay() const = 0;
+    virtual void setSslMode(SslMode mode) = 0;
+    virtual SslMode sslMode() const = 0;
+
+    // ── JSON utilities ──────────────────────────────────────────────────────
+    
+    virtual QJsonDocument parseJson(const QByteArray &data) = 0;
 
 signals:
     // ── Torrent signals ───────────────────────────────────────────────
