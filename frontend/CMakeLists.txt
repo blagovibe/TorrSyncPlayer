@@ -163,19 +163,12 @@ set(HEADERS
 # ── Sanitizers ───────────────────────────────────────────────────────────
 option(ENABLE_SANITIZERS "Enable AddressSanitizer, ThreadSanitizer, UBSan" OFF)
 
+# Note: ASan and TSan cannot be used together in the same binary.
+# Only UBSan is enabled globally. ASan/TSan are applied only to their specific test targets.
 if(ENABLE_SANITIZERS AND NOT MSVC)
-    add_compile_options(
-        -fsanitize=address
-        -fsanitize=thread
-        -fsanitize=undefined
-        -fno-omit-frame-pointer
-    )
-    add_link_options(
-        -fsanitize=address
-        -fsanitize=thread
-        -fsanitize=undefined
-    )
-    message(STATUS "Sanitizers enabled: ASan + TSan + UBSan")
+    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "Sanitizers enabled: UBSan only (ASan/TSan require separate targets)")
 elseif(ENABLE_SANITIZERS AND MSVC)
     message(WARNING "Sanitizers not supported on MSVC, skipping")
 endif()
