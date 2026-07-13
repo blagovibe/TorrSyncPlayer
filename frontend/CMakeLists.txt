@@ -543,8 +543,6 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         # TorrentManager gmock tests
         add_executable(test_torrentmanager_gmock
             src/test_torrentmanager_gmock.cpp
-            src/mocks/mock_networkmanager.cpp
-            src/mocks/mock_torrentmanager.cpp
         )
         target_link_libraries(test_torrentmanager_gmock PRIVATE
             Qt6::Core
@@ -569,8 +567,6 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         # RoomManager gmock tests
         add_executable(test_roommanager_gmock
             src/test_roommanager_gmock.cpp
-            src/mocks/mock_networkmanager.cpp
-            src/mocks/mock_roommanager.cpp
         )
         target_link_libraries(test_roommanager_gmock PRIVATE
             Qt6::Core
