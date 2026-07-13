@@ -6,7 +6,7 @@
 #ifndef MOCK_TORRENTMANAGER_H
 #define MOCK_TORRENTMANAGER_H
 
-#include "interfaces/itorrentmanager.h"
+#include "../interfaces/itorrentmanager.h"
 #include <gmock/gmock.h>
 
 /**
@@ -21,9 +21,9 @@ public:
     MockTorrentManager(QObject *parent = nullptr) : ITorrentManager(parent) {}
     ~MockTorrentManager() override = default;
 
-    MOCK_CONST_METHOD(QString, currentTorrentId, (), (override));
+    MOCK_METHOD(QString, currentTorrentId, (), (const, override));
     MOCK_METHOD(void, setCurrentTorrentId, (const QString &id), (override));
-    MOCK_CONST_METHOD(QString, streamUrl, (const QString &torrentId), (override));
+    MOCK_METHOD(QString, streamUrl, (const QString &torrentId), (const, override));
 
     MOCK_METHOD(void, addTorrent, (const QString &magnetUri), (override));
     MOCK_METHOD(void, addTorrentFile, (const QByteArray &torrentData), (override));

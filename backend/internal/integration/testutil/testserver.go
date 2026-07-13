@@ -1,7 +1,4 @@
-/**
- * @file testserver.go
- * @brief Test server utilities for integration tests
- */
+// Package testutil provides test utilities for integration tests.
 
 package testutil
 
@@ -17,8 +14,8 @@ import (
 // TestServer wraps httptest.Server with helper methods for API testing
 type TestServer struct {
 	*httptest.Server
-	t        *testing.T
-	baseURL  string
+	t         *testing.T
+	baseURL   string
 	authToken string
 }
 
@@ -31,9 +28,9 @@ func NewTestServer(t *testing.T) *TestServer {
 	server := httptest.NewServer(router)
 
 	return &TestServer{
-		Server:   server,
-		t:        t,
-		baseURL:  server.URL,
+		Server:    server,
+		t:         t,
+		baseURL:   server.URL,
 		authToken: "test-jwt-token-for-integration-tests",
 	}
 }
@@ -44,7 +41,7 @@ func setupTestRouter() http.Handler {
 	// Import and use the actual router setup
 	// For now, we'll create a minimal mock router that matches the API
 	// In a real implementation, this would import the actual router package
-	
+
 	mux := http.NewServeMux()
 
 	// Health check
@@ -56,7 +53,7 @@ func setupTestRouter() http.Handler {
 
 	// API v1 routes
 	api := http.NewServeMux()
-	
+
 	// Torrent endpoints
 	api.HandleFunc("/torrents", handleTorrents)
 	api.HandleFunc("/torrents/", handleTorrentDetail)
@@ -93,7 +90,7 @@ func handleTorrents(w http.ResponseWriter, r *http.Request) {
 
 func handleTorrentDetail(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path[len("/torrents/"):]
-	
+
 	if path == "" {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
@@ -105,7 +102,7 @@ func handleTorrentDetail(w http.ResponseWriter, r *http.Request) {
 		handleStream(w, r, torrentID)
 		return
 	}
-	
+
 	if len(path) > len("/files") && path[len(path)-len("/files"):] == "/files" {
 		torrentID := path[:len(path)-len("/files")]
 		handleFiles(w, r, torrentID)
@@ -165,6 +162,23 @@ func handleSync(w http.ResponseWriter, r *http.Request) {
 	case path == "/seek" && r.Method == http.MethodPost:
 		handleSyncSeek(w, r)
 	case path == "/status" && r.Method == http.MethodGet:
+		handleSyncStatus(w, r)
+	default:
+		http.Error(w, "Not found", http.StatusNotFound)
+	}
+}
+
+func handleSyncDetail(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path[len("/sync/"):]
+
+	switch {
+	case path == "play" && r.Method == http.MethodPost:
+		handleSyncPlay(w, r)
+	case path == "pause" && r.Method == http.MethodPost:
+		handleSyncPause(w, r)
+	case path == "seek" && r.Method == http.MethodPost:
+		handleSyncSeek(w, r)
+	case path == "status" && r.Method == http.MethodGet:
 		handleSyncStatus(w, r)
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
@@ -365,8 +379,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"token":      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-		"expiresIn":  3600,
+		"token":     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+		"expiresIn": 3600,
 	})
 }
 
@@ -377,8 +391,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"token":      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-		"expiresIn":  3600,
+		"token":     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+		"expiresIn": 3600,
 	})
 }
 

@@ -1,14 +1,12 @@
 /**
- * @file mock_networkmanager.cpp
- * @brief Реализация MockNetworkManager
+ * @file mock_torrentmanager.cpp
+ * @brief Реализация MockTorrentManager
  * 
  * Пустая реализация для линковки. Все методы мокируются через gmock
  * в заголовочном файле с помощью MOCK_METHOD.
  */
 
-#include "mocks/mock_networkmanager.h"
-
-#include <QJsonDocument>
+#include "mocks/mock_torrentmanager.h"
 
 // Конструктор/деструктор уже определены в заголовке как inline
 // Этот файл нужен только для корректной сборки при линковке

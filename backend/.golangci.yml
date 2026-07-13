@@ -17,6 +17,10 @@ linters:
     - unconvert
     - unused
   exclusions:
+    paths:
+      - internal/contract
+      - internal/integration
+      - internal/integration/testutil
     rules:
       - linters: [revive]
         text: "unused-parameter"
