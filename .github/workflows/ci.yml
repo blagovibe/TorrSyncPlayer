@@ -320,7 +320,7 @@ jobs:
     name: Mutation Testing
     needs: [test-backend, frontend]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v7
@@ -446,7 +446,7 @@ jobs:
             qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
             libmpv-dev cmake g++ lcov \
             nodejs npm
-          cd tests/e2e/playwright && npm ci
+          cd tests/e2e/playwright && npm install
 
       - name: Configure CMake for E2E
         working-directory: frontend

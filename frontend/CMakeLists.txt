@@ -295,13 +295,15 @@ endif()
 # ── Sanitizers ──────────────────────────────────────────────────────────
 option(ENABLE_SANITIZERS "Enable AddressSanitizer, ThreadSanitizer, UBSan" OFF)
 
+# Note: ASan and TSan cannot be used together in the same binary.
+# Each sanitizer target is configured separately below.
+# UBSan can be combined with either ASan or TSan.
+
+# UBSan (can be combined with individual ASan/TSan targets)
 if(ENABLE_SANITIZERS AND NOT MSVC)
-    # AddressSanitizer + ThreadSanitizer + UBSan
-    # Note: ASan and TSan cannot be used together in the same binary
-    # We'll build separate test targets for each
     add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=undefined)
-    message(STATUS "Sanitizers enabled: AddressSanitizer, ThreadSanitizer, UBSan")
+    message(STATUS "Sanitizers enabled: UBSan")
 elseif(ENABLE_SANITIZERS AND MSVC)
     message(WARNING "Sanitizers not fully supported on MSVC, only UBSan available")
     add_compile_options(/fsanitize=undefined)
