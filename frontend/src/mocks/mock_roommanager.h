@@ -21,9 +21,9 @@ public:
     MockRoomManager(QObject *parent = nullptr) : IRoomManager(parent) {}
     ~MockRoomManager() override = default;
 
-    MOCK_CONST_METHOD(bool, isInRoom, (), (override));
-    MOCK_CONST_METHOD(QString, currentRoomId, (), (override));
-    MOCK_CONST_METHOD(bool, isHost, (), (override));
+    MOCK_METHOD(bool, isInRoom, (), (const, override));
+    MOCK_METHOD(QString, currentRoomId, (), (const, override));
+    MOCK_METHOD(bool, isHost, (), (const, override));
     MOCK_METHOD(void, setHost, (bool host), (override));
 
     MOCK_METHOD(void, createRoom, (const QString &name, const QString &password), (override));

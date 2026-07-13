@@ -21,7 +21,7 @@ class NetworkManagerGMockTest : public ::testing::Test
 {
 protected:
     void SetUp() override {
-        m_mock = new MockNetworkManager(this);
+        m_mock = new MockNetworkManager(nullptr);
     }
     
     void TearDown() override {
@@ -257,15 +257,15 @@ TEST_F(NetworkManagerGMockTest, RetryBaseDelayBounds)
 TEST_F(NetworkManagerGMockTest, SslModeConfiguration)
 {
     EXPECT_CALL(*m_mock, sslMode())
-        .WillOnce(Return(INetworkManager::SslMode::Strict));
-    EXPECT_EQ(m_mock->sslMode(), INetworkManager::SslMode::Strict);
+        .WillOnce(Return(SslMode::Strict));
+    EXPECT_EQ(m_mock->sslMode(), SslMode::Strict);
     
-    EXPECT_CALL(*m_mock, setSslMode(INetworkManager::SslMode::AllowSelfSigned));
-    m_mock->setSslMode(INetworkManager::SslMode::AllowSelfSigned);
+    EXPECT_CALL(*m_mock, setSslMode(SslMode::AllowSelfSigned));
+    m_mock->setSslMode(SslMode::AllowSelfSigned);
     
     EXPECT_CALL(*m_mock, sslMode())
-        .WillOnce(Return(INetworkManager::SslMode::AllowSelfSigned));
-    EXPECT_EQ(m_mock->sslMode(), INetworkManager::SslMode::AllowSelfSigned);
+        .WillOnce(Return(SslMode::AllowSelfSigned));
+    EXPECT_EQ(m_mock->sslMode(), SslMode::AllowSelfSigned);
 }
 
 // ── Signal emissions ──────────────────────────────────────────────────
@@ -411,7 +411,7 @@ TEST_F(NetworkManagerGMockTest, ParseNestedJson)
     QJsonDocument parsed = m_mock->parseJson(doc.toJson());
     EXPECT_FALSE(parsed.isNull());
     EXPECT_TRUE(parsed.object()["inner"].isObject());
-    EXPECT_EQ(parsed.object()["inner"].value<QJsonObject>()["nested_key"].toString(), "nested_value");
+    EXPECT_EQ(parsed.object()["inner"].toObject()["nested_key"].toString(), "nested_value");
     EXPECT_TRUE(parsed.object()["array"].isArray());
     EXPECT_EQ(parsed.object()["array"].toArray().size(), 3);
 }
