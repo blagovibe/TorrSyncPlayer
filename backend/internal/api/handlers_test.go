@@ -924,10 +924,19 @@ func TestSecurity_RateLimiter_BlocksExcess(t *testing.T) {
 	handler := limiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
+	
+	// First request should succeed
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, "First request should succeed")
+	
+	// Subsequent requests should be rate limited (429 Too Many Requests)
 	for i := 0; i < 5; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Request %d should be rate limited", i+2)
 	}
 }
 
