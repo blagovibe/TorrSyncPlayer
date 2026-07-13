@@ -1,0 +1,33 @@
+{
+  "name": "packet_loss",
+  "description": "Simulate packet loss to test resilience",
+  "duration_seconds": 90,
+  "toxics": [
+    {
+      "name": "packet_loss_5%",
+      "type": "corrupt",
+      "stream": "downstream",
+      "attributes": {
+        "probability": 0.05,
+        "corrupt_action": "drop"
+      }
+    },
+    {
+      "name": "packet_loss_10%",
+      "type": "corrupt",
+      "stream": "upstream",
+      "attributes": {
+        "probability": 0.10,
+        "corrupt_action": "drop"
+      }
+    }
+  ],
+  "verification": {
+    "checks": [
+      "torrent_download_resumes_after_loss",
+      "video_stream_recovers",
+      "p2p_signals_eventually_delivered",
+      "room_state_eventually_consistent"
+    ]
+  }
+}

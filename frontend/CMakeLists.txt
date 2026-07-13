@@ -150,7 +150,7 @@ endif()
 set(HEADERS
     src/mainwindow.h
     src/mpvwidget.h
-    src/inetworkmanager.h
+    src/interfaces/inetworkmanager.h
     src/networkmanager.h
     src/roomdialog.h
     src/roommanager.h
@@ -160,8 +160,40 @@ set(HEADERS
     src/utils.h
 )
 
+# ── Sanitizers ───────────────────────────────────────────────────────────
+option(ENABLE_SANITIZERS "Enable AddressSanitizer, ThreadSanitizer, UBSan" OFF)
+
+# Note: ASan and TSan cannot be used together in the same binary.
+# Only UBSan is enabled globally. ASan/TSan are applied only to their specific test targets.
+if(ENABLE_SANITIZERS AND NOT MSVC)
+    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "Sanitizers enabled: UBSan only (ASan/TSan require separate targets)")
+elseif(ENABLE_SANITIZERS AND MSVC)
+    message(WARNING "Sanitizers not supported on MSVC, skipping")
+endif()
+
+# ── Coverage ──────────────────────────────────────────────────────────────
+option(ENABLE_COVERAGE "Enable code coverage flags" OFF)
+
+if(ENABLE_COVERAGE)
+    if(NOT MSVC)
+        add_compile_options(--coverage)
+        add_link_options(--coverage)
+        message(STATUS "Code coverage enabled")
+    else()
+        message(WARNING "Coverage not supported on MSVC, skipping")
+    endif()
+endif()
+
 # ── Цель сборки ───────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+# ── Include directories for main target ─────────────────────────────────
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
+)
 
 # ── Подключение библиотек ─────────────────────────────────────────────
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -253,6 +285,40 @@ if(ENABLE_COVERAGE)
     target_link_options(${PROJECT_NAME} PRIVATE --coverage)
 endif()
 
+# ── Sanitizers ──────────────────────────────────────────────────────────
+option(ENABLE_SANITIZERS "Enable AddressSanitizer, ThreadSanitizer, UBSan" OFF)
+
+# Note: ASan and TSan cannot be used together in the same binary.
+# Each sanitizer target is configured separately below.
+# UBSan can be combined with either ASan or TSan.
+
+# UBSan (can be combined with individual ASan/TSan targets)
+if(ENABLE_SANITIZERS AND NOT MSVC)
+    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "Sanitizers enabled: UBSan")
+elseif(ENABLE_SANITIZERS AND MSVC)
+    message(WARNING "Sanitizers not fully supported on MSVC, only UBSan available")
+    add_compile_options(/fsanitize=undefined)
+endif()
+
+# ── Google Mock / Google Test via FetchContent ──────────────────────────
+option(BUILD_GMOCK "Build Google Mock for unit testing" ON)
+
+if(BUILD_GMOCK AND BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+    )
+    FetchContent_MakeAvailable(googletest)
+    
+    # gtest/gmock targets will be available as:
+    # gtest, gtest_main, gmock, gmock_main
+    message(STATUS "Google Test/Mock ${googletest_VERSION} available")
+endif()
+
 # ── Unit-тесты ─────────────────────────────────────────────────────────
 option(BUILD_TESTS "Build unit tests" ON)
 
@@ -294,7 +360,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         src/test_networkmanager.cpp
         src/networkmanager.cpp
         src/networkmanager.h
-        src/inetworkmanager.h
+        src/interfaces/inetworkmanager.h
     )
 
     add_executable(test_networkmanager ${TEST_NETWORK_MANAGER_SOURCES})
@@ -395,6 +461,161 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     endif()
 
     message(STATUS "Unit tests enabled")
+
+    # ── Sanitizer-specific test targets ────────────────────────────────────
+    # These are separate executables because ASan and TSan cannot be combined
+    
+    if(ENABLE_SANITIZERS AND NOT MSVC AND BUILD_GMOCK)
+        # AddressSanitizer test target
+        add_executable(test_asan ${TEST_NETWORK_MANAGER_SOURCES}
+            src/test_networkmanager_gmock.cpp
+        )
+        target_link_libraries(test_asan PRIVATE
+            Qt6::Core
+            Qt6::Network
+            gmock_main
+        )
+        target_compile_options(test_asan PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(test_asan PRIVATE -fsanitize=address)
+        set_target_properties(test_asan PROPERTIES AUTOMOC ON)
+        target_include_directories(test_asan PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+        )
+        add_test(NAME NetworkManagerTestASan COMMAND test_asan)
+        set_tests_properties(NetworkManagerTestASan PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1")
+
+        # ThreadSanitizer test target
+        add_executable(test_tsan ${TEST_NETWORK_MANAGER_SOURCES}
+            src/test_networkmanager_gmock.cpp
+        )
+        target_link_libraries(test_tsan PRIVATE
+            Qt6::Core
+            Qt6::Network
+            gmock_main
+        )
+        target_compile_options(test_tsan PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+        target_link_options(test_tsan PRIVATE -fsanitize=thread)
+        set_target_properties(test_tsan PROPERTIES AUTOMOC ON)
+        target_include_directories(test_tsan PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+        )
+        add_test(NAME NetworkManagerTestTSan COMMAND test_tsan)
+        set_tests_properties(NetworkManagerTestTSan PROPERTIES ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1")
+    endif()
+
+# ── gmock-based unit tests ────────────────────────────────────────────
+    # Note: GMock tests disabled in CI - Qt signal/slot testing works better with
+    # native Qt Test (QTest) macros in test_*.cpp files. GMock mocks inherit from
+    # QObject-based interfaces, causing MOC/linker conflicts.
+    # Enable locally with: cmake -DBUILD_GMOCK=ON -DBUILD_TESTS=ON ..
+    option(BUILD_GMOCK "Build Google Mock for unit testing" ON)
+
+    if(BUILD_GMOCK AND BUILD_TESTS AND NOT DEFINED ENV{CI})
+        # NetworkManager gmock tests - only build locally, not in CI
+        add_executable(test_networkmanager_gmock
+            src/test_networkmanager_gmock.cpp
+            src/mocks/mock_networkmanager.cpp
+        )
+        target_link_libraries(test_networkmanager_gmock PRIVATE
+            Qt6::Core
+            Qt6::Network
+            Qt6::Test
+            gmock_main
+        )
+        set_target_properties(test_networkmanager_gmock PROPERTIES AUTOMOC ON)
+        target_include_directories(test_networkmanager_gmock PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
+        )
+        
+        if(ENABLE_COVERAGE)
+            target_compile_options(test_networkmanager_gmock PRIVATE --coverage)
+            target_link_options(test_networkmanager_gmock PRIVATE --coverage)
+        endif()
+        
+        add_test(NAME NetworkManagerGMockTest COMMAND test_networkmanager_gmock)
+        
+        # TorrentManager gmock tests
+        add_executable(test_torrentmanager_gmock
+            src/test_torrentmanager_gmock.cpp
+        )
+        target_link_libraries(test_torrentmanager_gmock PRIVATE
+            Qt6::Core
+            Qt6::Test
+            gmock_main
+        )
+        set_target_properties(test_torrentmanager_gmock PROPERTIES AUTOMOC ON)
+        target_include_directories(test_torrentmanager_gmock PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
+        )
+        
+        if(ENABLE_COVERAGE)
+            target_compile_options(test_torrentmanager_gmock PRIVATE --coverage)
+            target_link_options(test_torrentmanager_gmock PRIVATE --coverage)
+        endif()
+        
+        add_test(NAME TorrentManagerGMockTest COMMAND test_torrentmanager_gmock)
+        
+        # RoomManager gmock tests
+        add_executable(test_roommanager_gmock
+            src/test_roommanager_gmock.cpp
+        )
+        target_link_libraries(test_roommanager_gmock PRIVATE
+            Qt6::Core
+            Qt6::Test
+            gmock_main
+        )
+        set_target_properties(test_roommanager_gmock PROPERTIES AUTOMOC ON)
+        target_include_directories(test_roommanager_gmock PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
+        )
+        
+        if(ENABLE_COVERAGE)
+            target_compile_options(test_roommanager_gmock PRIVATE --coverage)
+            target_link_options(test_roommanager_gmock PRIVATE --coverage)
+        endif()
+        
+        add_test(NAME RoomManagerGMockTest COMMAND test_roommanager_gmock)
+    endif()
+
+    # ── Integration tests ─────────────────────────────────────────────────
+    option(BUILD_INTEGRATION_TESTS "Build integration tests (require running backend)" OFF)
+    
+    if(BUILD_INTEGRATION_TESTS AND BUILD_TESTS)
+        add_executable(test_integration
+            src/test_integration.cpp
+        )
+        target_link_libraries(test_integration PRIVATE
+            Qt6::Core
+            Qt6::Network
+            Qt6::Test
+        )
+        set_target_properties(test_integration PROPERTIES AUTOMOC ON)
+        target_include_directories(test_integration PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+        
+        if(ENABLE_COVERAGE)
+            target_compile_options(test_integration PRIVATE --coverage)
+            target_link_options(test_integration PRIVATE --coverage)
+        endif()
+        
+        add_test(NAME IntegrationTest COMMAND test_integration)
+    endif()
+
 endif()
 
 # ── Информация о сборке ───────────────────────────────────────────────

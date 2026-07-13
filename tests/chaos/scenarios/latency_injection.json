@@ -1,0 +1,32 @@
+{
+  "name": "latency_injection",
+  "description": "Inject latency to simulate high-latency network conditions",
+  "duration_seconds": 120,
+  "toxics": [
+    {
+      "name": "latency_100ms",
+      "type": "latency",
+      "stream": "downstream",
+      "attributes": {
+        "latency": 100,
+        "jitter": 20
+      }
+    },
+    {
+      "name": "latency_500ms",
+      "type": "latency",
+      "stream": "upstream",
+      "attributes": {
+        "latency": 500,
+        "jitter": 50
+      }
+    }
+  ],
+  "verification": {
+    "checks": [
+      "sync_operations_complete_within_timeout",
+      "video_buffering_handles_latency",
+      "no_deadlocks_in_p2p_signaling"
+    ]
+  }
+}

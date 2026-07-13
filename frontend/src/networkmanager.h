@@ -14,7 +14,7 @@
 #ifndef NETWORKMANAGER_H
 #define NETWORKMANAGER_H
 
-#include "inetworkmanager.h"
+#include "interfaces/inetworkmanager.h"
 
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -264,16 +264,6 @@ public:
     
     /**
      * @brief Режим проверки SSL-сертификатов
-     */
-    enum class SslMode {
-        Strict,     ///< Verify all certificates (production)
-        AllowSelfSigned  ///< Accept self-signed certs for localhost (development)
-    };
-
-    /**
-     * @brief Установить режим проверки SSL-сертификатов
-     * @param mode Strict — проверять все сертификаты (production),
-     *             AllowSelfSigned — принимать self-signed для localhost (разработка)
      */
     void setSslMode(SslMode mode) { m_sslMode = mode; }
 

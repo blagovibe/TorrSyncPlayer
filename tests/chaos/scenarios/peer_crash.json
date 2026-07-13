@@ -1,0 +1,24 @@
+{
+  "name": "peer_crash",
+  "description": "Simulate peer crash during active session",
+  "duration_seconds": 60,
+  "toxics": [
+    {
+      "name": "kill_peer_connection",
+      "type": "limit_data",
+      "stream": "downstream",
+      "attributes": {
+        "bytes": 1024,
+        "close": true
+      }
+    }
+  ],
+  "verification": {
+    "checks": [
+      "host_detects_peer_disconnect",
+      "room_state_updates_peer_count",
+      "remaining_peers_continue_sync",
+      "new_peer_can_join_after_crash"
+    ]
+  }
+}

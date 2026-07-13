@@ -1,0 +1,9 @@
+[
+  {
+    "name": "backend",
+    "listen": "0.0.0.0:8666",
+    "upstream": "backend:8889",
+    "enabled": true,
+    "toxics": []
+  }
+]
