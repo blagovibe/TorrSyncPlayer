@@ -14,5 +14,5 @@
 // Этот файл нужен только для корректной сборки при линковке
 // отдельных тестовых исполняемых файлов
 
-// Экспорт для Google Mock
-// Все методы уже объявлены через MOCK_METHOD в .h файле
+// MOC generated meta-object code
+#include "mock_networkmanager.moc"

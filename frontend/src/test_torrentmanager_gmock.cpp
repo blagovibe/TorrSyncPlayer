@@ -156,7 +156,7 @@ TEST_F(TorrentManagerGMockTest, FilesReceivedSignal)
     EXPECT_EQ(spy.count(), 1);
     auto args = spy.takeFirst();
     EXPECT_EQ(args.at(0).toString(), QString("torrent-1"));
-    EXPECT_EQ(args.at(1).toArray().size(), 2);
+    EXPECT_EQ(args.at(1).value<QJsonArray>().size(), 2);
 }
 
 TEST_F(TorrentManagerGMockTest, FileSelectedSignal)
