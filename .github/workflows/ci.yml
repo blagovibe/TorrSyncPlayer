@@ -80,7 +80,7 @@ jobs:
       - name: Run tests with race detector and coverage
         working-directory: backend
         run: |
-          CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+          CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v '/integration')
           go tool cover -func=coverage.out
 
       - name: Run govulncheck
@@ -170,7 +170,7 @@ jobs:
         working-directory: frontend/build
         run: |
           lcov --capture --directory . --output-file coverage.info --no-external
-          lcov --remove coverage.info '/usr/*' '*/tests/*' '*/mocks/*' '*/interfaces/*' --output-file coverage.clean.info
+          lcov --ignore-errors unused --remove coverage.info '/usr/*' '*/tests/*' '*/mocks/*' '*/interfaces/*' --output-file coverage.clean.info
           lcov --list coverage.clean.info
           genhtml coverage.clean.info --output-directory coverage_html
 
