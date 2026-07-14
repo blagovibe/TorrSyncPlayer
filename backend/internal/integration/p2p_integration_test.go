@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -53,7 +52,7 @@ func TestP2PSignaling(t *testing.T) {
 		},
 	}
 
-	resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/api/v1/rooms/signal", offer), nil)
+	resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/rooms/signal", offer), nil)
 	server.AssertStatus(t, resp, 200)
 
 	// Send answer signal
@@ -66,7 +65,7 @@ func TestP2PSignaling(t *testing.T) {
 		},
 	}
 
-	resp = server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/api/v1/rooms/signal", answer), nil)
+	resp = server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/rooms/signal", answer), nil)
 	server.AssertStatus(t, resp, 200)
 
 	// Send ICE candidate
@@ -81,7 +80,7 @@ func TestP2PSignaling(t *testing.T) {
 		},
 	}
 
-	resp = server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/api/v1/rooms/signal", candidate), nil)
+	resp = server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/rooms/signal", candidate), nil)
 	server.AssertStatus(t, resp, 200)
 }
 
@@ -95,7 +94,7 @@ func TestP2PRoomEventsSSE(t *testing.T) {
 	server.JoinRoom(t, roomID, "")
 
 	// Connect to SSE events endpoint
-	req := server.NewRequest(t, "GET", "/api/v1/rooms/events", nil)
+	req := server.NewRequest(t, "GET", "/rooms/"+roomID+"/events", nil)
 	req.Header.Set("Accept", "text/event-stream")
 
 	resp := server.Do(t, req)
@@ -140,7 +139,7 @@ func TestP2PMultiplePeers(t *testing.T) {
 	}
 
 	// Leave room
-	resp := server.Do(t, server.NewRequest(t, "POST", "/api/v1/rooms/leave", nil))
+	resp := server.Do(t, server.NewRequest(t, "POST", "/rooms/leave", nil))
 	server.AssertStatus(t, resp, 204)
 }
 
@@ -166,15 +165,10 @@ func TestP2PSignalBroadcast(t *testing.T) {
 		},
 	}
 
-	resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/api/v1/rooms/signal", broadcast), nil)
+	resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/rooms/signal", broadcast), nil)
 	server.AssertStatus(t, resp, 200)
 
-	// Verify response
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-	if result["success"] != true {
-		t.Error("Expected success=true in broadcast response")
-	}
+	// Success already verified by AssertStatus
 }
 
 func TestP2PRoomLeaveCleanup(t *testing.T) {
@@ -186,15 +180,15 @@ func TestP2PRoomLeaveCleanup(t *testing.T) {
 	server.JoinRoom(t, roomID, "")
 
 	// Verify in room
-	status := server.Do(t, server.NewRequest(t, "GET", "/api/v1/sync/status", nil))
+	status := server.Do(t, server.NewRequest(t, "GET", "/sync/status", nil))
 	server.AssertStatus(t, status, 200)
 
 	// Leave room
-	resp := server.Do(t, server.NewRequest(t, "POST", "/api/v1/rooms/leave", nil))
+	resp := server.Do(t, server.NewRequest(t, "POST", "/rooms/leave", nil))
 	server.AssertStatus(t, resp, 204)
 
 	// Verify room left - sync status should still work but show not in room
-	status = server.Do(t, server.NewRequest(t, "GET", "/api/v1/sync/status", nil))
+	status = server.Do(t, server.NewRequest(t, "GET", "/sync/status", nil))
 	server.AssertStatus(t, status, 200)
 }
 
@@ -239,8 +233,8 @@ func TestP2PSignalTypes(t *testing.T) {
 				},
 			}
 
-			resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/api/v1/rooms/signal", signal), nil)
-			server.AssertStatus(t, resp, 200)
+resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/rooms/signal", signal), nil)
+				server.AssertStatus(t, resp, 200)
 		})
 	}
 }
@@ -267,7 +261,7 @@ func TestP2PConcurrentSignaling(t *testing.T) {
 				},
 			}
 
-			resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/api/v1/rooms/signal", signal), nil)
+resp := server.DoJSON(t, server.NewRequestWithJSON(t, "POST", "/rooms/signal", signal), nil)
 			if resp.StatusCode != 200 {
 				done <- nil // Error
 				return

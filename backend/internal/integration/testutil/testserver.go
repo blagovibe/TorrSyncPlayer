@@ -144,9 +144,13 @@ func handleRoomDetail(w http.ResponseWriter, r *http.Request) {
 		handleLeaveRoom(w, r)
 	case path == "signal" && r.Method == http.MethodPost:
 		handleSignal(w, r)
-	case path == "events" && r.Method == http.MethodGet:
-		handleRoomEvents(w, r)
 	default:
+		// Check for /rooms/{roomID}/events pattern
+		if len(path) > len("/events") && path[len(path)-len("/events"):] == "/events" {
+			roomID := path[:len(path)-len("/events")]
+			handleRoomEvents(w, r, roomID)
+			return
+		}
 		http.Error(w, "Not found", http.StatusNotFound)
 	}
 }
@@ -321,7 +325,8 @@ func handleSignal(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
-func handleRoomEvents(w http.ResponseWriter, r *http.Request) {
+func handleRoomEvents(w http.ResponseWriter, r *http.Request, roomID string) {
+	// Ignore roomID for mock - just return SSE stream
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
