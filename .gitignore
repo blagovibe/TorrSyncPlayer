@@ -61,3 +61,6 @@ apply_patch.js
 apply_patch.py
 package.json
 package-lock.json
+
+# ZCode IDE
+.zcode/
