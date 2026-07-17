@@ -43,7 +43,7 @@ func SyncPlay(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.Han
 			roomID = roomInfo.ID
 		}
 
-		status := syncSvc.Play(r.Context(), roomID)
+		status := syncSvc.Play(roomID)
 
 		// Broadcast to room participants if user is in a room
 		if roomInfo != nil {
@@ -84,7 +84,7 @@ func SyncPause(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.Ha
 			roomID = roomInfo.ID
 		}
 
-		status := syncSvc.Pause(r.Context(), roomID)
+		status := syncSvc.Pause(roomID)
 
 		// Broadcast to room participants if user is in a room
 		if roomInfo != nil {
@@ -144,7 +144,7 @@ func SyncSeek(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.Han
 			roomID = roomInfo.ID
 		}
 
-		status, err := syncSvc.Seek(r.Context(), roomID, req.Position)
+		status, err := syncSvc.Seek(roomID, req.Position)
 		if err != nil {
 			handleError(w, r, err, "seeking")
 			return
@@ -183,7 +183,7 @@ func SyncStatus(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.H
 				roomID = roomInfo.ID
 			}
 		}
-		status := syncSvc.GetStatus(r.Context(), roomID)
+		status := syncSvc.GetStatus(roomID)
 		WriteJSON(w, http.StatusOK, status)
 	}
 }

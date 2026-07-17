@@ -8,7 +8,6 @@ package api
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,18 +26,6 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
-
-// validateTorrentID validates the torrent identifier.
-// ID must be a hex string of 40 characters (SHA1 infohash).
-func validateTorrentID(id string) error {
-	if len(id) != constants.TorrentIDLength {
-		return fmt.Errorf("invalid torrent ID length: expected %d, got %d", constants.TorrentIDLength, len(id))
-	}
-	if _, err := hex.DecodeString(id); err != nil {
-		return fmt.Errorf("invalid torrent ID format: must be hex string")
-	}
-	return nil
-}
 
 // ── SSE Connection Management ──────────────────────────────────────────
 

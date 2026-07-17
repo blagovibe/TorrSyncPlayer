@@ -110,7 +110,7 @@ public:
     
     /**
      * @brief Отправить сигнал в комнату
-     * @param signal JSON объект сигнала WebRTC
+     * @param signal JSON объект сигнала (ретранслируется сервером через SSE)
      */
     virtual void sendSignal(const QJsonObject &signal) = 0;
 
@@ -172,10 +172,30 @@ public:
     virtual bool isServerAvailable() const = 0;
 
     // ── Authentication ────────────────────────────────────────────────────
-    
+
     virtual void setAuthToken(const QString &token) = 0;
     virtual void clearAuthToken() = 0;
     virtual QString authToken() const = 0;
+
+    /**
+     * @brief Авторизоваться на сервере
+     * @param username Имя пользователя
+     * @param password Пароль
+     */
+    virtual void login(const QString &username, const QString &password) = 0;
+
+    /**
+     * @brief Зарегистрироваться на сервере
+     * @param username Имя пользователя
+     * @param password Пароль
+     */
+    virtual void registerUser(const QString &username, const QString &password) = 0;
+
+    /**
+     * @brief Запросить stream-тикет для воспроизведения без JWT-заголовка
+     * @param torrentId ID торрента
+     */
+    virtual void requestStreamTicket(const QString &torrentId) = 0;
 
     // ── Retry configuration ──────────────────────────────────────────────────
     

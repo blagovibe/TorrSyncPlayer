@@ -232,12 +232,6 @@ private:
 
 #ifdef HAS_MPV_RENDER
     /**
-     * @brief Рендеринг видеокадра
-     * Выполняет рендеринг через mpv_render_context
-     */
-    void renderMpvFrame();
-
-    /**
      * @brief Получение OpenGL функций для mpv
      * @return Функции OpenGL
      */

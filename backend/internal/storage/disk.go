@@ -8,6 +8,9 @@
 package storage
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/anacrolix/torrent/storage"
 )
 
@@ -16,9 +19,30 @@ import (
 // importing anacrolix directly.
 type ClientImplCloser = storage.ClientImplCloser
 
+// FileStorage is a disk-backed storage that tracks its base directory so it
+// can remove per-torrent piece data on demand.
+type FileStorage struct {
+	storage.ClientImplCloser
+	baseDir string
+}
+
 // NewFileStorage creates a disk-backed storage that writes torrent pieces to
-// sub-directories of baseDir. It returns a ClientImplCloser; callers must
-// invoke Close to release resources.
-func NewFileStorage(baseDir string) storage.ClientImplCloser {
-	return storage.NewFile(baseDir)
+// sub-directories of baseDir. It returns a *FileStorage; callers must invoke
+// Close to release resources and may call RemoveTorrent to reclaim disk space.
+func NewFileStorage(baseDir string) *FileStorage {
+	return &FileStorage{
+		ClientImplCloser: storage.NewFile(baseDir),
+		baseDir:          baseDir,
+	}
+}
+
+// RemoveTorrent deletes the on-disk piece directory for the given torrent
+// info-hash, reclaiming space left behind after the torrent is dropped from
+// the client. It is a no-op if the directory does not exist.
+func (f *FileStorage) RemoveTorrent(infoHash string) error {
+	dir := filepath.Join(f.baseDir, infoHash)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil
+	}
+	return os.RemoveAll(dir)
 }

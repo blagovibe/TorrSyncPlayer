@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release workflow: per-job permissions (contents:read/write)
 - CI: race detector with CGO_ENABLED=1
 - `backend/Dockerfile`: multi-stage Alpine build (1.6MB runtime)
-- P2P: TURN server configuration via TURN_URL/TURN_USERNAME/TURN_CREDENTIAL envar
+- P2P: rooms and playback sync are brokered by the server over SSE (no STUN/TURN required)
 - Auth: JWT token TTL configurable via JWT_TTL_HOURS environment variable
 - Auth: structured audit logging for register/login events
 - Auth: CORS origins reload every 5 minutes (no restart required)
@@ -47,8 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Basic torrent client functionality based on anacrolix/torrent
 - HTTP REST API server in Go with chi router
-- P2P connections via WebRTC (pion/webrtc v4)
-- Playback synchronization with latency compensation
+- Playback synchronization with latency compensation (server-brokered over SSE)
 - JWT authentication for users and peers
 - Password-protected rooms with bcrypt hashing
 - SSE (Server-Sent Events) for real-time room events

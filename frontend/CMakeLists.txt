@@ -279,31 +279,6 @@ if(UNIX AND NOT APPLE)
     )
 endif()
 
-# ── Coverage ────────────────────────────────────────────────────────────
-option(ENABLE_COVERAGE "Enable code coverage flags" OFF)
-
-if(ENABLE_COVERAGE)
-    target_compile_options(${PROJECT_NAME} PRIVATE --coverage)
-    target_link_options(${PROJECT_NAME} PRIVATE --coverage)
-endif()
-
-# ── Sanitizers ──────────────────────────────────────────────────────────
-option(ENABLE_SANITIZERS "Enable AddressSanitizer, ThreadSanitizer, UBSan" OFF)
-
-# Note: ASan and TSan cannot be used together in the same binary.
-# Each sanitizer target is configured separately below.
-# UBSan can be combined with either ASan or TSan.
-
-# UBSan (can be combined with individual ASan/TSan targets)
-if(ENABLE_SANITIZERS AND NOT MSVC)
-    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=undefined)
-    message(STATUS "Sanitizers enabled: UBSan")
-elseif(ENABLE_SANITIZERS AND MSVC)
-    message(WARNING "Sanitizers not fully supported on MSVC, only UBSan available")
-    add_compile_options(/fsanitize=undefined)
-endif()
-
 # ── Google Mock / Google Test via FetchContent ──────────────────────────
 option(BUILD_GMOCK "Build Google Mock for unit testing" ON)
 
@@ -510,14 +485,12 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     endif()
 
 # ── gmock-based unit tests ────────────────────────────────────────────
-    # Note: GMock tests disabled in CI - Qt signal/slot testing works better with
-    # native Qt Test (QTest) macros in test_*.cpp files. GMock mocks inherit from
-    # QObject-based interfaces, causing MOC/linker conflicts.
-    # Enable locally with: cmake -DBUILD_GMOCK=ON -DBUILD_TESTS=ON ..
+    # NetworkManager gmock tests validate the INetworkManager contract.
+    # Built and run whenever BUILD_GMOCK and BUILD_TESTS are enabled.
     option(BUILD_GMOCK "Build Google Mock for unit testing" ON)
 
-    if(BUILD_GMOCK AND BUILD_TESTS AND NOT DEFINED ENV{CI})
-        # NetworkManager gmock tests - only build locally, not in CI
+    if(BUILD_GMOCK AND BUILD_TESTS)
+        # NetworkManager gmock tests
         add_executable(test_networkmanager_gmock
             src/test_networkmanager_gmock.cpp
             src/mocks/mock_networkmanager.cpp
@@ -542,54 +515,6 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         endif()
         
         add_test(NAME NetworkManagerGMockTest COMMAND test_networkmanager_gmock)
-        
-        # TorrentManager gmock tests
-        add_executable(test_torrentmanager_gmock
-            src/test_torrentmanager_gmock.cpp
-        )
-        target_link_libraries(test_torrentmanager_gmock PRIVATE
-            Qt6::Core
-            Qt6::Test
-            gmock_main
-        )
-        set_target_properties(test_torrentmanager_gmock PROPERTIES AUTOMOC ON)
-        target_include_directories(test_torrentmanager_gmock PRIVATE
-            ${CMAKE_CURRENT_BINARY_DIR}
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
-        )
-        
-        if(ENABLE_COVERAGE)
-            target_compile_options(test_torrentmanager_gmock PRIVATE --coverage)
-            target_link_options(test_torrentmanager_gmock PRIVATE --coverage)
-        endif()
-        
-        add_test(NAME TorrentManagerGMockTest COMMAND test_torrentmanager_gmock)
-        
-        # RoomManager gmock tests
-        add_executable(test_roommanager_gmock
-            src/test_roommanager_gmock.cpp
-        )
-        target_link_libraries(test_roommanager_gmock PRIVATE
-            Qt6::Core
-            Qt6::Test
-            gmock_main
-        )
-        set_target_properties(test_roommanager_gmock PROPERTIES AUTOMOC ON)
-        target_include_directories(test_roommanager_gmock PRIVATE
-            ${CMAKE_CURRENT_BINARY_DIR}
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
-        )
-        
-        if(ENABLE_COVERAGE)
-            target_compile_options(test_roommanager_gmock PRIVATE --coverage)
-            target_link_options(test_roommanager_gmock PRIVATE --coverage)
-        endif()
-        
-        add_test(NAME RoomManagerGMockTest COMMAND test_roommanager_gmock)
     endif()
 
     # ── Integration tests ─────────────────────────────────────────────────

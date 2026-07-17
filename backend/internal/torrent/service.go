@@ -340,6 +340,15 @@ func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
 
 	t.Drop()
 
+	// Reclaim on-disk piece data for disk-backed storage to avoid leaks.
+	if s.storage != nil {
+		if fs, ok := s.storage.(*storage.FileStorage); ok {
+			if err := fs.RemoveTorrent(id); err != nil {
+				logger.Warn("Torrent: failed to remove disk storage for torrent", "torrentID", id, "error", err)
+			}
+		}
+	}
+
 	// Remove from buffer service
 	if s.bufferService != nil {
 		s.bufferService.UnregisterTorrent(id)

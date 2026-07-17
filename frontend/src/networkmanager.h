@@ -178,7 +178,7 @@ public:
     /**
      * @brief Отправить сигнал в комнату
      * Отправляет POST запрос на /api/v1/rooms/signal
-     * @param signal JSON объект сигнала WebRTC
+     * @param signal JSON объект сигнала (ретранслируется сервером через SSE)
      */
     void sendSignal(const QJsonObject &signal);
 
@@ -430,7 +430,7 @@ signals:
     
     /**
      * @brief Получен сигнал от пира
-     * Испускается при получении WebRTC сигнала
+     * Испускается при получении сигнала, ретранслированного сервером через SSE
      * @param signal JSON объект сигнала
      */
     void signalReceived(const QJsonObject &signal);

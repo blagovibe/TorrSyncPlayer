@@ -752,6 +752,8 @@ void MainWindow::onServerAvailable()
     m_addButton->setEnabled(true);
     m_createRoomButton->setEnabled(true);
     m_joinRoomButton->setEnabled(true);
+    // Кнопка удаления активна только если торрент уже выбран (как при старте).
+    m_removeTorrentButton->setEnabled(!m_torrentManager->currentTorrentId().isEmpty());
 
     // Обновляем данные с сервера
     m_torrentManager->listTorrents();

@@ -8,7 +8,6 @@
 package sync
 
 import (
-	"context"
 	"math"
 	"sync"
 	"time"
@@ -120,8 +119,7 @@ func (s *Service) ensureRoomLocked(roomID string) models.SyncStatus {
 // Play starts playback for the specified room.
 // Sets IsPlaying flag to true and updates the timestamp.
 // Returns the current synchronization status.
-func (s *Service) Play(ctx context.Context, roomID string) models.SyncStatus {
-	_ = ctx
+func (s *Service) Play(roomID string) models.SyncStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -143,8 +141,7 @@ func (s *Service) Play(ctx context.Context, roomID string) models.SyncStatus {
 // Pause pauses playback for the specified room.
 // Sets IsPlaying flag to false and updates the timestamp.
 // Returns the current synchronization status.
-func (s *Service) Pause(ctx context.Context, roomID string) models.SyncStatus {
-	_ = ctx
+func (s *Service) Pause(roomID string) models.SyncStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -170,8 +167,7 @@ func (s *Service) Pause(ctx context.Context, roomID string) models.SyncStatus {
 // SmoothAdjustmentRatio to avoid visual glitches and desync caused by
 // network latency or out-of-order events.
 // Returns the updated status or an error if position is invalid.
-func (s *Service) Seek(ctx context.Context, roomID string, position float64) (models.SyncStatus, error) {
-	_ = ctx
+func (s *Service) Seek(roomID string, position float64) (models.SyncStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -213,8 +209,7 @@ func applyLatencyCompensation(current, requested float64) float64 {
 
 // GetStatus returns the current playback status for the given room.
 // Includes position, duration, playback state and timestamp.
-func (s *Service) GetStatus(ctx context.Context, roomID string) models.SyncStatus {
-	_ = ctx
+func (s *Service) GetStatus(roomID string) models.SyncStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

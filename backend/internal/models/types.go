@@ -19,8 +19,11 @@ type FileInfo struct {
 
 // RoomInfo information about a P2P room
 type RoomInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// HostID is the host's peer (session) identifier, NOT the host's user ID.
+	// The host's user ID is tracked separately server-side (HostUserID in the
+	// p2p service room struct) and is the authoritative key for host checks.
 	HostID    string `json:"hostId"`
 	PeerCount int    `json:"peerCount"`
 }

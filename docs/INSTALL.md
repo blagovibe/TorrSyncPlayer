@@ -178,6 +178,7 @@ Extract the archive and run `TorrSyncPlayer.exe`.
 |----------|---------|-------------|
 | `PORT` | 8889 | HTTP server port |
 | `JWT_SECRET` | (empty) | JWT token secret |
+| `JWT_TTL_HOURS` | 24 | JWT token lifetime in hours |
 | `LOG_LEVEL` | info | Log level (debug/info/warn/error) |
 | `LOG_FORMAT` | text | Log format (text/json) |
 | `TLS_CERT` | (empty) | Path to TLS certificate |

@@ -1,7 +1,6 @@
 package sync
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +24,7 @@ func TestNewService(t *testing.T) {
 
 	defer svc.Close()
 
-	status := svc.GetStatus(context.Background(), testRoomID)
+	status := svc.GetStatus(testRoomID)
 	assert.False(t, status.IsPlaying)
 	assert.Equal(t, float64(0), status.Position)
 	assert.Equal(t, float64(0), status.Duration)
@@ -37,7 +36,7 @@ func TestPlay(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	status := svc.Play(context.Background(), testRoomID)
+	status := svc.Play(testRoomID)
 	assert.True(t, status.IsPlaying)
 	assert.Greater(t, status.Timestamp, int64(0))
 }
@@ -48,10 +47,10 @@ func TestPause(t *testing.T) {
 	defer svc.Close()
 
 	// First start playback
-	svc.Play(context.Background(), testRoomID)
+	svc.Play(testRoomID)
 
 	// Then pause
-	status := svc.Pause(context.Background(), testRoomID)
+	status := svc.Pause(testRoomID)
 	assert.False(t, status.IsPlaying)
 }
 
@@ -62,12 +61,12 @@ func TestSeek(t *testing.T) {
 	defer svc.Close()
 
 	// Seek from 0 to 1.0 (small jump) -> applied directly.
-	status, err := svc.Seek(context.Background(), testRoomID, 1.0)
+	status, err := svc.Seek(testRoomID, 1.0)
 	require.NoError(t, err)
 	assert.Equal(t, 1.0, status.Position)
 
 	// Seek from 1.0 to 2.0 (small jump) -> applied directly.
-	status, err = svc.Seek(context.Background(), testRoomID, 2.0)
+	status, err = svc.Seek(testRoomID, 2.0)
 	require.NoError(t, err)
 	assert.Equal(t, 2.0, status.Position)
 }
@@ -79,7 +78,7 @@ func TestSeek_LatencyCompensation(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
 
-	status, err := svc.Seek(context.Background(), testRoomID, 100.5)
+	status, err := svc.Seek(testRoomID, 100.5)
 	require.NoError(t, err)
 	// Jump from 0 to 100.5 exceeds MaxPositionJump (2.0s), so it is smoothed.
 	want := 0.0 + (100.5-0.0)*constants.SmoothAdjustmentRatio
@@ -93,11 +92,11 @@ func TestSeek_InvalidPosition(t *testing.T) {
 	defer svc.Close()
 
 	// Negative position
-	_, err := svc.Seek(context.Background(), testRoomID, -1)
+	_, err := svc.Seek(testRoomID, -1)
 	assert.Error(t, err)
 
 	// Position too large
-	_, err = svc.Seek(context.Background(), testRoomID, 100000)
+	_, err = svc.Seek(testRoomID, 100000)
 	assert.Error(t, err)
 }
 
@@ -106,14 +105,14 @@ func TestClose(t *testing.T) {
 	svc := NewService()
 
 	// Start playback
-	svc.Play(context.Background(), testRoomID)
-	status := svc.GetStatus(context.Background(), testRoomID)
+	svc.Play(testRoomID)
+	status := svc.GetStatus(testRoomID)
 	assert.True(t, status.IsPlaying)
 
 	// Close
 	svc.Close()
 
 	// After close, the service reports closed state gracefully.
-	status = svc.GetStatus(context.Background(), testRoomID)
+	status = svc.GetStatus(testRoomID)
 	assert.NotNil(t, status)
 }

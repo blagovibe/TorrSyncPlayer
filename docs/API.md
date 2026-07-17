@@ -93,6 +93,31 @@ Authorization: Bearer <jwt_token>
 }
 ```
 
+### POST /api/v1/auth/change-password
+
+Change the password for the authenticated user.
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+X-CSRF-Token: <csrf_token>
+```
+
+**Request:**
+```json
+{
+  "currentPassword": "oldpassword",
+  "newPassword": "newsecurepassword"
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "Password changed"
+}
+```
+
 ## CSRF Protection
 
 ### GET /api/v1/csrf-token
@@ -356,6 +381,27 @@ GET /api/v1/torrents/{id}/stream?ticket=<signed_ticket>
 **Errors:**
 - `400` — File not selected or invalid ID
 - `404` — Torrent not found
+
+### POST /api/v1/torrents/{id}/stream-ticket
+
+Request a short-lived, HMAC-signed stream ticket used to authenticate the
+`/stream` endpoint without a JWT/CSR header (libmpv cannot attach headers to
+its own HTTP fetches).
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Response (200):**
+```json
+{
+  "ticket": "signed_ticket_here"
+}
+```
+
+The ticket is valid for `StreamTicketTTL` (5 minutes) and is bound to the
+requesting user and torrent ID.
 
 ### POST /api/v1/torrents/{id}/buffer/position
 

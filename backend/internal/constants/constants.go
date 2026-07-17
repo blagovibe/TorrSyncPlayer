@@ -11,9 +11,6 @@ import "time"
 // ── Server Constants ──────────────────────────────────────────────────────
 
 const (
-	// ServerShutdownTimeout timeout for graceful server shutdown
-	ServerShutdownTimeout = 30 * time.Second
-
 	// ServerReadTimeout HTTP request read timeout
 	ServerReadTimeout = 30 * time.Second
 
@@ -76,12 +73,6 @@ const (
 
 	// AuthRateBurst burst size for auth endpoints
 	AuthRateBurst = 5
-
-	// DefaultRateLimit request limit for other endpoints (requests per second)
-	DefaultRateLimit = 1 // 60 requests/minute
-
-	// DefaultRateBurst burst size for other endpoints
-	DefaultRateBurst = 10
 
 	// ClientRateLimiterCleanup cleanup interval for per-IP rate limiter
 	ClientRateLimiterCleanup = 10 * time.Minute
@@ -147,9 +138,6 @@ const (
 	// PeerIDLength peer identifier length in bytes
 	PeerIDLength = 16
 
-	// P2PDefaultRoomAuth require authentication by default
-	P2PDefaultRoomAuth = true
-
 	// MaxSignalSize maximum WebRTC signal size in bytes (64 KB)
 	// Typical SDP offer/answer rarely exceeds 8 KB, ICE candidates are even smaller
 	MaxSignalSize = 64 * 1024
@@ -197,13 +185,6 @@ const (
 
 	// SmoothAdjustmentRatio smooth position adjustment ratio
 	SmoothAdjustmentRatio = 0.3
-
-	// MsPerSecond number of milliseconds in one second
-	MsPerSecond = 1000.0
-
-	// MaxSyncTimestampDiff maximum allowed timestamp difference in milliseconds (1 hour)
-	// Prevents synchronization with stale data
-	MaxSyncTimestampDiff = 3600000
 )
 
 // ── SSE Constants ─────────────────────────────────────────────────────────
