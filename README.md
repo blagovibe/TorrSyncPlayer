@@ -9,7 +9,7 @@ Desktop torrent player with P2P playback synchronization.
 ## Features
 
 - **Streaming playback** — instant viewing without full download
-- **P2P rooms** — synchronized viewing with friends via WebRTC
+- **Sync rooms** — server-brokered synchronized viewing with friends (REST + SSE; no direct peer-to-peer data channel)
 - **Security** — JWT authentication (HS256), CSRF protection, rate limiting, bcrypt passwords
 - **Metrics** — Prometheus metrics for monitoring
 - **Buffering** — LRU cache with piece download priorities
@@ -18,7 +18,7 @@ Desktop torrent player with P2P playback synchronization.
 
 ## Tech Stack
 
-- **Backend:** Go 1.26+, anacrolix/torrent v1.61.0, pion/webrtc v4, go-chi/chi/v5, golang-jwt/jwt/v5
+- **Backend:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5, golang-jwt/jwt/v5
 - **Frontend:** C++17, Qt 6.5+, libmpv, CMake 3.16+
 - **Build:** Make (backend), CMake (frontend)
 - **CI/CD:** GitHub Actions
@@ -76,7 +76,7 @@ TorrSyncPlayer/
 │   │   ├── errors/    # AppError, ErrorType
 │   │   ├── metrics/   # Prometheus metrics
 │   │   ├── models/    # Data models
-│   │   ├── p2p/       # WebRTC P2P service, rooms
+│   │   ├── p2p/       # Sync rooms + SSE event relay (server-brokered)
 │   │   ├── storage/   # In-memory storage
 │   │   ├── sync/      # Playback sync with latency compensation
 │   │   ├── torrent/   # Torrent management + HTTP streaming
@@ -147,7 +147,7 @@ TorrSyncPlayer/
 | POST | `/api/v1/rooms` | Create room | JWT |
 | POST | `/api/v1/rooms/join` | Join room | JWT |
 | POST | `/api/v1/rooms/leave` | Leave room | JWT |
-| POST | `/api/v1/rooms/signal` | WebRTC signal | JWT |
+| POST | `/api/v1/rooms/signal` | Relay signal to room peers (SSE) | JWT |
 | GET | `/api/v1/rooms/{roomID}/events` | SSE events | JWT |
 | POST | `/api/v1/sync/play` | Sync play | JWT |
 | POST | `/api/v1/sync/pause` | Sync pause | JWT |

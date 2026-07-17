@@ -15,6 +15,10 @@ TorrentManager::TorrentManager(NetworkManager *network, TorrentModel *model, QOb
     , m_network(network)
     , m_torrentModel(model)
 {
+    // NetworkManager подтверждает выбор файла ответом /select; переправляем
+    // сигнал выше, чтобы MainWindow запросил stream-тикет и начал воспроизведение.
+    connect(m_network, &NetworkManager::fileSelected,
+            this, &TorrentManager::fileSelected);
     qDebug() << "TorrentManager: инициализирован";
 }
 
@@ -23,29 +27,15 @@ TorrentManager::~TorrentManager()
     qDebug() << "TorrentManager: уничтожен";
 }
 
-QString TorrentManager::streamUrl(const QString &torrentId) const
-{
-    return m_network->streamUrl(torrentId);
-}
-
 void TorrentManager::addTorrent(const QString &magnetUri)
 {
-    // Простая валидация magnet-ссылки
+    // Валидация magnet-ссылки выполняется в NetworkManager (транспортный слой),
+    // чтобы не дублировать логику. Здесь только делегирование.
     if (magnetUri.isEmpty()) {
         emit error(tr("Magnet-ссылка не может быть пустой"));
         return;
     }
-    
-    if (magnetUri.length() > APIConstants::MaxMagnetUriLength) {
-        emit error(tr("Magnet-ссылка слишком длинная (максимум %1 символов)").arg(APIConstants::MaxMagnetUriLength));
-        return;
-    }
-    
-    if (!magnetUri.startsWith("magnet:?")) {
-        emit error(tr("Некорректная magnet-ссылка. Должна начинаться с 'magnet:?'"));
-        return;
-    }
-    
+
     m_network->addTorrent(magnetUri);
     qDebug() << "TorrentManager: запрошено добавление торрента";
 }

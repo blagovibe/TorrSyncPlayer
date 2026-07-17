@@ -38,7 +38,7 @@ enum class RequestType {
     RemoveTorrent,
     GetFiles,
     SelectFile,
-    StreamFile,
+    StreamTicket,
     SetBufferPosition,
     GetBufferInfo,
     CreateRoom,
@@ -49,9 +49,8 @@ enum class RequestType {
     SyncPlay,
     SyncPause,
     SyncSeek,
-    SyncStatus,
-    HealthCheck,
-    Version,
+    Login,
+    Register,
     Unknown
 };
 
@@ -61,6 +60,7 @@ struct RetryRequest {
     QString method; // "GET", "POST", "DELETE"
     RequestType type = RequestType::Unknown;
     int attempt = 0;
+    int fileIndex = -1; // For SelectFile responses: which file was selected
 };
 
 /**
@@ -136,6 +136,21 @@ public:
      */
     void selectFile(const QString &torrentId, int fileIndex);
 
+    /**
+     * @brief Обновить позицию буферизации
+     * Отправляет POST запрос на /api/v1/torrents/{id}/buffer/position
+     * @param torrentId ID торрента
+     * @param positionBytes Текущая позиция воспроизведения в байтах
+     */
+    void setBufferPosition(const QString &torrentId, qint64 positionBytes);
+
+    /**
+     * @brief Запросить информацию о буферизации
+     * Отправляет GET запрос на /api/v1/torrents/{id}/buffer/info
+     * @param torrentId ID торрента
+     */
+    void getBufferInfo(const QString &torrentId);
+
     // ── Room API ──────────────────────────────────────────────────────
     
     /**
@@ -167,6 +182,26 @@ public:
      */
     void sendSignal(const QJsonObject &signal);
 
+    // ── Auth API ──────────────────────────────────────────────────────
+
+    /**
+     * @brief Авторизоваться и получить JWT токен
+     * Отправляет POST запрос на /api/v1/auth/login (публичный, без CSRF)
+     * При успехе испускает authenticated(token).
+     * @param username Имя пользователя
+     * @param password Пароль
+     */
+    void login(const QString &username, const QString &password);
+
+    /**
+     * @brief Зарегистрироваться и получить JWT токен
+     * Отправляет POST запрос на /api/v1/auth/register (публичный, без CSRF)
+     * При успехе испускает authenticated(token).
+     * @param username Имя пользователя
+     * @param password Пароль
+     */
+    void registerUser(const QString &username, const QString &password);
+
     // ── Sync API ──────────────────────────────────────────────────────
     
     /**
@@ -196,6 +231,15 @@ public:
      * @return Полный URL для воспроизведения
      */
     QString streamUrl(const QString &torrentId) const;
+
+    /**
+     * @brief Запросить подписанный stream-ticket для торрента
+     * Эндпоинт /stream публичный и аутентифицируется тикетом (libmpv не может
+     * прикрепить JWT-заголовок), поэтому тикет запрашивается отдельно и затем
+     * добавляется к URL как "?ticket=".
+     * @param torrentId ID торрента
+     */
+    void requestStreamTicket(const QString &torrentId);
     
     /**
      * @brief Получить базовый URL сервера
@@ -212,17 +256,20 @@ public:
             qWarning() << "NetworkManager: empty URL, keeping default";
             return;
         }
+        // Only http/https are allowed. Never silently upgrade a custom scheme
+        // (e.g. file://, ftp://) to https — that would point the client at an
+        // unintended host and could leak the auth token set via setAuthToken.
         if (url.scheme() != "https" && url.scheme() != "http") {
-            qWarning() << "NetworkManager: unsupported URL scheme, defaulting to HTTPS";
-            QUrl fixed(url);
-            fixed.setScheme("https");
-            if (fixed.port() == -1) {
-                fixed.setPort(443);
-            }
-            m_serverUrl = fixed;
-        } else {
-            m_serverUrl = url;
+            qWarning() << "NetworkManager: unsupported URL scheme" << url.scheme() << ", keeping previous URL";
+            return;
         }
+        // Warn (but allow) when targeting a non-localhost host over plain http,
+        // since credentials/tokens could be sent in cleartext.
+        if (url.scheme() == "http" && url.host() != "localhost" && url.host() != "127.0.0.1") {
+            qWarning() << "NetworkManager: using plain HTTP to non-localhost host" << url.host()
+                       << "- auth tokens will be sent unencrypted";
+        }
+        m_serverUrl = url;
     }
 
     void setAuthToken(const QString &token) {
@@ -335,6 +382,23 @@ signals:
      */
     void filesReceived(const QString &torrentId, const QJsonArray &files);
 
+    /**
+     * @brief Файл выбран для воспроизведения (подтверждено сервером)
+     * Испускается после успешного ответа /select. MainWindow/TorrentManager
+     * используют этот сигнал для запроса stream-тикета и запуска воспроизведения.
+     * @param torrentId ID торрента
+     * @param fileIndex Индекс выбранного файла
+     * @param streamUrl Базовый URL потока (без тикета)
+     */
+    void fileSelected(const QString &torrentId, int fileIndex, const QString &streamUrl);
+
+    /**
+     * @brief Получена информация о буферизации
+     * Испускается после успешного запроса /buffer/info
+     * @param info JSON объект BufferInfo
+     */
+    void bufferInfoReceived(const QJsonObject &info);
+
     // ── Room signals ──────────────────────────────────────────────────
     
     /**
@@ -372,13 +436,6 @@ signals:
     void signalReceived(const QJsonObject &signal);
 
     // ── Sync signals ──────────────────────────────────────────────────
-    
-    /**
-     * @brief Получен статус синхронизации
-     * Испускается при получении статуса от сервера
-     * @param status JSON объект статуса
-     */
-    void syncStatusReceived(const QJsonObject &status);
 
     // ── Error signal ──────────────────────────────────────────────────
     
@@ -400,6 +457,19 @@ signals:
      * Испускается при восстановлении связи
      */
     void serverAvailable();
+
+    /**
+     * @brief Испускается после успешного логина/регистрации
+     * @param token JWT Bearer токен, полученный от сервера
+     */
+    void authenticated(const QString &token);
+
+    /**
+     * @brief Тикет потока получен
+     * @param torrentId ID торрента
+     * @param ticket Подписанный тикет для /stream
+     */
+    void streamTicketReceived(const QString &torrentId, const QString &ticket);
 
 private slots:
     /**
@@ -489,7 +559,7 @@ private:
      * Парсит ошибку из ответа и испускает сигнал error
      * @param reply Ответ сервера
      */
-    void handleApiError(QNetworkReply *reply);
+    void handleApiError(QNetworkReply *reply, RequestType type);
     
     /**
      * @brief Вычислить задержку для retry (экспоненциальный backoff)
@@ -504,6 +574,7 @@ private:
     mutable QMutex m_roomIdMutex;
     QString m_currentRoomId;                ///< ID текущей комнаты
     QMap<QNetworkReply*, RequestType> m_replyMap; ///< Карта запросов для идентификации
+    QMap<QString, int> m_selectFileIndexByTorrent; ///< Индекс выбранного файла по torrentId (для ответа /select)
     mutable QMutex m_replyMutex;            ///< Мьютекс для потокобезопасного доступа к m_replyMap
     
     // ── Retry logic ───────────────────────────────────────────────────

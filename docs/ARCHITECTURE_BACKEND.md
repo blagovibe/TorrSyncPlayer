@@ -24,8 +24,8 @@ backend/
 │   ├── torrent/          # Torrent service
 │   │   └── service.go    # Torrent management
 │   │
-│   ├── p2p/              # P2P service
-│   │   └── service.go    # WebRTC connections
+│   ├── p2p/              # Rooms & real-time event service
+│   │   └── service.go    # Room management, SSE event broker
 │   │
 │   ├── sync/             # Synchronization service
 │   │   └── service.go    # Playback synchronization
@@ -51,13 +51,26 @@ backend/
 │   ├── constants/        # Constants
 │   │   └── constants.go  # Magic numbers
 │   │
+│   ├── persistence/      # File persistence (users, revoked tokens)
+│   │   └── persistence.go # JSON-file storage
+│   │
+│   ├── utils/            # Utility functions
+│   │   └── id.go         # ID generation
+│   │
+│   ├── integration/      # Integration tests
+│   │
+│   ├── contract/         # Pact provider contract tests
+│   │
 │   ├── version/          # Version
 │   │   └── version.go    # Version info
 │   │
 │   └── interfaces.go     # Service interfaces
 │
-└── pkg/logger/           # Logger
-    └── logger.go         # Structured logging
+└── pkg/
+    ├── logger/           # Logger
+    │   └── logger.go     # Structured logging
+    └── response/         # Response helpers
+        └── response.go   # JSON/error formatting
 ```
 
 ## Service Interaction
@@ -115,13 +128,14 @@ Services are designed as independent components without a DI container. Communic
 | `/api/v1/torrents/{id}` | DELETE | Remove torrent | JWT |
 | `/api/v1/torrents/{id}/files` | GET | List files | JWT |
 | `/api/v1/torrents/{id}/select` | POST | Select file | JWT |
-| `/api/v1/torrents/{id}/stream` | GET | Stream file | JWT |
+| `/api/v1/torrents/{id}/stream` | GET | Stream file | Ticket (signed stream ticket, see `stream-ticket`) |
+| `/api/v1/torrents/{id}/stream-ticket` | POST | Issue stream ticket | JWT |
 | `/api/v1/torrents/{id}/buffer/position` | POST | Set buffer position | JWT |
 | `/api/v1/torrents/{id}/buffer/info` | GET | Buffer info | JWT |
 | `/api/v1/rooms` | POST | Create room | JWT |
 | `/api/v1/rooms/join` | POST | Join room | JWT |
 | `/api/v1/rooms/leave` | POST | Leave room | JWT |
-| `/api/v1/rooms/signal` | POST | WebRTC signal | JWT |
+| `/api/v1/rooms/signal` | POST | Relay sync signal to room peers | JWT |
 | `/api/v1/rooms/{roomID}/events` | GET | SSE events | JWT |
 | `/api/v1/sync/play` | POST | Sync play | JWT |
 | `/api/v1/sync/pause` | POST | Sync pause | JWT |
@@ -209,10 +223,9 @@ type Room struct {
     Name        string
     HostID      string
     HostUserID  string
-    Password    string           // bcrypt hash
+    Password    string           // bcrypt hash (empty = open room)
     Peers       map[string]*Peer
     CreatedAt   time.Time
-    RequireAuth bool
 }
 ```
 
@@ -222,9 +235,7 @@ type Peer struct {
     ID            string
     UserID        string
     Username      string
-    Connection    *webrtc.PeerConnection
-    DataChannel   *webrtc.DataChannel
     LastHeartbeat time.Time
-    Authenticated bool
+}
 }
 ```

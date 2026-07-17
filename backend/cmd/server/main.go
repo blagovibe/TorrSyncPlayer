@@ -22,6 +22,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/version"
@@ -66,8 +68,9 @@ const (
 // Config server configuration
 type Config struct {
 	Port                  string
-	DataDir               string // Directory for persistent data (empty = in-memory)
+	DataDir               string // Directory for persistent data (defaults to ./data; empty disables persistence)
 	MemoryStorageCapacity int64  // Maximum in-memory storage size in bytes
+	DiskStorage           bool   // Persist torrent pieces to disk under DataDir
 	TLSCert               string
 	TLSKey                string
 	UseTLS                bool
@@ -102,16 +105,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Configure JWT issuer/audience claims. These are enforced on validation,
+	// preventing tokens issued for a different deployment from being accepted.
+	authService.SetIssuer(constants.JWTIssuer)
+	authService.SetAudience(constants.JWTAudience)
+
 	// Initialize buffer service
 	bufferSvc := buffer.NewService(constants.DefaultMaxBufferSize)
 	bufferSvc.StartPeriodicUpdate(constants.BufferUpdateInterval)
 
-	// Torrent service options (always in-memory)
+	// Torrent service options. In-memory by default; disk-backed when the
+	// operator explicitly enables --disk-storage with a --data-dir.
 	torrentOpts := torrent.ServiceOptions{
 		MemoryStorageCapacity: config.MemoryStorageCapacity,
 	}
+	if config.DiskStorage {
+		if config.DataDir == "" {
+			logger.Error("Disk storage requested (--disk-storage) but --data-dir is empty")
+			os.Exit(1)
+		}
+		torrentOpts.Storage = torrent.StorageDisk
+		torrentOpts.DataDir = filepath.Join(config.DataDir, "torrents")
+	}
 
-	// Initialize torrent service with buffer and in-memory storage
+	// Initialize torrent service with buffer and selected storage backend
 	torrentSvc, err := torrent.NewServiceWithOptions(bufferSvc, torrentOpts)
 	if err != nil {
 		logger.Error("Failed to initialize torrent service", "error", err)
@@ -120,6 +137,7 @@ func main() {
 
 	logger.Info("Torrent service initialized",
 		"memory_capacity", config.MemoryStorageCapacity,
+		"disk_storage", config.DiskStorage,
 	)
 
 	p2pSvc, err := p2p.NewService(authService)
@@ -133,11 +151,18 @@ func main() {
 	// Create user store
 	authStore := auth.NewUserStore()
 	if config.DataDir != "" {
-		if err := authStore.SetPersistence(config.DataDir); err != nil {
-			logger.Error("Failed to initialize persistence for UserStore", "error", err)
-		}
-		if err := authService.SetPersistence(config.DataDir); err != nil {
-			logger.Error("Failed to initialize persistence for TokenRevocationStore", "error", err)
+		persistStore, perr := persistence.NewStore(config.DataDir)
+		if perr != nil {
+			logger.Error("Failed to initialize persistence store", "error", perr)
+		} else {
+			if err := authStore.SetPersistence(config.DataDir); err != nil {
+				logger.Error("Failed to initialize persistence for UserStore", "error", err)
+			}
+			if err := authService.SetPersistence(config.DataDir); err != nil {
+				logger.Error("Failed to initialize persistence for TokenRevocationStore", "error", err)
+			}
+			p2pSvc.SetPersistence(persistStore)
+			syncSvc.SetPersistence(persistStore)
 		}
 	}
 
@@ -155,9 +180,9 @@ func main() {
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", config.Port),
 		Handler:      router,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  constants.ServerReadTimeout,
+		WriteTimeout: constants.ServerWriteTimeout,
+		IdleTimeout:  constants.ServerIdleTimeout,
 	}
 
 	if config.UseTLS {
@@ -200,18 +225,10 @@ func main() {
 
 	// Wait for shutdown signal
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	sig := <-quit
 	logger.Info("Received shutdown signal", "signal", sig.String())
-
-	// Handle SIGHUP for TLS reload
-	if sig == syscall.SIGHUP {
-		logger.Info("Received SIGHUP - TLS certificate reload")
-		// Certificate reload would require restructuring - for now just log
-		// A more complete implementation would reload certs into the running server
-		return
-	}
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -296,7 +313,7 @@ func parseFlags() Config {
 
 	flag.StringVar(&config.Port, "port", getEnv("PORT", defaultPort), "Server port")
 	flag.StringVar(&config.JWTSecret, "jwt-secret", getEnv("JWT_SECRET", ""), "JWT secret for authentication (min 32 chars)")
-	flag.StringVar(&config.DataDir, "data-dir", getEnv("DATA_DIR", ""), "Directory for persistent data (empty = in-memory only)")
+	flag.StringVar(&config.DataDir, "data-dir", getEnv("DATA_DIR", defaultDir), "Directory for persistent data (defaults to ./data; set empty to disable persistence)")
 	flag.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", func() int64 {
 		if v := os.Getenv("MEMORY_CAPACITY"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -305,6 +322,7 @@ func parseFlags() Config {
 		}
 		return constants.DefaultMemoryStorageCapacity
 	}(), "Maximum in-memory storage size in bytes (0 = unlimited)")
+	flag.BoolVar(&config.DiskStorage, "disk-storage", getEnv("DISK_STORAGE", "") == "true", "Persist torrent pieces to disk under --data-dir (requires --data-dir)")
 	flag.StringVar(&config.TLSCert, "tls-cert", getEnv("TLS_CERT", ""), "Path to TLS certificate")
 	flag.StringVar(&config.TLSKey, "tls-key", getEnv("TLS_KEY", ""), "Path to TLS key")
 	flag.BoolVar(&config.UseTLS, "tls", false, "Enable TLS")
@@ -510,9 +528,9 @@ func setupPprof() *http.Server {
 	pprofServer := &http.Server{
 		Addr:         pprofAddr,
 		Handler:      pprofMux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  constants.ServerReadTimeout,
+		WriteTimeout: constants.ServerWriteTimeout,
+		IdleTimeout:  constants.ServerIdleTimeout,
 	}
 
 	// Start pprof server ONLY on localhost for security

@@ -39,13 +39,6 @@ public:
      * @param id ID торрента
      */
     virtual void setCurrentTorrentId(const QString &id) = 0;
-    
-    /**
-     * @brief Получить URL потока для торрента
-     * @param torrentId ID торрента
-     * @return Полный URL для воспроизведения
-     */
-    virtual QString streamUrl(const QString &torrentId) const = 0;
 
 public slots:
     /**

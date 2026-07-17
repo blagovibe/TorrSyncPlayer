@@ -54,6 +54,11 @@ Download and install Go from the [official site](https://go.dev/dl/).
 
 ### Frontend (Qt + libmpv)
 
+> **Note:** `libmpv` is a required runtime dependency for video playback. If it
+> is not found at build time, the application compiles but **playback is
+> disabled** — selecting a file shows a warning instead of playing video.
+> Install `libmpv-dev` (or `mpv` on macOS/Windows) before building to enable it.
+
 #### Ubuntu/Debian
 
 ```bash
@@ -177,9 +182,10 @@ Extract the archive and run `TorrSyncPlayer.exe`.
 | `LOG_FORMAT` | text | Log format (text/json) |
 | `TLS_CERT` | (empty) | Path to TLS certificate |
 | `TLS_KEY` | (empty) | Path to TLS key |
-| `DATA_DIR` | data | Directory for storing data |
-| `CORS_ORIGINS` | * | Allowed CORS origins (comma-separated) |
+| `DATA_DIR` | data | Directory for persistent data (users, revoked tokens, room & sync state, and disk storage when `--disk-storage` is set); empty = in-memory only |
+| `CORS_ORIGINS` | (empty → `http://localhost:8889`, `https://localhost:8889`, `http://127.0.0.1:8889`, `https://127.0.0.1:8889`) | Allowed CORS origins (comma-separated) |
 | `MEMORY_CAPACITY` | 4GB | Memory storage capacity per-user |
+| `DISK_STORAGE` | false | Persist torrent pieces to disk under `DATA_DIR` (requires `DATA_DIR`) |
 | `ENV` | development | Environment (development/production) |
 | `TRUSTED_PROXIES` | (empty) | Comma-separated trusted proxy IPs |
 
@@ -281,25 +287,29 @@ nssm start TorrSyncPlayer
 
 ## P2P Configuration
 
-### STUN/TURN Servers
+### Storage Backend
 
-TorrSyncPlayer uses WebRTC for P2P connections. By default, Google's public STUN servers are used. For reliable connections behind symmetric NATs, configure a TURN server:
+By default, torrent pieces are kept **in memory** (bounded by `MEMORY_CAPACITY`,
+max 256 GB). To persist pieces to disk instead, enable disk storage:
 
 ```bash
-# TURN server URL (e.g., turn:turn.example.com:3478)
-export TURN_URL="turn:your-turn-server.com:3478"
+# CLI flag
+./torrsyncplayer-server --data-dir ./data --disk-storage
 
-# Optional: TURN credentials
-export TURN_USERNAME="your-username"
-export TURN_CREDENTIAL="your-credential"
+# or environment variable
+export DATA_DIR=./data
+export DISK_STORAGE=true
 ```
 
-### Port Forwarding
+When disk storage is enabled, pieces are written under `<DATA_DIR>/torrents`.
+`--disk-storage` requires `--data-dir` to be set.
 
-For optimal P2P performance, ensure the following ports are open:
-- STUN: UDP 3478 (outbound)
-- TURN: UDP/TCP 3478-3481 (if using TURN)
-- WebRTC: UDP 49152-65535 (ephemeral range)
+### Server-Brokered Synchronization
+
+Room synchronization is relayed by the backend over Server-Sent Events (SSE);
+there is no direct peer-to-peer data path, so **no STUN/TURN servers or
+additional port forwarding are required** for synchronization. The default
+backend port (`PORT`, default `8889`) must be reachable by clients.
 
 ## Docker Deployment
 

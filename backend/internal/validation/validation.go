@@ -194,17 +194,11 @@ func ValidateMagnetURI(uri string) error {
 		return fmt.Errorf("invalid magnet link format: must start with 'magnet:?xt=urn:btih:' followed by 40 hex characters")
 	}
 
-	// Extract and validate parameters (after xt=urn:btih)
+	// Extract and validate parameters (everything after the first '&' following
+	// the "magnet:?xt=urn:btih:" prefix, which is exactly 20 bytes long).
 	paramsPart := ""
-	for i, c := range uri {
-		if i >= 19 && c == '&' {
-			paramsPart = uri[20:]
-			break
-		}
-		if i >= 19 {
-			paramsPart = uri[20:]
-			break
-		}
+	if idx := strings.IndexByte(uri, '&'); idx >= 0 {
+		paramsPart = uri[idx+1:]
 	}
 
 	// Allow empty params or validate each param
@@ -298,25 +292,6 @@ func ValidateRoomID(id string) error {
 		}
 	}
 	return nil
-}
-
-// SanitizeString cleans a string from potentially dangerous characters.
-// Used for displaying user input.
-func SanitizeString(s string) string {
-	// Remove control characters
-	s = strings.Map(func(r rune) rune {
-		if r < 32 && r != '\t' && r != '\n' {
-			return -1
-		}
-		return r
-	}, s)
-
-	// Limit length
-	if utf8.RuneCountInString(s) > MaxStringLength {
-		s = string([]rune(s)[:MaxStringLength])
-	}
-
-	return strings.TrimSpace(s)
 }
 
 // ValidateTorrentFile validates a base64-encoded torrent file content.

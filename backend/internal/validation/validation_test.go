@@ -337,28 +337,4 @@ func TestValidateRoomID(t *testing.T) {
 	}
 }
 
-// TestSanitizeString tests string sanitization
-func TestSanitizeString(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name   string
-		input  string
-		expect string
-	}{
-		{"normal", "hello world", "hello world"},
-		{"with spaces", "  hello  ", "hello"},
-		{"with control chars", "hello\x00world", "helloworld"},
-		{"with tab", "hello\tworld", "hello\tworld"},
-		{"with newline", "hello\nworld", "hello\nworld"},
-		{"empty", "", ""},
-	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := SanitizeString(tt.input)
-			assert.Equal(t, tt.expect, result)
-		})
-	}
-}

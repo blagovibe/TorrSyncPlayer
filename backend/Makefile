@@ -82,7 +82,7 @@ test-coverage:
 ## test-fuzz: Запустить фаззинг тесты (30 секунд на каждый)
 test-fuzz:
 	@echo "Запуск фаззинг тестов..."
-	go test -fuzz=Fuzz -fuzztime=30s ./internal/torrent/... ./internal/validation/... ./internal/torrent/... 2>&1 | head -100
+	go test -fuzz=Fuzz -fuzztime=30s ./internal/validation/... 2>&1 | head -100
 
 ## test-mutation: Запустить мутационное тестирование (go-mutesting)
 test-mutation:
@@ -101,10 +101,10 @@ contract-test:
 	@echo "Запуск Pact contract тестов (provider)..."
 	go test -v -run TestPactProvider ./internal/contract/...
 
-## test-integration: Запустить интеграционные тесты
+## test-integration: Запустить интеграционные тесты (реальный роутер через e2e)
 test-integration:
-	@echo "Запуск интеграционных тестов..."
-	go test -v -tags=integration ./internal/integration/...
+	@echo "Запуск интеграционных тестов (e2e с реальным роутером)..."
+	go test -v ./internal/api/... -run TestE2E
 
 ## test-short: Запустить только быстрые тесты (без интеграционных)
 test-short:

@@ -211,7 +211,35 @@ void NetworkManager::selectFile(const QString &torrentId, int fileIndex)
 
     QJsonObject body;
     body["fileIndex"] = fileIndex;
+    // Запоминаем индекс файла по torrentId, чтобы при ответе /select испустить
+    // fileSelected(torrentId, fileIndex, streamUrl) — единственный триггер
+    // запроса stream-тикета и запуска воспроизведения в MainWindow.
+    m_selectFileIndexByTorrent[torrentId] = fileIndex;
     sendWithRetry("POST", buildApiPath("/api/v1/torrents", torrentId) + "/select", RequestType::SelectFile, body);
+}
+
+void NetworkManager::setBufferPosition(const QString &torrentId, qint64 positionBytes)
+{
+    if (torrentId.isEmpty()) {
+        return;
+    }
+    if (positionBytes < 0) {
+        positionBytes = 0;
+    }
+
+    QJsonObject body;
+    body["position"] = positionBytes;
+    sendWithRetry("POST", buildApiPath("/api/v1/torrents", torrentId) + "/buffer/position",
+                  RequestType::SetBufferPosition, body);
+}
+
+void NetworkManager::getBufferInfo(const QString &torrentId)
+{
+    if (torrentId.isEmpty()) {
+        return;
+    }
+    sendWithRetry("GET", buildApiPath("/api/v1/torrents", torrentId) + "/buffer/info",
+                  RequestType::GetBufferInfo);
 }
 
 // ── Room API ──────────────────────────────────────────────────────────
@@ -263,16 +291,19 @@ void NetworkManager::joinRoom(const QString &roomId, const QString &password)
         return;
     }
 
-    QString ssePath;
-    {
-        QMutexLocker locker(&m_roomIdMutex);
-        m_currentRoomId = roomId;
-
-        QString sanitizedRoomId = roomId;
-        sanitizedRoomId.remove(QRegularExpression("[^a-fA-F0-9]"));
-        ssePath = QString("/api/v1/rooms/%1/events").arg(sanitizedRoomId);
-        m_sseReconnectPath = ssePath;
+    // Безопасность: блокируем отправку пароля по незащищённому соединению (кроме localhost),
+    // так же как в createRoom.
+    if (!password.isEmpty() && m_serverUrl.host() != "localhost" && m_serverUrl.host() != "127.0.0.1") {
+        if (m_serverUrl.scheme() != "https") {
+            emit error(tr("Пароль не может быть отправлен по незащищённому соединению. Используйте HTTPS или localhost."));
+            return;
+        }
     }
+
+    // NOTE: room id, SSE path and the SSE connection are set ONLY after the
+    // join POST succeeds (see onReplyFinished, RequestType::JoinRoom). Opening
+    // the SSE stream before confirmation would retry a doomed connection on
+    // failure (e.g. wrong password) and leak an unauthenticated room state.
 
     QJsonObject body;
     body["roomId"] = roomId;
@@ -280,11 +311,6 @@ void NetworkManager::joinRoom(const QString &roomId, const QString &password)
         body["password"] = password;
     }
     sendWithRetry("POST", "/api/v1/rooms/join", RequestType::JoinRoom, body);
-
-    // Подключаемся к SSE потоку комнаты
-    if (!ssePath.isEmpty()) {
-        connectToSSE(ssePath);
-    }
 }
 
 void NetworkManager::leaveRoom()
@@ -319,6 +345,40 @@ void NetworkManager::sendSignal(const QJsonObject &signal)
         }
     }
     sendPost("/api/v1/rooms/signal", signal, RequestType::Signal);
+}
+
+void NetworkManager::login(const QString &username, const QString &password)
+{
+    if (username.isEmpty()) {
+        emit error(tr("Имя пользователя не может быть пустым"));
+        return;
+    }
+    if (password.isEmpty()) {
+        emit error(tr("Пароль не может быть пустым"));
+        return;
+    }
+
+    QJsonObject body;
+    body["username"] = username;
+    body["password"] = password;
+    sendPost("/api/v1/auth/login", body, RequestType::Login);
+}
+
+void NetworkManager::registerUser(const QString &username, const QString &password)
+{
+    if (username.isEmpty()) {
+        emit error(tr("Имя пользователя не может быть пустым"));
+        return;
+    }
+    if (password.isEmpty()) {
+        emit error(tr("Пароль не может быть пустым"));
+        return;
+    }
+
+    QJsonObject body;
+    body["username"] = username;
+    body["password"] = password;
+    sendPost("/api/v1/auth/register", body, RequestType::Register);
 }
 
 // ── Sync API ──────────────────────────────────────────────────────────
@@ -365,6 +425,25 @@ QString NetworkManager::streamUrl(const QString &torrentId) const
         .arg(sanitized);
 }
 
+void NetworkManager::requestStreamTicket(const QString &torrentId)
+{
+    if (torrentId.isEmpty()) {
+        qWarning() << "NetworkManager: requestStreamTicket вызван с пустым torrentId";
+        emit error(tr("ID торрента не может быть пустым"));
+        return;
+    }
+    QString sanitized = torrentId;
+    sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+    if (sanitized.isEmpty()) {
+        emit error(tr("Некорректный ID торрента"));
+        return;
+    }
+    // Эндпоинт защищён (JWT + CSRF), поэтому запрос идёт через штатную
+    // CSRF-очередь. Тикет вернётся в onReplyFinished (RequestType::StreamTicket).
+    sendPost(QString("/api/v1/torrents/%1/stream-ticket").arg(sanitized),
+             QJsonObject(), RequestType::StreamTicket);
+}
+
 // ── Private slots ─────────────────────────────────────────────────────
 
 void NetworkManager::onReplyFinished(QNetworkReply *reply)
@@ -390,7 +469,7 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
             qDebug() << "NetworkManager: запрос отменён" << path;
             return;
         }
-        handleApiError(reply);
+        handleApiError(reply, type);
         return;
     }
 
@@ -450,8 +529,24 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         }
         break;
     }
-    case RequestType::SelectFile:
-        qDebug() << "NetworkManager: file selected successfully";
+    case RequestType::SelectFile: {
+        QRegularExpression re("^/api/v1/torrents/([^/]+)/select$");
+        QRegularExpressionMatch match = re.match(path);
+        if (match.hasMatch()) {
+            QString torrentId = match.captured(1);
+            int fileIndex = m_selectFileIndexByTorrent.value(torrentId, -1);
+            m_selectFileIndexByTorrent.remove(torrentId);
+            emit fileSelected(torrentId, fileIndex, streamUrl(torrentId));
+            qDebug() << "NetworkManager: file selected" << fileIndex << "for" << torrentId;
+        } else {
+            qWarning() << "NetworkManager: не удалось извлечь torrentId из ответа /select:" << path;
+        }
+        break;
+    }
+    case RequestType::GetBufferInfo:
+        if (doc.isObject()) {
+            emit bufferInfoReceived(doc.object());
+        }
         break;
     case RequestType::CreateRoom:
         if (doc.isObject()) {
@@ -468,25 +563,53 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
             QString roomId = obj["id"].toString();
+            QString sanitizedRoomId = roomId;
+            sanitizedRoomId.remove(QRegularExpression("[^a-fA-F0-9]"));
+            QString ssePath = QString("/api/v1/rooms/%1/events").arg(sanitizedRoomId);
             {
                 QMutexLocker locker(&m_roomIdMutex);
                 m_currentRoomId = roomId;
+                m_sseReconnectPath = ssePath;
             }
             emit roomJoined(roomId);
+            // Only open the SSE stream after the join is confirmed, so a failed
+            // join (e.g. wrong password) does not leave a doomed reconnect loop.
+            connectToSSE(ssePath);
         }
         break;
     case RequestType::SyncPlay:
     case RequestType::SyncPause:
     case RequestType::SyncSeek:
-    case RequestType::SyncStatus:
-        if (doc.isObject()) {
-            emit syncStatusReceived(doc.object());
-        }
+        // No response body of interest; playback state is pushed via SSE.
         break;
     case RequestType::Signal:
         qDebug() << "NetworkManager: сигнал отправлен";
         break;
     case RequestType::LeaveRoom:
+        break;
+    case RequestType::Login:
+    case RequestType::Register:
+        if (doc.isObject()) {
+            QString token = doc.object()["token"].toString();
+            if (!token.isEmpty()) {
+                setAuthToken(token);
+                emit authenticated(token);
+                updateStatus(tr("Авторизация выполнена"));
+            } else {
+                emit error(tr("Сервер не вернул токен"));
+            }
+        }
+        break;
+    case RequestType::StreamTicket:
+        if (doc.isObject()) {
+            QString ticket = doc.object()["ticket"].toString();
+            QString torrentId = doc.object()["torrentId"].toString();
+            if (!ticket.isEmpty() && !torrentId.isEmpty()) {
+                emit streamTicketReceived(torrentId, ticket);
+            } else {
+                emit error(tr("Сервер не вернул тикет потока"));
+            }
+        }
         break;
     default:
         break;
@@ -919,7 +1042,7 @@ QJsonDocument NetworkManager::parseJson(const QByteArray &data)
     return doc;
 }
 
-void NetworkManager::handleApiError(QNetworkReply *reply)
+void NetworkManager::handleApiError(QNetworkReply *reply, RequestType type)
 {
     QString errorMessage = reply->errorString();
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -939,6 +1062,20 @@ void NetworkManager::handleApiError(QNetworkReply *reply)
 
     if (statusCode == 401) {
         emit error(tr("Authentication required — please log in"));
+        return;
+    }
+
+    // Registration failures: distinguish client errors (e.g. username taken,
+    // weak password) from server errors so the UI can show a helpful message
+    // instead of a generic "no token returned".
+    if (type == RequestType::Register) {
+        if (statusCode >= 400 && statusCode < 500) {
+            emit error(errorMessage.isEmpty()
+                           ? tr("Не удалось зарегистрироваться (проверьте имя и пароль)")
+                           : errorMessage);
+            return;
+        }
+        emit error(tr("Ошибка сервера при регистрации: %1").arg(errorMessage));
         return;
     }
 

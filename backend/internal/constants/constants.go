@@ -11,9 +11,6 @@ import "time"
 // ── Server Constants ──────────────────────────────────────────────────────
 
 const (
-	// DefaultPort default server port
-	DefaultPort = "8889"
-
 	// ServerShutdownTimeout timeout for graceful server shutdown
 	ServerShutdownTimeout = 30 * time.Second
 
@@ -102,14 +99,18 @@ const (
 const (
 	// JWTTokenTTL JWT token lifetime
 	JWTTokenTTL = 24 * time.Hour
-	// RefreshTokenTTL refresh token lifetime (7 days)
-	RefreshTokenTTL = 7 * 24 * time.Hour
 
 	// JWTSecretLength JWT secret length in bytes
 	JWTSecretLength = 32
 
 	// JTIBytes number of bytes for JWT ID generation
 	JTIBytes = 16
+
+	// JWTIssuer issuer claim (iss) embedded in and required by tokens.
+	JWTIssuer = "torrsyncplayer"
+
+	// JWTAudience audience claim (aud) embedded in and required by tokens.
+	JWTAudience = "torrsyncplayer-api"
 
 	// BcryptCost bcrypt cost for password hashing
 	BcryptCost = 12
@@ -120,8 +121,21 @@ const (
 	// RevocationStoreTTL revoked token storage duration
 	RevocationStoreTTL = 24 * time.Hour
 
+	// RevocationCleanupInterval interval for scanning expired revocation entries.
+	// Shorter than RevocationStoreTTL so revoked tokens do not linger too long.
+	RevocationCleanupInterval = 15 * time.Minute
+
 	// MinTokenLength minimum JWT token length for validation
 	MinTokenLength = 30
+
+	// StreamTicketTTL lifetime of a short-lived, HMAC-signed stream ticket used
+	// by the media player (libmpv) to authenticate /stream requests without a
+	// JWT/CSR token, which it cannot attach to its own HTTP fetches.
+	StreamTicketTTL = 5 * time.Minute
+
+	// StreamTicketSecret domain-separation prefix prepended to the JWT secret
+	// when deriving the HMAC key for stream tickets.
+	StreamTicketSecret = "stream-ticket-v1"
 )
 
 // ── P2P Constants ─────────────────────────────────────────────────────────
@@ -148,6 +162,14 @@ const (
 
 	// P2PDebounceInterval debounce interval for token revocation persistence
 	P2PDebounceInterval = 5 * time.Second
+
+	// PeerIdleTimeout maximum allowed time between heartbeats before a peer is
+	// considered disconnected and pruned from its room. Clients refresh their
+	// presence by rejoining; without pruning, abandoned sessions leak peers.
+	PeerIdleTimeout = 5 * time.Minute
+
+	// PeerPruneInterval how often the idle-peer sweep runs.
+	PeerPruneInterval = 1 * time.Minute
 )
 
 // ── Torrent Constants ─────────────────────────────────────────────────────
@@ -155,6 +177,9 @@ const (
 const (
 	// TorrentGracefulShutdownTimeout timeout for graceful torrent service shutdown
 	TorrentGracefulShutdownTimeout = 30 * time.Second
+
+	// MaxTorrents maximum number of concurrent torrents (DoS protection)
+	MaxTorrents = 100
 
 	// MaxTorrentFileSize maximum torrent file size (1 MB)
 	// Torrent files are small metadata files, 1MB is more than enough

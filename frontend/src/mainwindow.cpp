@@ -14,6 +14,7 @@
 #include "torrentmanager.h"
 #include "roomdialog.h"
 #include "roommanager.h"
+#include "authdialog.h"
 #include "utils.h"
 
 #include <QDebug>
@@ -108,6 +109,9 @@ void MainWindow::setupUI()
     addTorrentAction->setShortcut(QKeySequence::New);
     connect(addTorrentAction, &QAction::triggered, this, &MainWindow::onAddTorrent);
     fileMenu->addSeparator();
+    QAction *loginAction = fileMenu->addAction(tr("Войти"));
+    connect(loginAction, &QAction::triggered, this, &MainWindow::onLogin);
+    fileMenu->addSeparator();
     QAction *quitAction = fileMenu->addAction(tr("Выход"));
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
@@ -133,12 +137,12 @@ QWidget* MainWindow::createLeftPanel()
     m_magnetInput->setClearButtonEnabled(true);
     inputLayout->addWidget(m_magnetInput);
 
-    m_addButton = new QPushButton(tr("+"), this);
+    m_addButton = new QPushButton(QIcon(":/icons/add.png"), tr("Добавить"), this);
     m_addButton->setToolTip(tr("Добавить торрент"));
     m_addButton->setFixedWidth(40);
     inputLayout->addWidget(m_addButton);
 
-    m_addFileButton = new QPushButton(tr("📁"), this);
+    m_addFileButton = new QPushButton(QIcon(":/icons/folder.png"), QString(), this);
     m_addFileButton->setToolTip(tr("Добавить .torrent файл"));
     m_addFileButton->setFixedWidth(40);
     inputLayout->addWidget(m_addFileButton);
@@ -153,7 +157,7 @@ QWidget* MainWindow::createLeftPanel()
     layout->addWidget(m_torrentList);
 
     // Кнопка удаления
-    m_removeTorrentButton = new QPushButton(tr("Удалить торрент"), this);
+    m_removeTorrentButton = new QPushButton(QIcon(":/icons/remove.png"), tr("Удалить торрент"), this);
     m_removeTorrentButton->setEnabled(false);
     layout->addWidget(m_removeTorrentButton);
 
@@ -211,7 +215,7 @@ QWidget* MainWindow::createControlsPanel()
 
     // Кнопки управления
     QHBoxLayout *buttonsLayout = new QHBoxLayout();
-    m_playPauseButton = new QPushButton(tr("▶ Play"), this);
+    m_playPauseButton = new QPushButton(QIcon(":/icons/play.png"), tr("Play"), this);
     m_playPauseButton->setEnabled(false);
     m_playPauseButton->setMinimumWidth(100);
     buttonsLayout->addWidget(m_playPauseButton);
@@ -234,13 +238,13 @@ QWidget* MainWindow::createRoomPanel()
     QGroupBox *roomGroup = new QGroupBox(tr("Синхронизация"), this);
     QHBoxLayout *roomLayout = new QHBoxLayout(roomGroup);
 
-    m_createRoomButton = new QPushButton(tr("Создать комнату"), this);
+    m_createRoomButton = new QPushButton(QIcon(":/icons/room-create.png"), tr("Создать комнату"), this);
     roomLayout->addWidget(m_createRoomButton);
 
-    m_joinRoomButton = new QPushButton(tr("Присоединиться"), this);
+    m_joinRoomButton = new QPushButton(QIcon(":/icons/room-join.png"), tr("Присоединиться"), this);
     roomLayout->addWidget(m_joinRoomButton);
 
-    m_leaveRoomButton = new QPushButton(tr("Покинуть"), this);
+    m_leaveRoomButton = new QPushButton(QIcon(":/icons/room-leave.png"), tr("Покинуть"), this);
     m_leaveRoomButton->setEnabled(false);
     roomLayout->addWidget(m_leaveRoomButton);
 
@@ -287,14 +291,27 @@ void MainWindow::setupConnections()
     connect(m_network, &NetworkManager::torrentAdded, m_torrentModel, &TorrentModel::addTorrentFromJson);
     connect(m_network, &NetworkManager::torrentRemoved, m_torrentModel, &TorrentModel::removeTorrent);
     connect(m_network, &NetworkManager::torrentListReceived, m_torrentManager, &TorrentManager::onTorrentListReceived);
+    connect(m_network, &NetworkManager::torrentListReceived, this, &MainWindow::onTorrentListReceived);
+    connect(m_network, &NetworkManager::streamTicketReceived, this, &MainWindow::onStreamTicketReceived);
     connect(m_network, &NetworkManager::filesReceived, m_torrentManager, &TorrentManager::onFilesReceived);
     connect(m_network, &NetworkManager::roomEvent, m_roomManager, &RoomManager::onRoomEvent);
     connect(m_network, &NetworkManager::signalReceived, m_roomManager, &RoomManager::onSignalReceived);
+    connect(m_network, &NetworkManager::authenticated, this, &MainWindow::onLoginSuccess);
     connect(m_network, &NetworkManager::error, this, &MainWindow::onNetworkError);
 
     // Graceful degradation - обработка состояния сервера
     connect(m_network, &NetworkManager::serverUnavailable, this, &MainWindow::onServerUnavailable);
     connect(m_network, &NetworkManager::serverAvailable, this, &MainWindow::onServerAvailable);
+    connect(m_network, &NetworkManager::bufferInfoReceived, this, &MainWindow::onBufferInfoReceived);
+
+    // Опрос состояния буферизации во время воспроизведения (реальный процент буфера).
+    m_bufferPollTimer = new QTimer(this);
+    m_bufferPollTimer->setInterval(2000);
+    connect(m_bufferPollTimer, &QTimer::timeout, this, [this]() {
+        if (m_isPlaying && !m_currentTorrentId.isEmpty()) {
+            m_network->getBufferInfo(m_currentTorrentId);
+        }
+    });
 
     // MpvWidget
     connect(m_mpvWidget, &MpvWidget::positionChanged, this, &MainWindow::onPositionChanged);
@@ -385,10 +402,12 @@ void MainWindow::onFilesReceived(const QString &torrentId, const QJsonArray &fil
     // Создаём модель для списка файлов с parent для автоматического удаления
     QStandardItemModel *model = new QStandardItemModel(this);
 
+    m_fileSizes.clear();
     for (int i = 0; i < files.size(); ++i) {
         QJsonObject file = files[i].toObject();
         QString name = file["name"].toString();
         qint64 size = file["size"].toVariant().toLongLong();
+        m_fileSizes.append(size);
 
         QString displayText = QString("%1 (%2)").arg(name).arg(Utils::formatBytes(size));
         QStandardItem *item = new QStandardItem(displayText);
@@ -410,17 +429,60 @@ void MainWindow::onFilesReceived(const QString &torrentId, const QJsonArray &fil
 
 void MainWindow::onFileSelectedByManager(const QString &torrentId, int fileIndex, const QString &url)
 {
-    Q_UNUSED(torrentId)
-    Q_UNUSED(fileIndex)
+    Q_UNUSED(url)
+    if (torrentId.isEmpty()) {
+        onPlaybackError(tr("Ошибка: ID торрента пуст"));
+        return;
+    }
+    // /stream — публичный эндпоинт, аутентифицируемый подписанным тикетом,
+    // т.к. libmpv не может прикрепить JWT-заголовок к своему HTTP-фетчу.
+    // Запрашиваем тикет и запускаем play по его получении (onStreamTicketReceived).
+    m_pendingStreamTorrentId = torrentId;
+    m_pendingStreamFileIndex = fileIndex;
+    if (fileIndex >= 0 && fileIndex < m_fileSizes.size()) {
+        m_currentFileSize = m_fileSizes[fileIndex];
+    } else {
+        m_currentFileSize = 0;
+    }
+    m_network->requestStreamTicket(torrentId);
+    updateStatus(tr("Запрос тикета потока..."));
+}
+
+void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString &ticket)
+{
+    if (torrentId != m_pendingStreamTorrentId) {
+        qWarning() << "MainWindow: получен тикет для неожиданного torrentId, игнорируем";
+        return;
+    }
+    const QString url = m_network->streamUrl(torrentId) +
+                        QString("?ticket=%1").arg(ticket);
     if (url.isEmpty()) {
         onPlaybackError(tr("Ошибка: URL потока пуст"));
+        m_pendingStreamTorrentId.clear();
+        m_pendingStreamFileIndex = -1;
         return;
     }
     m_mpvWidget->play(url);
+#ifndef HAS_MPV
+    // Сборка без libmpv: видео не воспроизведётся. Честно сообщаем пользователю,
+    // вместо того чтобы молча делать вид, что播放 начался.
+    QMessageBox::warning(this, tr("Воспроизведение недоступно"),
+        tr("Эта сборка собрана без поддержки libmpv. Воспроизведение видео отключено. "
+           "Установите libmpv и пересоберите приложение для просмотра."));
+    updateStatus(tr("libmpv не подключён — воспроизведение отключено"));
+    m_pendingStreamTorrentId.clear();
+    m_pendingStreamFileIndex = -1;
+    return;
+#endif // HAS_MPV
     m_isPlaying = true;
-    m_playPauseButton->setText(tr("⏸ Pause"));
+    m_currentTorrentId = torrentId;
+    m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
+    m_playPauseButton->setText(tr("Pause"));
     m_playPauseButton->setEnabled(true);
     updateStatus(tr("Загрузка потока..."));
+    m_pendingStreamTorrentId.clear();
+    m_pendingStreamFileIndex = -1;
+    m_bufferPollTimer->start();
 }
 
 // ── Слоты управления комнатами ──────────────────────────────────────────
@@ -468,16 +530,40 @@ void MainWindow::onRoomLeft()
     updateStatus(tr("Покинули комнату"));
 }
 
+void MainWindow::onLogin()
+{
+    AuthDialog dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString username = dialog.username();
+        QString password = dialog.password();
+        AuthDialog::Mode mode = dialog.mode();
+        
+        if (mode == AuthDialog::LoginMode) {
+            m_network->login(username, password);
+        } else {
+            m_network->registerUser(username, password);
+        }
+    }
+}
+
+void MainWindow::onLoginSuccess(const QString &token)
+{
+    updateStatus(tr("Авторизация выполнена успешно"));
+    QMessageBox::information(this, tr("Успех"), tr("Добро пожаловать!"));
+}
+
 void MainWindow::onSyncAction(const QString &action, double position)
 {
     if (action == "play") {
         m_mpvWidget->resume();
         m_isPlaying = true;
-        m_playPauseButton->setText(tr("⏸ Pause"));
+        m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
+    m_playPauseButton->setText(tr("Pause"));
     } else if (action == "pause") {
         m_mpvWidget->pause();
         m_isPlaying = false;
-        m_playPauseButton->setText(tr("▶ Play"));
+        m_playPauseButton->setIcon(QIcon(":/icons/play.png"));
+    m_playPauseButton->setText(tr("Play"));
     } else if (action == "seek") {
         m_mpvWidget->seek(position);
     }
@@ -500,12 +586,14 @@ void MainWindow::onPlayPause()
     if (m_isPlaying) {
         m_mpvWidget->pause();
         m_isPlaying = false;
-        m_playPauseButton->setText(tr("▶ Play"));
+        m_playPauseButton->setIcon(QIcon(":/icons/play.png"));
+    m_playPauseButton->setText(tr("Play"));
         if (m_roomManager->isInRoom()) m_roomManager->syncPause();
     } else {
         m_mpvWidget->resume();
         m_isPlaying = true;
-        m_playPauseButton->setText(tr("⏸ Pause"));
+        m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
+    m_playPauseButton->setText(tr("Pause"));
         if (m_roomManager->isInRoom()) m_roomManager->syncPlay();
     }
 }
@@ -517,6 +605,12 @@ void MainWindow::onSeek(int value)
     double position = (static_cast<double>(value) / seekSliderMax) * m_duration;
     m_mpvWidget->seek(position);
     if (!m_isSeeking && m_roomManager->isInRoom()) m_roomManager->syncSeek(position);
+    // Сообщаем backend-буферу новую позицию воспроизведения (в байтах) для
+    // корректной расстановки приоритетов piece.
+    if (!m_currentTorrentId.isEmpty() && m_duration > 0 && m_currentFileSize > 0) {
+        const qint64 bytePos = static_cast<qint64>((position / m_duration) * m_currentFileSize);
+        m_network->setBufferPosition(m_currentTorrentId, bytePos);
+    }
 }
 
 void MainWindow::onSeekSliderPressed()
@@ -539,6 +633,13 @@ void MainWindow::onPositionChanged(double position)
     updateTimeLabel(position, m_duration);
 }
 
+void MainWindow::onBufferInfoReceived(const QJsonObject &info)
+{
+    // Отображаем реальный процент буферизации из backend (честный прогресс-бар).
+    const double percent = info["buffered_percent"].toDouble();
+    m_bufferProgress->setValue(static_cast<int>(percent));
+}
+
 void MainWindow::onDurationChanged(double duration)
 {
     m_duration = duration;
@@ -549,12 +650,17 @@ void MainWindow::onDurationChanged(double duration)
 void MainWindow::onPlaybackFinished()
 {
     m_isPlaying = false;
-    m_playPauseButton->setText(tr("▶ Play"));
+    m_bufferPollTimer->stop();
+    m_currentTorrentId.clear();
+    m_bufferProgress->setValue(0);
+    m_playPauseButton->setIcon(QIcon(":/icons/play.png"));
+    m_playPauseButton->setText(tr("Play"));
     updateStatus(tr("Воспроизведение завершено"));
 }
 
 void MainWindow::onPlaybackError(const QString &message)
 {
+    m_bufferPollTimer->stop();
     QMessageBox::critical(this, tr("Ошибка воспроизведения"), message);
     updateStatus(tr("Ошибка: %1").arg(message));
 }
@@ -626,8 +732,15 @@ void MainWindow::onServerUnavailable()
 
     // Показываем кэшированные данные если есть
     if (!m_cachedTorrents.isEmpty()) {
-        qDebug() << "MainWindow: используем кэшированные данных торрентов";
+        m_torrentModel->loadFromJson(m_cachedTorrents);
+        qDebug() << "MainWindow: восстановлен кэш торрентов (" << m_cachedTorrents.size() << ")";
     }
+}
+
+void MainWindow::onTorrentListReceived(const QJsonArray &torrents)
+{
+    // Кэшируем последний успешный список для graceful degradation при потере сервера.
+    m_cachedTorrents = torrents;
 }
 
 void MainWindow::onServerAvailable()

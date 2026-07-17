@@ -84,6 +84,9 @@ private slots:
     void testParseJsonWithSpecialChars();
     void testParseLargeJsonArray();
 
+    // ── SelectFile → fileSelected signal ──────────────────────────────────
+    void testSelectFileEmitsFileSelected();
+
 private:
     NetworkManager *m_manager;
 
@@ -513,6 +516,50 @@ void TestNetworkManager::testParseLargeJsonArray()
     QCOMPARE(parsed.array().size(), 1000);
     QCOMPARE(parsed.array()[0].toString(), QString("item_0"));
     QCOMPARE(parsed.array()[999].toString(), QString("item_999"));
+}
+
+void TestNetworkManager::testSelectFileEmitsFileSelected()
+{
+    // Локальный mock-сервер, отвечающий 200 на POST /api/v1/torrents/{id}/select.
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    const int port = server.serverPort();
+
+    QObject::connect(&server, &QTcpServer::newConnection, [&server]() {
+        QTcpSocket *sock = server.nextPendingConnection();
+        if (!sock) return;
+        QObject::connect(sock, &QTcpSocket::readyRead, [sock]() {
+            // Прочитать запрос полностью (упрощённо) и ответить 200 OK.
+            sock->readAll();
+            QByteArray response(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json\r\n"
+                "Content-Length: 2\r\n"
+                "\r\n"
+                "{}");
+            sock->write(response);
+            sock->disconnectFromHost();
+        });
+    });
+
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    const QString torrentId = "abc123def456";
+    const int fileIndex = 2;
+
+    // Сигнал fileSelected должен испуститься после успешного ответа /select.
+    QSignalSpy spy(m_manager, &NetworkManager::fileSelected);
+    QVERIFY(spy.isValid());
+
+    m_manager->selectFile(torrentId, fileIndex);
+
+    // Ждём ответа сервера (асинхронный Qt event loop).
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 5000);
+
+    QCOMPARE(spy.first().at(0).toString(), torrentId);
+    QCOMPARE(spy.first().at(1).toInt(), fileIndex);
+    QCOMPARE(spy.first().at(2).toString(),
+             QString("http://127.0.0.1:%1/api/v1/torrents/%2/stream").arg(port).arg(torrentId));
 }
 
 QTEST_MAIN(TestNetworkManager)

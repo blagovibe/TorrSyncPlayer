@@ -23,7 +23,6 @@ public:
 
     MOCK_METHOD(QString, currentTorrentId, (), (const, override));
     MOCK_METHOD(void, setCurrentTorrentId, (const QString &id), (override));
-    MOCK_METHOD(QString, streamUrl, (const QString &torrentId), (const, override));
 
     MOCK_METHOD(void, addTorrent, (const QString &magnetUri), (override));
     MOCK_METHOD(void, addTorrentFile, (const QByteArray &torrentData), (override));

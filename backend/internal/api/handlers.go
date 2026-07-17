@@ -25,6 +25,7 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/version"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
 
 // validateTorrentID validates the torrent identifier.
@@ -289,12 +290,13 @@ func parsePaginationParams(r *http.Request) (limit, offset int) {
 	return limit, offset
 }
 
-// paginateTorrents paginates a slice of torrents
-func paginateTorrents(torrents []*models.TorrentInfo, limit, offset int) []*models.TorrentInfo {
-	total := len(torrents)
+// paginate is a generic helper that returns the sub-slice [offset:offset+limit]
+// of items. Returns an empty slice when offset is out of range.
+func paginate[T any](items []T, limit, offset int) []T {
+	total := len(items)
 
 	if offset >= total {
-		return []*models.TorrentInfo{}
+		return []T{}
 	}
 
 	end := offset + limit
@@ -302,23 +304,7 @@ func paginateTorrents(torrents []*models.TorrentInfo, limit, offset int) []*mode
 		end = total
 	}
 
-	return torrents[offset:end]
-}
-
-// paginateFiles paginates a slice of files
-func paginateFiles(files []models.FileInfo, limit, offset int) []models.FileInfo {
-	total := len(files)
-
-	if offset >= total {
-		return []models.FileInfo{}
-	}
-
-	end := offset + limit
-	if end > total {
-		end = total
-	}
-
-	return files[offset:end]
+	return items[offset:end]
 }
 
 // HealthCheck public handler for server health check.
@@ -415,4 +401,16 @@ func VersionHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusOK, version.Info())
 	}
+}
+
+// WriteJSON writes a JSON response with the specified status.
+// Delegates to pkg/response to keep a single JSON-encoding source of truth.
+func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
+	response.WriteJSON(w, status, data)
+}
+
+// WriteError writes a structured error in JSON format ({"error": message}).
+// Delegates to pkg/response.
+func WriteError(w http.ResponseWriter, status int, message string) {
+	response.WriteError(w, status, message)
 }

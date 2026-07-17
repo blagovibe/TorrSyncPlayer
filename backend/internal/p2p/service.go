@@ -2,30 +2,33 @@
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
 // See LICENSE file for full license text
 
-// Package p2p provides the P2P service via WebRTC.
+// Package p2p provides the room and real-time event service for synchronized
+// playback. Rooms and peer-to-peer synchronization are brokered by the server:
+// all events (peer roster, WebRTC-style signals, playback sync commands) are
+// relayed over Server-Sent Events (SSE) to per-user session channels. The
+// service is intentionally server-centric — there is no direct peer-to-peer
+// data path; clients connect to the backend over REST (commands) and SSE
+// (events). This keeps the topology simple, NAT-friendly and debuggable.
+//
 // Manages rooms, peers and events in a thread-safe manner.
-// Supports JWT peer authentication on connection.
 // Architecture: Multi-session - each user has isolated state (fixes C2).
 package p2p
 
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/pion/webrtc/v4"
-
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/utils"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
@@ -37,33 +40,24 @@ const (
 	p2pCloseTimeoutDefault = constants.P2PCloseTimeoutDefault
 )
 
-// Peer represents a WebRTC peer connection.
+// Peer represents a participant in a room. Connectivity is fully brokered by
+// the server over SSE; there is no direct peer-to-peer data channel.
 type Peer struct {
 	ID            string
 	UserID        string
 	Username      string
-	Connection    *webrtc.PeerConnection
-	DataChannel   *webrtc.DataChannel
 	LastHeartbeat time.Time
-	Authenticated bool
 }
 
-// Room represents a P2P room for synchronized playback.
+// Room represents a room for synchronized playback.
 type Room struct {
-	ID          string
-	Name        string
-	HostID      string
-	HostUserID  string
-	Password    string
-	Peers       map[string]*Peer
-	CreatedAt   time.Time
-	RequireAuth bool
-}
-
-// DataChannelEvent represents a data channel event for internal processing.
-type DataChannelEvent struct {
-	PeerID      string
-	DataChannel *webrtc.DataChannel
+	ID         string
+	Name       string
+	HostID     string
+	HostUserID string
+	Password   string
+	Peers      map[string]*Peer
+	CreatedAt  time.Time
 }
 
 // Session represents a user's P2P session with isolated state.
@@ -74,14 +68,16 @@ type Session struct {
 	userID      string
 	currentRoom string
 	peer        *Peer
+	eventChan   chan models.P2PEvent // per-session event channel for SSE
 	mu          sync.RWMutex
 }
 
 // NewSession creates a new user session.
 func NewSession(userID string) *Session {
 	return &Session{
-		id:     fmt.Sprintf("session_%s", userID),
-		userID: userID,
+		id:        fmt.Sprintf("session_%s", userID),
+		userID:    userID,
+		eventChan: make(chan models.P2PEvent, eventChannelSize),
 	}
 }
 
@@ -127,141 +123,188 @@ func (s *Session) SetPeer(peer *Peer) {
 	s.peer = peer
 }
 
-// Service manages P2P operations with multi-session support.
+// GetEventChan returns the event channel for the session.
+func (s *Session) GetEventChan() chan models.P2PEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.eventChan
+}
+
+// Service manages room and event operations with multi-session support.
+// All real-time delivery is brokered by the server over SSE.
 type Service struct {
-	mu              sync.RWMutex
-	rooms           map[string]*Room
-	peers           map[string]*Peer
-	api             *webrtc.API
-	config          webrtc.Configuration
-	sessions        map[string]*Session // userID -> session mapping
-	closeChan       chan struct{}
-	doneChan        chan struct{}
-	closeOnce       sync.Once
-	wg              sync.WaitGroup
-	authService     *auth.AuthService
-	closed          atomic.Bool
-	dataChannelChan chan DataChannelEvent
+	mu            sync.RWMutex
+	rooms         map[string]*Room
+	peers         map[string]*Peer
+	sessions      map[string]*Session // userID -> session mapping
+	closeChan     chan struct{}
+	doneChan      chan struct{}
+	closeOnce     sync.Once
+	wg            sync.WaitGroup
+	authService   *auth.AuthService
+	closed        atomic.Bool
+	persistence   *persistence.Store
+	saveDebouncer *time.Timer
+	pruneTicker   *time.Ticker
 }
 
-// loadICEServers loads ICE servers from environment configuration.
-func loadICEServers() []webrtc.ICEServer {
-	servers := []webrtc.ICEServer{
-		{
-			URLs: []string{
-				"stun:stun.l.google.com:19302",
-				"stun:stun1.l.google.com:19302",
-			},
-		},
-	}
-
-	// Check for custom STUN servers
-	if stunServers := os.Getenv("STUN_SERVERS"); stunServers != "" {
-		// Parse comma-separated STUN server URLs
-		for _, url := range splitAndTrim(stunServers, ",") {
-			if url != "" {
-				servers[0].URLs = append(servers[0].URLs, url)
-			}
-		}
-		logger.Info("P2P: custom STUN servers configured", "count", len(servers[0].URLs)-2)
-	}
-
-	if turnURL := os.Getenv("TURN_URL"); turnURL != "" {
-		turnServer := webrtc.ICEServer{
-			URLs: []string{turnURL},
-		}
-		if username := os.Getenv("TURN_USERNAME"); username != "" {
-			turnServer.Username = username
-		}
-		if credential := os.Getenv("TURN_CREDENTIAL"); credential != "" {
-			turnServer.Credential = credential
-		}
-		servers = append(servers, turnServer)
-		logger.Info("P2P: TURN server configured", "url", turnURL)
-	}
-
-	return servers
-}
-
-// splitAndTrim splits a string by delimiter and trims whitespace.
-func splitAndTrim(s string, delim string) []string {
-	var result []string
-	for _, part := range splitString(s, delim) {
-		if trimmed := trimSpace(part); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
-
-// splitString is a helper to split strings (extracted for testing).
-func splitString(s, delim string) []string {
-	// Simple split implementation
-	result := []string{}
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i:i+1] == delim {
-			result = append(result, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		result = append(result, s[start:])
-	}
-	return result
-}
-
-// trimSpace trims whitespace from a string.
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
-}
-
-// NewService creates a new P2P service with multi-session support.
+// NewService creates a new room/event service with multi-session support.
+// Real-time delivery is brokered by the server over SSE; no direct
+// peer-to-peer data path is established.
 func NewService(authService *auth.AuthService) (*Service, error) {
-	config := webrtc.Configuration{
-		ICEServers: loadICEServers(),
-	}
-
-	settingEngine := webrtc.SettingEngine{}
-	webrtcAPI := webrtc.NewAPI(
-		webrtc.WithSettingEngine(settingEngine),
-	)
-
 	service := &Service{
-		rooms:           make(map[string]*Room),
-		peers:           make(map[string]*Peer),
-		api:             webrtcAPI,
-		config:          config,
-		sessions:        make(map[string]*Session),
-		closeChan:       make(chan struct{}),
-		doneChan:        make(chan struct{}),
-		dataChannelChan: make(chan DataChannelEvent, eventChannelSize),
-		authService:     authService,
+		rooms:       make(map[string]*Room),
+		peers:       make(map[string]*Peer),
+		sessions:    make(map[string]*Session),
+		closeChan:   make(chan struct{}),
+		doneChan:    make(chan struct{}),
+		authService: authService,
 	}
 
+	// Periodically prune peers that stopped sending heartbeats so idle
+	// sessions don't accumulate in long-lived rooms.
+	service.pruneTicker = time.NewTicker(constants.PeerPruneInterval)
 	service.wg.Add(1)
-	go func() {
-		defer service.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Error("P2P: handleDataChannelEvents goroutine exited with panic", "error", r)
-			}
-		}()
-		service.handleDataChannelEvents()
-	}()
+	go service.pruneLoop()
 
-	logger.Info("P2P service initialized",
-		"stun_servers", len(config.ICEServers[0].URLs),
-	)
+	logger.Info("P2P service initialized (server-brokered SSE transport)")
 	return service, nil
+}
+
+// pruneLoop runs the idle-peer sweep until the service is closed.
+func (s *Service) pruneLoop() {
+	defer s.wg.Done()
+	for {
+		select {
+		case <-s.closeChan:
+			return
+		case <-s.pruneTicker.C:
+			s.pruneIdlePeers()
+		}
+	}
+}
+
+// pruneIdlePeers removes peers whose last heartbeat is older than
+// PeerIdleTimeout, emitting a peer_left event for each so clients can update
+// their roster. Safe to call concurrently; acquires the lock internally.
+func (s *Service) pruneIdlePeers() {
+	if s.closed.Load() {
+		return
+	}
+
+	cutoff := time.Now().Add(-constants.PeerIdleTimeout)
+
+	type pruned struct {
+		roomID string
+		peer   *Peer
+	}
+
+	s.mu.RLock()
+	var stale []pruned
+	for roomID, room := range s.rooms {
+		for _, peer := range room.Peers {
+			if peer.LastHeartbeat.Before(cutoff) {
+				stale = append(stale, pruned{roomID: roomID, peer: peer})
+			}
+		}
+	}
+	s.mu.RUnlock()
+
+	if len(stale) == 0 {
+		return
+	}
+
+	for _, p := range stale {
+		s.mu.Lock()
+		room, exists := s.rooms[p.roomID]
+		if !exists {
+			s.mu.Unlock()
+			continue
+		}
+		if _, stillThere := room.Peers[p.peer.ID]; !stillThere {
+			s.mu.Unlock()
+			continue
+		}
+		delete(s.peers, p.peer.ID)
+		delete(room.Peers, p.peer.ID)
+		peerCount := len(room.Peers)
+		s.mu.Unlock()
+
+		metrics.GetInstance().PeerLeft()
+		s.emitEvent(p.roomID, "peer_left", map[string]interface{}{
+			"peerID":    p.peer.ID,
+			"userID":    p.peer.UserID,
+			"peerCount": peerCount,
+		})
+		logger.Info("P2P: pruned idle peer", "roomID", p.roomID, "peerID", p.peer.ID)
+	}
+}
+
+// SetPersistence enables JSON-file persistence of room metadata. When set,
+// rooms survive a server restart (clients must still rejoin; only the room
+// definition and host are restored). Without it, rooms are in-memory only.
+func (s *Service) SetPersistence(store *persistence.Store) {
+	s.mu.Lock()
+	s.persistence = store
+	s.mu.Unlock()
+
+	if data, err := store.LoadRooms(); err == nil {
+		s.mu.Lock()
+		for _, snap := range data.Rooms {
+			s.rooms[snap.ID] = &Room{
+				ID:         snap.ID,
+				Name:       snap.Name,
+				HostID:     snap.HostID,
+				HostUserID: snap.HostUserID,
+				Password:   snap.Password,
+				Peers:      make(map[string]*Peer),
+				CreatedAt:  time.Unix(snap.CreatedAt, 0),
+			}
+		}
+		s.mu.Unlock()
+		logger.Info("P2P: restored rooms from persistence", "count", len(data.Rooms))
+	} else {
+		logger.Warn("P2P: failed to load persisted rooms", "error", err)
+	}
+}
+
+// scheduleSave persists room metadata on a debounce timer to avoid
+// hammering disk on every room mutation.
+func (s *Service) scheduleSave() {
+	if s.persistence == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.saveDebouncer != nil {
+		s.saveDebouncer.Stop()
+	}
+	s.saveDebouncer = time.AfterFunc(constants.P2PDebounceInterval, s.flushRooms)
+	s.mu.Unlock()
+}
+
+// flushRooms writes the current room metadata to disk.
+func (s *Service) flushRooms() {
+	s.mu.RLock()
+	data := &persistence.RoomsData{Rooms: make(map[string]*persistence.RoomSnapshot, len(s.rooms))}
+	for id, room := range s.rooms {
+		data.Rooms[id] = &persistence.RoomSnapshot{
+			ID:         room.ID,
+			Name:       room.Name,
+			HostID:     room.HostID,
+			HostUserID: room.HostUserID,
+			Password:   room.Password,
+			CreatedAt:  room.CreatedAt.Unix(),
+		}
+	}
+	store := s.persistence
+	s.mu.RUnlock()
+
+	if store == nil {
+		return
+	}
+	if err := store.SaveRooms(data); err != nil {
+		logger.Warn("P2P: failed to persist rooms", "error", err)
+	}
 }
 
 // getOrCreateSession returns or creates a session for the user.
@@ -323,18 +366,18 @@ func (s *Service) CreateRoom(ctx context.Context, userID, name, password string)
 	}
 
 	room := &Room{
-		ID:          roomID,
-		Name:        name,
-		HostID:      session.GetPeer().ID,
-		HostUserID:  userID,
-		Password:    passwordHash,
-		Peers:       make(map[string]*Peer),
-		CreatedAt:   time.Now(),
-		RequireAuth: constants.P2PDefaultRoomAuth,
+		ID:         roomID,
+		Name:       name,
+		HostID:     session.GetPeer().ID,
+		HostUserID: userID,
+		Password:   passwordHash,
+		Peers:      make(map[string]*Peer),
+		CreatedAt:  time.Now(),
 	}
 
 	s.rooms[roomID] = room
 	session.SetRoom(roomID)
+	s.scheduleSave()
 
 	logger.Info("P2P: room created",
 		"roomID", roomID,
@@ -361,16 +404,17 @@ func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password string)
 	session := s.getOrCreateSession(userID)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	room, exists := s.rooms[roomID]
 	if !exists {
+		s.mu.Unlock()
 		logger.Warn("P2P: room not found", "roomID", roomID)
 		return errors.NotFound("room", roomID)
 	}
 
 	if room.Password != "" {
 		if err := bcrypt.CompareHashAndPassword([]byte(room.Password), []byte(password)); err != nil {
+			s.mu.Unlock()
 			logger.Warn("P2P: invalid room password", "roomID", roomID)
 			return errors.Unauthorized("invalid password")
 		}
@@ -378,70 +422,32 @@ func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password string)
 
 	session.SetRoom(roomID)
 
-	peerConnection, err := s.api.NewPeerConnection(s.config)
-	if err != nil {
-		logger.Error("P2P: error creating peer connection", "error", err, "roomID", roomID)
-		return fmt.Errorf("error creating peer connection: %w", err)
-	}
-
-	s.setupPeerConnection(peerConnection, roomID)
-
 	peer := session.GetPeer()
-	peer.Connection = peerConnection
 	peer.LastHeartbeat = time.Now()
-	peer.Authenticated = userID != ""
 
 	room.Peers[peer.ID] = peer
 	s.peers[peer.ID] = peer
+	peerCount := len(room.Peers)
+
+	s.mu.Unlock()
 
 	metrics.GetInstance().PeerJoined()
+
+	// Notify other participants that a peer joined (used by the client to
+	// build a peer roster / "out of sync" indicators).
+	// Emitted after releasing the lock: emitEvent re-acquires the lock and
+	// would deadlock if called while the write lock is held.
+	s.emitEvent(roomID, "peer_joined", map[string]interface{}{
+		"peerID":    peer.ID,
+		"userID":    userID,
+		"isHost":    room.HostUserID == userID,
+		"peerCount": peerCount,
+	})
 
 	logger.Info("P2P: joined room",
 		"roomID", roomID,
 		"peerID", peer.ID,
 		"userID", userID,
-		"authenticated", peer.Authenticated,
-	)
-
-	return nil
-}
-
-// JoinRoomWithToken joins a room with JWT token authentication.
-func (s *Service) JoinRoomWithToken(ctx context.Context, token, roomID, password string) error {
-	claims, err := s.authService.ValidateTokenWithRevocation(token)
-	if err != nil {
-		logger.Warn("P2P: invalid or revoked JWT token", "roomID", roomID, "error", err)
-		return fmt.Errorf("authentication failed: invalid token")
-	}
-
-	return s.JoinRoom(ctx, claims.UserID, roomID, password)
-}
-
-// AuthenticatePeer authenticates a peer using JWT token.
-func (s *Service) AuthenticatePeer(ctx context.Context, userID, peerID, token string) error {
-	_ = ctx
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	peer, exists := s.peers[peerID]
-	if !exists {
-		return fmt.Errorf("peer not found: %s", peerID)
-	}
-
-	claims, err := s.authService.ValidateTokenWithRevocation(token)
-	if err != nil {
-		logger.Warn("P2P: invalid or revoked peer JWT token", "peerID", peerID, "error", err)
-		return fmt.Errorf("authentication failed")
-	}
-
-	peer.UserID = claims.UserID
-	peer.Username = claims.Username
-	peer.Authenticated = true
-
-	logger.Info("P2P: peer authenticated",
-		"peerID", peerID,
-		"userID", claims.UserID,
-		"username", claims.Username,
 	)
 
 	return nil
@@ -454,51 +460,64 @@ func (s *Service) LeaveRoom(ctx context.Context, userID string) error {
 	session := s.getSession(userID)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if session == nil || session.CurrentRoom() == "" {
+		s.mu.Unlock()
 		return errors.New(errors.ErrInvalidInput, "not connected to a room")
 	}
 
 	roomID := session.CurrentRoom()
 	room, exists := s.rooms[roomID]
 	if !exists {
+		s.mu.Unlock()
 		logger.Warn("P2P: room not found on leave", "roomID", roomID)
 		return errors.NotFound("room", roomID)
 	}
 
+	leftPeerID := session.GetPeer().ID
 	peer := session.GetPeer()
 	if peer != nil {
-		if peer.DataChannel != nil {
-			if err := peer.DataChannel.Close(); err != nil {
-				logger.Warn("P2P: error closing DataChannel", "error", err, "peerID", peer.ID)
-			}
-		}
-		if peer.Connection != nil {
-			if err := peer.Connection.Close(); err != nil {
-				logger.Warn("P2P: error closing PeerConnection", "error", err, "peerID", peer.ID)
-			}
-		}
 		delete(s.peers, peer.ID)
 	}
 
-	delete(room.Peers, session.GetPeer().ID)
+	peerCount := len(room.Peers)
+	delete(room.Peers, leftPeerID)
 
+	roomDeleted := false
 	if len(room.Peers) == 0 {
 		delete(s.rooms, roomID)
+		roomDeleted = true
+	}
+
+	s.mu.Unlock()
+
+	if roomDeleted {
 		metrics.GetInstance().RoomClosed()
 		logger.Info("P2P: room deleted (empty)", "roomID", roomID)
+	} else {
+		// Notify remaining participants that a peer left.
+		// Emitted after releasing the lock (emitEvent re-acquires it).
+		s.emitEvent(roomID, "peer_left", map[string]interface{}{
+			"peerID":    leftPeerID,
+			"userID":    userID,
+			"peerCount": peerCount - 1,
+		})
 	}
 
 	metrics.GetInstance().PeerLeft()
 	session.SetRoom("")
 
-	logger.Info("P2P: left room", "roomID", roomID, "peerID", session.GetPeer().ID)
+	logger.Info("P2P: left room", "roomID", roomID, "peerID", leftPeerID)
 
 	return nil
 }
 
-// SendSignal sends a WebRTC signal for the user's current room.
+// SendSignal relays a sync signal (an opaque JSON payload exchanged between
+// clients for out-of-band negotiation) to the other participants of the
+// sender's current room. Signals are delivered over the existing SSE event
+// stream (each peer's per-session event channel), exactly like sync playback
+// events are broadcast. The sender is included in the fan-out but the client
+// ignores its own signals. The transport is fully server-brokered.
 func (s *Service) SendSignal(ctx context.Context, userID string, signal []byte) error {
 	_ = ctx
 	if len(signal) > constants.MaxSignalSize {
@@ -506,29 +525,19 @@ func (s *Service) SendSignal(ctx context.Context, userID string, signal []byte) 
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	session := s.getSessionUnlocked(userID)
 	if session == nil || session.CurrentRoom() == "" {
+		s.mu.RUnlock()
 		return errors.InvalidInput("not connected to a room")
 	}
+	roomID := session.CurrentRoom()
+	s.mu.RUnlock()
 
-	peer := session.GetPeer()
-	if peer == nil {
-		return errors.InvalidInput("peer not found")
-	}
+	// Relay the raw signal bytes to all other peers in the room via SSE.
+	// emitEvent fans the event out to every peer (and the host) in the room.
+	s.emitEvent(roomID, "signal", signal)
 
-	if peer.DataChannel == nil {
-		return errors.InvalidInput("data channel not created")
-	}
-
-	err := peer.DataChannel.Send(signal)
-	if err != nil {
-		logger.Error("P2P: error sending signal", "error", err, "roomID", session.CurrentRoom())
-		return errors.Wrap(errors.ErrInternal, "error sending signal", err)
-	}
-
-	logger.Debug("P2P: signal sent", "roomID", session.CurrentRoom(), "signalSize", len(signal))
+	logger.Debug("P2P: signal relayed", "roomID", roomID, "signalSize", len(signal), "fromUser", userID)
 	return nil
 }
 
@@ -542,9 +551,7 @@ func (s *Service) GetEvents(userID string) chan models.P2PEvent {
 		return nil
 	}
 
-	// For now, return the main event channel
-	// Future: per-session event channels
-	return nil
+	return session.GetEventChan()
 }
 
 // GetRoomInfo returns room information for the user's current room.
@@ -586,28 +593,30 @@ func (s *Service) getSessionUnlocked(userID string) *Session {
 // Close closes the P2P service.
 func (s *Service) Close() error {
 	s.closeOnce.Do(func() {
+		if s.pruneTicker != nil {
+			s.pruneTicker.Stop()
+		}
 		close(s.closeChan)
 	})
 
-	type peerConnections struct {
-		dataChannel io.Closer
-		connection  io.Closer
-		id          string
-	}
-	var toClose []peerConnections
+	// Persist room metadata before dropping in-memory state.
+	s.flushRooms()
 
 	s.mu.Lock()
 	s.closed.Store(true)
 
-	for peerID, peer := range s.peers {
-		conns := peerConnections{id: peerID}
-		if peer.DataChannel != nil {
-			conns.dataChannel = peer.DataChannel
+	// Close all session event channels
+	for _, session := range s.sessions {
+		if session.eventChan != nil {
+			go func(ch chan models.P2PEvent) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Debug("P2P: event channel already closed")
+					}
+				}()
+				close(ch)
+			}(session.eventChan)
 		}
-		if peer.Connection != nil {
-			conns.connection = peer.Connection
-		}
-		toClose = append(toClose, conns)
 	}
 
 	roomCount := len(s.rooms)
@@ -617,16 +626,6 @@ func (s *Service) Close() error {
 
 	close(s.doneChan)
 	s.mu.Unlock()
-
-	for _, conns := range toClose {
-		if conns.dataChannel != nil {
-			_ = conns.dataChannel.Close()
-		}
-		if conns.connection != nil {
-			_ = conns.connection.Close()
-		}
-		logger.Debug("P2P: peer connection closed", "peerID", conns.id)
-	}
 
 	done := make(chan struct{})
 	go func() {
@@ -642,71 +641,9 @@ func (s *Service) Close() error {
 	return nil
 }
 
-// setupPeerConnection configures WebRTC connection handlers.
-func (s *Service) setupPeerConnection(pc *webrtc.PeerConnection, roomID string) {
-	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		if candidate == nil {
-			return
-		}
-		s.emitEvent("ice_candidate", candidate.ToJSON())
-	})
-
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		logger.Info("P2P: connection state changed",
-			"state", state.String(),
-			"roomID", roomID,
-		)
-
-		switch state {
-		case webrtc.PeerConnectionStateConnected:
-			s.emitEvent("connected", nil)
-		case webrtc.PeerConnectionStateDisconnected:
-			s.emitEvent("disconnected", nil)
-		case webrtc.PeerConnectionStateFailed:
-			s.emitEvent("failed", nil)
-		}
-	})
-
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		logger.Info("P2P: data channel received", "label", dc.Label(), "roomID", roomID)
-
-		dc.OnOpen(func() {
-			s.emitEvent("data_channel_open", dc.Label())
-		})
-
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			s.emitEvent("data_channel_message", msg.Data)
-		})
-
-		dc.OnClose(func() {
-			s.emitEvent("data_channel_close", dc.Label())
-		})
-	})
-}
-
-// handleDataChannelEvents processes data channel events.
-func (s *Service) handleDataChannelEvents() {
-	logger.Info("P2P: DataChannel event handler started")
-	for {
-		select {
-		case event := <-s.dataChannelChan:
-			s.mu.Lock()
-			if peer, exists := s.peers[event.PeerID]; exists {
-				peer.DataChannel = event.DataChannel
-				logger.Debug("P2P: DataChannel saved for peer", "peerID", event.PeerID)
-			} else {
-				logger.Warn("P2P: peer not found for DataChannel", "peerID", event.PeerID)
-			}
-			s.mu.Unlock()
-		case <-s.closeChan:
-			logger.Info("P2P: DataChannel event handler stopped")
-			return
-		}
-	}
-}
-
-// emitEvent sends an event to the event channel.
-func (s *Service) emitEvent(eventType string, data interface{}) {
+// emitEvent sends an event to all participants in the specified room.
+// Events are sent to per-session event channels for SSE streaming.
+func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
 	if s.closed.Load() {
 		return
 	}
@@ -717,7 +654,56 @@ func (s *Service) emitEvent(eventType string, data interface{}) {
 	default:
 	}
 
-	// Note: This emits to a single channel. For multi-session support,
-	// implement per-session event channels.
-	logger.Warn("P2P: event emission needs multi-session implementation", "type", eventType)
+	s.mu.RLock()
+	room, exists := s.rooms[roomID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	event := models.P2PEvent{Type: eventType, Data: data}
+
+	// Send event to all peers in the room
+	for _, peer := range room.Peers {
+		s.mu.RLock()
+		session := s.sessions[peer.UserID]
+		s.mu.RUnlock()
+
+		if session != nil && session.eventChan != nil {
+			select {
+			case session.eventChan <- event:
+			default:
+				// Channel full, skip to avoid blocking
+				logger.Warn("P2P: event channel full for user", "userID", peer.UserID, "eventType", eventType)
+			}
+		}
+	}
+
+	// Also send to host if different from peers
+	if room.HostUserID != "" {
+		s.mu.RLock()
+		hostSession := s.sessions[room.HostUserID]
+		s.mu.RUnlock()
+
+		if hostSession != nil && hostSession.eventChan != nil {
+			// Check if host is already in Peers (avoid duplicate)
+			_, isPeer := room.Peers[hostSession.GetPeer().ID]
+			if !isPeer {
+				select {
+				case hostSession.eventChan <- event:
+				default:
+					logger.Warn("P2P: event channel full for host", "hostUserID", room.HostUserID, "eventType", eventType)
+				}
+			}
+		}
+	}
+
+	logger.Debug("P2P: event emitted to room", "roomID", roomID, "eventType", eventType, "peerCount", len(room.Peers))
+}
+
+// BroadcastSync sends a sync event (play/pause/seek) to all participants in a room.
+// Used by SyncService to propagate playback commands across P2P network.
+func (s *Service) BroadcastSync(roomID string, syncData interface{}) {
+	s.emitEvent(roomID, "sync", syncData)
 }

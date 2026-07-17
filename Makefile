@@ -101,7 +101,8 @@ contract-test: contract-test-backend contract-test-frontend
 # Integration tests
 integration-test:
 	@echo "Running integration tests..."
-	cd backend && go test -v -tags=integration ./internal/integration/...
+	@echo "Backend integration coverage is provided by the e2e suite (real router)."
+	cd backend && go test -v ./internal/api/... -run TestE2E
 	@echo "Frontend integration tests require running backend"
 	cd frontend && mkdir -p build && cd build && \
 	cmake .. -DBUILD_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
