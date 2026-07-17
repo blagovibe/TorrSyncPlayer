@@ -594,7 +594,6 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
             if (!token.isEmpty()) {
                 setAuthToken(token);
                 emit authenticated(token);
-                updateStatus(tr("Авторизация выполнена"));
             } else {
                 emit error(tr("Сервер не вернул токен"));
             }

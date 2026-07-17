@@ -251,6 +251,9 @@ func CSRFMiddleware(next http.Handler) http.Handler {
 				var buf [16]byte
 				if _, err := rand.Read(buf[:]); err == nil {
 					sessionID = hex.EncodeToString(buf[:])
+					// #nosec G124 -- Secure is set only when the request was served
+					// over TLS; over plain HTTP the cookie is intentionally insecure
+					// so local/dev sessions still work. HttpOnly and SameSite are set.
 					http.SetCookie(w, &http.Cookie{
 						Name:     "session_id",
 						Value:    sessionID,

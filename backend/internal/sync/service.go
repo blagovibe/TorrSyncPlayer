@@ -92,14 +92,6 @@ func (s *Service) flushState() {
 	}
 }
 
-// getRoom returns the sync status for a room, creating an initial entry (stopped,
-// position 0) on first access. Caller must NOT hold the lock.
-func (s *Service) getRoom(roomID string) models.SyncStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.ensureRoomLocked(roomID)
-}
-
 // ensureRoomLocked returns the sync status for a room, creating it if missing.
 // Caller MUST hold the write lock.
 func (s *Service) ensureRoomLocked(roomID string) models.SyncStatus {
