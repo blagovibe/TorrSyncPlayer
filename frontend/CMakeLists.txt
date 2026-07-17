@@ -494,6 +494,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         add_executable(test_networkmanager_gmock
             src/test_networkmanager_gmock.cpp
             src/mocks/mock_networkmanager.cpp
+            src/interfaces/inetworkmanager.h
         )
         target_link_libraries(test_networkmanager_gmock PRIVATE
             Qt6::Core
