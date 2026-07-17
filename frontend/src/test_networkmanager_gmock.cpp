@@ -221,33 +221,37 @@ TEST_F(NetworkManagerGMockTest, RetryBaseDelayConfiguration)
     EXPECT_EQ(m_mock->retryBaseDelay(), 2000);
 }
 
+// Note: MockNetworkManager is a pure gmock that records the exact argument
+// passed; it does NOT clamp. Clamping (qBound 1..10 / 100..10000) is verified
+// against the real NetworkManager in test_networkmanager.cpp. Here we only
+// verify that the raw value is forwarded unchanged to the mock.
 TEST_F(NetworkManagerGMockTest, MaxRetriesBounds)
 {
     // Below minimum
-    EXPECT_CALL(*m_mock, setMaxRetries(1));
+    EXPECT_CALL(*m_mock, setMaxRetries(0));
     m_mock->setMaxRetries(0);
-    
+
     // Above maximum
-    EXPECT_CALL(*m_mock, setMaxRetries(10));
+    EXPECT_CALL(*m_mock, setMaxRetries(100));
     m_mock->setMaxRetries(100);
-    
+
     // Negative
-    EXPECT_CALL(*m_mock, setMaxRetries(1));
+    EXPECT_CALL(*m_mock, setMaxRetries(-5));
     m_mock->setMaxRetries(-5);
 }
 
 TEST_F(NetworkManagerGMockTest, RetryBaseDelayBounds)
 {
     // Below minimum
-    EXPECT_CALL(*m_mock, setRetryBaseDelay(100));
+    EXPECT_CALL(*m_mock, setRetryBaseDelay(50));
     m_mock->setRetryBaseDelay(50);
-    
+
     // Above maximum
-    EXPECT_CALL(*m_mock, setRetryBaseDelay(10000));
+    EXPECT_CALL(*m_mock, setRetryBaseDelay(50000));
     m_mock->setRetryBaseDelay(50000);
-    
+
     // Negative
-    EXPECT_CALL(*m_mock, setRetryBaseDelay(100));
+    EXPECT_CALL(*m_mock, setRetryBaseDelay(-100));
     m_mock->setRetryBaseDelay(-100);
 }
 
