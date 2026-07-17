@@ -523,7 +523,7 @@ func TestSyncPlay(t *testing.T) {
 }
 
 func TestSyncPause(t *testing.T) {
-	apiSyncSvc.Play(context.Background(), "test-room")
+	apiSyncSvc.Play("test-room")
 
 	handler := SyncPause(apiSyncSvc, apiP2pSvc)
 

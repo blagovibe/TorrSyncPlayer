@@ -114,7 +114,7 @@ func RemoveTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}
@@ -181,7 +181,7 @@ func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}
@@ -226,7 +226,7 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}
@@ -275,7 +275,7 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}
@@ -315,7 +315,7 @@ func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService)
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}
@@ -360,7 +360,7 @@ func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}
@@ -408,7 +408,7 @@ func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := validateTorrentID(torrentID); err != nil {
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
 			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
 			return
 		}

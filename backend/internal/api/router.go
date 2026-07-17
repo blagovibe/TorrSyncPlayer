@@ -96,9 +96,9 @@ func NewRouter(config RouterConfig) http.Handler {
 
 	// Protected endpoints — with Rate limiting, CSRF and JWT authentication
 	r.Group(func(r chi.Router) {
-		r.Use(PerIPRateLimiter)                  // per-IP rate limiting (60 req/min) — applied before CSRF to prevent DoS on token store
-		r.Use(CSRFMiddleware)                    // CSRF protection
-		r.Use(config.AuthService.JWTMiddleware)  // JWT authentication
+		r.Use(PerIPRateLimiter)                 // per-IP rate limiting (60 req/min) — applied before CSRF to prevent DoS on token store
+		r.Use(CSRFMiddleware)                   // CSRF protection
+		r.Use(config.AuthService.JWTMiddleware) // JWT authentication
 
 		// API v1
 		r.Route("/api/v1", func(r chi.Router) {
@@ -130,13 +130,13 @@ func NewRouter(config RouterConfig) http.Handler {
 			r.Post("/auth/logout", config.AuthService.LogoutHandler)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 
-// Sync endpoints
-				r.Route("/sync", func(r chi.Router) {
-					r.Post("/play", SyncPlay(config.SyncSvc, config.P2pSvc))
-					r.Post("/pause", SyncPause(config.SyncSvc, config.P2pSvc))
-					r.Post("/seek", SyncSeek(config.SyncSvc, config.P2pSvc))
-					r.Get("/status", SyncStatus(config.SyncSvc, config.P2pSvc))
-				})
+			// Sync endpoints
+			r.Route("/sync", func(r chi.Router) {
+				r.Post("/play", SyncPlay(config.SyncSvc, config.P2pSvc))
+				r.Post("/pause", SyncPause(config.SyncSvc, config.P2pSvc))
+				r.Post("/seek", SyncSeek(config.SyncSvc, config.P2pSvc))
+				r.Get("/status", SyncStatus(config.SyncSvc, config.P2pSvc))
+			})
 
 			// Detailed health check (requires JWT authentication)
 			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))

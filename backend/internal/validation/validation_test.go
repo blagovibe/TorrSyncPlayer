@@ -336,5 +336,3 @@ func TestValidateRoomID(t *testing.T) {
 		})
 	}
 }
-
-

@@ -237,32 +237,32 @@ func hasJWTAuthorization(r *http.Request) bool {
 // Token can be passed via X-CSRF-Token header or _csrf parameter.
 // Tokens are bound to user sessions to prevent cross-session CSRF attacks.
 func CSRFMiddleware(next http.Handler) http.Handler {
-return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sessionID := extractSessionID(r)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionID := extractSessionID(r)
 
-			if !mutatingMethods[r.Method] {
-				// Ensure every browser session has a stable session identifier so CSRF
-				// tokens can be bound to it. Without this the session-binding check in
-				// validateToken is never engaged (both IDs empty) and cross-session
-				// token reuse would be possible. JWT-Bearer requests are exempt (below)
-				// and do not need a cookie. We only generate/set the cookie on
-				// non-mutating requests (typically GET for /csrf-token fetch).
-				if sessionID == "" && !hasJWTAuthorization(r) {
-					var buf [16]byte
-					if _, err := rand.Read(buf[:]); err == nil {
-						sessionID = hex.EncodeToString(buf[:])
-						http.SetCookie(w, &http.Cookie{
-							Name:     "session_id",
-							Value:    sessionID,
-							Path:     "/",
-							HttpOnly: true,
-							Secure:   r.TLS != nil,
-							SameSite: http.SameSiteLaxMode,
-						})
-					}
+		if !mutatingMethods[r.Method] {
+			// Ensure every browser session has a stable session identifier so CSRF
+			// tokens can be bound to it. Without this the session-binding check in
+			// validateToken is never engaged (both IDs empty) and cross-session
+			// token reuse would be possible. JWT-Bearer requests are exempt (below)
+			// and do not need a cookie. We only generate/set the cookie on
+			// non-mutating requests (typically GET for /csrf-token fetch).
+			if sessionID == "" && !hasJWTAuthorization(r) {
+				var buf [16]byte
+				if _, err := rand.Read(buf[:]); err == nil {
+					sessionID = hex.EncodeToString(buf[:])
+					http.SetCookie(w, &http.Cookie{
+						Name:     "session_id",
+						Value:    sessionID,
+						Path:     "/",
+						HttpOnly: true,
+						Secure:   r.TLS != nil,
+						SameSite: http.SameSiteLaxMode,
+					})
 				}
+			}
 
-origin := r.Header.Get("Origin")
+			origin := r.Header.Get("Origin")
 			referer := r.Header.Get("Referer")
 			if origin != "" || referer != "" {
 				token, err := CSRFStore.generateToken(sessionID)
@@ -807,4 +807,3 @@ func PerIPRateLimiter(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
