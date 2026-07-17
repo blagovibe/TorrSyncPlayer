@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
@@ -19,6 +20,7 @@ import (
 
 // SyncPlay handler for starting synchronized playback.
 // Sets isPlaying = true and updates the timestamp.
+// Broadcasts sync event to all room participants via SSE.
 //
 // @Summary      Start playback
 // @Description  Starts synchronized playback
@@ -26,9 +28,32 @@ import (
 // @Produce      json
 // @Success      200  {object}  models.SyncStatus
 // @Router       /api/v1/sync/play [post]
-func SyncPlay(syncSvc internal.SyncService) http.HandlerFunc {
+func SyncPlay(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := syncSvc.Play(r.Context())
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		roomInfo, _ := p2pSvc.GetRoomInfo(r.Context(), userID)
+		roomID := ""
+		if roomInfo != nil {
+			roomID = roomInfo.ID
+		}
+
+		status := syncSvc.Play(r.Context(), roomID)
+
+		// Broadcast to room participants if user is in a room
+		if roomInfo != nil {
+			p2pSvc.BroadcastSync(roomInfo.ID, map[string]interface{}{
+				"action":    "play",
+				"status":    status,
+				"initiator": userID,
+			})
+		}
+
 		metrics.GetInstance().SyncOperation()
 		WriteJSON(w, http.StatusOK, status)
 	}
@@ -36,6 +61,7 @@ func SyncPlay(syncSvc internal.SyncService) http.HandlerFunc {
 
 // SyncPause handler for pausing synchronized playback.
 // Sets isPlaying = false and updates the timestamp.
+// Broadcasts sync event to all room participants via SSE.
 //
 // @Summary      Pause playback
 // @Description  Pauses synchronized playback
@@ -43,9 +69,32 @@ func SyncPlay(syncSvc internal.SyncService) http.HandlerFunc {
 // @Produce      json
 // @Success      200  {object}  models.SyncStatus
 // @Router       /api/v1/sync/pause [post]
-func SyncPause(syncSvc internal.SyncService) http.HandlerFunc {
+func SyncPause(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := syncSvc.Pause(r.Context())
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		roomInfo, _ := p2pSvc.GetRoomInfo(r.Context(), userID)
+		roomID := ""
+		if roomInfo != nil {
+			roomID = roomInfo.ID
+		}
+
+		status := syncSvc.Pause(r.Context(), roomID)
+
+		// Broadcast to room participants if user is in a room
+		if roomInfo != nil {
+			p2pSvc.BroadcastSync(roomInfo.ID, map[string]interface{}{
+				"action":    "pause",
+				"status":    status,
+				"initiator": userID,
+			})
+		}
+
 		metrics.GetInstance().SyncOperation()
 		WriteJSON(w, http.StatusOK, status)
 	}
@@ -54,6 +103,7 @@ func SyncPause(syncSvc internal.SyncService) http.HandlerFunc {
 // SyncSeek handler for synchronized seeking.
 // Accepts JSON with the position field (in seconds).
 // Validates position before applying.
+// Broadcasts sync event to all room participants via SSE.
 //
 // @Summary      Seek
 // @Description  Performs synchronized seek to the specified position
@@ -64,7 +114,7 @@ func SyncPause(syncSvc internal.SyncService) http.HandlerFunc {
 // @Success      200      {object}  models.SyncStatus
 // @Failure      400      {object}  APIError
 // @Router       /api/v1/sync/seek [post]
-func SyncSeek(syncSvc internal.SyncService) http.HandlerFunc {
+func SyncSeek(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
@@ -81,10 +131,33 @@ func SyncSeek(syncSvc internal.SyncService) http.HandlerFunc {
 			return
 		}
 
-		status, err := syncSvc.Seek(r.Context(), req.Position)
+		// Get user ID from JWT claims
+		claims := auth.GetClaims(r)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+
+		roomInfo, _ := p2pSvc.GetRoomInfo(r.Context(), userID)
+		roomID := ""
+		if roomInfo != nil {
+			roomID = roomInfo.ID
+		}
+
+		status, err := syncSvc.Seek(r.Context(), roomID, req.Position)
 		if err != nil {
 			handleError(w, r, err, "seeking")
 			return
+		}
+
+		// Broadcast to room participants if user is in a room
+		if roomInfo != nil {
+			p2pSvc.BroadcastSync(roomInfo.ID, map[string]interface{}{
+				"action":    "seek",
+				"position":  req.Position,
+				"status":    status,
+				"initiator": userID,
+			})
 		}
 
 		metrics.GetInstance().SyncOperation()
@@ -101,9 +174,16 @@ func SyncSeek(syncSvc internal.SyncService) http.HandlerFunc {
 // @Produce      json
 // @Success      200  {object}  models.SyncStatus
 // @Router       /api/v1/sync/status [get]
-func SyncStatus(syncSvc internal.SyncService) http.HandlerFunc {
+func SyncStatus(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := syncSvc.GetStatus(r.Context())
+		// Determine the room from the caller's current membership.
+		roomID := ""
+		if claims := auth.GetClaims(r); claims != nil {
+			if roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), claims.UserID); err == nil && roomInfo != nil {
+				roomID = roomInfo.ID
+			}
+		}
+		status := syncSvc.GetStatus(r.Context(), roomID)
 		WriteJSON(w, http.StatusOK, status)
 	}
 }

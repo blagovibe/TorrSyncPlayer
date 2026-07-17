@@ -47,8 +47,6 @@ func TestMetrics_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				_ = m.GetUptime()
-				_ = m.GetMemoryStats()
-				_ = m.GetSnapshot()
 				_ = m.FormatPrometheus()
 			}
 		}()
@@ -82,40 +80,11 @@ func TestMetrics_GetUptime_Race(t *testing.T) {
 		}
 	}()
 
-	// Горутина 2: читаем snapshot (который тоже читает uptime)
+	// Горутина 2: читаем FormatPrometheus (который тоже читает uptime)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 1000; i++ {
-			_ = m.GetSnapshot()
-		}
-	}()
-
-	wg.Wait()
-}
-
-// TestMetrics_GetMemoryStats_Race проверяет отсутствие гонки в GetMemoryStats
-func TestMetrics_GetMemoryStats_Race(t *testing.T) {
-	m := &Metrics{
-		startTime: time.Now(),
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Горутина 1: читаем memory stats
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 1000; i++ {
-			_ = m.GetMemoryStats()
-		}
-	}()
-
-	// Горутина 2: пишем метрики
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 1000; i++ {
-			m.RequestStarted()
-			m.RequestSuccess()
+			_ = m.FormatPrometheus()
 		}
 	}()
 

@@ -47,8 +47,7 @@ func TestWriteError(t *testing.T) {
 	var result map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
-	assert.Equal(t, float64(http.StatusNotFound), result["code"])
-	assert.Equal(t, "resource not found", result["message"])
+	assert.Equal(t, "resource not found", result["error"])
 }
 
 func TestWriteError_InternalServerError(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
@@ -149,7 +150,7 @@ func ListTorrents(torrentSvc internal.TorrentService) http.HandlerFunc {
 		totalCount := len(allTorrents)
 
 		// Apply pagination
-		paginatedTorrents := paginateTorrents(allTorrents, limit, offset)
+		paginatedTorrents := paginate(allTorrents, limit, offset)
 
 		response := models.NewTorrentListResponse(paginatedTorrents, totalCount, limit, offset)
 		WriteJSON(w, http.StatusOK, response)
@@ -196,7 +197,7 @@ func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 		totalCount := len(allFiles)
 
 		// Apply pagination
-		paginatedFiles := paginateFiles(allFiles, limit, offset)
+		paginatedFiles := paginate(allFiles, limit, offset)
 
 		response := models.NewFileListResponse(paginatedFiles, totalCount, limit, offset)
 		WriteJSON(w, http.StatusOK, response)
@@ -266,7 +267,7 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Failure      400  {object}  APIError
 // @Failure      404  {object}  APIError
 // @Router       /api/v1/torrents/{id}/stream [get]
-func StreamFile(torrentSvc internal.TorrentService) http.HandlerFunc {
+func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		torrentID := chi.URLParam(r, "id")
 		if torrentID == "" {
@@ -279,7 +280,59 @@ func StreamFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
+		// Authenticate via a short-lived, HMAC-signed stream ticket passed as a
+		// query parameter. libmpv cannot attach JWT/CSRF headers to its own
+		// HTTP fetches, so it appends "?ticket=" obtained from an authenticated
+		// endpoint. The ticket is self-contained and validated without a JWT.
+		ticket := r.URL.Query().Get("ticket")
+		if _, ok := authSvc.ValidateStreamTicket(ticket, torrentID); !ok {
+			WriteError(w, http.StatusUnauthorized, "invalid or expired stream ticket")
+			return
+		}
+
 		torrentSvc.ServeFile(w, r, torrentID)
+	}
+}
+
+// StreamTicket issues a short-lived, HMAC-signed stream ticket that the media
+// player (libmpv) appends as a "?ticket=" query parameter to the public /stream
+// URL, since it cannot attach JWT/CSRF headers to its own HTTP fetches.
+//
+// @Summary      Issue stream ticket
+// @Description  Returns a signed ticket authorizing streaming of the given torrent
+// @Tags         torrents
+// @Produce      json
+// @Param        id   path      string  true  "Torrent ID"
+// @Success      200  {object}  models.StreamTicketResponse
+// @Failure      400  {object}  APIError
+// @Failure      401  {object}  APIError
+// @Router       /api/v1/torrents/{id}/stream-ticket [post]
+func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := chi.URLParam(r, "id")
+		if torrentID == "" {
+			WriteError(w, http.StatusBadRequest, "Torrent ID is required")
+			return
+		}
+
+		if err := validateTorrentID(torrentID); err != nil {
+			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
+			return
+		}
+
+		claims := auth.GetClaims(r)
+		if claims == nil {
+			WriteError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+
+		ticket, err := authSvc.GenerateStreamTicket(claims.UserID, torrentID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "failed to issue stream ticket")
+			return
+		}
+
+		WriteJSON(w, http.StatusOK, models.StreamTicketResponse{Ticket: ticket, TorrentID: torrentID})
 	}
 }
 

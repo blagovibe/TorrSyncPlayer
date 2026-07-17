@@ -33,7 +33,8 @@ type SyncStatus struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-// P2PEvent P2P connection event
+// P2PEvent is a server-brokered room event delivered to clients over SSE.
+// Types include "peer_joined", "peer_left", "signal" and "sync".
 type P2PEvent struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
@@ -81,6 +82,13 @@ type ErrorResponse struct {
 // SuccessResponse success response
 type SuccessResponse struct {
 	Message string `json:"message"`
+}
+
+// StreamTicketResponse carries a signed, short-lived ticket used to authorize
+// the public /stream endpoint without a JWT (see auth.GenerateStreamTicket).
+type StreamTicketResponse struct {
+	Ticket    string `json:"ticket"`
+	TorrentID string `json:"torrentId"`
 }
 
 // ============ Auth Models ============

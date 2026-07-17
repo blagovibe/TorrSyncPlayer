@@ -6,12 +6,15 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
-	"crypto/tls"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -105,30 +108,6 @@ func (s *AuthService) Stop() {
 	if s.revocationStore != nil {
 		s.revocationStore.Stop()
 	}
-}
-
-// ReloadTLSConfiguration reloads TLS certificates from disk.
-// Designed to be called on SIGHUP for certificate rotation.
-// Returns an error if certificates cannot be loaded.
-func (s *AuthService) ReloadTLSConfiguration(certPath, keyPath string) (*tls.Config, error) {
-	// Load new certificates
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("certificate loading error: %w", err)
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		},
-	}, nil
 }
 
 // HashPassword hashes a password using bcrypt.
@@ -363,150 +342,70 @@ func (s *AuthService) ExtractJTI(tokenString string) (string, error) {
 	return jti, nil
 }
 
-// GenerateRefreshToken creates a long-lived refresh token.
-// Refresh tokens have longer TTL (7 days default) and are used to obtain new access tokens.
-// H1: Added for refresh token support.
-func (s *AuthService) GenerateRefreshToken(user *models.User) (string, error) {
-	jtiBytes := make([]byte, constants.JTIBytes)
-	if _, err := rand.Read(jtiBytes); err != nil {
-		return "", fmt.Errorf("JTI generation error: %w", err)
-	}
-	jti := hex.EncodeToString(jtiBytes)
+// ── Stream ticket (HMAC-signed, short-lived) ────────────────────────────────
+//
+// libmpv cannot attach JWT/CSRF headers to its own HTTP fetches, so the media
+// player obtains a signed ticket from an authenticated endpoint and appends it
+// as a "?ticket=" query parameter to the /stream URL. The ticket is an HMAC
+// over "userID|torrentID|expiry" using the JWT secret (with a domain-separation
+// prefix), so it cannot be forged without the secret.
 
-	// Refresh tokens live longer (7 days)
-	refreshTTL := constants.RefreshTokenTTL
-	if refreshTTL == 0 {
-		refreshTTL = 7 * 24 * time.Hour
+// GenerateStreamTicket issues a short-lived, HMAC-signed ticket that authorizes
+// streaming of the given torrent for the given user. The ticket is
+// self-contained (it embeds the userID and torrentID) so it can be validated by
+// the public /stream endpoint without a JWT. Format:
+//
+//	<expiry>.<userID>.<torrentID>.<hex(HMAC(expiry|userID|torrentID))>
+func (s *AuthService) GenerateStreamTicket(userID, torrentID string) (string, error) {
+	if userID == "" || torrentID == "" {
+		return "", fmt.Errorf("userID and torrentID are required for a stream ticket")
 	}
-
-	claims := jwt.MapClaims{
-		"userId":    user.ID,
-		"username":  user.Username,
-		"exp":       time.Now().Add(refreshTTL).Unix(),
-		"iat":       time.Now().Unix(),
-		"jti":       jti,
-		"tokenType": "refresh",
-	}
-
-	// Add issuer claim if configured
-	if s.issuer != "" {
-		claims["iss"] = s.issuer
-	}
-
-	// Add audience claim if configured
-	if len(s.audience) > 0 {
-		claims["aud"] = s.audience
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.jwtSecret)
-	if err != nil {
-		return "", fmt.Errorf("refresh token signing error: %w", err)
-	}
-
-	return tokenString, nil
+	expiry := time.Now().Add(constants.StreamTicketTTL).Unix()
+	payload := fmt.Sprintf("%d|%s|%s", expiry, userID, torrentID)
+	mac := hmac.New(sha256.New, s.streamTicketKey())
+	sig := hex.EncodeToString(mac.Sum([]byte(payload)))
+	return fmt.Sprintf("%d.%s.%s.%s", expiry, userID, torrentID, sig), nil
 }
 
-// ValidateRefreshToken validates a refresh token and returns user data.
-// H1: Added for refresh token support.
-func (s *AuthService) ValidateRefreshToken(tokenString string) (*models.Claims, error) {
-	if tokenString == "" {
-		return nil, ErrInvalidToken
+// ValidateStreamTicket verifies a ticket issued by GenerateStreamTicket. It
+// returns true only if the embedded userID/torrentID match the requested
+// torrent and the signature is valid and unexpired. The torrentID argument is
+// the torrent being requested; the embedded userID is returned so the caller can
+// associate the stream with a user if needed.
+func (s *AuthService) ValidateStreamTicket(ticket, torrentID string) (string, bool) {
+	if ticket == "" || torrentID == "" {
+		return "", false
 	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return s.jwtSecret, nil
-	},
-		jwt.WithValidMethods([]string{"HS256"}),
-	)
-
+	parts := strings.Split(ticket, ".")
+	if len(parts) != 4 {
+		return "", false
+	}
+	expiry, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)
+		return "", false
 	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, ErrInvalidToken
+	if time.Now().Unix() > expiry {
+		return "", false
 	}
-
-	// Check token type
-	tokenType, _ := claims["tokenType"].(string)
-	if tokenType != "refresh" {
-		return nil, fmt.Errorf("%w: not a refresh token", ErrInvalidToken)
+	userID := parts[1]
+	embeddedTorrent := parts[2]
+	if embeddedTorrent != torrentID {
+		return "", false
 	}
-
-	// Validate audience claim if configured
-	if len(s.audience) > 0 {
-		audClaim, ok := claims["aud"]
-		if !ok {
-			return nil, fmt.Errorf("%w: missing audience", ErrInvalidToken)
-		}
-
-		// Audience can be string or []string
-		var tokenAudiences []string
-		switch aud := audClaim.(type) {
-		case string:
-			tokenAudiences = []string{aud}
-		case []interface{}:
-			for _, a := range aud {
-				if s, ok := a.(string); ok {
-					tokenAudiences = append(tokenAudiences, s)
-				}
-			}
-		}
-
-		if len(tokenAudiences) == 0 {
-			return nil, fmt.Errorf("%w: invalid audience format", ErrInvalidToken)
-		}
-
-		// Check if at least one token audience matches configured audiences
-		matched := false
-		for _, tokenAud := range tokenAudiences {
-			for _, configuredAud := range s.audience {
-				if tokenAud == configuredAud {
-					matched = true
-					break
-				}
-			}
-			if matched {
-				break
-			}
-		}
-
-		if !matched {
-			return nil, fmt.Errorf("%w: audience not allowed", ErrInvalidToken)
-		}
+	payload := fmt.Sprintf("%d|%s|%s", expiry, userID, torrentID)
+	mac := hmac.New(sha256.New, s.streamTicketKey())
+	expected := hex.EncodeToString(mac.Sum([]byte(payload)))
+	if !hmac.Equal([]byte(expected), []byte(parts[3])) {
+		return "", false
 	}
+	return userID, true
+}
 
-	userID, ok := claims["userId"].(string)
-	if !ok || userID == "" {
-		return nil, fmt.Errorf("%w: missing userId", ErrInvalidToken)
-	}
-
-	username, _ := claims["username"].(string)
-
-	jti, ok := claims["jti"].(string)
-	if !ok || jti == "" {
-		return nil, fmt.Errorf("%w: missing jti", ErrInvalidToken)
-	}
-
-	var expiresAt int64
-	switch exp := claims["exp"].(type) {
-	case float64:
-		expiresAt = int64(exp)
-	case int64:
-		expiresAt = exp
-	case json.Number:
-		expiresAt, _ = exp.Int64()
-	}
-
-	return &models.Claims{
-		UserID:    userID,
-		Username:  username,
-		ExpiresAt: expiresAt,
-		JTI:       jti,
-	}, nil
+// streamTicketKey derives the HMAC key for stream tickets, separated from the
+// JWT signing key by a domain prefix.
+func (s *AuthService) streamTicketKey() []byte {
+	key := make([]byte, 0, len(constants.StreamTicketSecret)+len(s.jwtSecret))
+	key = append(key, []byte(constants.StreamTicketSecret)...)
+	key = append(key, s.jwtSecret...)
+	return key
 }

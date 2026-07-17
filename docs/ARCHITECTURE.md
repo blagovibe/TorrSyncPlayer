@@ -9,7 +9,7 @@
 5. [Security](#security)
 6. [Backend Architecture](#backend-architecture)
 7. [Frontend Architecture](#frontend-architecture)
-8. [P2P/WebRTC Architecture](#p2pwebrtc-architecture)
+8. [Rooms & Real-Time Synchronization](#rooms--real-time-synchronization-server-brokered)
 
 ---
 
@@ -21,7 +21,7 @@ The architecture follows a client-server model with P2P elements:
 
 - **Backend (Go)** — HTTP API server managing torrents, P2P rooms, and synchronization
 - **Frontend (Qt/C++)** — desktop application with a video player based on libmpv
-- **P2P (WebRTC)** — direct peer-to-peer connection for synchronization data exchange
+- **Rooms & Sync (server-brokered SSE)** — playback synchronization relayed by the backend over Server-Sent Events
 
 ---
 
@@ -71,8 +71,8 @@ The architecture follows a client-server model with P2P elements:
 │  │  │  │   Torrent    │  │     P2P      │  │       Sync         │  │   │    │
 │  │  │  │   Service    │  │   Service    │  │      Service       │  │   │    │
 │  │  │  │              │  │              │  │                    │  │   │    │
-│  │  │  │ - anacrolix/ │  │ - pion/webrtc│  │ - Play/Pause/Seek  │  │   │    │
-│  │  │  │   torrent    │  │ - Rooms      │  │ - Latency comp.    │  │   │    │
+│  │  │  │ - anacrolix/ │  │ - Rooms      │  │ - Play/Pause/Seek  │  │   │    │
+│  │  │  │   torrent    │  │ - SSE events │  │ - Latency comp.    │  │   │    │
 │  │  │  │ - Magnet     │  │ - Peers      │  │ - Smooth adjust    │  │   │    │
 │  │  │  │ - Streaming  │  │ - JWT auth   │  │                    │  │   │    │
 │  │  │  └──────────────┘  └──────────────┘  └────────────────────┘  │   │    │
@@ -97,13 +97,15 @@ The architecture follows a client-server model with P2P elements:
 └─────────────────────────────────────────────────────────────────────────────┘
 
         ┌──────────────────────────────────────────────────────────┐
-        │                    P2P (WebRTC DataChannel)               │
+        │              Server-Brokered Synchronization             │
         │                                                          │
-        │    Peer A ◄──────────────────────────────────► Peer B    │
+        │    Peer A ──┐                            ┌── Peer B       │
+        │             │   SSE event stream        │                │
+        │             └──► Backend (rooms) ◄──────┘                │
         │                                                          │
         │    - Playback position synchronization                   │
-        │    - play/pause/seek state exchange                      │
-        │    - STUN for NAT traversal                              │
+        │    - play/pause/seek state relayed via SSE               │
+        │    - no direct peer-to-peer data path                    │
         └──────────────────────────────────────────────────────────┘
 ```
 
@@ -183,8 +185,8 @@ User A (Host)            Backend                  User B (Peer)
    │  200 {syncStatus}      │                        │
    │◄───────────────────────│                        │
    │                        │                        │
-   │  WebRTC DataChannel ◄──────────────────────────►│
-   │  (P2P sync data)       │                        │
+   │  BroadcastSync (SSE) ──────────────────────────►│
+   │  (sync events relayed to all room peers)        │
 ```
 
 ---
@@ -324,8 +326,8 @@ backend/
 │   ├── torrent/          # Torrent service
 │   │   └── service.go    # Torrent management
 │   │
-│   ├── p2p/              # P2P service
-│   │   └── service.go    # WebRTC connections
+│   ├── p2p/              # Rooms & real-time event service
+│   │   └── service.go    # Room management, SSE event broker
 │   │
 │   ├── sync/             # Synchronization service
 │   │   └── service.go    # Playback synchronization
@@ -351,13 +353,26 @@ backend/
 │   ├── constants/        # Constants
 │   │   └── constants.go  # Magic numbers
 │   │
+│   ├── persistence/      # File persistence (users, revoked tokens)
+│   │   └── persistence.go # JSON-file storage
+│   │
+│   ├── utils/            # Utility functions
+│   │   └── id.go         # ID generation
+│   │
+│   ├── integration/      # Integration tests
+│   │
+│   ├── contract/         # Pact provider contract tests
+│   │
 │   ├── version/          # Version
 │   │   └── version.go    # Version info
 │   │
 │   └── interfaces.go     # Service interfaces
 │
-└── pkg/logger/           # Logger
-    └── logger.go         # Structured logging
+└── pkg/
+    ├── logger/           # Logger
+    │   └── logger.go     # Structured logging
+    └── response/         # Response helpers
+        └── response.go   # JSON/error formatting
 ```
 
 ### Service Interaction
@@ -415,13 +430,13 @@ Services are designed as independent components without a DI container. Communic
 | `/api/v1/torrents/{id}` | DELETE | Remove torrent | JWT |
 | `/api/v1/torrents/{id}/files` | GET | List files | JWT |
 | `/api/v1/torrents/{id}/select` | POST | Select file | JWT |
-| `/api/v1/torrents/{id}/stream` | GET | Stream file | JWT |
+| `/api/v1/torrents/{id}/stream` | GET | Stream file | Signed stream ticket (public; libmpv cannot send JWT headers) |
 | `/api/v1/torrents/{id}/buffer/position` | POST | Set buffer position | JWT |
 | `/api/v1/torrents/{id}/buffer/info` | GET | Buffer info | JWT |
 | `/api/v1/rooms` | POST | Create room | JWT |
 | `/api/v1/rooms/join` | POST | Join room | JWT |
 | `/api/v1/rooms/leave` | POST | Leave room | JWT |
-| `/api/v1/rooms/signal` | POST | WebRTC signal | JWT |
+| `/api/v1/rooms/signal` | POST | Relay sync signal to room peers | JWT |
 | `/api/v1/rooms/{roomID}/events` | GET | SSE events | JWT |
 | `/api/v1/sync/play` | POST | Sync play | JWT |
 | `/api/v1/sync/pause` | POST | Sync pause | JWT |
@@ -512,7 +527,6 @@ type Room struct {
     Password    string           // bcrypt hash
     Peers       map[string]*Peer
     CreatedAt   time.Time
-    RequireAuth bool
 }
 ```
 
@@ -522,10 +536,7 @@ type Peer struct {
     ID            string
     UserID        string
     Username      string
-    Connection    *webrtc.PeerConnection
-    DataChannel   *webrtc.DataChannel
     LastHeartbeat time.Time
-    Authenticated bool
 }
 ```
 
@@ -667,24 +678,30 @@ frontend/src/
 
 ---
 
-## P2P/WebRTC Architecture
+## Rooms & Real-Time Synchronization (Server-Brokered)
 
-### P2P Service Components
+Synchronization between viewers is **server-brokered**: the backend relays all
+room events over Server-Sent Events (SSE) to every participant's per-user
+session channel. There is no direct peer-to-peer data path — clients connect to
+the backend over REST (commands) and SSE (events). This keeps the topology
+simple, NAT-friendly and debuggable.
+
+### Service Components
 
 **Components** ([`internal/p2p/service.go`](../backend/internal/p2p/service.go)):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       P2P Service                           │
+│                     Room/Sync Service                        │
 │                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │    Room     │  │    Peer     │  │    WebRTC API       │  │
+│  │    Room     │  │    Peer     │  │      Session        │  │
 │  │             │  │             │  │                     │  │
-│  │ - ID        │  │ - ID        │  │ - PeerConnection    │  │
-│  │ - Name      │  │ - UserID    │  │ - DataChannel       │  │
-│  │ - HostID    │  │ - Username  │  │ - ICE candidates    │  │
-│  │ - Password  │  │ - Conn      │  │ - STUN config       │  │
-│  │ - Peers     │  │ - DataCh    │  │                     │  │
+│  │ - ID        │  │ - ID        │  │ - userID            │  │
+│  │ - Name      │  │ - UserID    │  │ - currentRoom       │  │
+│  │ - HostID    │  │ - Username  │  │ - eventChan (SSE)   │  │
+│  │ - Password  │  │ - LastHB    │  │                     │  │
+│  │ - Peers     │  │             │  │                     │  │
 │  │  HostUserID │  │             │  │                     │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 │                                                             │
@@ -694,8 +711,7 @@ frontend/src/
 │  │  eventChan (buffered 100) → SSE stream → Frontend   │    │
 │  │                                                     │    │
 │  │  Events: room_created, peer_joined, peer_left,      │    │
-│  │          signal, ice_candidate, connected,           │    │
-│  │          disconnected, failed, ping                  │    │
+│  │          signal, sync, ping                         │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -703,73 +719,8 @@ frontend/src/
 ### Peer Authentication
 
 - JWT token is passed when joining a room
-- Token is validated via `authService.ValidateToken()`
-- Peer is marked as `Authenticated` after successful validation
-
-### STUN Servers for NAT Traversal
-
-- `stun:stun.l.google.com:19302`
-- `stun:stun1.l.google.com:19302`
-
-### WebRTC Connection Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         WebRTC Connection Flow                               │
-│                                                                             │
-│  Host                              Peer                                      │
-│    │                                  │                                     │
-│    │  1. Create PeerConnection        │                                     │
-│    │  2. Create DataChannel           │                                     │
-│    │  3. Create Offer (SDP)           │                                     │
-│    │                                  │                                     │
-│    │  ──── SDP Offer (via SSE) ──────►│                                     │
-│    │                                  │  4. Create PeerConnection           │
-│    │                                  │  5. Set Remote Description          │
-│    │                                  │  6. Create Answer (SDP)             │
-│    │                                  │                                     │
-│    │  ◄── SDP Answer (via SSE) ──────│                                     │
-│    │  7. Set Remote Description       │                                     │
-│    │                                  │                                     │
-│    │  ──── ICE Candidates ───────────►│                                     │
-│    │  ◄─── ICE Candidates ────────────│                                     │
-│    │                                  │                                     │
-│    │  ════ DataChannel Open ═════════│                                     │
-│    │                                  │                                     │
-│    │  ════ Sync Data (P2P) ═════════►│                                     │
-│    │  ◄═══ Sync Data (P2P) ══════════│                                     │
-│    │                                                                         │
-│    └─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Internal Structures
-
-**Room** (internal):
-```go
-type Room struct {
-    ID          string
-    Name        string
-    HostID      string
-    HostUserID  string
-    Password    string           // bcrypt hash
-    Peers       map[string]*Peer
-    CreatedAt   time.Time
-    RequireAuth bool
-}
-```
-
-**Peer** (internal):
-```go
-type Peer struct {
-    ID            string
-    UserID        string
-    Username      string
-    Connection    *webrtc.PeerConnection
-    DataChannel   *webrtc.DataChannel
-    LastHeartbeat time.Time
-    Authenticated bool
-}
-```
+- Token is validated via `authService.ValidateTokenWithRevocation()`
+- Signals and sync commands are relayed through the server to all peers in the room
 
 ### SSE Event Types
 
@@ -778,10 +729,6 @@ type Peer struct {
 | `room_created` | Room was created |
 | `peer_joined` | A peer joined the room |
 | `peer_left` | A peer left the room |
-| `signal` | WebRTC signal (SDP offer/answer) |
-| `ice_candidate` | ICE candidate exchange |
-| `connected` | P2P connection established |
-| `disconnected` | P2P connection lost |
-| `failed` | P2P connection failed |
+| `signal` | Opaque sync signal relayed between clients |
+| `sync` | Playback command (play/pause/seek) broadcast to all peers |
 | `ping` | Keep-alive ping |
-| `timeout` | Connection timeout |

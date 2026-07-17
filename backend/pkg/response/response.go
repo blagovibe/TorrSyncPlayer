@@ -30,6 +30,8 @@ func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
 // WriteError writes a structured error in JSON format.
 // Parameter status - HTTP error code.
 // Parameter message - error description (safe for client).
+// The response shape {"error": message} is consistent with api.WriteError and
+// models.ErrorResponse so clients parse a single error envelope.
 func WriteError(w http.ResponseWriter, status int, message string) {
-	WriteJSON(w, status, map[string]interface{}{"code": status, "message": message})
+	WriteJSON(w, status, map[string]string{"error": message})
 }

@@ -143,55 +143,6 @@ func (m *Metrics) GetUptime() float64 {
 	return time.Since(m.startTime).Seconds()
 }
 
-// GetMemoryStats returns memory usage statistics
-func (m *Metrics) GetMemoryStats() map[string]uint64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-
-	return map[string]uint64{
-		"alloc":       memStats.Alloc,
-		"total_alloc": memStats.TotalAlloc,
-		"sys":         memStats.Sys,
-		"num_gc":      uint64(memStats.NumGC),
-	}
-}
-
-// GetSnapshot returns a snapshot of all metrics
-func (m *Metrics) GetSnapshot() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	memStats := m.getMemoryStatsUnsafe()
-
-	return map[string]interface{}{
-		"uptime_seconds": m.getUptimeUnsafe(),
-		"requests": map[string]int64{
-			"total":   m.requestsTotal,
-			"success": m.requestsSuccess,
-			"error":   m.requestsError,
-		},
-		"torrents": map[string]int64{
-			"added":   m.torrentsAdded,
-			"removed": m.torrentsRemoved,
-			"active":  m.torrentsActive,
-		},
-		"rooms": map[string]int64{
-			"created": m.roomsCreated,
-			"active":  m.roomsActive,
-		},
-		"peers": map[string]int64{
-			"total": m.peersTotal,
-		},
-		"sync": map[string]int64{
-			"operations": m.syncOperations,
-		},
-		"memory": memStats,
-	}
-}
-
 // getUptimeUnsafe returns uptime without locking (call under RLock)
 func (m *Metrics) getUptimeUnsafe() float64 {
 	return time.Since(m.startTime).Seconds()

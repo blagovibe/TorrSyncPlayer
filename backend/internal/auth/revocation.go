@@ -57,7 +57,7 @@ func (s *TokenRevocationStore) cleanup() {
 			logger.Error("TokenRevocationStore: cleanup goroutine exited with panic", "error", r)
 		}
 	}()
-	ticker := time.NewTicker(constants.CSRFCleanupInterval)
+	ticker := time.NewTicker(constants.RevocationCleanupInterval)
 	defer ticker.Stop()
 
 	for {

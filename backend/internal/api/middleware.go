@@ -18,7 +18,6 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
@@ -238,11 +237,32 @@ func hasJWTAuthorization(r *http.Request) bool {
 // Token can be passed via X-CSRF-Token header or _csrf parameter.
 // Tokens are bound to user sessions to prevent cross-session CSRF attacks.
 func CSRFMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sessionID := extractSessionID(r)
+return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sessionID := extractSessionID(r)
 
-		if !mutatingMethods[r.Method] {
-			origin := r.Header.Get("Origin")
+			if !mutatingMethods[r.Method] {
+				// Ensure every browser session has a stable session identifier so CSRF
+				// tokens can be bound to it. Without this the session-binding check in
+				// validateToken is never engaged (both IDs empty) and cross-session
+				// token reuse would be possible. JWT-Bearer requests are exempt (below)
+				// and do not need a cookie. We only generate/set the cookie on
+				// non-mutating requests (typically GET for /csrf-token fetch).
+				if sessionID == "" && !hasJWTAuthorization(r) {
+					var buf [16]byte
+					if _, err := rand.Read(buf[:]); err == nil {
+						sessionID = hex.EncodeToString(buf[:])
+						http.SetCookie(w, &http.Cookie{
+							Name:     "session_id",
+							Value:    sessionID,
+							Path:     "/",
+							HttpOnly: true,
+							Secure:   r.TLS != nil,
+							SameSite: http.SameSiteLaxMode,
+						})
+					}
+				}
+
+origin := r.Header.Get("Origin")
 			referer := r.Header.Get("Referer")
 			if origin != "" || referer != "" {
 				token, err := CSRFStore.generateToken(sessionID)
@@ -310,6 +330,10 @@ func GetCSRFToken(ctx context.Context) string {
 
 func ContentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// GET/OPTIONS/HEAD never carry a JSON body. DELETE is treated as a
+		// mutating method by CSRF but the client sends it without a JSON
+		// Content-Type and without a body, so we exempt it from this check to
+		// avoid rejecting legitimate DELETE requests.
 		if r.Method == http.MethodGet || r.Method == http.MethodOptions || r.Method == http.MethodHead || r.Method == http.MethodDelete {
 			next.ServeHTTP(w, r)
 			return
@@ -739,6 +763,20 @@ func StopGlobalRateLimiters() {
 	globalClientRateLimiter.Stop()
 }
 
+// responseWriter wrapper for capturing the response status.
+// Allows middleware to get the HTTP response code after processing.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// WriteHeader captures the response status.
+// Saves the code for later use in middleware.
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
 // NewRateLimiter creates a middleware for rate limiting requests.
 // Parameter r - rate limit per second (rate.Limit).
 // Parameter b - maximum burst (token bucket size).
@@ -770,122 +808,3 @@ func PerIPRateLimiter(next http.Handler) http.Handler {
 	})
 }
 
-// responseWriter wrapper for capturing the response status.
-// Allows middleware to get the HTTP response code after processing.
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-// WriteHeader captures the response status.
-// Saves the code for later use in middleware.
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-// PerUserRateLimiter creates middleware for per-user rate limiting.
-// Uses the user ID from JWT claims in request context.
-// Falls back to per-IP limiting if user ID is not available.
-// Returns a middleware function and a cleanup function for graceful shutdown.
-func PerUserRateLimiter(r rate.Limit, b int) (func(http.Handler) http.Handler, func()) {
-	type userLimiterEntry struct {
-		limiter  *rate.Limiter
-		lastSeen time.Time
-	}
-	var (
-		mu       sync.RWMutex
-		limiters = make(map[string]*userLimiterEntry)
-	)
-
-	// Start cleanup goroutine to prevent memory exhaustion
-	cleanupStop := make(chan struct{})
-	var cleanupWg sync.WaitGroup
-	cleanupWg.Add(1)
-	go func() {
-		defer cleanupWg.Done()
-		ticker := time.NewTicker(constants.ClientRateLimiterCleanup)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				mu.Lock()
-				now := time.Now()
-				for userID, entry := range limiters {
-					// Remove entries not used for 30 minutes
-					if now.Sub(entry.lastSeen) > 30*time.Minute {
-						delete(limiters, userID)
-					}
-				}
-				mu.Unlock()
-			case <-cleanupStop:
-				return
-			}
-		}
-	}()
-
-	cleanup := func() {
-		close(cleanupStop)
-		cleanupWg.Wait()
-	}
-
-	middleware := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// Get user ID from JWT claims
-			claims := auth.GetClaims(req)
-			userID := ""
-			if claims != nil {
-				userID = claims.UserID
-			}
-
-			// Fallback to IP if no user ID
-			if userID == "" {
-				userID = "ip:" + getClientIP(req)
-			}
-
-			// Check for existing limiter
-			mu.RLock()
-			entry, exists := limiters[userID]
-			mu.RUnlock()
-
-			if exists {
-				// Rate limit check - entry is valid
-				if !entry.limiter.Allow() {
-					WriteError(w, http.StatusTooManyRequests, "Too many requests. Please try again later.")
-					return
-				}
-				// Update lastSeen after successful rate limit check (fixes H2 race condition)
-				mu.Lock()
-				entry.lastSeen = time.Now()
-				mu.Unlock()
-				next.ServeHTTP(w, req)
-				return
-			}
-
-			// Create new limiter
-			mu.Lock()
-			// Double-check pattern - another goroutine may have created while we waited
-			if entry, exists = limiters[userID]; exists {
-				entry.lastSeen = time.Now()
-				mu.Unlock()
-				if !entry.limiter.Allow() {
-					WriteError(w, http.StatusTooManyRequests, "Too many requests. Please try again later.")
-					return
-				}
-				next.ServeHTTP(w, req)
-				return
-			}
-
-			limiter := rate.NewLimiter(r, b)
-			limiters[userID] = &userLimiterEntry{
-				limiter:  limiter,
-				lastSeen: time.Now(),
-			}
-			mu.Unlock()
-
-			next.ServeHTTP(w, req)
-		})
-	}
-
-	return middleware, cleanup
-}

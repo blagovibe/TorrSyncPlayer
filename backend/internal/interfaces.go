@@ -28,41 +28,19 @@ type P2PService interface {
 	// Session-scoped operations - userID identifies the user's session
 	CreateRoom(ctx context.Context, userID, name, password string) (*models.RoomInfo, error)
 	JoinRoom(ctx context.Context, userID, roomID, password string) error
-	JoinRoomWithToken(ctx context.Context, token, roomID, password string) error
-	AuthenticatePeer(ctx context.Context, userID, peerID, token string) error
 	LeaveRoom(ctx context.Context, userID string) error
 	SendSignal(ctx context.Context, userID string, signal []byte) error
 	GetEvents(userID string) chan models.P2PEvent
 	GetRoomInfo(ctx context.Context, userID string) (*models.RoomInfo, error)
+	BroadcastSync(roomID string, syncData interface{})
 	Close() error
 }
 
-// P2PSessionManager manages P2P user sessions with isolated state.
-type P2PSessionManager interface {
-	CreateSession(userID string) string
-	GetSession(userID string) *P2PSession
-	RemoveSession(sessionID string)
-}
-
-// P2PSession represents a user's P2P session with isolated state.
-type P2PSession interface {
-	ID() string
-	UserID() string
-	CurrentRoom() string
-	SetRoom(roomID string)
-	// WebRTC operations
-	PeerConnection() interface{} // *webrtc.PeerConnection
-	DataChannel() interface{}    // *webrtc.DataChannel
-}
-
 type SyncService interface {
-	Play(ctx context.Context) models.SyncStatus
-	Pause(ctx context.Context) models.SyncStatus
-	Seek(ctx context.Context, position float64) (models.SyncStatus, error)
-	GetStatus(ctx context.Context) models.SyncStatus
-	SetDuration(ctx context.Context, duration float64) error
-	SyncWithLatency(ctx context.Context, peerStatus models.SyncStatus, latencyMs int) models.SyncStatus
-	UpdatePosition(ctx context.Context, position float64) error
+	Play(ctx context.Context, roomID string) models.SyncStatus
+	Pause(ctx context.Context, roomID string) models.SyncStatus
+	Seek(ctx context.Context, roomID string, position float64) (models.SyncStatus, error)
+	GetStatus(ctx context.Context, roomID string) models.SyncStatus
 	Close()
 }
 
@@ -71,8 +49,6 @@ type AuthServiceInterface interface {
 	GenerateToken(user *models.User) (string, error)
 	ValidateToken(tokenString string) (*models.Claims, error)
 	ValidateTokenWithRevocation(tokenString string) (*models.Claims, error)
-	GenerateRefreshToken(user *models.User) (string, error) // H1: Added refresh token support
-	ValidateRefreshToken(tokenString string) (*models.Claims, error)
 	SetTokenTTL(ttl time.Duration)
 	SetIssuer(issuer string)
 	SetAudience(audience ...string)

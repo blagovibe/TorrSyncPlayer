@@ -46,6 +46,12 @@ public:
      * @param magnetUri Magnet-ссылка на торрент
      */
     virtual void addTorrent(const QString &magnetUri) = 0;
+
+    /**
+     * @brief Добавить торрент из .torrent файла (base64)
+     * @param torrentData Содержимое .torrent файла в base64
+     */
+    virtual void addTorrentFile(const QByteArray &torrentData) = 0;
     
     /**
      * @brief Удалить торрент
@@ -70,6 +76,16 @@ public:
      * @param fileIndex Индекс файла
      */
     virtual void selectFile(const QString &torrentId, int fileIndex) = 0;
+
+    /**
+     * @brief Обновить позицию буферизации
+     */
+    virtual void setBufferPosition(const QString &torrentId, qint64 positionBytes) = 0;
+
+    /**
+     * @brief Запросить информацию о буферизации
+     */
+    virtual void getBufferInfo(const QString &torrentId) = 0;
 
     // ── Room API ──────────────────────────────────────────────────────
     
@@ -180,6 +196,7 @@ signals:
     void torrentRemoved(const QString &id);
     void torrentListReceived(const QJsonArray &torrents);
     void filesReceived(const QString &torrentId, const QJsonArray &files);
+    void bufferInfoReceived(const QJsonObject &info);
 
     // ── Room signals ──────────────────────────────────────────────────
     void roomCreated(const QString &roomId);
@@ -188,13 +205,16 @@ signals:
     void roomEvent(const QJsonObject &event);
     void signalReceived(const QJsonObject &signal);
 
-    // ── Sync signals ──────────────────────────────────────────────────
-    void syncStatusReceived(const QJsonObject &status);
-
     // ── Error signals ─────────────────────────────────────────────────
     void error(const QString &message);
     void serverUnavailable();
     void serverAvailable();
+
+    // ── Auth signals ──────────────────────────────────────────────────
+    void authenticated(const QString &token);
+
+    // ── Stream ticket signal ──────────────────────────────────────────
+    void streamTicketReceived(const QString &torrentId, const QString &ticket);
 };
 
 #endif // INETWORKMANAGER_H

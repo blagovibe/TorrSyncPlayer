@@ -33,7 +33,7 @@ import (
 // Torrent service constants
 const (
 	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
-	maxTorrents             = 100
+	maxTorrents             = constants.MaxTorrents
 	maxStreamFileSize       = constants.MaxStreamFileSize
 	maxTorrentFileSize      = constants.MaxTorrentFileSize
 )
@@ -41,15 +41,25 @@ const (
 // Service torrent management service.
 // Provides methods for adding, removing and streaming torrents.
 // Thread-safe thanks to sync.RWMutex.
-// Always uses in-memory storage for torrent data.
 type Service struct {
 	mu            sync.RWMutex
 	client        *torrent.Client
 	torrents      map[string]*torrent.Torrent
 	selectedFiles map[string]int // torrentID -> fileIndex
 	bufferService *buffer.Service
-	streamWG      sync.WaitGroup // tracks active ServeFile streams
+	storage       storage.ClientImplCloser // non-nil only for disk-backed storage
+	streamWG      sync.WaitGroup           // tracks active ServeFile streams
 }
+
+// StorageType identifies the torrent piece storage backend.
+type StorageType string
+
+const (
+	// StorageMemory keeps all torrent pieces in RAM (secure-by-default).
+	StorageMemory StorageType = "memory"
+	// StorageDisk persists torrent pieces to disk under DataDir.
+	StorageDisk StorageType = "disk"
+)
 
 // ServiceOptions contains options for configuring the torrent service
 type ServiceOptions struct {
@@ -63,6 +73,10 @@ type ServiceOptions struct {
 	ListenPort int
 	// MemoryStorageCapacity maximum in-memory storage size (0 = unlimited)
 	MemoryStorageCapacity int64
+	// Storage selects the piece storage backend. Defaults to StorageMemory.
+	Storage StorageType
+	// DataDir base directory for disk-backed storage (ignored unless Storage == StorageDisk).
+	DataDir string
 }
 
 // readCloserWithClose wrapper for io.ReadSeekCloser with safe closing.
@@ -92,16 +106,33 @@ func NewService(bufferService *buffer.Service) (*Service, error) {
 }
 
 // NewServiceWithOptions creates a new torrent service with extended options.
-// Allows configuring network parameters for testing.
-// Always uses in-memory storage for torrent data.
+// Allows configuring network parameters for testing. By default torrent
+// pieces are kept in memory; set opts.Storage to StorageDisk (with a DataDir)
+// to persist them to disk.
 func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (*Service, error) {
 	// Configure torrent client
 	cfg := torrent.NewDefaultClientConfig()
 
-	// Always use in-memory storage
-	memStorage := storage.NewMemoryStorage(opts.MemoryStorageCapacity)
-	cfg.DefaultStorage = memStorage
-	logger.Info("Torrent: using in-memory storage", "capacity", opts.MemoryStorageCapacity)
+	svc := &Service{
+		torrents:      make(map[string]*torrent.Torrent),
+		selectedFiles: make(map[string]int),
+		bufferService: bufferService,
+	}
+
+	switch opts.Storage {
+	case StorageDisk:
+		if opts.DataDir == "" {
+			return nil, fmt.Errorf("disk storage requested but DataDir is empty")
+		}
+		fileStorage := storage.NewFileStorage(opts.DataDir)
+		cfg.DefaultStorage = fileStorage
+		svc.storage = fileStorage
+		logger.Info("Torrent: using disk-backed storage", "dataDir", opts.DataDir)
+	default:
+		// Secure-by-default: in-memory storage.
+		cfg.DefaultStorage = storage.NewMemoryStorage(opts.MemoryStorageCapacity)
+		logger.Info("Torrent: using in-memory storage", "capacity", opts.MemoryStorageCapacity)
+	}
 
 	cfg.NoUpload = false
 	cfg.Seed = true
@@ -126,14 +157,10 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 		return nil, fmt.Errorf("failed to create torrent client: %w", err)
 	}
 
+	svc.client = client
 	logger.Info("Torrent: service initialized")
 
-	return &Service{
-		client:        client,
-		torrents:      make(map[string]*torrent.Torrent),
-		selectedFiles: make(map[string]int),
-		bufferService: bufferService,
-	}, nil
+	return svc, nil
 }
 
 // AddMagnet adds a torrent via magnet link.
@@ -542,6 +569,13 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 func (s *Service) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.storage != nil {
+		if err := s.storage.Close(); err != nil {
+			logger.Warn("Torrent: error closing storage", "error", err)
+		}
+		s.storage = nil
+	}
 
 	if s.client != nil {
 		// Create context with timeout for graceful shutdown

@@ -16,7 +16,6 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
@@ -73,7 +72,9 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		metrics.GetInstance().RoomCreated()
+		// NOTE: RoomCreated metric is incremented inside the p2p service
+		// (internal/p2p/service.go) which is the single source of truth for
+		// room creation, so it is NOT incremented here to avoid double-counting.
 		WriteJSON(w, http.StatusCreated, room)
 	}
 }
@@ -159,16 +160,17 @@ func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	}
 }
 
-// Signal handler for sending WebRTC signals.
-// Accepts JSON with the signal field (binary data in base64).
-// Sends the signal via data channel to all peers in the room.
+// Signal handler for relaying a sync signal between room participants.
+// Accepts JSON with the signal field (binary data in base64). The opaque
+// payload is broadcast to all peers in the room over the server-brokered SSE
+// event stream; the sender's own client ignores the echo.
 //
-// @Summary      Send WebRTC signal
-// @Description  Sends a WebRTC signal (SDP offer/answer, ICE candidate) via data channel
+// @Summary      Send room sync signal
+// @Description  Relays a sync signal (arbitrary JSON payload) to all peers in the room via the server-brokered SSE stream
 // @Tags         rooms
 // @Accept       json
 // @Produce      json
-// @Param        request  body      models.SignalRequest  true  "WebRTC signal"
+// @Param        request  body      models.SignalRequest  true  "Sync signal"
 // @Success      200      {object}  models.SuccessResponse
 // @Failure      400      {object}  APIError
 // @Router       /api/v1/rooms/signal [post]
@@ -176,7 +178,7 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body size for DoS protection
 		// Uses MaxSignalSize (64KB) instead of MaxRequestSize (1MB)
-		// since WebRTC signals typically do not exceed 8KB
+		// since sync signals typically do not exceed 8KB
 		r.Body = http.MaxBytesReader(w, r.Body, constants.MaxSignalSize)
 
 		var req models.SignalRequest

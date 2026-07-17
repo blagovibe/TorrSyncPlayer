@@ -226,9 +226,9 @@ func TestE2E_SyncFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, true, playResult["isPlaying"])
 
-	// 2. Seek
+	// 2. Seek (small jump, applied directly under latency compensation)
 	seekBody := map[string]float64{
-		"position": 120.5,
+		"position": 1.5,
 	}
 	body, _ = json.Marshal(seekBody)
 
@@ -246,7 +246,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	var seekResult map[string]interface{}
 	err = json.NewDecoder(resp.Body).Decode(&seekResult)
 	require.NoError(t, err)
-	assert.Equal(t, 120.5, seekResult["position"])
+	assert.Equal(t, 1.5, seekResult["position"])
 
 	// 3. Pause
 	pauseBody := map[string]interface{}{}
@@ -282,7 +282,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	err = json.NewDecoder(resp.Body).Decode(&statusResult)
 	require.NoError(t, err)
 	assert.Equal(t, false, statusResult["isPlaying"])
-	assert.Equal(t, 120.5, statusResult["position"])
+	assert.Equal(t, 1.5, statusResult["position"])
 }
 
 // TestE2E_RoomFlow проверяет цикл работы с комнатами.

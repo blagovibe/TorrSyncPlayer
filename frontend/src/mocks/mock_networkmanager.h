@@ -28,10 +28,13 @@ public:
     // ── Torrent API ───────────────────────────────────────────────────────
     
     MOCK_METHOD(void, addTorrent, (const QString &magnetUri), (override));
+    MOCK_METHOD(void, addTorrentFile, (const QByteArray &torrentData), (override));
     MOCK_METHOD(void, removeTorrent, (const QString &id), (override));
     MOCK_METHOD(void, listTorrents, (), (override));
     MOCK_METHOD(void, getFiles, (const QString &torrentId), (override));
     MOCK_METHOD(void, selectFile, (const QString &torrentId, int fileIndex), (override));
+    MOCK_METHOD(void, setBufferPosition, (const QString &torrentId, qint64 positionBytes), (override));
+    MOCK_METHOD(void, getBufferInfo, (const QString &torrentId), (override));
 
     // ── Room API ──────────────────────────────────────────────────────────
     

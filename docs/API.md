@@ -335,9 +335,13 @@ Authorization: Bearer <jwt_token>
 
 Stream the selected file.
 
-**Headers:**
+**Authentication:** This endpoint is public but requires a signed stream
+ticket (issued via `POST /api/v1/torrents/{id}/stream-ticket`). libmpv cannot
+attach a JWT header to its HTTP fetch, so the ticket is passed as a query
+parameter:
+
 ```
-Authorization: Bearer <jwt_token>
+GET /api/v1/torrents/{id}/stream?ticket=<signed_ticket>
 ```
 
 **Response headers:**
@@ -476,7 +480,7 @@ Authorization: Bearer <jwt_token>
 
 ### POST /api/v1/rooms/signal
 
-Send a WebRTC signal.
+Relay a sync signal to all peers in the room (server-brokered over SSE).
 
 **Headers:**
 ```
@@ -515,12 +519,12 @@ Authorization: Bearer <jwt_token>
 - `Cache-Control: no-cache`
 
 **Events:**
-- `connected` — Connection established
+- `room_created` — Room created
 - `peer_joined` — Peer joined
 - `peer_left` — Peer left
-- `signal` — WebRTC signal
+- `signal` — Sync signal relayed to peers
+- `sync` — Playback command broadcast
 - `ping` — Keep-alive ping
-- `timeout` — Connection timeout
 
 **Example event:**
 ```

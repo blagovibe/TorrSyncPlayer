@@ -49,20 +49,18 @@ func (s *AuthService) JWTMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Validate token
-		claims, err := s.ValidateToken(tokenString)
+		// Validate token (signature, expiry and revocation in one place)
+		claims, err := s.ValidateTokenWithRevocation(tokenString)
 		if err != nil {
 			if errors.Is(err, ErrExpiredToken) {
 				writeAuthError(w, http.StatusUnauthorized, "Token expired")
 				return
 			}
+			if errors.Is(err, ErrInvalidToken) {
+				writeAuthError(w, http.StatusUnauthorized, "Token revoked or invalid")
+				return
+			}
 			writeAuthError(w, http.StatusUnauthorized, "Invalid token")
-			return
-		}
-
-		// Check if token is revoked
-		if claims.JTI != "" && s.revocationStore.IsRevoked(claims.JTI) {
-			writeAuthError(w, http.StatusUnauthorized, "Token revoked")
 			return
 		}
 

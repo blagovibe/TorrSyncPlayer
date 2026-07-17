@@ -89,9 +89,14 @@ func NewRouter(config RouterConfig) http.Handler {
 		r.Post("/login", authHandler.Login)
 	})
 
+	// Public stream endpoint — authenticated via a signed stream ticket
+	// (query param "?ticket=") rather than JWT/CSRF, because media players
+	// (libmpv) cannot attach auth headers to their own HTTP fetches.
+	r.With(PerIPRateLimiter).Get("/api/v1/torrents/{id}/stream", StreamFile(config.TorrentSvc, config.AuthService))
+
 	// Protected endpoints — with Rate limiting, CSRF and JWT authentication
 	r.Group(func(r chi.Router) {
-		r.Use(NewRateLimiter(rate.Limit(1), 10)) // 60 requests/minute (per-IP) — applied before CSRF to prevent DoS on token store
+		r.Use(PerIPRateLimiter)                  // per-IP rate limiting (60 req/min) — applied before CSRF to prevent DoS on token store
 		r.Use(CSRFMiddleware)                    // CSRF protection
 		r.Use(config.AuthService.JWTMiddleware)  // JWT authentication
 
@@ -104,7 +109,10 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Delete("/{id}", RemoveTorrent(config.TorrentSvc))
 				r.Get("/{id}/files", GetFiles(config.TorrentSvc))
 				r.Post("/{id}/select", SelectFile(config.TorrentSvc))
-				r.Get("/{id}/stream", StreamFile(config.TorrentSvc))
+				// NOTE: /{id}/stream is served publicly (outside this group) and
+				// authenticated via a signed stream ticket, because libmpv cannot
+				// attach JWT/CSRF headers to its own HTTP fetches.
+				r.Post("/{id}/stream-ticket", StreamTicket(config.TorrentSvc, config.AuthService))
 				r.Post("/{id}/buffer/position", SetBufferPosition(config.TorrentSvc))
 				r.Get("/{id}/buffer/info", GetBufferInfo(config.TorrentSvc))
 			})
@@ -122,13 +130,13 @@ func NewRouter(config RouterConfig) http.Handler {
 			r.Post("/auth/logout", config.AuthService.LogoutHandler)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 
-			// Sync endpoints
-			r.Route("/sync", func(r chi.Router) {
-				r.Post("/play", SyncPlay(config.SyncSvc))
-				r.Post("/pause", SyncPause(config.SyncSvc))
-				r.Post("/seek", SyncSeek(config.SyncSvc))
-				r.Get("/status", SyncStatus(config.SyncSvc))
-			})
+// Sync endpoints
+				r.Route("/sync", func(r chi.Router) {
+					r.Post("/play", SyncPlay(config.SyncSvc, config.P2pSvc))
+					r.Post("/pause", SyncPause(config.SyncSvc, config.P2pSvc))
+					r.Post("/seek", SyncSeek(config.SyncSvc, config.P2pSvc))
+					r.Get("/status", SyncStatus(config.SyncSvc, config.P2pSvc))
+				})
 
 			// Detailed health check (requires JWT authentication)
 			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))

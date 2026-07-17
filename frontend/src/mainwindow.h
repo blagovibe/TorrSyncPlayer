@@ -32,10 +32,12 @@
 #include <QGroupBox>
 #include <QProgressBar>
 #include <QSplitter>
+#include <QVector>
 #include <QStatusBar>
 #include <QJsonArray>
 #include <QCloseEvent>
 #include <QUrl>
+#include <QTimer>
 
 // Предварительные объявления
 class MpvWidget;
@@ -43,6 +45,7 @@ class NetworkManager;
 class TorrentModel;
 class TorrentManager;
 class RoomManager;
+class AuthDialog;
 
 /**
  * @class MainWindow
@@ -105,6 +108,12 @@ private slots:
     void onAddTorrent();
 
     /**
+     * @brief Обработка входа в приложение
+     * Открывает диалог авторизации
+     */
+    void onLogin();
+
+    /**
      * @brief Обработка выбора торрент-файла через диалог
      * Читает файл и отправляет на сервер
      */
@@ -141,11 +150,17 @@ private slots:
      */
     void onJoinRoom();
 
-    /**
-     * @brief Обработка нажатия кнопки "Покинуть комнату"
+/**
+     * @brief Обработка выхода из комнаты
      * Отправляет запрос на выход из комнаты
      */
     void onLeaveRoom();
+
+    /**
+     * @brief Обработка успешной авторизации
+     * @param token JWT токен
+     */
+    void onLoginSuccess(const QString &token);
 
     // ── Слоты управления воспроизведением ─────────────────────────────
 
@@ -182,6 +197,13 @@ private slots:
      * @param duration Новая длительность в секундах
      */
     void onDurationChanged(double duration);
+
+    /**
+     * @brief Получена информация о буферизации
+     * Обновляет прогресс-бар буфера реальным процентом из backend.
+     * @param info JSON объект BufferInfo
+     */
+    void onBufferInfoReceived(const QJsonObject &info);
 
     /**
      * @brief Обработка завершения воспроизведения
@@ -233,6 +255,19 @@ private slots:
      * @param url URL потока
      */
     void onFileSelectedByManager(const QString &torrentId, int fileIndex, const QString &url);
+
+    /**
+     * @brief Кэширование списка торрентов для graceful degradation
+     * @param torrents Список торрентов (QJsonArray)
+     */
+    void onTorrentListReceived(const QJsonArray &torrents);
+
+    /**
+     * @brief Получен stream-ticket — запустить воспроизведение с тикетом
+     * @param torrentId ID торрента
+     * @param ticket Подписанный тикет для /stream
+     */
+    void onStreamTicketReceived(const QString &torrentId, const QString &ticket);
 
     // ── Слоты RoomManager ─────────────────────────────────────────────
 
@@ -379,11 +414,18 @@ private:
     bool m_isPlaying = false;           ///< Флаг воспроизведения
     bool m_isSeeking = false;           ///< Флаг перемотки (для предотвращения зацикливания)
     double m_duration = 0.0;            ///< Длительность текущего медиа
+    qint64 m_currentFileSize = 0;       ///< Размер выбранного файла в байтах (для расчёта позиции буфера)
+    QVector<qint64> m_fileSizes;         ///< Размеры файлов текущего торрента (по индексу)
+    QTimer *m_bufferPollTimer = nullptr; ///< Таймер опроса состояния буфера во время воспроизведения
 
     // ── Graceful degradation ───────────────────────────────────────────
     bool m_serverConnected = true;      ///< Флаг подключения к серверу
-    QString m_cachedStatus;             ///< Кэшированный статус
     QJsonArray m_cachedTorrents;        ///< Кэшированный список торрентов
+
+    // ── Отложенный стрим (ожидание stream-ticket) ────────────────────────
+    QString m_pendingStreamTorrentId;   ///< torrentId, ожидающий тикет для play
+    QString m_currentTorrentId;          ///< torrentId активно воспроизводимого файла
+    int m_pendingStreamFileIndex = -1;  ///< fileIndex, ожидающий тикет для play
 };
 
 #endif // MAINWINDOW_H

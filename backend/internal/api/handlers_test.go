@@ -34,6 +34,7 @@ var (
 	apiSyncSvc   *syncsvc.Service
 	apiRouter    http.Handler
 	apiAuthStore *auth.UserStore
+	apiAuthSvc   *auth.AuthService
 
 	torrentOnce    stdsync.Once
 	apiTorrentSvc  *torrent.Service
@@ -109,6 +110,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	apiAuthSvc = authService
 	apiAuthStore = auth.NewUserStore()
 	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
@@ -298,7 +300,7 @@ func TestSelectFile_InvalidJSON(t *testing.T) {
 }
 
 func TestStreamFile_MissingID(t *testing.T) {
-	handler := StreamFile(apiTorrentSvc)
+	handler := StreamFile(apiTorrentSvc, apiAuthSvc)
 
 	r := chi.NewRouter()
 	r.Get("/torrents/{id}/stream", handler)
@@ -308,6 +310,55 @@ func TestStreamFile_MissingID(t *testing.T) {
 
 	r.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestStreamFile_TicketAuth(t *testing.T) {
+	const torrentID = "0123456789abcdef0123456789abcdef01234567"
+	handler := StreamFile(apiTorrentSvc, apiAuthSvc)
+
+	r := chi.NewRouter()
+	r.Get("/torrents/{id}/stream", handler)
+
+	// No ticket → unauthorized.
+	req := httptest.NewRequest(http.MethodGet, "/torrents/"+torrentID+"/stream", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	// Valid ticket → authorized (stream itself may 404 if torrent not present,
+	// but it must not be rejected for auth reasons).
+	ticket, err := apiAuthSvc.GenerateStreamTicket("user-1", torrentID)
+	require.NoError(t, err)
+	req = httptest.NewRequest(http.MethodGet,
+		"/torrents/"+torrentID+"/stream?ticket="+ticket, nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.NotEqual(t, http.StatusUnauthorized, rec.Code)
+
+	// Tampered ticket → unauthorized.
+	req = httptest.NewRequest(http.MethodGet,
+		"/torrents/"+torrentID+"/stream?ticket="+ticket+"x", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestStreamTicket_IssueAndVerify(t *testing.T) {
+	const torrentID = "0123456789abcdef0123456789abcdef01234567"
+	ticket, err := apiAuthSvc.GenerateStreamTicket("user-1", torrentID)
+	require.NoError(t, err)
+
+	userID, ok := apiAuthSvc.ValidateStreamTicket(ticket, torrentID)
+	assert.True(t, ok)
+	assert.Equal(t, "user-1", userID)
+
+	// Wrong torrent → rejected.
+	_, ok = apiAuthSvc.ValidateStreamTicket(ticket, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	assert.False(t, ok)
+
+	// Empty ticket → rejected.
+	_, ok = apiAuthSvc.ValidateStreamTicket("", torrentID)
+	assert.False(t, ok)
 }
 
 // ============ P2P Handler Tests ============
@@ -457,7 +508,7 @@ func TestSignal_InvalidJSON(t *testing.T) {
 // ============ Sync Handler Tests ============
 
 func TestSyncPlay(t *testing.T) {
-	handler := SyncPlay(apiSyncSvc)
+	handler := SyncPlay(apiSyncSvc, apiP2pSvc)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", nil)
 	rec := httptest.NewRecorder()
@@ -472,9 +523,9 @@ func TestSyncPlay(t *testing.T) {
 }
 
 func TestSyncPause(t *testing.T) {
-	apiSyncSvc.Play(context.Background())
+	apiSyncSvc.Play(context.Background(), "test-room")
 
-	handler := SyncPause(apiSyncSvc)
+	handler := SyncPause(apiSyncSvc, apiP2pSvc)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/pause", nil)
 	rec := httptest.NewRecorder()
@@ -489,9 +540,9 @@ func TestSyncPause(t *testing.T) {
 }
 
 func TestSyncSeek_Success(t *testing.T) {
-	handler := SyncSeek(apiSyncSvc)
+	handler := SyncSeek(apiSyncSvc, apiP2pSvc)
 
-	body := `{"position":120.5}`
+	body := `{"position":1.5}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -502,11 +553,12 @@ func TestSyncSeek_Success(t *testing.T) {
 
 	var status models.SyncStatus
 	parseJSON(t, rec.Body, &status)
-	assert.Equal(t, 120.5, status.Position)
+	// A small (within MaxPositionJump) seek is applied directly.
+	assert.Equal(t, 1.5, status.Position)
 }
 
 func TestSyncSeek_InvalidJSON(t *testing.T) {
-	handler := SyncSeek(apiSyncSvc)
+	handler := SyncSeek(apiSyncSvc, apiP2pSvc)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek", bytes.NewBufferString("invalid"))
 	req.Header.Set("Content-Type", "application/json")
@@ -517,7 +569,7 @@ func TestSyncSeek_InvalidJSON(t *testing.T) {
 }
 
 func TestSyncSeek_InvalidPosition(t *testing.T) {
-	handler := SyncSeek(apiSyncSvc)
+	handler := SyncSeek(apiSyncSvc, apiP2pSvc)
 
 	body := `{"position":-10}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek", bytes.NewBufferString(body))
@@ -529,7 +581,7 @@ func TestSyncSeek_InvalidPosition(t *testing.T) {
 }
 
 func TestSyncStatus(t *testing.T) {
-	handler := SyncStatus(apiSyncSvc)
+	handler := SyncStatus(apiSyncSvc, apiP2pSvc)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/sync/status", nil)
 	rec := httptest.NewRecorder()

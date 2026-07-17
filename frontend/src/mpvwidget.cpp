@@ -205,7 +205,7 @@ bool MpvWidget::initializeMpv()
     setOpt(m_mpv, "cache-secs", "30");
     setOpt(m_mpv, "demuxer-max-bytes", "150M");
     setOpt(m_mpv, "demuxer-max-back-bytes", "50M");
-    setOpt(m_mpv, "ao", "null");
+    setOpt(m_mpv, "ao", "auto");
 
     int err = mpv_initialize(m_mpv);
     if (err < 0) {

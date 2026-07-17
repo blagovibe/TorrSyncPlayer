@@ -85,9 +85,13 @@ jobs:
 
       - name: Run govulncheck
         working-directory: backend
+        # Fail the build on known vulnerabilities. Set GOVULNCHECK_ALLOW_FAILURE=1
+        # in the workflow run to temporarily opt out (e.g. during triage).
+        env:
+          GOVULNCHECK_ALLOW_FAILURE: ${{ vars.GOVULNCHECK_ALLOW_FAILURE || '0' }}
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./... || exit 0  # Report vulnerabilities but don't fail for now
+          govulncheck ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7

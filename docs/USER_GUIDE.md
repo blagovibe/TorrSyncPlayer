@@ -6,7 +6,7 @@
 2. [Getting Started](#getting-started)
 3. [Core Features](#core-features)
 4. [Torrent Management](#torrent-management)
-5. [P2P Rooms](#p2p-rooms)
+5. [Watch Rooms (Server-Brokered)](#watch-rooms-server-brokered)
 6. [Playback Synchronization](#playback-synchronization)
 7. [Settings](#settings)
 8. [Troubleshooting](#troubleshooting)
@@ -18,8 +18,7 @@ TorrSyncPlayer is an application for streaming media content via torrents with t
 ### Features
 
 - **Streaming playback** — instant viewing without full download
-- **P2P rooms** — synchronized viewing with friends
-- **WebRTC** — direct peer-to-peer connection without server-side video relay
+- **Watch rooms** — synchronized viewing with friends (server-brokered over SSE)
 - **JWT authentication** — secure room access
 - **Privacy** — room passwords, private sessions
 - **Buffering** — smart preloading with priorities
@@ -103,7 +102,11 @@ TorrSyncPlayer is an application for streaming media content via torrents with t
 - **Audio:** mp3, aac, wav, ogg, flac
 - **Subtitles:** srt, ass, ssa
 
-## P2P Rooms
+## Watch Rooms (Server-Brokered)
+
+Playback synchronization is relayed by the server over Server-Sent Events —
+there is no direct peer-to-peer connection, so all participants connect to the
+same backend.
 
 ### Creating a Room
 
@@ -126,7 +129,6 @@ You become the room host. Other users can join by room ID.
 - **Host** can:
   - Set password
   - Remove peers
-  - Transfer host privileges
 
 - **Peer** can:
   - Leave the room
@@ -176,7 +178,7 @@ The frontend settings UI is not yet implemented.
 - Wait for sufficient data to load
 - Check mpv format support
 
-### P2P Issues
+### Room Issues
 
 **Cannot connect to room:**
 - Check the room ID

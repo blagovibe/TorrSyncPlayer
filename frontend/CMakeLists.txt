@@ -116,6 +116,7 @@ endif()
 set(SOURCES
     src/main.cpp
     src/mainwindow.cpp
+    src/authdialog.cpp
     src/mpvwidget.cpp
     src/networkmanager.cpp
     src/roomdialog.cpp
@@ -149,6 +150,7 @@ endif()
 
 set(HEADERS
     src/mainwindow.h
+    src/authdialog.h
     src/mpvwidget.h
     src/interfaces/inetworkmanager.h
     src/networkmanager.h
