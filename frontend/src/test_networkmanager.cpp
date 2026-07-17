@@ -95,6 +95,25 @@ private:
     QJsonObject createRoomJson(const QString &id = "test-room-id",
                                  const QString &name = "Test Room");
     QJsonObject createSyncStatusJson(bool isPlaying = false, double position = 0.0);
+
+    /**
+     * @brief Start a local mock HTTP server for room-related requests.
+     *
+     * Mirrors the approach used by testSelectFileEmitsFileSelected: room state
+     * in NetworkManager is only updated after the server *confirms* the join
+     * (see onReplyFinished, RequestType::JoinRoom), so tests must await the
+     * async reply instead of checking state synchronously.
+     *
+     * The mock answers:
+     *  - POST /api/v1/rooms/join   -> 200 {"id":<roomId>}
+     *  - POST /api/v1/csrf-token   -> 200 {"csrfToken":"test-csrf-token"}
+     *  - anything else (e.g. SSE)  -> 200 {}
+     *
+     * @param roomId  Room id returned by the join endpoint
+     * @return The listening server (owned by the caller); its port is written
+     *         to outPort.
+     */
+    QTcpServer *startRoomMockServer(const QString &roomId, int &outPort);
 };
 
 void TestNetworkManager::initTestCase()
@@ -145,6 +164,56 @@ QJsonObject TestNetworkManager::createSyncStatusJson(bool isPlaying, double posi
     json["duration"] = 3600.0;
     json["timestamp"] = QDateTime::currentDateTime().toMSecsSinceEpoch();
     return json;
+}
+
+QTcpServer *TestNetworkManager::startRoomMockServer(const QString &roomId, int &outPort)
+{
+    QTcpServer *server = new QTcpServer(this);
+    if (!server->listen(QHostAddress::LocalHost)) {
+        delete server;
+        return nullptr;
+    }
+    outPort = server->serverPort();
+
+    QObject::connect(server, &QTcpServer::newConnection, [server, roomId]() {
+        QTcpSocket *sock = server->nextPendingConnection();
+        if (!sock) return;
+        QObject::connect(sock, &QTcpSocket::readyRead, [sock, roomId]() {
+            QByteArray request = sock->readAll();
+            // Extract the request path from the HTTP request line.
+            QString path;
+            int firstNewline = request.indexOf('\n');
+            if (firstNewline > 0) {
+                QByteArray line = request.left(firstNewline).trimmed();
+                QList<QByteArray> parts = line.split(' ');
+                if (parts.size() >= 2) {
+                    path = QString::fromUtf8(parts.at(1));
+                }
+            }
+
+            QByteArray body;
+            if (path == "/api/v1/rooms/join") {
+                QJsonObject obj;
+                obj["id"] = roomId;
+                body = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+            } else if (path == "/api/v1/csrf-token") {
+                QJsonObject obj;
+                obj["csrfToken"] = QStringLiteral("test-csrf-token");
+                body = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+            } else {
+                body = QByteArray("{}");
+            }
+
+            QByteArray response = QByteArray("HTTP/1.1 200 OK\r\n"
+                                             "Content-Type: application/json\r\n");
+            response.append("Content-Length: ").append(QByteArray::number(body.size())).append("\r\n");
+            response.append("\r\n").append(body);
+            sock->write(response);
+            sock->disconnectFromHost();
+        });
+    });
+
+    return server;
 }
 
 // ── Basic properties ──────────────────────────────────────────────────────
@@ -201,7 +270,19 @@ void TestNetworkManager::testInitialRoomState()
 
 void TestNetworkManager::testJoinRoomState()
 {
+    // Room state is updated only after the server confirms the join
+    // (onReplyFinished, RequestType::JoinRoom), so await the async reply.
+    int port = 0;
+    QTcpServer *server = startRoomMockServer("test-room-id", port);
+    QVERIFY(server != nullptr);
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    QVERIFY(joinedSpy.isValid());
+
     m_manager->joinRoom("test-room-id", "");
+
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
 
     QCOMPARE(m_manager->currentRoomId(), QString("test-room-id"));
     QVERIFY(m_manager->isInRoom());
@@ -209,9 +290,20 @@ void TestNetworkManager::testJoinRoomState()
 
 void TestNetworkManager::testLeaveRoomState()
 {
+    int port = 0;
+    QTcpServer *server = startRoomMockServer("test-room-id", port);
+    QVERIFY(server != nullptr);
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    QVERIFY(joinedSpy.isValid());
+
     m_manager->joinRoom("test-room-id", "");
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
+
     QVERIFY(m_manager->isInRoom());
 
+    // leaveRoom() clears the room state synchronously (before/without a reply).
     m_manager->leaveRoom();
 
     QVERIFY(!m_manager->isInRoom());
@@ -419,16 +511,34 @@ void TestNetworkManager::testSSEInitialState()
 
 void TestNetworkManager::testSSEConnectionStateAfterJoin()
 {
+    int port = 0;
+    QTcpServer *server = startRoomMockServer("sse-test-room", port);
+    QVERIFY(server != nullptr);
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    QVERIFY(joinedSpy.isValid());
+
     m_manager->joinRoom("sse-test-room", "");
 
-    // After joining, room state should be set
+    // After the server confirms the join, room state should be set.
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
     QVERIFY(m_manager->isInRoom());
     QCOMPARE(m_manager->currentRoomId(), QString("sse-test-room"));
 }
 
 void TestNetworkManager::testSSEStateAfterLeave()
 {
+    int port = 0;
+    QTcpServer *server = startRoomMockServer("sse-leave-test", port);
+    QVERIFY(server != nullptr);
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    QVERIFY(joinedSpy.isValid());
+
     m_manager->joinRoom("sse-leave-test", "");
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
     QVERIFY(m_manager->isInRoom());
 
     m_manager->leaveRoom();
