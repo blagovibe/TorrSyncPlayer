@@ -79,8 +79,9 @@ type ServiceOptions struct {
 	DataDir string
 }
 
-// readCloserWithClose wrapper for io.ReadSeekCloser with safe closing.
-// Guarantees idempotent close (Close can be called multiple times).
+// readCloserWithClose wraps io.ReadSeekCloser to guarantee idempotent Close.
+// Prevents double-close issues when the reader is passed to http.ServeContent
+// (which may call Close) and also closed via defer in ServeFile.
 type readCloserWithClose struct {
 	io.ReadSeekCloser
 	closed bool

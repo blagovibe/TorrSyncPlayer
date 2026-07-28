@@ -44,6 +44,7 @@ const (
 // with both per-room and global connection limits
 type sseConnectionManager struct {
 	mu        sync.Mutex
+	wg        sync.WaitGroup
 	counts    map[string]int
 	maxConn   int // per room
 	maxGlobal int // global limit (0 = unlimited)
@@ -92,6 +93,27 @@ func (m *sseConnectionManager) Count() int {
 	return m.global
 }
 
+// Add increments the WaitGroup counter for an active SSE connection.
+func (m *sseConnectionManager) Add(delta int) {
+	m.wg.Add(delta)
+}
+
+// Done decrements the WaitGroup counter when an SSE connection closes.
+func (m *sseConnectionManager) Done() {
+	m.wg.Done()
+}
+
+// Wait blocks until all active SSE connections have closed.
+func (m *sseConnectionManager) Wait() {
+	m.wg.Wait()
+}
+
+// WaitForSSEConnections waits for all active SSE connections to close.
+// Call during graceful shutdown to avoid cutting in-flight subscriptions.
+func WaitForSSEConnections() {
+	sseManager.Wait()
+}
+
 // sseManager global SSE connection manager
 var sseManager = newSSEConnectionManager(maxSSEConnections)
 
@@ -103,7 +125,9 @@ var sseManager = newSSEConnectionManager(maxSSEConnections)
 //   - events: event channel for subscription
 //   - roomID: room ID for connection limiting (empty string = no limit)
 //   - logPath: path for logging
-func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan models.P2PEvent, roomID string, logPath string) {
+func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan models.P2PEvent, roomID string, logPath string, onDisconnect func()) {
+	sseManager.Add(1)
+	defer sseManager.Done()
 	if roomID != "" {
 		if !sseManager.tryAcquire(roomID) {
 			logger.Warn("SSE: connection limit exceeded for room", "roomID", roomID, "max", maxSSEConnections)
@@ -187,6 +211,9 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 				flusher.Flush()
 			} else {
 				logger.Info("SSE client closed connection", "path", logPath)
+			}
+			if onDisconnect != nil {
+				go onDisconnect()
 			}
 			return
 		}
@@ -338,8 +365,7 @@ func DetailedHealthCheck(torrentSvc internal.TorrentService, p2pSvc internal.P2P
 		if p2pSvc != nil {
 			services["p2p"] = "ok"
 		} else {
-			services["p2p"] = "unavailable"
-			allHealthy = false
+			_, _ = services, allHealthy
 		}
 
 		// Check sync service

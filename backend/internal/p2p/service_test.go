@@ -324,7 +324,124 @@ func TestP2PService_NoGoroutineLeak(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	goroutinesAfter := runtime.NumGoroutine()
-	// Допускаем разницу в 5 горутин (на случай фоновых процессов в CI)
 	assert.LessOrEqual(t, goroutinesAfter, goroutinesBefore+5,
 		"P2P service goroutine leak: was %d, now %d", goroutinesBefore, goroutinesAfter)
+}
+
+// TestGetOrCreateSession_CreatesSession tests that getOrCreateSession creates a new session with peer and eventChan
+func TestGetOrCreateSession_CreatesSession(t *testing.T) {
+	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
+	require.NoError(t, err)
+	defer func() { _ = svc.Close() }()
+
+	session := svc.getOrCreateSession("new-user")
+	require.NotNil(t, session)
+	assert.Equal(t, "new-user", session.UserID())
+	assert.NotNil(t, session.GetPeer())
+	assert.NotNil(t, session.GetEventChan())
+}
+
+// TestGetOrCreateSession_ReusesSession tests that getOrCreateSession returns existing session
+func TestGetOrCreateSession_ReusesSession(t *testing.T) {
+	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
+	require.NoError(t, err)
+	defer func() { _ = svc.Close() }()
+
+	session1 := svc.getOrCreateSession("user-1")
+	session2 := svc.getOrCreateSession("user-1")
+
+	assert.Equal(t, session1.ID(), session2.ID())
+	assert.Equal(t, session1.UserID(), session2.UserID())
+}
+
+// TestEmitEvent_NoBlockOnNilSession tests that emitEvent does not block when a session has nil eventChan
+func TestEmitEvent_NoBlockOnNilSession(t *testing.T) {
+	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
+	require.NoError(t, err)
+	defer func() { _ = svc.Close() }()
+
+	// Create a room and add a peer
+	room, err := svc.CreateRoom(context.Background(), "host", "Room", "")
+	require.NoError(t, err)
+
+	err = svc.JoinRoom(context.Background(), "peer", room.ID, "")
+	require.NoError(t, err)
+
+	// Set the peer's eventChan to nil to simulate a disconnected SSE session
+	svc.mu.Lock()
+	session := svc.getSessionUnlocked("peer")
+	if session != nil {
+		session.eventChan = nil
+	}
+	svc.mu.Unlock()
+
+	// emitEvent should not block or panic even with a nil eventChan
+	assert.NotPanics(t, func() {
+		svc.emitEvent(room.ID, "test_event", map[string]string{"key": "value"})
+	})
+}
+
+// TestPruneIdlePeers_RemovesStalePeers tests that pruneIdlePeers removes peers with expired heartbeats
+func TestPruneIdlePeers_RemovesStalePeers(t *testing.T) {
+	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
+	require.NoError(t, err)
+	defer func() { _ = svc.Close() }()
+
+	// Create a room and join a peer
+	room, err := svc.CreateRoom(context.Background(), "host", "Room", "")
+	require.NoError(t, err)
+
+	err = svc.JoinRoom(context.Background(), "peer", room.ID, "")
+	require.NoError(t, err)
+
+	// Verify peer is in room
+	info, err := svc.GetRoomInfo(context.Background(), "peer")
+	require.NoError(t, err)
+	assert.Equal(t, 1, info.PeerCount)
+
+	// Manually set the peer's heartbeat to expired
+	svc.mu.Lock()
+	if room, exists := svc.rooms[room.ID]; exists {
+		for _, peer := range room.Peers {
+			peer.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+		}
+	}
+	svc.mu.Unlock()
+
+	// Run prune
+	svc.pruneIdlePeers()
+
+	// Verify peer was removed from room (PeerCount becomes 0)
+	info, err = svc.GetRoomInfo(context.Background(), "peer")
+	require.NoError(t, err)
+	assert.Equal(t, 0, info.PeerCount)
+	assert.Equal(t, room.ID, info.ID)
+}
+
+// TestClose_ClosesEventChannels tests that Close closes all session event channels
+func TestClose_ClosesEventChannels(t *testing.T) {
+	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	require.NoError(t, err)
+	svc, err := NewService(authSvc)
+	require.NoError(t, err)
+
+	// Create sessions with event channels
+	svc.getOrCreateSession("user-1")
+	svc.getOrCreateSession("user-2")
+
+	// Close should not panic and should clear state
+	err = svc.Close()
+	require.NoError(t, err)
+
+	assert.Empty(t, svc.rooms)
+	assert.Empty(t, svc.peers)
+	assert.Empty(t, svc.sessions)
 }

@@ -7,9 +7,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -254,12 +256,17 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		events := p2pSvc.GetEvents(userID)
-		if events == nil {
-			WriteError(w, http.StatusServiceUnavailable, "Event streaming not yet implemented for multi-session")
-			return
-		}
+	events := p2pSvc.GetEvents(userID)
+	if events == nil {
+		logger.Error("SSE: event channel unavailable for user", "roomID", roomID, "userID", userID)
+		WriteError(w, http.StatusInternalServerError, "Event channel not available")
+		return
+	}
 
-		SSEEventHandler(w, r, events, roomID, r.URL.Path)
+	SSEEventHandler(w, r, events, roomID, r.URL.Path, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = p2pSvc.LeaveRoom(ctx, userID)
+	})
 	}
 }

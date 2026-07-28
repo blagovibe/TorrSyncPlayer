@@ -361,6 +361,47 @@ func TestStreamTicket_IssueAndVerify(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestStreamTicket_Contract_IssueThenStream(t *testing.T) {
+	const torrentID = "0123456789abcdef0123456789abcdef01234567"
+	token := getTestToken(t)
+
+	// 1. Issue a stream ticket via the authenticated endpoint.
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/torrents/"+torrentID+"/stream-ticket", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, "issue ticket must return 200")
+
+	var ticketResp models.StreamTicketResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ticketResp))
+	assert.NotEmpty(t, ticketResp.Ticket)
+	assert.Equal(t, torrentID, ticketResp.TorrentID)
+
+	// 2. Use the ticket to access the public stream endpoint.
+	streamURL := "/api/v1/torrents/" + torrentID + "/stream?ticket=" + ticketResp.Ticket
+	req = httptest.NewRequest(http.MethodGet, streamURL, nil)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.NotEqual(t, http.StatusUnauthorized, rec.Code, "valid ticket must not return 401")
+
+	// 3. Tampered ticket must be rejected.
+	req = httptest.NewRequest(http.MethodGet, streamURL+"x", nil)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	// 4. Ticket for wrong torrent must be rejected.
+	wrongTicket, err := apiAuthSvc.GenerateStreamTicket("user-1", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	require.NoError(t, err)
+	req = httptest.NewRequest(http.MethodGet,
+		"/api/v1/torrents/"+torrentID+"/stream?ticket="+wrongTicket, nil)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
 // ============ P2P Handler Tests ============
 
 func TestCreateRoom_Success(t *testing.T) {
@@ -1026,4 +1067,45 @@ func TestSecurity_Pagination_MaxOffset(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents?offset=999999999", nil)
 	_, offset := parsePaginationParams(req)
 	assert.LessOrEqual(t, offset, constants.MaxPaginationOffset)
+}
+
+// mockP2PServiceForRoomEvents is a minimal mock for testing RoomEvents.
+type mockP2PServiceForRoomEvents struct{}
+
+func (m *mockP2PServiceForRoomEvents) CreateRoom(ctx context.Context, userID, name, password string) (*models.RoomInfo, error) {
+	return nil, nil
+}
+func (m *mockP2PServiceForRoomEvents) JoinRoom(ctx context.Context, userID, roomID, password string) error {
+	return nil
+}
+func (m *mockP2PServiceForRoomEvents) LeaveRoom(ctx context.Context, userID string) error {
+	return nil
+}
+func (m *mockP2PServiceForRoomEvents) SendSignal(ctx context.Context, userID string, signal []byte) error {
+	return nil
+}
+func (m *mockP2PServiceForRoomEvents) GetEvents(userID string) chan models.P2PEvent {
+	return nil
+}
+func (m *mockP2PServiceForRoomEvents) GetRoomInfo(ctx context.Context, userID string) (*models.RoomInfo, error) {
+	return &models.RoomInfo{ID: "0123456789abcdef0123456789abcdef", Name: "test", HostID: "host", PeerCount: 1}, nil
+}
+func (m *mockP2PServiceForRoomEvents) BroadcastSync(roomID string, syncData interface{}) {}
+func (m *mockP2PServiceForRoomEvents) Close() error                                    { return nil }
+
+// TestRoomEvents_NilEventChannel verifies that a nil event channel returns 500
+// instead of the old 503 "not implemented" message.
+func TestRoomEvents_NilEventChannel(t *testing.T) {
+	handler := RoomEvents(&mockP2PServiceForRoomEvents{})
+
+	r := chi.NewRouter()
+	r.Get("/rooms/{roomID}/events", handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/0123456789abcdef0123456789abcdef/events", nil)
+	rec := httptest.NewRecorder()
+
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Event channel not available")
 }

@@ -297,3 +297,25 @@ func TestValidateTokenWrongSecret(t *testing.T) {
 	_, err = authService2.ValidateToken(token)
 	assert.Error(t, err)
 }
+
+func TestStreamTicketGenerationAndValidation(t *testing.T) {
+	authService := testAuthService()
+
+	ticket, err := authService.GenerateStreamTicket("userX", "torrentY")
+	require.NoError(t, err)
+	require.NotEmpty(t, ticket)
+
+	validatedUserID, ok := authService.ValidateStreamTicket(ticket, "torrentY")
+	assert.True(t, ok)
+	assert.Equal(t, "userX", validatedUserID)
+}
+
+func TestStreamTicketValidationWrongTorrent(t *testing.T) {
+	authService := testAuthService()
+
+	ticket, err := authService.GenerateStreamTicket("userX", "torrentY")
+	require.NoError(t, err)
+
+	_, ok := authService.ValidateStreamTicket(ticket, "torrentZ")
+	assert.False(t, ok)
+}

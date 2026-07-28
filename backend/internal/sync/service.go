@@ -16,6 +16,7 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/utils"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
@@ -26,7 +27,7 @@ type Service struct {
 	isClosed      bool
 	closeOnce     sync.Once
 	persistence   *persistence.Store
-	saveDebouncer *time.Timer
+	saveDebouncer *utils.Debouncer
 }
 
 // NewService creates a new synchronization service.
@@ -36,6 +37,7 @@ func NewService() *Service {
 	svc := &Service{
 		rooms: make(map[string]models.SyncStatus),
 	}
+	svc.saveDebouncer = utils.NewDebouncer(constants.P2PDebounceInterval, svc.flushState)
 
 	logger.Info("Sync: service initialized")
 	return svc
@@ -67,10 +69,7 @@ func (s *Service) scheduleSave() {
 		return
 	}
 	s.mu.Lock()
-	if s.saveDebouncer != nil {
-		s.saveDebouncer.Stop()
-	}
-	s.saveDebouncer = time.AfterFunc(constants.P2PDebounceInterval, s.flushState)
+	s.saveDebouncer.Trigger()
 	s.mu.Unlock()
 }
 
@@ -221,6 +220,7 @@ func (s *Service) GetStatus(roomID string) models.SyncStatus {
 // Safe for multiple calls (uses sync.Once).
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
+		s.saveDebouncer.Stop()
 		s.flushState()
 
 		s.mu.Lock()

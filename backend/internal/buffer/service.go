@@ -9,16 +9,72 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
+// torrentFile abstracts *torrent.File for testability.
+type torrentFile interface {
+	Torrent() torrentTorrent
+	Length() int64
+}
+
+// torrentTorrent abstracts *torrent.Torrent for testability.
+type torrentTorrent interface {
+	Info() *metainfo.Info
+	NumPieces() int
+	Piece(i int) torrentPiece
+}
+
+// torrentPiece abstracts *torrent.Piece for testability.
+type torrentPiece interface {
+	SetPriority(prio torrent.PiecePriority)
+	State() torrent.PieceState
+}
+
+// realTorrent wraps *torrent.Torrent to satisfy torrentTorrent.
+type realTorrent struct {
+	*torrent.Torrent
+}
+
+func (r *realTorrent) Piece(i int) torrentPiece {
+	return r.Torrent.Piece(i)
+}
+
+// realPiece wraps *torrent.Piece to satisfy torrentPiece.
+type realPiece struct {
+	*torrent.Piece
+}
+
+func (r *realPiece) State() torrent.PieceState {
+	return r.Piece.State()
+}
+
+// realFile wraps *torrent.File to satisfy torrentFile.
+type realFile struct {
+	file *torrent.File
+}
+
+func (r *realFile) Torrent() torrentTorrent {
+	return &realTorrent{Torrent: r.file.Torrent()}
+}
+
+func (r *realFile) Length() int64 {
+	return r.file.Length()
+}
+
+// wrapFile converts *torrent.File to torrentFile.
+func wrapFile(f *torrent.File) torrentFile {
+	return &realFile{file: f}
+}
+
 type TorrentBuffer struct {
 	TorrentID       string
 	FileIndex       int
-	File            *torrent.File
+	File            torrentFile
 	CurrentPosition int64
 	BufferPercent   int
 	BufferDuration  int
@@ -49,16 +105,17 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	pieceSize := file.Torrent().Info().PieceLength
-	totalPieces := file.Torrent().NumPieces()
+	wrapped := wrapFile(file)
+	pieceSize := wrapped.Torrent().Info().PieceLength
+	totalPieces := wrapped.Torrent().NumPieces()
 
 	s.torrentBuffers[torrentID] = &TorrentBuffer{
 		TorrentID:      torrentID,
 		FileIndex:      0,
-		File:           file,
+		File:           wrapped,
 		BufferPercent:  bufferPercent,
 		BufferDuration: bufferDuration,
-		MaxBufferSize:  maxBufferSize,
+		MaxBufferSize:   maxBufferSize,
 		PieceSize:      pieceSize,
 		TotalPieces:    totalPieces,
 		LastUpdate:     time.Now(),

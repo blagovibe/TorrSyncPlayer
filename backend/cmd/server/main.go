@@ -238,6 +238,7 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("Error stopping HTTP server", "error", err)
 	}
+	api.WaitForSSEConnections()
 	logger.Info("HTTP server stopped")
 
 	// Stop sync service

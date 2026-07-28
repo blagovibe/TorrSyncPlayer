@@ -31,6 +31,8 @@ type Metrics struct {
 
 	syncOperations int64
 
+	eventChannelFull int64
+
 	cacheMu      sync.Mutex
 	cachedOutput string
 	cacheTime    time.Time
@@ -136,6 +138,20 @@ func (m *Metrics) SyncOperation() {
 	m.syncOperations++
 }
 
+// EventChannelFull increments the event channel full counter.
+func (m *Metrics) EventChannelFull() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventChannelFull++
+}
+
+// GetEventChannelFull returns the event channel full counter.
+func (m *Metrics) GetEventChannelFull() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.eventChannelFull
+}
+
 // GetUptime returns the server uptime in seconds
 func (m *Metrics) GetUptime() float64 {
 	m.mu.RLock()
@@ -232,6 +248,10 @@ func (m *Metrics) formatPrometheusUnsafe(memStats map[string]uint64) string {
 	result += "# HELP torrsyncplayer_sync_operations_total Total sync operations\n"
 	result += "# TYPE torrsyncplayer_sync_operations_total counter\n"
 	result += fmt.Sprintf("torrsyncplayer_sync_operations_total %d\n", m.syncOperations)
+
+	result += "# HELP torrsyncplayer_event_channel_full_total Total SSE event channel full events\n"
+	result += "# TYPE torrsyncplayer_event_channel_full_total counter\n"
+	result += fmt.Sprintf("torrsyncplayer_event_channel_full_total %d\n", m.eventChannelFull)
 
 	// Memory
 	result += "# HELP torrsyncplayer_memory_alloc_bytes Allocated memory\n"

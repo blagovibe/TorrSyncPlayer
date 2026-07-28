@@ -174,12 +174,10 @@ ctest --output-on-failure
 
 ## Known Limitations
 
-1. **In-memory storage** — UserStore and TokenRevocationStore are not persistent (data is lost on restart)
+1. **In-memory storage** — UserStore and TokenRevocationStore are not persistent (data is lost on restart) unless `--data-dir` is set
 2. **No database integration** — a production deployment requires a database
-3. **Buffer Service** — lacks unit tests
-4. **Frontend tests** — MainWindow and MpvWidget do not have unit tests
-5. **SSL in NetworkManager** — SSL errors are ignored in debug mode; production behavior is not implemented
-6. **--server-url flag** — when launching frontend with `--server-url`, the URL is parsed but not passed to NetworkManager
+3. **Frontend tests** — MainWindow and MpvWidget do not have unit tests
+4. **SSE client disconnect detection** — backend detects client disconnect via context cancellation but does not immediately remove the peer from the room (relies on prune loop with 5-minute timeout)
 
 ## License
 

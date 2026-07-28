@@ -144,7 +144,7 @@ type Service struct {
 	authService   *auth.AuthService
 	closed        atomic.Bool
 	persistence   *persistence.Store
-	saveDebouncer *time.Timer
+	saveDebouncer *utils.Debouncer
 	pruneTicker   *time.Ticker
 }
 
@@ -160,6 +160,7 @@ func NewService(authService *auth.AuthService) (*Service, error) {
 		doneChan:    make(chan struct{}),
 		authService: authService,
 	}
+	service.saveDebouncer = utils.NewDebouncer(constants.P2PDebounceInterval, service.flushRooms)
 
 	// Periodically prune peers that stopped sending heartbeats so idle
 	// sessions don't accumulate in long-lived rooms.
@@ -275,10 +276,7 @@ func (s *Service) scheduleSave() {
 		return
 	}
 	s.mu.Lock()
-	if s.saveDebouncer != nil {
-		s.saveDebouncer.Stop()
-	}
-	s.saveDebouncer = time.AfterFunc(constants.P2PDebounceInterval, s.flushRooms)
+	s.saveDebouncer.Trigger()
 	s.mu.Unlock()
 }
 
@@ -313,6 +311,18 @@ func (s *Service) getOrCreateSession(userID string) *Session {
 	defer s.mu.Unlock()
 
 	if session, exists := s.sessions[userID]; exists {
+		if session.GetPeer() == nil {
+			peerID, err := utils.GenerateID(peerIDLength)
+			if err != nil {
+				logger.Error("P2P: failed to generate peer ID on reconnect", "error", err, "userID", userID)
+			} else {
+				session.SetPeer(&Peer{
+					ID:            peerID,
+					UserID:        userID,
+					LastHeartbeat: time.Now(),
+				})
+			}
+		}
 		return session
 	}
 
@@ -474,9 +484,10 @@ func (s *Service) LeaveRoom(ctx context.Context, userID string) error {
 		return errors.NotFound("room", roomID)
 	}
 
-	leftPeerID := session.GetPeer().ID
 	peer := session.GetPeer()
+	var leftPeerID string
 	if peer != nil {
+		leftPeerID = peer.ID
 		delete(s.peers, peer.ID)
 	}
 
@@ -600,6 +611,7 @@ func (s *Service) Close() error {
 	})
 
 	// Persist room metadata before dropping in-memory state.
+	s.saveDebouncer.Stop()
 	s.flushRooms()
 
 	s.mu.Lock()
@@ -641,6 +653,21 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// sendToSession delivers an event to a single session's event channel.
+// Returns immediately when the session has no live SSE connection or the
+// channel is full (non-blocking send).
+func (s *Service) sendToSession(session *Session, userID string, event models.P2PEvent, eventType string) {
+	if session == nil || session.eventChan == nil {
+		return
+	}
+	select {
+	case session.eventChan <- event:
+	default:
+		metrics.GetInstance().EventChannelFull()
+		logger.Warn("P2P: event channel full for user", "userID", userID, "eventType", eventType)
+	}
+}
+
 // emitEvent sends an event to all participants in the specified room.
 // Events are sent to per-session event channels for SSE streaming.
 func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
@@ -669,15 +696,7 @@ func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
 		s.mu.RLock()
 		session := s.sessions[peer.UserID]
 		s.mu.RUnlock()
-
-		if session != nil && session.eventChan != nil {
-			select {
-			case session.eventChan <- event:
-			default:
-				// Channel full, skip to avoid blocking
-				logger.Warn("P2P: event channel full for user", "userID", peer.UserID, "eventType", eventType)
-			}
-		}
+		s.sendToSession(session, peer.UserID, event, eventType)
 	}
 
 	// Also send to host if different from peers
@@ -686,15 +705,13 @@ func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
 		hostSession := s.sessions[room.HostUserID]
 		s.mu.RUnlock()
 
-		if hostSession != nil && hostSession.eventChan != nil {
-			// Check if host is already in Peers (avoid duplicate)
-			_, isPeer := room.Peers[hostSession.GetPeer().ID]
+		if hostSession == nil || hostSession.eventChan == nil {
+			// Host has no live SSE session; nothing to deliver.
+			// Skip silently — client will re-subscribe on (re)connect.
+		} else if hostPeer := hostSession.GetPeer(); hostPeer != nil {
+			_, isPeer := room.Peers[hostPeer.ID]
 			if !isPeer {
-				select {
-				case hostSession.eventChan <- event:
-				default:
-					logger.Warn("P2P: event channel full for host", "hostUserID", room.HostUserID, "eventType", eventType)
-				}
+				s.sendToSession(hostSession, room.HostUserID, event, eventType)
 			}
 		}
 	}
