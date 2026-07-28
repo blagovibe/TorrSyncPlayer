@@ -62,5 +62,36 @@ apply_patch.py
 /package.json
 /package-lock.json
 
+# Code generation scratch files (auth, handlers, etc.)
+backend/internal/auth/auth.go.tmp
+backend/internal/api/handlers.go.tmp
+backend/internal/**/*.tmp
+
+# QA / audit reports
+QA_AUDIT_REPORT.md
+backend/report.json
+.codecov.yml
+backend/coverage/
+backend/coverage.html
+
+# Generated test utilities (do not ship to GitHub)
+backend/internal/testutil/
+
+# Debouncer utility (generated scratch file)
+backend/internal/utils/debouncer.go
+backend/internal/utils/debouncer_test.go
+
+# AI / LLM artifacts (neural network generated files)
+*.tmp.json
+*.tmp.yaml
+*.tmp.yml
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+
 # ZCode IDE
 .zcode/
+.kilo/
