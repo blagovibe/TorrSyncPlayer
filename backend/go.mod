@@ -14,7 +14,7 @@ require (
 	golang.org/x/time v0.14.0
 )
 
-require github.com/pact-foundation/pact-go/v2 v2.5.1
+require github.com/pact-foundation/pact-go/v2 v2.7.0
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
