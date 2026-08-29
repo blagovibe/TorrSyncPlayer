@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/anacrolix/torrent v1.61.0
-	github.com/go-chi/chi/v5 v5.3.0
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pion/webrtc/v4 v4.2.16 // indirect
 	github.com/stretchr/testify v1.11.1
