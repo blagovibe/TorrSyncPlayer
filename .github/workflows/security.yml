@@ -60,7 +60,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: trufflesecurity/trufflehog@v3.95.9
+      - uses: trufflesecurity/trufflehog@v3.97.1
         with:
           path: ./
           base: ""
