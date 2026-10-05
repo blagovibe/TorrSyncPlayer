@@ -44,7 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Verification
 
-Fresh reconciliation performed (project-docs step 2): git boundary = 12 commits after the last CHANGELOG entry (6bd47e9..HEAD). Result: 9 discrepancies found, 5 fixed here (backend build, persistence tests, gofmt, CHANGELOG append-only + stale entries, WebRTC comments), 4 recorded on the project board as bugs/deviations. Backend: `go build ./...` clean, `go vet ./...` clean, `go test -race ./...` fully green, `gofmt -l .` empty. Frontend not built locally (no cmake, sudo unavailable) — verified via CI.
+Fresh reconciliation performed (project-docs step 2): git boundary = 12 commits after the last CHANGELOG entry (6bd47e9..HEAD).
+Result: 9 discrepancies found; 5 fixed here (backend build, persistence tests, formatting, CHANGELOG append-only + stale
+entries, WebRTC comments), 4 recorded on the project board as bugs/deviations, plus 2 found by CI afterwards
+(dead code flagged by `unused`, Go 1.26.5 stdlib vulnerabilities).
+
+Verified on PR #51 — CI green: Lint Backend, Test Backend (with govulncheck), Frontend Build & Test
+(clang-tidy + Qt unit + gmock), Build Backend on ubuntu/macos/windows. Locally, on the CI Go version
+(`GOTOOLCHAIN=go1.26.6`): `golangci-lint run` 0 issues, `gofmt -l .` and `goimports -l .` empty,
+`go vet ./...` clean, `go test -race ./...` green. Frontend cannot be built on the dev machine
+(no cmake, sudo requires a password) — covered by CI.
 
 ## [v1.1.5] - 2026-07-12
 
