@@ -5,6 +5,41 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Persistence: JSON-file storage for users, revoked tokens, rooms and playback state (`internal/persistence`), enabled via `--data-dir`
+- Persistence: debounced writes (`internal/utils/debouncer.go`) so bursts of state mutations collapse into one disk write; `Stop` waits for an in-flight write before the shutdown flush
+- Contract testing: Pact provider verification against the real backend router (`internal/contract`, contract `pacts/frontend-backend.json`)
+- Tests: chaos scenarios (toxiproxy), k6 load scenarios, Playwright e2e suite, Qt headless e2e
+- Docs: `docs/METRICS.md`, `MUTATION_TESTING.md`
+- Methodology: `CONCEPT.md` (goal and boundaries); `docs/ARCHITECTURE.md` serves as the way (how)
+
+### Fixed
+
+- Backend build was broken: `internal/sync` and `internal/p2p` referenced `utils.Debouncer`, but the file was ignored by `.gitignore` and never committed — restored and committed
+- `internal/persistence`: tests did not compile (missing `time` import, non-existent `models.SyncStatus.RoomID` field)
+- gofmt: 5 files unformatted (`api/handlers_room.go`, `api/handlers_test.go`, `buffer/service.go`, `buffer/service_test.go`, `models/types.go`), which failed the CI format check
+- CHANGELOG append-only: commit 6bd47e9 had rewritten the existing v1.1.5 and 1.0.0 entries; original lines restored, the change is now recorded here instead of rewriting history
+- Docs: stale WebRTC references after WebRTC removal — comments in `internal/models/types.go` and `internal/api/handlers_room.go` corrected
+- `.gitignore`: removed rules that swallowed working code (`internal/utils/debouncer.go`) and CI config (`.codecov.yml`)
+
+### Removed
+
+- Dead frontend code: `imediaplayer.h`, `iroommanager.h`, `itorrentmanager.h`, `mock_roommanager.h`, `mock_torrentmanager.*` and their gmock tests (no remaining references)
+
+### Known Issues
+
+1. Swagger cannot be regenerated: `@Failure {object} APIError` annotations reference a type that does not exist (the type is `models.ErrorResponse`), so `swag init` fails — board `t_0ab2e3d0`
+2. Contract test does not compile against pact-go v2.5.1 (`provider.VerifierConfig` no longer exists) — board `t_7eebdc1c`
+3. CI masks failures of contract, e2e and mutation tests via `|| true` — board `t_1452fa61`
+4. `.gitignore` still ignores `config.yaml` globally and `backend/internal/testutil/` — board `t_6e2ff5cf`
+
+### Verification
+
+Fresh reconciliation performed (project-docs step 2): git boundary = 12 commits after the last CHANGELOG entry (6bd47e9..HEAD). Result: 9 discrepancies found, 5 fixed here (backend build, persistence tests, gofmt, CHANGELOG append-only + stale entries, WebRTC comments), 4 recorded on the project board as bugs/deviations. Backend: `go build ./...` clean, `go vet ./...` clean, `go test -race ./...` fully green, `gofmt -l .` empty. Frontend not built locally (no cmake, sudo unavailable) — verified via CI.
+
 ## [v1.1.5] - 2026-07-12
 
 ### Added
@@ -16,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release workflow: per-job permissions (contents:read/write)
 - CI: race detector with CGO_ENABLED=1
 - `backend/Dockerfile`: multi-stage Alpine build (1.6MB runtime)
-- P2P: rooms and playback sync are brokered by the server over SSE (no STUN/TURN required)
+- P2P: TURN server configuration via TURN_URL/TURN_USERNAME/TURN_CREDENTIAL envar
 - Auth: JWT token TTL configurable via JWT_TTL_HOURS environment variable
 - Auth: structured audit logging for register/login events
 - Auth: CORS origins reload every 5 minutes (no restart required)
@@ -47,7 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Basic torrent client functionality based on anacrolix/torrent
 - HTTP REST API server in Go with chi router
-- Playback synchronization with latency compensation (server-brokered over SSE)
+- P2P connections via WebRTC (pion/webrtc v4)
+- Playback synchronization with latency compensation
 - JWT authentication for users and peers
 - Password-protected rooms with bcrypt hashing
 - SSE (Server-Sent Events) for real-time room events

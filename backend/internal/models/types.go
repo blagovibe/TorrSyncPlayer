@@ -61,7 +61,7 @@ type JoinRoomRequest struct {
 	Password string `json:"password"`
 }
 
-// SignalRequest request to send a WebRTC signal
+// SignalRequest request to relay a room signal to peers (server-brokered over SSE)
 type SignalRequest struct {
 	RoomID string `json:"roomId"`
 	Signal []byte `json:"signal"`
@@ -224,9 +224,9 @@ func NewFileListResponse(files []FileInfo, totalCount, limit, offset int) FileLi
 
 // StreamConfig streaming configuration
 type StreamConfig struct {
-	BufferPercent    int   `json:"buffer_percent"`   // Buffer percentage (5-20)
-	BufferDuration   int   `json:"buffer_duration"`  // Buffer duration in seconds
-	MaxBufferSize    int64 `json:"max_buffer_size"`  // Maximum buffer size in bytes
+	BufferPercent  int   `json:"buffer_percent"`  // Buffer percentage (5-20)
+	BufferDuration int   `json:"buffer_duration"` // Buffer duration in seconds
+	MaxBufferSize  int64 `json:"max_buffer_size"` // Maximum buffer size in bytes
 }
 
 // BufferInfo buffer state information

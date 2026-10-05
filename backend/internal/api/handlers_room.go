@@ -134,8 +134,8 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	}
 }
 
-// LeaveRoom handler for leaving a P2P room.
-// Closes WebRTC connection and removes the peer from the room.
+// LeaveRoom handler for leaving a room.
+// Removes the peer from the room and closes its event subscription.
 //
 // @Summary      Leave room
 // @Description  Leaves the current P2P room
@@ -256,17 +256,17 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-	events := p2pSvc.GetEvents(userID)
-	if events == nil {
-		logger.Error("SSE: event channel unavailable for user", "roomID", roomID, "userID", userID)
-		WriteError(w, http.StatusInternalServerError, "Event channel not available")
-		return
-	}
+		events := p2pSvc.GetEvents(userID)
+		if events == nil {
+			logger.Error("SSE: event channel unavailable for user", "roomID", roomID, "userID", userID)
+			WriteError(w, http.StatusInternalServerError, "Event channel not available")
+			return
+		}
 
-	SSEEventHandler(w, r, events, roomID, r.URL.Path, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = p2pSvc.LeaveRoom(ctx, userID)
-	})
+		SSEEventHandler(w, r, events, roomID, r.URL.Path, func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = p2pSvc.LeaveRoom(ctx, userID)
+		})
 	}
 }

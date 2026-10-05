@@ -115,7 +115,7 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 		File:           wrapped,
 		BufferPercent:  bufferPercent,
 		BufferDuration: bufferDuration,
-		MaxBufferSize:   maxBufferSize,
+		MaxBufferSize:  maxBufferSize,
 		PieceSize:      pieceSize,
 		TotalPieces:    totalPieces,
 		LastUpdate:     time.Now(),

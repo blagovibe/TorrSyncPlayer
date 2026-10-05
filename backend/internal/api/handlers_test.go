@@ -1091,7 +1091,7 @@ func (m *mockP2PServiceForRoomEvents) GetRoomInfo(ctx context.Context, userID st
 	return &models.RoomInfo{ID: "0123456789abcdef0123456789abcdef", Name: "test", HostID: "host", PeerCount: 1}, nil
 }
 func (m *mockP2PServiceForRoomEvents) BroadcastSync(roomID string, syncData interface{}) {}
-func (m *mockP2PServiceForRoomEvents) Close() error                                    { return nil }
+func (m *mockP2PServiceForRoomEvents) Close() error                                      { return nil }
 
 // TestRoomEvents_NilEventChannel verifies that a nil event channel returns 500
 // instead of the old 503 "not implemented" message.
