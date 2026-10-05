@@ -338,19 +338,28 @@ jobs:
 
       - name: Install go-mutesting
         run: |
-          go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
+          # Pinned: @latest now requires Go >= 1.27, but CI is on $(GO_VERSION).
+          # Last revision before the upstream Go 1.27 bump (go.mod says go 1.25.5).
+          go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb
 
       - name: Run mutation testing (backend)
         working-directory: backend
         run: |
           go-mutesting ./internal/... 2>&1 | tee mutation.log
-          # Check mutation score (fail if below 80%)
-          MUTATION_SCORE=$(grep -oP 'Mutation score: \K\d+(\.\d+)?' mutation.log | head -1)
-          if [ -n "$MUTATION_SCORE" ] && [ $(echo "$MUTATION_SCORE < 80" | bc -l) -eq 1 ]; then
-            echo "Mutation score $MUTATION_SCORE% is below 80% threshold"
+          # go-mutesting prints: "The mutation score is 0.607143 (...)" — a 0..1 ratio,
+          # not a percentage. The old grep looked for "Mutation score: <n>", which never
+          # matched, so this threshold was dead code.
+          MUTATION_RATIO=$(grep -oiE 'mutation score is [0-9.]+' mutation.log | tail -1 | grep -oE '[0-9.]+$')
+          if [ -z "$MUTATION_RATIO" ]; then
+            echo "Could not parse mutation score from mutation.log"
             exit 1
           fi
-          echo "Mutation score: $MUTATION_SCORE%"
+          MUTATION_PERCENT=$(awk "BEGIN { printf \"%.2f\", $MUTATION_RATIO * 100 }")
+          echo "Mutation score: $MUTATION_PERCENT%"
+          if awk "BEGIN { exit !($MUTATION_RATIO < 0.80) }"; then
+            echo "Mutation score $MUTATION_PERCENT% is below the 80% threshold"
+            exit 1
+          fi
 
       - name: Install Mull for C++ mutation testing
         run: |
