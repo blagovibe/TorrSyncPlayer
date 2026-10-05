@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dead code found by the `unused` linter: `realPiece` in `internal/buffer/service.go` (a wrapper around
   `*torrent.Piece` that was never used — `realTorrent.Piece()` returns the concrete type, which already
   satisfies `torrentPiece`)
+- CI: Go pinned to 1.26.6 in ci.yml, release.yml and security.yml — `govulncheck` reported 7 stdlib
+  vulnerabilities present in 1.26.5 (GO-2026-5026/6088/6089/6090/6091/6218), all fixed in 1.26.6
 - Import grouping: `internal/buffer/service_test.go` failed the `goimports` formatter check (local-prefixes)
 - gofmt: 5 files unformatted (`api/handlers_room.go`, `api/handlers_test.go`, `buffer/service.go`, `buffer/service_test.go`, `models/types.go`), which failed the CI format check
 - CHANGELOG append-only: commit 6bd47e9 had rewritten the existing v1.1.5 and 1.0.0 entries; original lines restored, the change is now recorded here instead of rewriting history
