@@ -25,8 +25,10 @@ Desktop torrent player with P2P playback synchronization.
 
 ## Documentation
 
+- [Concept](CONCEPT.md) — what the project is for and its boundaries
+- [Dev](DEV.md) — architecture, stack, code conventions, test commands
 - [API documentation](docs/API.md) — complete REST API reference (22 routes)
-- [Architecture](docs/ARCHITECTURE.md) — backend, frontend, and P2P architecture
+- [Architecture details](docs/ARCHITECTURE.md) — diagrams, request flows, data model
 - [User Guide](docs/USER_GUIDE.md) — usage instructions
 - [Installation Guide](docs/INSTALL.md) — installation and configuration
 - [Changelog](CHANGELOG.md) — version history
@@ -106,10 +108,13 @@ TorrSyncPlayer/
 │   ├── CMakeLists.txt
 │   └── build.sh / build.bat
 │
+├── CONCEPT.md         # What the project is for, and its boundaries
+├── DEV.md             # How it is built: architecture, stack, conventions, tests
 ├── docs/              # Documentation
 │   ├── API.md         # API documentation
-│   ├── ARCHITECTURE.md # Architecture (backend, frontend, P2P)
+│   ├── ARCHITECTURE.md # Diagrams, request flows, data model
 │   ├── INSTALL.md     # Installation guide
+│   ├── METRICS.md     # Prometheus metrics
 │   └── USER_GUIDE.md  # User guide
 │
 ├── .github/           # GitHub Actions workflows
@@ -120,6 +125,7 @@ TorrSyncPlayer/
 ├── CHANGELOG.md       # Version history
 ├── CONTRIBUTING.md    # Contributor guide
 ├── AGENTS.md          # AI agent guide
+├── tests/             # Chaos (toxiproxy), load (k6), and e2e suites
 └── LICENSE            # MIT license
 ```
 

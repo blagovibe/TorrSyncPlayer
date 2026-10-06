@@ -9,12 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DEV.md` — the project's file 2 (how it is built): architecture with per-package
+  responsibilities, tech stack with versions, development principles, repository layout and test
+  commands. Detailed diagrams, request flows and the data model stay in `docs/ARCHITECTURE.md`,
+  so nothing is duplicated (task `t_7a629b42`)
+- CI: Swagger spec freshness check — regenerates the spec and fails on any diff, so the spec can no
+  longer drift from the annotations silently (task `t_33d47b84`)
+- README: links to `CONCEPT.md` and `DEV.md`, and the project structure now matches what is actually
+  in the repository, including `docs/METRICS.md` and `tests/`
 - Persistence: JSON-file storage for users, revoked tokens, rooms and playback state (`internal/persistence`), enabled via `--data-dir`
 - Persistence: debounced writes (`internal/utils/debouncer.go`) so bursts of state mutations collapse into one disk write; `Stop` waits for an in-flight write before the shutdown flush
 - Contract testing: Pact provider verification against the real backend router (`internal/contract`, contract `pacts/frontend-backend.json`)
 - Tests: chaos scenarios (toxiproxy), k6 load scenarios, Playwright e2e suite, Qt headless e2e
-- Docs: `docs/METRICS.md`, `MUTATION_TESTING.md`
-- Methodology: `CONCEPT.md` (goal and boundaries); `docs/ARCHITECTURE.md` serves as the way (how)
+- Docs: `docs/METRICS.md`
+- Methodology: `CONCEPT.md` (goal and boundaries) and `DEV.md` (way — how it is built)
+
+### Removed
+
+- `docs/ARCHITECTURE_BACKEND.md` and `docs/ARCHITECTURE_FRONTEND.md` — their content is already in
+  `docs/ARCHITECTURE.md`; the `Package Structure` block was byte-identical between the two files
+  (task `t_7a629b42`)
+- `SECURITY.md` (root) — duplicate of `.github/SECURITY.md`, with a conflicting supported-versions
+  table; GitHub surfaces the `.github` one anyway (task `t_f3d4996c`)
+- `MUTATION_TESTING.md` — stale: it documented `@latest` (which needs Go ≥ 1.27), a 80% threshold
+  (now 45%), and a `.mutesting.toml` that does not exist in the project. The working configuration
+  lives in the Mutation Testing CI job (task `t_8cc25d8e`)
 
 ### Fixed
 
@@ -68,6 +87,15 @@ Verified on PR #51 — CI green: Lint Backend, Test Backend (with govulncheck), 
 (`GOTOOLCHAIN=go1.26.6`): `golangci-lint run` 0 issues, `gofmt -l .` and `goimports -l .` empty,
 `go vet ./...` clean, `go test -race ./...` green. Frontend cannot be built on the dev machine
 (no cmake, sudo requires a password) — covered by CI.
+
+Docs cleanup pass (same session): fresh reconciliation against the methodology files found the repo
+consistent with its goal and 5 documentation/structure discrepancies. 5 resolved here (`DEV.md`
+created, duplicate architecture and security files removed, stale mutation-testing doc removed, README
+links fixed, Swagger freshness added to CI); the 4 documentation deviations found earlier in this
+session stay on the project board. Verified: no status/roadmap file exists, `DEV.md` and `CONCEPT.md`
+contain no plans or status markers, the CHANGELOG stays append-only (the only `MUTATION_TESTING.md`
+mention left is inside a historical entry, which is never edited), and every internal Markdown link
+resolves to an existing file.
 
 ## [v1.1.5] - 2026-07-12
 

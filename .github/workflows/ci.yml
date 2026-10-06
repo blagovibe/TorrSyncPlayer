@@ -57,6 +57,17 @@ jobs:
           git diff --exit-code go.mod go.sum || { echo "go.mod/go.sum not tidy. Run: go mod tidy"; exit 1; }
           go mod verify
 
+      - name: Check Swagger spec is up to date
+        working-directory: backend
+        run: |
+          # The spec is generated from the annotations in the code. Without this
+          # check it rots silently: it once still described WebRTC data channels
+          # that had been removed months earlier.
+          go run github.com/swaggo/swag/cmd/swag@v1.16.6 \
+            init --generalInfo cmd/server/main.go --output docs --parseDependency
+          git diff --exit-code docs/ \
+            || { echo "Swagger spec is stale. Regenerate with the command above"; exit 1; }
+
       - name: Secrets scanning
         uses: trufflesecurity/trufflehog@v3.95.9
         with:
