@@ -31,7 +31,6 @@ jobs:
   govulncheck:
     name: Go Vulnerability Scan
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 
@@ -55,12 +54,11 @@ jobs:
 
       - name: Run govulncheck
         working-directory: backend
-        run: govulncheck ./... || exit 0  # Report vulnerabilities but don't fail CI
+        run: govulncheck ./...
 
   secret-scan:
     name: Secret Scanning
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,7 +75,6 @@ jobs:
   cpp-security:
     name: C++ Security Analysis
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 
