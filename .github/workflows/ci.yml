@@ -402,29 +402,32 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - name: Download Pact FFI library
-        working-directory: backend
-        env:
-          PACT_FFI_VERSION: v0.4.28 # matches pact-go v2.5.1
-        run: |
-          # pact-go v2 links against the native Rust FFI library. Asset names
-          # come from pact-foundation/pact-reference (not pact-reference-rust).
-          FFI_URL="https://github.com/pact-foundation/pact-reference/releases/download/libpact_ffi-$PACT_FFI_VERSION/libpact_ffi-linux-x86_64.so.gz"
-          curl -sSL -o libpact_ffi.so.gz "$FFI_URL"
-          gunzip -c libpact_ffi.so.gz > libpact_ffi.so
-          echo "PACT_FFI_DIR=$(pwd)" >> "$GITHUB_ENV"
-          ls -la libpact_ffi.so
-
       - name: Run Pact provider verification (backend)
         working-directory: backend
-        env:
-          # pact-go links against the native libpact_ffi; these point cgo at it.
-          CGO_LDFLAGS: "-L$PACT_FFI_DIR -lpact_ffi"
-          LD_LIBRARY_PATH: "$PACT_FFI_DIR"
+        shell: bash
         run: |
+          # Download and test in ONE step on purpose. The path used to be written
+          # to $GITHUB_ENV in a previous step and referenced as "$PACT_FFI_DIR" in
+          # this step's `env:` block — but workflow env values are resolved by the
+          # runner before bash runs, so the linker received the literal string
+          # "$PACT_FFI_DIR" and failed with "cannot find -lpact_ffi".
+          #
           # -tags contract is required: the provider test is behind that build
           # tag, so without it go test reported "no test files" and the old
           # "|| true" turned that into a green job.
+          #
+          # pipefail is mandatory: `go test ... | tee pact.log` returns tee's exit
+          # status, so a failing verification was reported as a passing job.
+          set -o pipefail
+
+          FFI_URL="https://github.com/pact-foundation/pact-reference/releases/download/libpact_ffi-${PACT_FFI_VERSION:-v0.4.28}/libpact_ffi-linux-x86_64.so.gz"
+          curl -sSL -o libpact_ffi.so.gz "$FFI_URL"
+          gunzip -c libpact_ffi.so.gz > libpact_ffi.so
+
+          export PACT_FFI_DIR="$PWD"
+          export CGO_LDFLAGS="-L$PACT_FFI_DIR -lpact_ffi"
+          export LD_LIBRARY_PATH="$PACT_FFI_DIR"
+
           go test -v -tags contract -timeout 15m -run PactProvider ./internal/contract/... 2>&1 | tee pact.log
 
       - name: Upload Pact log

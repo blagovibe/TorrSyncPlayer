@@ -138,8 +138,9 @@ const (
 	// PeerIDLength peer identifier length in bytes
 	PeerIDLength = 16
 
-	// MaxSignalSize maximum WebRTC signal size in bytes (64 KB)
-	// Typical SDP offer/answer rarely exceeds 8 KB, ICE candidates are even smaller
+	// MaxSignalSize maximum room-signal payload size in bytes (64 KB).
+	// Signals are relayed as opaque JSON through the server (no WebRTC), so this
+	// is a DoS guard on the broker, not an SDP/ICE size limit.
 	MaxSignalSize = 64 * 1024
 
 	// MaxRooms maximum number of concurrent P2P rooms

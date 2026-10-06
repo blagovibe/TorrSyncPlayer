@@ -1,5 +1,11 @@
 name: Security
 
+env:
+  # Single source of truth for the Go version across all workflows, matching
+  # ci.yml and release.yml. Keep this in sync with those two by editing only
+  # the value here and in the workflow-level `env:` blocks.
+  GO_VERSION: '1.26.6'
+
 on:
   schedule:
     - cron: '0 2 * * 1'  # Weekly Monday 2 AM UTC
@@ -31,7 +37,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.6'
+          go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: backend/go.sum
 
