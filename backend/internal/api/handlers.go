@@ -33,6 +33,9 @@ const (
 	// maxSSEConnections maximum number of concurrent SSE connections per room
 	maxSSEConnections = constants.MaxSSEConnections
 
+	// maxGlobalSSEConnections maximum total SSE connections across all rooms
+	maxGlobalSSEConnections = constants.MaxGlobalSSEConnections
+
 	// sseTimeout timeout for SSE connection
 	sseTimeout = constants.SSETimeout
 
@@ -56,7 +59,7 @@ func newSSEConnectionManager(maxConn int) *sseConnectionManager {
 	return &sseConnectionManager{
 		counts:    make(map[string]int),
 		maxConn:   maxConn,
-		maxGlobal: maxConn * 10, // 10x room limit as global cap
+		maxGlobal: maxGlobalSSEConnections,
 	}
 }
 

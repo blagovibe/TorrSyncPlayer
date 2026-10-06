@@ -56,8 +56,8 @@ func NewRouter(config RouterConfig) http.Handler {
 	// Version endpoint
 	r.Get(APIPathVersion, VersionHandler())
 
-	// Prometheus metrics endpoint (per-IP rate limited, without CSRF/JWT for monitoring tools)
-	r.With(PerIPRateLimiter).Get(APIPathMetrics, MetricsHandler())
+	// Prometheus metrics endpoint (per-IP rate limited with stricter limits, without CSRF/JWT for monitoring tools)
+	r.With(NewRateLimiter(rate.Limit(constants.MetricsRateLimit), constants.MetricsRateBurst)).Get(APIPathMetrics, MetricsHandler())
 
 	// CSRF token endpoint for obtaining a token (per-IP rate limited with stricter limits)
 	r.With(NewRateLimiter(rate.Limit(constants.CSRFRateLimit), constants.CSRFRateBurst)).Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +92,7 @@ func NewRouter(config RouterConfig) http.Handler {
 	// Public stream endpoint — authenticated via a signed stream ticket
 	// (query param "?ticket=") rather than JWT/CSRF, because media players
 	// (libmpv) cannot attach auth headers to their own HTTP fetches.
-	r.With(PerIPRateLimiter).Get("/api/v1/torrents/{id}/stream", StreamFile(config.TorrentSvc, config.AuthService))
+	r.With(NewRateLimiter(rate.Limit(constants.StreamRateLimit), constants.StreamRateBurst)).Get("/api/v1/torrents/{id}/stream", StreamFile(config.TorrentSvc, config.AuthService))
 
 	// Protected endpoints — with Rate limiting, CSRF and JWT authentication
 	r.Group(func(r chi.Router) {

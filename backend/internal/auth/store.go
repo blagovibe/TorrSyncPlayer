@@ -22,18 +22,29 @@ import (
 var (
 	dummyHashOnce sync.Once
 	dummyHashVal  []byte
+	dummyHashErr  error
 )
 
-func getDummyHash() []byte {
+// InitDummyHash initializes the dummy bcrypt hash for timing attack mitigation.
+// Returns an error if the hash cannot be generated (fails fast).
+// Must be called before using the UserStore.
+func InitDummyHash() error {
 	dummyHashOnce.Do(func() {
 		hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-mitigation"), constants.BcryptCost)
 		if err != nil {
 			logger.Error("failed to generate dummy bcrypt hash", "error", err)
+			dummyHashErr = fmt.Errorf("failed to generate dummy bcrypt hash for timing mitigation: %w", err)
 			dummyHashVal = nil
 		} else {
 			dummyHashVal = hash
+			dummyHashErr = nil
 		}
 	})
+	return dummyHashErr
+}
+
+func getDummyHash() []byte {
+	// Should be called after initDummyHash()
 	return dummyHashVal
 }
 

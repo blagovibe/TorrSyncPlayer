@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/hkdf"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -401,11 +402,19 @@ func (s *AuthService) ValidateStreamTicket(ticket, torrentID string) (string, bo
 	return userID, true
 }
 
-// streamTicketKey derives the HMAC key for stream tickets, separated from the
-// JWT signing key by a domain prefix.
+// streamTicketKey derives the HMAC key for stream tickets using HKDF,
+// separating it from the JWT signing key with a domain-separation label.
+// This provides proper key derivation instead of simple concatenation.
 func (s *AuthService) streamTicketKey() []byte {
-	key := make([]byte, 0, len(constants.StreamTicketSecret)+len(s.jwtSecret))
-	key = append(key, []byte(constants.StreamTicketSecret)...)
-	key = append(key, s.jwtSecret...)
+	// Use HKDF with the JWT secret as input key material (IKM)
+	// The salt is nil (defaults to zeros), info provides domain separation
+	hkdfReader := hkdf.New(sha256.New, s.jwtSecret, nil, []byte(constants.StreamTicketSecret))
+	key := make([]byte, 32) // 256-bit key for HMAC-SHA256
+	if _, err := hkdfReader.Read(key); err != nil {
+		// This should never happen with HKDF, but fallback to old method for safety
+		key = make([]byte, 0, len(constants.StreamTicketSecret)+len(s.jwtSecret))
+		key = append(key, []byte(constants.StreamTicketSecret)...)
+		key = append(key, s.jwtSecret...)
+	}
 	return key
 }

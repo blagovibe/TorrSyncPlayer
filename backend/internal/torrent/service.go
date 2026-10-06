@@ -33,6 +33,7 @@ import (
 // Torrent service constants
 const (
 	gracefulShutdownTimeout = constants.TorrentGracefulShutdownTimeout
+	magnetMetadataTimeout   = constants.MagnetMetadataTimeout
 	maxTorrents             = constants.MaxTorrents
 	maxStreamFileSize       = constants.MaxStreamFileSize
 	maxTorrentFileSize      = constants.MaxTorrentFileSize
@@ -196,14 +197,17 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 		return nil, fmt.Errorf("failed to add torrent: %w", err)
 	}
 
-	// Wait for metadata reception
+	// Wait for metadata reception with explicit timeout
+	metadataCtx, cancel := context.WithTimeout(ctx, magnetMetadataTimeout)
+	defer cancel()
+
 	select {
 	case <-t.GotInfo():
 		logger.Debug("Torrent: metadata received", "magnetHash", magnetHash)
-	case <-ctx.Done():
+	case <-metadataCtx.Done():
 		t.Drop()
-		logger.Warn("Torrent: timeout waiting for metadata", "magnetHash", magnetHash, "error", ctx.Err())
-		return nil, fmt.Errorf("timeout waiting for metadata: %w", ctx.Err())
+		logger.Warn("Torrent: timeout waiting for metadata", "magnetHash", magnetHash, "error", metadataCtx.Err())
+		return nil, fmt.Errorf("timeout waiting for metadata: %w", metadataCtx.Err())
 	}
 
 	torrentID := t.InfoHash().HexString()
@@ -264,14 +268,17 @@ func (s *Service) AddTorrent(ctx context.Context, torrentData io.Reader) (*model
 		return nil, fmt.Errorf("failed to add torrent from file: %w", err)
 	}
 
-	// Wait for metadata reception
+	// Wait for metadata reception with explicit timeout
+	metadataCtx, cancel := context.WithTimeout(ctx, magnetMetadataTimeout)
+	defer cancel()
+
 	select {
 	case <-t.GotInfo():
 		logger.Debug("Torrent: metadata received from file")
-	case <-ctx.Done():
+	case <-metadataCtx.Done():
 		t.Drop()
-		logger.Warn("Torrent: timeout waiting for metadata", "error", ctx.Err())
-		return nil, fmt.Errorf("timeout waiting for metadata: %w", ctx.Err())
+		logger.Warn("Torrent: timeout waiting for metadata", "error", metadataCtx.Err())
+		return nil, fmt.Errorf("timeout waiting for metadata: %w", metadataCtx.Err())
 	}
 
 	torrentID := t.InfoHash().HexString()

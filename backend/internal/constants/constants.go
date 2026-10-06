@@ -83,6 +83,20 @@ const (
 
 	// CSRFRateBurst burst size for CSRF endpoint
 	CSRFRateBurst = 2
+
+	// MetricsRateLimit rate limit for metrics endpoint (requests per second)
+	// Strict: ~30 requests/minute for Prometheus scraping
+	MetricsRateLimit = 0.5 // ~30 requests/minute
+
+	// MetricsRateBurst burst size for metrics endpoint
+	MetricsRateBurst = 10
+
+	// StreamRateLimit rate limit for stream endpoint (requests per second)
+	// Moderate: ~120 requests/minute to prevent bandwidth exhaustion
+	StreamRateLimit = 2.0 // ~120 requests/minute
+
+	// StreamRateBurst burst size for stream endpoint
+	StreamRateBurst = 20
 )
 
 // ── JWT Constants ─────────────────────────────────────────────────────────
@@ -167,6 +181,9 @@ const (
 	// TorrentGracefulShutdownTimeout timeout for graceful torrent service shutdown
 	TorrentGracefulShutdownTimeout = 30 * time.Second
 
+	// MagnetMetadataTimeout timeout for waiting for magnet metadata
+	MagnetMetadataTimeout = 60 * time.Second
+
 	// MaxTorrents maximum number of concurrent torrents (DoS protection)
 	MaxTorrents = 100
 
@@ -193,6 +210,10 @@ const (
 const (
 	// MaxSSEConnections maximum number of concurrent SSE connections per room
 	MaxSSEConnections = 100
+
+	// MaxGlobalSSEConnections maximum total SSE connections across all rooms
+	// Independent of room count to prevent DoS via many rooms
+	MaxGlobalSSEConnections = 1000
 
 	// SSETimeout SSE connection timeout
 	SSETimeout = 30 * time.Minute
