@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -269,12 +270,10 @@ func TestSaveAndLoadSync(t *testing.T) {
 		data := &SyncData{
 			Status: map[string]models.SyncStatus{
 				"room-1": {
-					RoomID:    "room-1",
 					IsPlaying: true,
 					Position:  42.5,
 				},
 				"room-2": {
-					RoomID:    "room-2",
 					IsPlaying: false,
 					Position:  0,
 				},

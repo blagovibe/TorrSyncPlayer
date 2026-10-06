@@ -77,10 +77,6 @@ backend/coverage.html
 # Generated test utilities (do not ship to GitHub)
 backend/internal/testutil/
 
-# Debouncer utility (generated scratch file)
-backend/internal/utils/debouncer.go
-backend/internal/utils/debouncer_test.go
-
 # AI / LLM artifacts (neural network generated files)
 *.tmp.json
 *.tmp.yaml

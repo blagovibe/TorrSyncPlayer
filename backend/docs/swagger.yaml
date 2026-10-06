@@ -1,56 +1,71 @@
 basePath: /api/v1
 definitions:
-  api.APIError:
-    properties:
-      code:
-        type: integer
-      message:
-        type: string
-    type: object
-  models.AddTorrentRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AddTorrentRequest:
     properties:
       magnetUri:
         type: string
+      torrentFile:
+        description: base64 encoded torrent file content
+        type: string
     type: object
-  models.AuthResponse:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse:
     properties:
       token:
         type: string
       user:
-        $ref: '#/definitions/models.User'
+        $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse'
     type: object
-  models.BufferInfoResponse:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferInfo:
     properties:
-      position:
-        type: number
-      buffered:
-        type: number
-      bufferSize:
+      buffer_end:
+        description: Buffer end
         type: integer
-    type: object
-  models.BufferPositionRequest:
-    properties:
-      position:
+      buffer_size:
+        description: Buffer size
+        type: integer
+      buffer_start:
+        description: Buffer start
+        type: integer
+      buffered_bytes:
+        description: Bytes buffered
+        type: integer
+      buffered_percent:
+        description: Buffer load percentage
         type: number
+      current_position:
+        description: Current position in bytes
+        type: integer
+      download_speed:
+        description: Download speed (bytes/sec)
+        type: integer
+      file_index:
+        type: integer
+      is_buffering:
+        description: Is buffering in progress
+        type: boolean
+      torrent_id:
+        type: string
     type: object
-  models.CreateRoomRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest:
+    properties:
+      currentPassword:
+        type: string
+      newPassword:
+        type: string
+    type: object
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.CreateRoomRequest:
     properties:
       name:
         type: string
       password:
         type: string
     type: object
-  models.CSRFTokenResponse:
-    properties:
-      csrfToken:
-        type: string
-    type: object
-  models.ErrorResponse:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse:
     properties:
       error:
         type: string
     type: object
-  models.FileInfo:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileInfo:
     properties:
       index:
         type: integer
@@ -59,11 +74,11 @@ definitions:
       size:
         type: integer
     type: object
-  models.FileListResponse:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileListResponse:
     properties:
       files:
         items:
-          $ref: '#/definitions/models.FileInfo'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileInfo'
         type: array
       hasMore:
         type: boolean
@@ -74,39 +89,34 @@ definitions:
       totalCount:
         type: integer
     type: object
-  models.HealthResponse:
-    properties:
-      status:
-        type: string
-      uptime:
-        type: number
-      version:
-        type: string
-    type: object
-  models.JoinRoomRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomRequest:
     properties:
       password:
         type: string
       roomId:
         type: string
     type: object
-  models.LoginRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest:
     properties:
       password:
         type: string
       username:
         type: string
     type: object
-  models.RegisterRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest:
     properties:
       password:
         type: string
       username:
         type: string
     type: object
-  models.RoomInfo:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo:
     properties:
       hostId:
+        description: |-
+          HostID is the host's peer (session) identifier, NOT the host's user ID.
+          The host's user ID is tracked separately server-side (HostUserID in the
+          p2p service room struct) and is the authoritative key for host checks.
         type: string
       id:
         type: string
@@ -115,17 +125,23 @@ definitions:
       peerCount:
         type: integer
     type: object
-  models.SeekRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SeekRequest:
     properties:
       position:
         type: number
     type: object
-  models.SelectFileRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SelectFileRequest:
     properties:
       fileIndex:
         type: integer
     type: object
-  models.SignalRequest:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SetBufferPositionRequest:
+    properties:
+      position:
+        description: Position in bytes
+        type: integer
+    type: object
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SignalRequest:
     properties:
       roomId:
         type: string
@@ -134,12 +150,19 @@ definitions:
           type: integer
         type: array
     type: object
-  models.SuccessResponse:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse:
+    properties:
+      ticket:
+        type: string
+      torrentId:
+        type: string
+    type: object
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse:
     properties:
       message:
         type: string
     type: object
-  models.SyncStatus:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus:
     properties:
       duration:
         type: number
@@ -150,7 +173,7 @@ definitions:
       timestamp:
         type: integer
     type: object
-  models.TorrentInfo:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentInfo:
     properties:
       id:
         type: string
@@ -163,7 +186,7 @@ definitions:
       status:
         type: string
     type: object
-  models.TorrentListResponse:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentListResponse:
     properties:
       hasMore:
         type: boolean
@@ -173,12 +196,12 @@ definitions:
         type: integer
       torrents:
         items:
-          $ref: '#/definitions/models.TorrentInfo'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentInfo'
         type: array
       totalCount:
         type: integer
     type: object
-  models.User:
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse:
     properties:
       createdAt:
         type: integer
@@ -187,22 +210,13 @@ definitions:
       username:
         type: string
     type: object
-  models.VersionResponse:
-    properties:
-      version:
-        type: string
-      commit:
-        type: string
-      buildTime:
-        type: string
-    type: object
 host: localhost:8889
 info:
   contact:
     email: support@torrsyncplayer.local
     name: TorrSyncPlayer Support
     url: https://github.com/blagovibe/TorrSyncPlayer/issues
-  description: HTTP API for TorrSyncPlayer — a torrent player with P2P playback synchronization.
+  description: HTTP API for TorrSyncPlayer — torrent player with P2P playback synchronization.
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -210,46 +224,80 @@ info:
   title: TorrSyncPlayer API
   version: "1.0"
 paths:
-  /api/v1/auth/login:
+  /api/v1/auth/change-password:
     post:
       consumes:
       - application/json
-      description: Authenticates a user and returns a JWT token
+      description: Changes the current user's password
       parameters:
-      - description: Login credentials
+      - description: Password change data
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.LoginRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.AuthResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Change password
+      tags:
+      - auth
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates the user and returns a JWT token
+      parameters:
+      - description: Login data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Login
       tags:
       - auth
   /api/v1/auth/logout:
     post:
-      description: Revokes a JWT token (adds to the revoked list)
+      description: Revokes the JWT token (adds to revoked list)
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Logout
@@ -266,34 +314,21 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.RegisterRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.AuthResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Register
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Registration
       tags:
       - auth
-  /api/v1/csrf-token:
-    get:
-      description: Returns a CSRF token for protection against cross-site request forgery
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.CSRFTokenResponse'
-      summary: Get CSRF token
-      tags:
-      - system
   /api/v1/health:
     get:
       description: Basic server health check (does not require authentication)
@@ -303,27 +338,10 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.HealthResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Health check
-      tags:
-      - system
-  /api/v1/health/detailed:
-    get:
-      description: Detailed health check with service status verification (requires JWT)
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.HealthResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/models.HealthResponse'
-      security:
-      - BearerAuth: []
-      summary: Detailed health check
       tags:
       - system
   /api/v1/rooms:
@@ -337,27 +355,24 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.CreateRoomRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.CreateRoomRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.RoomInfo'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Create room
       tags:
       - rooms
   /api/v1/rooms/{roomID}/events:
     get:
-      description: Subscribes to real-time P2P room events via Server-Sent
-        Events
+      description: Subscribe to P2P room events in real-time via Server-Sent Events
       parameters:
       - description: Room ID
         in: path
@@ -371,8 +386,6 @@ paths:
           description: OK
           schema:
             type: string
-      security:
-      - BearerAuth: []
       summary: Room events (SSE)
       tags:
       - rooms
@@ -380,27 +393,25 @@ paths:
     post:
       consumes:
       - application/json
-      description: Joins an existing P2P room
+      description: Joins a user to an existing P2P room
       parameters:
-      - description: Join room data
+      - description: Login data
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.JoinRoomRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Join room
       tags:
       - rooms
@@ -413,13 +424,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Leave room
       tags:
       - rooms
@@ -427,29 +436,27 @@ paths:
     post:
       consumes:
       - application/json
-      description: Sends a WebRTC signal (SDP offer/answer, ICE candidate) through
-        the data channel
+      description: Relays a sync signal (arbitrary JSON payload) to all peers in the
+        room via the server-brokered SSE stream
       parameters:
-      - description: WebRTC signal
+      - description: Sync signal
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.SignalRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SignalRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
-      summary: Send WebRTC signal
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Send room sync signal
       tags:
       - rooms
   /api/v1/sync/pause:
@@ -461,9 +468,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SyncStatus'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus'
       summary: Pause playback
       tags:
       - sync
@@ -476,9 +481,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SyncStatus'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus'
       summary: Start playback
       tags:
       - sync
@@ -486,48 +489,44 @@ paths:
     post:
       consumes:
       - application/json
-      description: Performs a synchronized seek to the specified position
+      description: Performs synchronized seek to the specified position
       parameters:
       - description: Seek position
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.SeekRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SeekRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SyncStatus'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Seek
       tags:
       - sync
   /api/v1/sync/status:
     get:
-      description: Returns the current playback synchronization status
+      description: Returns the current synchronization status
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SyncStatus'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus'
       summary: Sync status
       tags:
       - sync
   /api/v1/torrents:
     get:
-      description: Returns a paginated list of all torrents
+      description: Returns a list of all torrents with pagination
       parameters:
       - default: 20
         description: Record limit
@@ -546,46 +545,43 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.TorrentListResponse'
-      security:
-      - BearerAuth: []
-      summary: Torrent list
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentListResponse'
+      summary: List torrents
       tags:
       - torrents
     post:
       consumes:
       - application/json
-      description: Adds a torrent by magnet link and returns its information
+      description: Adds a torrent via magnet link or torrent file and returns its
+        information
       parameters:
-      - description: Magnet URI
+      - description: Magnet URI or Torrent File (base64)
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.AddTorrentRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AddTorrentRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.TorrentInfo'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentInfo'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Add torrent
       tags:
       - torrents
   /api/v1/torrents/{id}:
     delete:
-      description: Deletes a torrent by its ID
+      description: Removes a torrent by its ID
       parameters:
       - description: Torrent ID
         in: path
@@ -598,23 +594,21 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
-      summary: Delete torrent
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Remove torrent
       tags:
       - torrents
   /api/v1/torrents/{id}/buffer/info:
     get:
-      description: Returns information about the torrent buffer state
+      description: Returns buffer state information for the torrent
       parameters:
       - description: Torrent ID
         in: path
@@ -627,17 +621,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.BufferInfoResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferInfo'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Buffer info
       tags:
       - torrents
@@ -645,38 +637,36 @@ paths:
     post:
       consumes:
       - application/json
-      description: Sets the buffer position for prioritized downloading
+      description: Sets the current playback position for buffer optimization
       parameters:
       - description: Torrent ID
         in: path
         name: id
         required: true
         type: string
-      - description: Buffer position
+      - description: Position in bytes
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.BufferPositionRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SetBufferPositionRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Set buffer position
       tags:
       - torrents
   /api/v1/torrents/{id}/files:
     get:
-      description: Returns a paginated list of torrent files
+      description: Returns a list of torrent files with pagination
       parameters:
       - description: Torrent ID
         in: path
@@ -700,18 +690,16 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.FileListResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
-      summary: Torrent file list
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: List torrent files
       tags:
       - torrents
   /api/v1/torrents/{id}/select:
@@ -730,20 +718,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.SelectFileRequest'
+          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SelectFileRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Select file for streaming
       tags:
       - torrents
@@ -766,55 +752,41 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.APIError'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.APIError'
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Stream file
       tags:
       - torrents
-  /api/v1/version:
-    get:
-      description: Returns the server version, commit hash, and build time
+  /api/v1/torrents/{id}/stream-ticket:
+    post:
+      description: Returns a signed ticket authorizing streaming of the given torrent
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.VersionResponse'
-      summary: Server version
-      tags:
-      - system
-  /health:
-    get:
-      description: Basic server health check (does not require authentication)
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse'
+        "400":
+          description: Bad Request
           schema:
-            $ref: '#/definitions/models.HealthResponse'
-      summary: Health check
-      tags:
-      - system
-  /metrics:
-    get:
-      description: Prometheus server metrics
-      produces:
-      - text/plain
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+        "401":
+          description: Unauthorized
           schema:
-            type: string
-      summary: Prometheus metrics
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Issue stream ticket
       tags:
-      - system
+      - torrents
 securityDefinitions:
   BearerAuth:
     description: 'Enter JWT token in the format: Bearer <token>'

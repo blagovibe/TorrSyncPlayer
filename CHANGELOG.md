@@ -5,6 +5,70 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Persistence: JSON-file storage for users, revoked tokens, rooms and playback state (`internal/persistence`), enabled via `--data-dir`
+- Persistence: debounced writes (`internal/utils/debouncer.go`) so bursts of state mutations collapse into one disk write; `Stop` waits for an in-flight write before the shutdown flush
+- Contract testing: Pact provider verification against the real backend router (`internal/contract`, contract `pacts/frontend-backend.json`)
+- Tests: chaos scenarios (toxiproxy), k6 load scenarios, Playwright e2e suite, Qt headless e2e
+- Docs: `docs/METRICS.md`, `MUTATION_TESTING.md`
+- Methodology: `CONCEPT.md` (goal and boundaries); `docs/ARCHITECTURE.md` serves as the way (how)
+
+### Fixed
+
+- Backend build was broken: `internal/sync` and `internal/p2p` referenced `utils.Debouncer`, but the file was ignored by `.gitignore` and never committed — restored and committed
+- `internal/persistence`: tests did not compile (missing `time` import, non-existent `models.SyncStatus.RoomID` field)
+- Removed dead code found by the `unused` linter: `realPiece` in `internal/buffer/service.go` (a wrapper around
+  `*torrent.Piece` that was never used — `realTorrent.Piece()` returns the concrete type, which already
+  satisfies `torrentPiece`)
+- CI: Go pinned to 1.26.6 in ci.yml, release.yml and security.yml — `govulncheck` reported 7 stdlib
+  vulnerabilities present in 1.26.5 (GO-2026-5026/6088/6089/6090/6091/6218), all fixed in 1.26.6
+- CI: pinned `go-mutesting` to `v0.0.0-20251226130216-48d0401f00fb` — `@latest` now requires Go >= 1.27,
+  which conflicts with the pinned Go toolchain in CI
+- CI: the mutation-score threshold was dead code — it grepped for `Mutation score: <n>`, but go-mutesting
+  prints `The mutation score is 0.607143` (a 0..1 ratio), so the 80% gate never fired. Parsing fixed;
+  note that the real score is well below 80% (see the project board) and the gate will now fail honestly
+- Contract test now compiles and runs: migrated from the removed `provider.VerifierConfig`/`VerifyProvider(ctx, cfg)`
+  API to `provider.NewVerifier().VerifyProvider(t, provider.VerifyRequest{})` (pact-go v2.5.1), switched to
+  `PactFiles` (the old `PactURLs` field rejects local paths with a builder error), and fixed the pact path
+  (three levels up from `internal/contract`, not four)
+- CI: the Pact job was green without ever running a test — it omitted `-tags contract`, so `go test` reported
+  no test files, and `|| true` hid it. Tag added, `|| true` removed, and the native `libpact_ffi` (v0.4.28)
+  is now downloaded, since pact-go links against it via cgo
+- Import grouping: `internal/buffer/service_test.go` failed the `goimports` formatter check (local-prefixes)
+- gofmt: 5 files unformatted (`api/handlers_room.go`, `api/handlers_test.go`, `buffer/service.go`, `buffer/service_test.go`, `models/types.go`), which failed the CI format check
+- CHANGELOG append-only: commit 6bd47e9 had rewritten the existing v1.1.5 and 1.0.0 entries; original lines restored, the change is now recorded here instead of rewriting history
+- Docs: stale WebRTC references after WebRTC removal — comments in `internal/models/types.go` and `internal/api/handlers_room.go` corrected
+- `.gitignore`: removed rules that swallowed working code (`internal/utils/debouncer.go`) and CI config (`.codecov.yml`)
+
+### Removed
+
+- Dead frontend code: `imediaplayer.h`, `iroommanager.h`, `itorrentmanager.h`, `mock_roommanager.h`, `mock_torrentmanager.*` and their gmock tests (no remaining references)
+
+### Known Issues
+
+1. The Pact contract is stale: with verification now actually running, all 16 interactions fail. Most requests are
+   sent unauthenticated, so protected endpoints answer 401 (8 cases), plus 415 on missing Content-Type, 429 from
+   rate limiting, and a `text/event-stream` expectation that gets `application/json`. The contract file needs to be
+   regenerated with auth headers and the current response shapes — board `t_7eebdc1c`
+2. CI still masks failures of e2e and mutation steps via `|| true` — board `t_1452fa61`
+3. `.gitignore` still ignores `config.yaml` globally and `backend/internal/testutil/` — board `t_6e2ff5cf`
+
+### Verification
+
+Fresh reconciliation performed (project-docs step 2): git boundary = 12 commits after the last CHANGELOG entry (6bd47e9..HEAD).
+Result: 9 discrepancies found; 5 fixed here (backend build, persistence tests, formatting, CHANGELOG append-only + stale
+entries, WebRTC comments), 4 recorded on the project board as bugs/deviations, plus 2 found by CI afterwards
+(dead code flagged by `unused`, Go 1.26.5 stdlib vulnerabilities).
+
+Verified on PR #51 — CI green: Lint Backend, Test Backend (with govulncheck), Frontend Build & Test
+(clang-tidy + Qt unit + gmock), Build Backend on ubuntu/macos/windows. Locally, on the CI Go version
+(`GOTOOLCHAIN=go1.26.6`): `golangci-lint run` 0 issues, `gofmt -l .` and `goimports -l .` empty,
+`go vet ./...` clean, `go test -race ./...` green. Frontend cannot be built on the dev machine
+(no cmake, sudo requires a password) — covered by CI.
+
 ## [v1.1.5] - 2026-07-12
 
 ### Added
@@ -16,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release workflow: per-job permissions (contents:read/write)
 - CI: race detector with CGO_ENABLED=1
 - `backend/Dockerfile`: multi-stage Alpine build (1.6MB runtime)
-- P2P: rooms and playback sync are brokered by the server over SSE (no STUN/TURN required)
+- P2P: TURN server configuration via TURN_URL/TURN_USERNAME/TURN_CREDENTIAL envar
 - Auth: JWT token TTL configurable via JWT_TTL_HOURS environment variable
 - Auth: structured audit logging for register/login events
 - Auth: CORS origins reload every 5 minutes (no restart required)
@@ -47,7 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Basic torrent client functionality based on anacrolix/torrent
 - HTTP REST API server in Go with chi router
-- Playback synchronization with latency compensation (server-brokered over SSE)
+- P2P connections via WebRTC (pion/webrtc v4)
+- Playback synchronization with latency compensation
 - JWT authentication for users and peers
 - Password-protected rooms with bcrypt hashing
 - SSE (Server-Sent Events) for real-time room events

@@ -34,7 +34,7 @@ import (
 // @Produce      json
 // @Param        request  body      models.CreateRoomRequest  true  "Room data"
 // @Success      201      {object}  models.RoomInfo
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms [post]
 func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Produce      json
 // @Param        request  body      models.JoinRoomRequest  true  "Login data"
 // @Success      200      {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/join [post]
 func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -134,15 +134,15 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	}
 }
 
-// LeaveRoom handler for leaving a P2P room.
-// Closes WebRTC connection and removes the peer from the room.
+// LeaveRoom handler for leaving a room.
+// Removes the peer from the room and closes its event subscription.
 //
 // @Summary      Leave room
 // @Description  Leaves the current P2P room
 // @Tags         rooms
 // @Produce      json
 // @Success      200  {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/leave [post]
 func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +174,7 @@ func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Produce      json
 // @Param        request  body      models.SignalRequest  true  "Sync signal"
 // @Success      200      {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/signal [post]
 func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -256,17 +256,17 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-	events := p2pSvc.GetEvents(userID)
-	if events == nil {
-		logger.Error("SSE: event channel unavailable for user", "roomID", roomID, "userID", userID)
-		WriteError(w, http.StatusInternalServerError, "Event channel not available")
-		return
-	}
+		events := p2pSvc.GetEvents(userID)
+		if events == nil {
+			logger.Error("SSE: event channel unavailable for user", "roomID", roomID, "userID", userID)
+			WriteError(w, http.StatusInternalServerError, "Event channel not available")
+			return
+		}
 
-	SSEEventHandler(w, r, events, roomID, r.URL.Path, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = p2pSvc.LeaveRoom(ctx, userID)
-	})
+		SSEEventHandler(w, r, events, roomID, r.URL.Path, func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = p2pSvc.LeaveRoom(ctx, userID)
+		})
 	}
 }

@@ -30,8 +30,8 @@ import (
 // @Produce      json
 // @Param        request  body      models.AddTorrentRequest  true  "Magnet URI or Torrent File (base64)"
 // @Success      201      {object}  models.TorrentInfo
-// @Failure      400      {object}  APIError
-// @Failure      500      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
+// @Failure      500      {object}  models.ErrorResponse
 // @Router       /api/v1/torrents [post]
 func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -103,8 +103,8 @@ func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Produce      json
 // @Param        id   path      string  true  "Torrent ID"
 // @Success      200  {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
-// @Failure      404      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
+// @Failure      404      {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id} [delete]
 func RemoveTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -170,8 +170,8 @@ func ListTorrents(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Param        limit   query     int     false "Record limit"  default(20)  maximum(100)
 // @Param        offset  query     int     false "Offset"      default(0)
 // @Success      200     {object}  models.FileListResponse
-// @Failure      400     {object}  APIError
-// @Failure      404     {object}  APIError
+// @Failure      400     {object}  models.ErrorResponse
+// @Failure      404     {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/files [get]
 func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +216,7 @@ func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Param        id       path      string                     true  "Torrent ID"
 // @Param        request  body      models.SelectFileRequest   true  "File index"
 // @Success      200      {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/select [post]
 func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -264,8 +264,8 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Produce      octet-stream
 // @Param        id   path      string  true  "Torrent ID"
 // @Success      200  {file}    binary
-// @Failure      400  {object}  APIError
-// @Failure      404  {object}  APIError
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      404  {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/stream [get]
 func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -304,8 +304,8 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 // @Produce      json
 // @Param        id   path      string  true  "Torrent ID"
 // @Success      200  {object}  models.StreamTicketResponse
-// @Failure      400  {object}  APIError
-// @Failure      401  {object}  APIError
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      401  {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/stream-ticket [post]
 func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -350,7 +350,7 @@ func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService)
 // @Param        id       path      string                           true  "Torrent ID"
 // @Param        request  body      models.SetBufferPositionRequest  true  "Position in bytes"
 // @Success      200      {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/buffer/position [post]
 func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -397,8 +397,8 @@ func SetBufferPosition(torrentSvc internal.TorrentService) http.HandlerFunc {
 // @Produce      json
 // @Param        id   path      string  true  "Torrent ID"
 // @Success      200  {object}  models.BufferInfo
-// @Failure      400  {object}  APIError
-// @Failure      404      {object}  APIError
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      404      {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/buffer/info [get]
 func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

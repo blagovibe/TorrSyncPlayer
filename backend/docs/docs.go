@@ -24,6 +24,52 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/auth/change-password": {
+            "post": {
+                "description": "Changes the current user's password",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Change password",
+                "parameters": [
+                    {
+                        "description": "Password change data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/login": {
             "post": {
                 "description": "Authenticates the user and returns a JWT token",
@@ -44,7 +90,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.LoginRequest"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest"
                         }
                     }
                 ],
@@ -52,13 +98,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.AuthResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -83,13 +129,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SuccessResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -115,7 +167,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.RegisterRequest"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest"
                         }
                     }
                 ],
@@ -123,13 +175,13 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/models.AuthResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -178,7 +230,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.CreateRoomRequest"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.CreateRoomRequest"
                         }
                     }
                 ],
@@ -186,19 +238,125 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/models.RoomInfo"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
             }
         },
-        "/api/v1/rooms/events": {
+        "/api/v1/rooms/join": {
+            "post": {
+                "description": "Joins a user to an existing P2P room",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rooms"
+                ],
+                "summary": "Join room",
+                "parameters": [
+                    {
+                        "description": "Login data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/rooms/leave": {
+            "post": {
+                "description": "Leaves the current P2P room",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rooms"
+                ],
+                "summary": "Leave room",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/rooms/signal": {
+            "post": {
+                "description": "Relays a sync signal (arbitrary JSON payload) to all peers in the room via the server-brokered SSE stream",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rooms"
+                ],
+                "summary": "Send room sync signal",
+                "parameters": [
+                    {
+                        "description": "Sync signal",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SignalRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/rooms/{roomID}/events": {
             "get": {
                 "description": "Subscribe to P2P room events in real-time via Server-Sent Events",
                 "produces": [
@@ -227,112 +385,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/rooms/join": {
-            "post": {
-                "description": "Joins a user to an existing P2P room",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "rooms"
-                ],
-                "summary": "Join room",
-                "parameters": [
-                    {
-                        "description": "Login data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/models.JoinRoomRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.SuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/rooms/leave": {
-            "post": {
-                "description": "Leaves the current P2P room",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "rooms"
-                ],
-                "summary": "Leave room",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.SuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/rooms/signal": {
-            "post": {
-                "description": "Sends a WebRTC signal (SDP offer/answer, ICE candidate) via data channel",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "rooms"
-                ],
-                "summary": "Send WebRTC signal",
-                "parameters": [
-                    {
-                        "description": "WebRTC signal",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/models.SignalRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.SuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/sync/pause": {
             "post": {
                 "description": "Pauses synchronized playback",
@@ -347,7 +399,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SyncStatus"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
                         }
                     }
                 }
@@ -367,7 +419,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SyncStatus"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
                         }
                     }
                 }
@@ -393,7 +445,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.SeekRequest"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SeekRequest"
                         }
                     }
                 ],
@@ -401,13 +453,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SyncStatus"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -427,7 +479,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SyncStatus"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
                         }
                     }
                 }
@@ -464,13 +516,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.TorrentListResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentListResponse"
                         }
                     }
                 }
             },
             "post": {
-                "description": "Adds a torrent via magnet link and returns its information",
+                "description": "Adds a torrent via magnet link or torrent file and returns its information",
                 "consumes": [
                     "application/json"
                 ],
@@ -483,12 +535,12 @@ const docTemplate = `{
                 "summary": "Add torrent",
                 "parameters": [
                     {
-                        "description": "Magnet URI",
+                        "description": "Magnet URI or Torrent File (base64)",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.AddTorrentRequest"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AddTorrentRequest"
                         }
                     }
                 ],
@@ -496,19 +548,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/models.TorrentInfo"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentInfo"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -537,19 +589,107 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SuccessResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/torrents/{id}/buffer/info": {
+            "get": {
+                "description": "Returns buffer state information for the torrent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Buffer info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/torrents/{id}/buffer/position": {
+            "post": {
+                "description": "Sets the current playback position for buffer optimization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Set buffer position",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Position in bytes",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SetBufferPositionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -593,19 +733,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.FileListResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileListResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -638,7 +778,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.SelectFileRequest"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SelectFileRequest"
                         }
                     }
                 ],
@@ -646,13 +786,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.SuccessResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -687,13 +827,54 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.APIError"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/torrents/{id}/stream-ticket": {
+            "post": {
+                "description": "Returns a signed ticket authorizing streaming of the given torrent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Issue stream ticket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -701,37 +882,84 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "api.APIError": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "integer"
-                },
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "models.AddTorrentRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AddTorrentRequest": {
             "type": "object",
             "properties": {
                 "magnetUri": {
                     "type": "string"
+                },
+                "torrentFile": {
+                    "description": "base64 encoded torrent file content",
+                    "type": "string"
                 }
             }
         },
-        "models.AuthResponse": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse": {
             "type": "object",
             "properties": {
                 "token": {
                     "type": "string"
                 },
                 "user": {
-                    "$ref": "#/definitions/models.User"
+                    "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse"
                 }
             }
         },
-        "models.CreateRoomRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferInfo": {
+            "type": "object",
+            "properties": {
+                "buffer_end": {
+                    "description": "Buffer end",
+                    "type": "integer"
+                },
+                "buffer_size": {
+                    "description": "Buffer size",
+                    "type": "integer"
+                },
+                "buffer_start": {
+                    "description": "Buffer start",
+                    "type": "integer"
+                },
+                "buffered_bytes": {
+                    "description": "Bytes buffered",
+                    "type": "integer"
+                },
+                "buffered_percent": {
+                    "description": "Buffer load percentage",
+                    "type": "number"
+                },
+                "current_position": {
+                    "description": "Current position in bytes",
+                    "type": "integer"
+                },
+                "download_speed": {
+                    "description": "Download speed (bytes/sec)",
+                    "type": "integer"
+                },
+                "file_index": {
+                    "type": "integer"
+                },
+                "is_buffering": {
+                    "description": "Is buffering in progress",
+                    "type": "boolean"
+                },
+                "torrent_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest": {
+            "type": "object",
+            "properties": {
+                "currentPassword": {
+                    "type": "string"
+                },
+                "newPassword": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.CreateRoomRequest": {
             "type": "object",
             "properties": {
                 "name": {
@@ -742,7 +970,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.ErrorResponse": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
@@ -750,7 +978,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.FileInfo": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileInfo": {
             "type": "object",
             "properties": {
                 "index": {
@@ -764,13 +992,13 @@ const docTemplate = `{
                 }
             }
         },
-        "models.FileListResponse": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileListResponse": {
             "type": "object",
             "properties": {
                 "files": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/models.FileInfo"
+                        "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.FileInfo"
                     }
                 },
                 "hasMore": {
@@ -787,7 +1015,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.JoinRoomRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomRequest": {
             "type": "object",
             "properties": {
                 "password": {
@@ -798,7 +1026,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.LoginRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest": {
             "type": "object",
             "properties": {
                 "password": {
@@ -809,7 +1037,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.RegisterRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest": {
             "type": "object",
             "properties": {
                 "password": {
@@ -820,10 +1048,11 @@ const docTemplate = `{
                 }
             }
         },
-        "models.RoomInfo": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo": {
             "type": "object",
             "properties": {
                 "hostId": {
+                    "description": "HostID is the host's peer (session) identifier, NOT the host's user ID.\nThe host's user ID is tracked separately server-side (HostUserID in the\np2p service room struct) and is the authoritative key for host checks.",
                     "type": "string"
                 },
                 "id": {
@@ -837,7 +1066,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.SeekRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SeekRequest": {
             "type": "object",
             "properties": {
                 "position": {
@@ -845,7 +1074,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.SelectFileRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SelectFileRequest": {
             "type": "object",
             "properties": {
                 "fileIndex": {
@@ -853,7 +1082,16 @@ const docTemplate = `{
                 }
             }
         },
-        "models.SignalRequest": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SetBufferPositionRequest": {
+            "type": "object",
+            "properties": {
+                "position": {
+                    "description": "Position in bytes",
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SignalRequest": {
             "type": "object",
             "properties": {
                 "roomId": {
@@ -867,7 +1105,18 @@ const docTemplate = `{
                 }
             }
         },
-        "models.SuccessResponse": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse": {
+            "type": "object",
+            "properties": {
+                "ticket": {
+                    "type": "string"
+                },
+                "torrentId": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse": {
             "type": "object",
             "properties": {
                 "message": {
@@ -875,7 +1124,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.SyncStatus": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus": {
             "type": "object",
             "properties": {
                 "duration": {
@@ -892,7 +1141,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.TorrentInfo": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentInfo": {
             "type": "object",
             "properties": {
                 "id": {
@@ -912,7 +1161,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.TorrentListResponse": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentListResponse": {
             "type": "object",
             "properties": {
                 "hasMore": {
@@ -927,7 +1176,7 @@ const docTemplate = `{
                 "torrents": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/models.TorrentInfo"
+                        "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.TorrentInfo"
                     }
                 },
                 "totalCount": {
@@ -935,7 +1184,7 @@ const docTemplate = `{
                 }
             }
         },
-        "models.User": {
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse": {
             "type": "object",
             "properties": {
                 "createdAt": {
@@ -952,7 +1201,7 @@ const docTemplate = `{
     },
     "securityDefinitions": {
         "BearerAuth": {
-            "description": "Enter JWT token in the format: Bearer <token>",
+            "description": "Enter JWT token in the format: Bearer \u003ctoken\u003e",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"
@@ -970,6 +1219,8 @@ var SwaggerInfo = &swag.Spec{
 	Description:      "HTTP API for TorrSyncPlayer — torrent player with P2P playback synchronization.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
+	LeftDelim:        "{{",
+	RightDelim:       "}}",
 }
 
 func init() {

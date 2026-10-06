@@ -11,11 +11,12 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -112,7 +113,7 @@ func registerTestFile(s *Service, torrentID string, f *mockFile) {
 		File:           f,
 		BufferPercent:  constants.DefaultBufferPercent,
 		BufferDuration: constants.DefaultBufferDuration,
-		MaxBufferSize:   constants.DefaultMaxBufferSize,
+		MaxBufferSize:  constants.DefaultMaxBufferSize,
 		PieceSize:      pieceSize,
 		TotalPieces:    totalPieces,
 		LastUpdate:     time.Now(),

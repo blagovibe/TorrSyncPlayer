@@ -112,7 +112,7 @@ func SyncPause(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.Ha
 // @Produce      json
 // @Param        request  body      models.SeekRequest  true  "Seek position"
 // @Success      200      {object}  models.SyncStatus
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/sync/seek [post]
 func SyncSeek(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

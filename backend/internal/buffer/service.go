@@ -44,15 +44,6 @@ func (r *realTorrent) Piece(i int) torrentPiece {
 	return r.Torrent.Piece(i)
 }
 
-// realPiece wraps *torrent.Piece to satisfy torrentPiece.
-type realPiece struct {
-	*torrent.Piece
-}
-
-func (r *realPiece) State() torrent.PieceState {
-	return r.Piece.State()
-}
-
 // realFile wraps *torrent.File to satisfy torrentFile.
 type realFile struct {
 	file *torrent.File
@@ -115,7 +106,7 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 		File:           wrapped,
 		BufferPercent:  bufferPercent,
 		BufferDuration: bufferDuration,
-		MaxBufferSize:   maxBufferSize,
+		MaxBufferSize:  maxBufferSize,
 		PieceSize:      pieceSize,
 		TotalPieces:    totalPieces,
 		LastUpdate:     time.Now(),
