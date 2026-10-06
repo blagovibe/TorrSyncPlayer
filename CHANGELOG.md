@@ -61,6 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CHANGELOG append-only: commit 6bd47e9 had rewritten the existing v1.1.5 and 1.0.0 entries; original lines restored, the change is now recorded here instead of rewriting history
 - Docs: stale WebRTC references after WebRTC removal — comments in `internal/models/types.go` and `internal/api/handlers_room.go` corrected
 - `.gitignore`: removed rules that swallowed working code (`internal/utils/debouncer.go`) and CI config (`.codecov.yml`)
+- Swagger generation could not be repaired from the annotation side: `@Failure {object} APIError` referenced a type
+  that does not exist (`models.ErrorResponse` is the real one), so `swag init` failed with
+  `cannot find type definition: APIError` and the checked-in spec silently described WebRTC data channels that had
+  been removed in 6bd47e9. The annotations were corrected and the spec regenerated; CI now fails on any spec drift
+  (board `t_0ab2e3d0`)
+- CI: the Pact provider job was green while running zero tests, masked twice over. `CGO_LDFLAGS` referenced
+  `$PACT_FFI_DIR` from a workflow-level `env:` block, which the runner resolves before bash runs, so the linker was
+  handed the literal `$PACT_FFI_DIR` and failed with `cannot find -lpact_ffi`; and `go test ... | tee pact.log` returned
+  tee's exit status because the workflow sets neither `pipefail` nor `shell:`. Removing `|| true` in #51 fixed
+  neither. Download and verification now share one step and `pipefail` is set (boards `t_1452fa61`, `t_70d91346`)
+- CI: `security.yml` pinned Go with a hardcoded `1.26.6` while `ci.yml` and `release.yml` use the `GO_VERSION` env var,
+  so a future version bump would have silently missed one of the three; `security.yml` now uses the same variable
+- Comments: stale WebRTC references dropped from `internal/constants/constants.go` (`MaxSignalSize` is a DoS guard on
+  the server-brokered room signal, not an SDP/ICE size limit) and `internal/p2p/service.go`
 
 ### Removed
 
@@ -96,6 +110,30 @@ session stay on the project board. Verified: no status/roadmap file exists, `DEV
 contain no plans or status markers, the CHANGELOG stays append-only (the only `MUTATION_TESTING.md`
 mention left is inside a historical entry, which is never edited), and every internal Markdown link
 resolves to an existing file.
+
+Audit pass 2026-10-06: three claims in the entries above are inaccurate and are corrected here rather
+than by editing history (the earlier text stays on purpose, since it was true when written and can still
+be quoted):
+
+- The mutation score quoted above (`0.607143`) is not reproducible. The same package scope measures
+  `0.494964`, and the gate in `ci.yml` is `MUTATION_MIN_RATIO: '0.45'` — so the threshold is honest now,
+  but it gates at 45%, not at the 80% the entry describes. Finding: the number was carried from a session
+  that never printed it.
+- "Go pinned to 1.26.6 in ci.yml, release.yml and security.yml" held for the first two only; `security.yml`
+  used a hardcoded literal and would have been silently missed by a version bump. Fixed in this session.
+- The 1.0.0 entry advertises a PR coverage gate of 60%. No such gate exists: `.codecov.yml` has been
+  gitignored since 8a118a4, and coverage is uploaded with `fail_ci_if_error: false`, so it gates nothing.
+
+Fresh reconciliation this session (project-docs step 2): the git boundary is empty — HEAD was itself the
+last CHANGELOG commit — so the check was a direct audit rather than a diff of commits. Backend locally:
+13 packages green, `gofmt -l .` and `go vet ./...` clean. CI on `426e33f`: 14/14 jobs green. Frontend
+cannot be built locally (no cmake); CI covers it.
+Discrepancies found, none fixed silently: the Pact false-green recorded above; a stale WebRTC description
+in the contract for `POST /rooms/signal` (WebRTC is a CONCEPT.md non-goal — the endpoint survives as an
+opaque relay and is a decision for the owner, not a defect to patch); `.gitignore` still swallowing
+`config.yaml` globally, `.codecov.yml` and `backend/internal/testutil/`; and the project board cannot
+express the methodology's `open`/`accepted`/`needs_review` states in its schema (`hermes kanban reopen`
+does not exist, so an archived card cannot be restored).
 
 ## [v1.1.5] - 2026-07-12
 
