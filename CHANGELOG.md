@@ -157,6 +157,34 @@ The contract also points `GET /api/v1/rooms/events` at an unregistered path: the
 Separately, `POST /api/v1/rooms/signal` is still described as "sends WebRTC signal" although WebRTC is a
 CONCEPT.md non-goal; the endpoint survives as an opaque relay.
 
+The frontend "contract test" step turned out to be dead too: CI run 37465712937 failed at
+`make -j$(nproc) test_networkmanager_contract test_torrentmanager_contract test_roommanager_contract` with
+"No rule to make target" — those targets are not defined in `frontend/CMakeLists.txt`, and
+`ctest -R "Contract"` matched zero tests. The job had never checked anything; `|| true` had kept it green.
+Also found while auditing: `frontend/src/test_integration.cpp` is a placeholder containing a single
+`testPlaceholder`, with a comment pointing at `tests/e2e/qt_headless/test_e2e_headless.cpp` — and that file is
+not wired into any CMakeLists, so the Qt headless E2E step had no tests to run either. The job was removed;
+the backend/front-end contract is verified by the Pact provider job and NetworkManager's interface contract by
+`test_networkmanager_gmock`.
+
+`backend/Makefile` had the same dead-gate defect as CI once had, which is why local runs never caught it:
+`grep -oP 'Mutation score: \K\d+(\.\d+)?'` matched nothing (go-mutesting prints `The mutation score is
+0.494964`), so `MUTATION_SCORE` was always empty and `make test-mutation` always exited 0. Its threshold was
+80% and its scope the full `./internal/...`, against CI's 45% and six packages. It now parses the real output,
+fails when it cannot parse, uses CI's scope and threshold, and warns that go-mutesting rewrites sources in
+place. Verified: parses 0.494964, passes at the 0.49 floor, fails at 0.48.
+
+Backend statement coverage measured at 60.1% (`go test -coverprofile` + `go tool cover -func`), so the 60% the
+1.0.0 entry advertised is reachable but leaves 0.1 points of headroom, which would flake on any new file. The
+enforced floor is 55%, checked in the test-backend job with an explicit empty-value guard. Verified against the
+real profile: 60.1 passes, 40 fails.
+
+The Go fuzzing job now fails for a real reason, previously hidden by `|| true`:
+`FuzzValidateUsername/537fd2664c896b18` reports `expected error for username length 31` for
+`"000000000000000000000000000000 "` — a 31-character username of digits and a space is rejected by
+`usernameRegex` but accepted by the length check path the test exercises. A genuine gap in the fuzzer's
+expectations, not in the validator.
+
 ## [v1.1.5] - 2026-07-12
 
 ### Added
