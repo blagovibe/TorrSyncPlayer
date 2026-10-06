@@ -34,7 +34,7 @@ import (
 // @Produce      json
 // @Param        request  body      models.CreateRoomRequest  true  "Room data"
 // @Success      201      {object}  models.RoomInfo
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms [post]
 func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Produce      json
 // @Param        request  body      models.JoinRoomRequest  true  "Login data"
 // @Success      200      {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/join [post]
 func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Tags         rooms
 // @Produce      json
 // @Success      200  {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/leave [post]
 func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +174,7 @@ func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Produce      json
 // @Param        request  body      models.SignalRequest  true  "Sync signal"
 // @Success      200      {object}  models.SuccessResponse
-// @Failure      400      {object}  APIError
+// @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/signal [post]
 func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
