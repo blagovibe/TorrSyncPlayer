@@ -135,6 +135,28 @@ opaque relay and is a decision for the owner, not a defect to patch); `.gitignor
 express the methodology's `open`/`accepted`/`needs_review` states in its schema (`hermes kanban reopen`
 does not exist, so an archived card cannot be restored).
 
+The Pact provider job now runs and fails honestly on CI run 37461241156 (PR #52). Verified from the uploaded
+`pact-verification-log` artifact: the test binary links (0 occurrences of `cannot find -lpact_ffi`, no
+`build failed`), all 17 interactions execute, 1 passes (`GET /health`) and 16 fail with distinct, concrete causes:
+
+- 12 x 401 — the contract sends `Authorization: Bearer test-token`, which is not a token
+  `ValidateTokenWithRevocation` accepts. This includes `POST /api/v1/auth/login`, which the contract expects to
+  answer 200 while the API correctly rejects those credentials with 401.
+- 3 x 415 — `POST /api/v1/rooms/leave`, `/api/v1/sync/play` and `/api/v1/sync/pause` send neither body nor
+  `Content-Type`, which `ContentTypeMiddleware` rejects.
+- 1 x 429 — `GET /api/v1/sync/status`; the per-IP limiter is `rate.Limit(1), burst 10`
+  (`internal/api/middleware.go:761`), so a 17-interaction run from a single IP trips it.
+- 1 x 400 — `POST /api/v1/auth/register`: the contract's `testpass` violates `ValidatePassword` (minimum 8
+  characters with upper, lower, digit and special character), so the API answers 400 rather than the expected 201.
+- Response shapes also diverge: several interactions expect envelope keys the handlers do not emit (for example
+  `items` and `type` on the torrent list, `token` and `expiresIn` on register).
+
+The contract also points `GET /api/v1/rooms/events` at an unregistered path: the router serves only
+`/{roomID}/events` (`internal/api/router.go:126`), while `APIPathRoomEvents = "/api/v1/rooms/events"`
+(`internal/api/paths.go:70`) is defined but never used — dead code, and the contract is its only mention.
+Separately, `POST /api/v1/rooms/signal` is still described as "sends WebRTC signal" although WebRTC is a
+CONCEPT.md non-goal; the endpoint survives as an opaque relay.
+
 ## [v1.1.5] - 2026-07-12
 
 ### Added
