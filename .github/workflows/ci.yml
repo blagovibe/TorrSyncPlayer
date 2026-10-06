@@ -90,9 +90,26 @@ jobs:
 
       - name: Run tests with race detector and coverage
         working-directory: backend
+        env:
+          # Measured 60.1% statement coverage. The floor sits below it so a
+          # single new uncovered file cannot block a PR, while a real erosion of
+          # the test suite does. Raise it as tests are added; never lower it
+          # without re-measuring.
+          COVERAGE_MIN_PERCENT: '55'
         run: |
+          set -o pipefail
           CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v 'integration')
           go tool cover -func=coverage.out
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ { gsub("%", "", $3); print $3 }')
+          echo "Total coverage: ${COVERAGE}%"
+          if [ -z "$COVERAGE" ]; then
+            echo "Could not parse total coverage"
+            exit 1
+          fi
+          if awk "BEGIN { exit !($COVERAGE < $COVERAGE_MIN_PERCENT) }"; then
+            echo "Coverage ${COVERAGE}% is below the ${COVERAGE_MIN_PERCENT}% floor"
+            exit 1
+          fi
 
       - name: Run govulncheck
         working-directory: backend
@@ -359,9 +376,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # Floor from the measured score (49.5%); raise it as tests are added.
-      MUTATION_MIN_RATIO: '0.45'
-      MUTATION_MIN_PERCENT: 45
+      # Measured 0.494964 over this exact scope (695 mutants). The floor sits
+      # just below it so ordinary noise does not trip the gate, while a real
+      # drop in test quality still fails the job. Raise it as tests are added;
+      # never lower it without re-measuring — see DEV.md, "Соглашения по тестам".
+      MUTATION_MIN_RATIO: '0.49'
+      MUTATION_MIN_PERCENT: 49
 
     steps:
       - uses: actions/checkout@v7
@@ -458,38 +478,14 @@ jobs:
           name: pact-verification-log
           path: backend/pact.log
 
-  contract-test-frontend:
-    name: Contract Test (Frontend Consumer)
-    needs: [test-backend, frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Qt6 dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov
-
-      - name: Configure CMake with contract tests
-        working-directory: frontend
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
-
-      - name: Build contract tests
-        working-directory: frontend/build
-        run: make -j$(nproc) test_networkmanager_contract test_torrentmanager_contract test_roommanager_contract 2>&1
-
-      - name: Run contract tests
-        working-directory: frontend/build
-        # --no-tests=error: without it "No tests were found!!!" exits 0 and a
-        # dead filter looks like a passing suite.
-        run: |
-          ctest -R "Contract" --no-tests=error --output-on-failure -V 2>&1
+  # NOTE: the frontend "contract test" job was removed. It ran
+  # `make test_networkmanager_contract test_torrentmanager_contract
+  # test_roommanager_contract` and `ctest -R "Contract"`, but none of those
+  # targets are defined in frontend/CMakeLists.txt and the filter matched zero
+  # tests — so the job had never checked anything. `|| true` kept it green for
+  # years; removing the mask made it red, which exposed the dead step.
+  # The backend/front-end contract is verified by the Pact provider job above,
+  # and NetworkManager's interface contract by test_networkmanager_gmock.
 
   # ── Integration/E2E tests ────────────────────────────────────────────
   e2e-tests:

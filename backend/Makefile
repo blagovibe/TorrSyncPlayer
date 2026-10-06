@@ -6,6 +6,11 @@ BINARY_NAME=torrsyncplayer
 BUILD_DIR=./build
 MAIN_FILE=./cmd/server/main.go
 
+# Порог мутационного покрытия (доля 0..1). Держим в одном согласованном
+# значении с .github/workflows/ci.yml (MUTATION_MIN_RATIO). Фактический замер
+# по этой же области пакетов — 0.494964.
+MUTATION_MIN_RATIO ?= 0.49
+
 # Версионирование
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -85,16 +90,32 @@ test-fuzz:
 	go test -fuzz=Fuzz -fuzztime=30s ./internal/validation/... 2>&1 | head -100
 
 ## test-mutation: Запустить мутационное тестирование (go-mutesting)
+#
+# ВНИМАНИЕ: go-mutesting ПЕРЕПИСЫВАЕТ ИСХОДНИКИ НА МЕСТЕ во время прогона.
+# Не запускайте это в рабочем дереве с незакоммиченными правками и параллельно
+# с другими задачами — используйте отдельный git worktree.
 test-mutation:
 	@echo "Запуск мутационного тестирования..."
-	@which go-mutesting > /dev/null || (echo "Installing go-mutesting..." && go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest)
-	go-mutesting ./internal/... 2>&1 | tee mutation.log
-	@MUTATION_SCORE=$$(grep -oP 'Mutation score: \K\d+(\.\d+)?' mutation.log | head -1); \
-	if [ -n "$$MUTATION_SCORE" ] && [ $$(echo "$$MUTATION_SCORE < 80" | bc -l 2>/dev/null || echo 0) -eq 1 ]; then \
-		echo "Mutation score $$MUTATION_SCORE% is below 80% threshold"; \
+	@which go-mutesting > /dev/null || (echo "Installing go-mutesting..." && \
+		go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb)
+	@echo "Scope matches CI: validation, sync, p2p, persistence, utils, buffer."
+	@echo "Full ./internal/... takes hours for a number nobody reads."
+	@set -o pipefail; \
+	go-mutesting \
+		./internal/validation/... ./internal/sync/... ./internal/p2p/... \
+		./internal/persistence/... ./internal/utils/... ./internal/buffer/... \
+		2>&1 | tee mutation.log
+	@MUTATION_SCORE=$$(grep -oiE 'mutation score is [0-9.]+' mutation.log | tail -1 | grep -oE '[0-9.]+$$'); \
+	if [ -z "$$MUTATION_SCORE" ]; then \
+		echo "Could not parse mutation score from mutation.log"; \
 		exit 1; \
 	fi; \
-	echo "Mutation score: $$MUTATION_SCORE%"
+	MUTATION_PERCENT=$$(awk "BEGIN { printf \"%.2f\", $$MUTATION_SCORE * 100 }"); \
+	echo "Mutation score: $$MUTATION_PERCENT%"; \
+	if awk "BEGIN { exit !($$MUTATION_SCORE < $(MUTATION_MIN_RATIO)) }"; then \
+		echo "Mutation score $$MUTATION_PERCENT% is below the $(MUTATION_MIN_RATIO) floor"; \
+		exit 1; \
+	fi
 
 ## contract-test: Запустить Pact contract тесты (provider verification)
 contract-test:
