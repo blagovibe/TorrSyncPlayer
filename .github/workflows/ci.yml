@@ -69,7 +69,7 @@ jobs:
             || { echo "Swagger spec is stale. Regenerate with the command above"; exit 1; }
 
       - name: Secrets scanning
-        uses: trufflesecurity/trufflehog@v3.95.9
+        uses: trufflesecurity/trufflehog@v3.97.9
         with:
           path: .
           base: ""
