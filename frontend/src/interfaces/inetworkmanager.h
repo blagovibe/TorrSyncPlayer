@@ -179,21 +179,7 @@ public:
     virtual void setClientId(const QString &clientId) = 0;
 
     /**
-     * @brief Авторизоваться на сервере
-     * @param username Имя пользователя
-     * @param password Пароль
-     */
-    virtual void login(const QString &username, const QString &password) = 0;
-
-    /**
-     * @brief Зарегистрироваться на сервере
-     * @param username Имя пользователя
-     * @param password Пароль
-     */
-    virtual void registerUser(const QString &username, const QString &password) = 0;
-
-    /**
-     * @brief Запросить stream-тикет для воспроизведения без JWT-заголовка
+     * @brief Запросить stream-тикет для воспроизведения без заголовков
      * @param torrentId ID торрента
      */
     virtual void requestStreamTicket(const QString &torrentId) = 0;
@@ -230,9 +216,6 @@ signals:
     void error(const QString &message);
     void serverUnavailable();
     void serverAvailable();
-
-    // ── Auth signals ──────────────────────────────────────────────────
-    void authenticated(const QString &token);
 
     // ── Stream ticket signal ──────────────────────────────────────────
     void streamTicketReceived(const QString &torrentId, const QString &ticket);

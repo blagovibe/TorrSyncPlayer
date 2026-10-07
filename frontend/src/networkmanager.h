@@ -264,6 +264,15 @@ public:
         QMutexLocker locker(&m_accessTokenMutex);
         return m_accessToken;
     }
+
+    /**
+     * @brief Установить идентификатор клиента для P2P комнат
+     * Отправляется как заголовок X-Client-ID и определяет, кто этот игрок
+     * в рамках комнаты. Это не учётная запись: идентификатор живёт только
+     * в пределах одного запуска и нигде не сохраняется.
+     * @param clientId Уникальный идентификатор этого экземпляра плеера
+     */
+    void setClientId(const QString &clientId);
     
     /**
      * @brief Проверить, подключен ли к комнате
@@ -536,12 +545,6 @@ private:
      */
     void handleApiError(QNetworkReply *reply, RequestType type);
 
-    /**
-     * @brief Установить идентификатор клиента для P2P комнат
-     * @param clientId Уникальный идентификатор этого экземпляра плеера
-     */
-    void setClientId(const QString &clientId);
-    
     /**
      * @brief Вычислить задержку для retry (экспоненциальный backoff)
      * @param attempt Номер попытки (0-based)

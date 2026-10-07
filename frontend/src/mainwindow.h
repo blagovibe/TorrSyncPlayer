@@ -167,12 +167,6 @@ private slots:
      */
     void onLeaveRoom();
 
-    /**
-     * @brief Обработка успешной авторизации
-     * @param token JWT токен
-     */
-    void onLoginSuccess(const QString &token);
-
     // ── Слоты управления воспроизведением ─────────────────────────────
 
     /**

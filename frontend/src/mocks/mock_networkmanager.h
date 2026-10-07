@@ -63,8 +63,6 @@ public:
     MOCK_METHOD(void, clearAccessToken, (), (override));
     MOCK_METHOD(void, setClientId, (const QString &clientId), (override));
     MOCK_METHOD(QString, accessToken, (), (const, override));
-    MOCK_METHOD(void, login, (const QString &username, const QString &password), (override));
-    MOCK_METHOD(void, registerUser, (const QString &username, const QString &password), (override));
     MOCK_METHOD(void, requestStreamTicket, (const QString &torrentId), (override));
     MOCK_METHOD(void, setMaxRetries, (int retries), (override));
     MOCK_METHOD(int, maxRetries, (), (const, override));

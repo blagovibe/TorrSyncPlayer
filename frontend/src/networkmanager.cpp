@@ -755,6 +755,7 @@ void NetworkManager::applyAuthHeader(QNetworkRequest &request)
     QMutexLocker locker(&m_accessTokenMutex);
     if (!m_accessToken.isEmpty()) {
         request.setRawHeader("X-Access-Token", m_accessToken.toUtf8());
+    }
     if (!m_clientId.isEmpty()) {
         request.setRawHeader("X-Client-ID", m_clientId.toUtf8());
     }
