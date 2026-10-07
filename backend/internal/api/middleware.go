@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -757,8 +758,63 @@ func (cri *clientRateLimiter) getLimiter(ip string) *rate.Limiter {
 	return limiter
 }
 
-// globalClientRateLimiter global per-IP rate limiter for all endpoints
-var globalClientRateLimiter = newClientRateLimiter(rate.Limit(1), 10)
+// globalClientRateLimiter global per-IP rate limiter for all endpoints.
+//
+// The rate and burst come from constants.APIRateLimit / constants.APIRateBurst
+// (1 req/s, burst 10 — 60 requests/minute per address) unless the process
+// environment raises them. That override exists only for load testing, where a
+// single generator address would otherwise be throttled on every request; it
+// raises the ceiling instead of removing the limiter, so the same token-bucket
+// code still runs. See constants.EnvAPIRateLimit for the details, including why
+// the values are never read from a request.
+var globalClientRateLimiter = newClientRateLimiter(resolveAPIRateLimit(), resolveAPIRateBurst())
+
+// resolveAPIRateLimit returns the per-IP request rate for the protected API
+// group, falling back to the shipped default on anything malformed.
+func resolveAPIRateLimit() rate.Limit {
+	return rate.Limit(envFloat(constants.EnvAPIRateLimit, constants.APIRateLimit))
+}
+
+// resolveAPIRateBurst returns the per-IP burst for the protected API group.
+func resolveAPIRateBurst() int {
+	return envInt(constants.EnvAPIRateBurst, constants.APIRateBurst)
+}
+
+// RateLimitIsOverridden reports whether the per-IP API limit differs from the
+// shipped defaults. main logs a warning when this is true so that a process
+// running with a relaxed limiter announces it rather than doing so silently.
+func RateLimitIsOverridden() bool {
+	return resolveAPIRateLimit() != rate.Limit(constants.APIRateLimit) ||
+		resolveAPIRateBurst() != constants.APIRateBurst
+}
+
+// envFloat reads a positive float from the environment, falling back to
+// fallback for unset, unparsable or non-positive values.
+func envFloat(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 {
+		return fallback
+	}
+	return f
+}
+
+// envInt reads a positive int from the environment, falling back to fallback
+// for unset, unparsable or non-positive values.
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}
 
 // StopGlobalRateLimiters stops all background cleanup goroutines for rate limiters.
 // Call during graceful shutdown.

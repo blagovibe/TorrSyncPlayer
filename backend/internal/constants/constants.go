@@ -74,6 +74,29 @@ const (
 	// AuthRateBurst burst size for auth endpoints
 	AuthRateBurst = 5
 
+	// APIRateLimit is the default per-IP limit for the protected /api/v1 group,
+	// in requests per second: 60 requests/minute per client address.
+	APIRateLimit = 1
+
+	// APIRateBurst is the default burst for the protected /api/v1 group.
+	APIRateBurst = 10
+
+	// EnvAPIRateLimit / EnvAPIRateBurst override the two values above.
+	//
+	// They exist for load testing only: a load generator drives thousands of
+	// requests per second from a single address and would otherwise be answered
+	// with 429 on essentially every call. They raise the limit rather than
+	// disabling it, so the limiter itself stays in the request path and keeps
+	// running the same code it runs in production.
+	//
+	// These are read from the process environment once, at startup. They are
+	// never derived from a request header, query parameter or body — changing
+	// them requires the same host access as deploying a build. Server startup
+	// logs a warning whenever they differ from the defaults, so a production
+	// process that was accidentally relaxed is visible in the logs.
+	EnvAPIRateLimit = "API_RATE_LIMIT"
+	EnvAPIRateBurst = "API_RATE_BURST"
+
 	// ClientRateLimiterCleanup cleanup interval for per-IP rate limiter
 	ClientRateLimiterCleanup = 10 * time.Minute
 

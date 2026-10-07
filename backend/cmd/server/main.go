@@ -216,6 +216,17 @@ func main() {
 			}
 		}()
 		logger.Info("HTTP server started", "port", config.Port, "tls", config.UseTLS)
+
+		// A relaxed per-IP limiter is the normal case only for load testing.
+		// Announce it rather than leaving the process silently less protected
+		// than the shipped defaults.
+		if api.RateLimitIsOverridden() {
+			logger.Warn("per-IP API rate limit overridden from defaults — intended for load testing only",
+				constants.EnvAPIRateLimit, os.Getenv(constants.EnvAPIRateLimit),
+				constants.EnvAPIRateBurst, os.Getenv(constants.EnvAPIRateBurst),
+				"default_rate", constants.APIRateLimit, "default_burst", constants.APIRateBurst)
+		}
+
 		var err error
 		if config.UseTLS {
 			err = server.ListenAndServeTLS(config.TLSCert, config.TLSKey)
