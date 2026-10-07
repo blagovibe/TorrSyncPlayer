@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +33,11 @@ func TestCreateRoomWithPersistenceDoesNotDeadlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new p2p service: %v", err)
 	}
-	defer svc.Close()
+	defer func() {
+		if err := svc.Close(); err != nil {
+			t.Errorf("close p2p service: %v", err)
+		}
+	}()
 
 	store, err := persistence.NewStore(t.TempDir())
 	if err != nil {
@@ -52,7 +57,7 @@ func TestCreateRoomWithPersistenceDoesNotDeadlock(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			user := "user-" + string(rune('a'+i))
+			user := "user-" + strconv.Itoa(i)
 			_, err := svc.CreateRoom(context.Background(), user, "Room "+user, "")
 			done <- err
 		}(i)

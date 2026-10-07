@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestSyncWriteOpsWithPersistenceDoNotDeadlock(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			room := "room-" + string(rune('a'+i))
+			room := "room-" + strconv.Itoa(i)
 			svc.Play(room)
 			svc.Pause(room)
 			if _, err := svc.Seek(room, float64(i)); err != nil {
