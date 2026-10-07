@@ -271,13 +271,26 @@ func (s *Service) SetPersistence(store *persistence.Store) {
 
 // scheduleSave persists room metadata on a debounce timer to avoid
 // hammering disk on every room mutation.
+// scheduleSave asks the debouncer to persist room state shortly after the
+// current burst of mutations settles.
+//
+// It deliberately does NOT take s.mu. Callers invoke it from inside critical
+// sections (CreateRoom calls it while holding s.mu), and re-acquiring that
+// non-reentrant mutex here deadlocked the whole service: the goroutine waited
+// on a lock it already owned, and every other goroutine queued behind it. Room
+// creation then hung forever on any server with persistence enabled, which is
+// how cmd/server runs — only the tests leave persistence nil, so nothing
+// exercised this path.
+//
+// No extra synchronisation is needed here. Debouncer has its own mutex and
+// Trigger is safe to call concurrently, and it runs the flush callback
+// out-of-line in its own goroutine; flushRooms takes s.mu.RLock() itself, so it
+// simply waits for an in-flight writer to release the lock.
 func (s *Service) scheduleSave() {
 	if s.persistence == nil {
 		return
 	}
-	s.mu.Lock()
 	s.saveDebouncer.Trigger()
-	s.mu.Unlock()
 }
 
 // flushRooms writes the current room metadata to disk.
