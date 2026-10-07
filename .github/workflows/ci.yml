@@ -231,7 +231,6 @@ jobs:
         run: make build
 
       - name: Start application
-        env:
         run: |
           cd backend
           ./build/torrsyncplayer --port 8889 --auto-tls &
