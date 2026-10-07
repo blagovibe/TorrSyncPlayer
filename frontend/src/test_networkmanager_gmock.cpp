@@ -289,7 +289,7 @@ TEST_F(NetworkManagerGMockTest, AccessTokenManagement)
     m_mock->setAccessToken(QString("test-access-token"));
     
     EXPECT_CALL(*m_mock, accessToken())
-        .WillOnce(Return(QString("test-jwt-token")));
+        .WillOnce(Return(QString("test-access-token")));
     EXPECT_EQ(m_mock->accessToken(), QString("test-access-token"));
     
     EXPECT_CALL(*m_mock, clearAccessToken());
