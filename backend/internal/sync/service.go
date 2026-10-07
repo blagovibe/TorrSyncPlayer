@@ -64,13 +64,24 @@ func (s *Service) SetPersistence(store *persistence.Store) {
 }
 
 // scheduleSave persists playback state on a debounce timer.
+//
+// It deliberately does NOT take s.mu. Play, Pause and Seek all call this while
+// holding s.mu for their whole body, and re-acquiring that non-reentrant mutex
+// here deadlocked them: the goroutine waited on a lock it already owned, and
+// every other sync goroutine queued behind it. Against a server with
+// persistence enabled — which is how cmd/server runs — play, pause and seek
+// then hung forever. GetStatus takes only a read lock and never reaches here,
+// so it kept answering while the write path was wedged.
+//
+// No extra synchronisation is needed. utils.Debouncer has its own mutex,
+// Trigger is safe to call concurrently, and it runs flushState out-of-line in
+// its own goroutine; flushState takes s.mu.RLock() itself, so it simply waits
+// for an in-flight writer to release the lock.
 func (s *Service) scheduleSave() {
 	if s.persistence == nil {
 		return
 	}
-	s.mu.Lock()
 	s.saveDebouncer.Trigger()
-	s.mu.Unlock()
 }
 
 // flushState writes the current playback state to disk.
