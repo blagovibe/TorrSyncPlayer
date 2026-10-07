@@ -79,6 +79,11 @@ export const options = {
   },
 };
 
+// One room per VU, created on that VU's first iteration and reused after.
+// Indexed by __VU, not __ITER: k6 keeps one VU-local copy of module scope per
+// virtual user, so this persists across that VU's iterations.
+const roomByVU = [];
+
 const BASE_URL = __ENV.BASE_URL || 'https://localhost:8889';
 const TEST_USER = __ENV.LOADTEST_USER || 'loadtestuser';
 const TEST_PASSWORD = 'LoadTestPass1!';
@@ -130,7 +135,6 @@ export default function (data) {
 
 function userJourney(token, vu) {
   const headers = jsonHeaders(token);
-  const iter = __ITER;
 
   // 1. List torrents — authenticated read of a paged envelope.
   group('List Torrents', () => {
@@ -146,20 +150,35 @@ function userJourney(token, vu) {
 
   sleep(1);
 
-  // 2. Create a room.
-  group('Create Room', () => {
-    const res = http.post(
-      `${BASE_URL}/api/v1/rooms`,
-      JSON.stringify({ name: `LoadTest Room ${vu}-${iter}` }),
-      { headers, timeout: '30s' }
-    );
-    roomCreateDuration.add(res.timings.duration);
-    totalRequests.add(1);
-    check(res, {
-      'create room 201': (r) => r.status === 201,
-      'has room id': (r) => (r.json('id') || r.json('roomId')) !== undefined,
-    }) || errorRate.add(1);
-  });
+  // 2. Create a room — once per VU, not once per iteration.
+  //
+  // A session tracks exactly one current room, and every create overwrites it.
+  // Creating on every iteration orphaned every room except the most recent one,
+  // because leave only ever removes the session's current room. After ~1000
+  // orphaned rooms the server hit constants.MaxRooms and every create started
+  // failing with "maximum number of rooms exceeded".
+  //
+  // One room per VU also matches real use: a person opens a room once and then
+  // plays and syncs in it, rather than recreating it several times a minute.
+  if (!roomByVU[vu]) {
+    group('Create Room', () => {
+      const res = http.post(
+        `${BASE_URL}/api/v1/rooms`,
+        JSON.stringify({ name: `LoadTest Room ${vu}` }),
+        { headers, timeout: '30s' }
+      );
+      roomCreateDuration.add(res.timings.duration);
+      totalRequests.add(1);
+      check(res, {
+        'create room 201': (r) => r.status === 201,
+        'has room id': (r) => (r.json('id') || r.json('roomId')) !== undefined,
+      }) || errorRate.add(1);
+
+      if (res.status === 201) {
+        roomByVU[vu] = res.json('id') || res.json('roomId');
+      }
+    });
+  }
 
   sleep(1);
 
@@ -173,8 +192,7 @@ function userJourney(token, vu) {
 
     sleep(1);
 
-    const seek = http.post(
-      `${BASE_URL}/api/v1/sync/seek`,
+    const seek = http.post(`${BASE_URL}/api/v1/sync/seek`,
       JSON.stringify({ position: 30 }),
       { headers, timeout: '30s' }
     );
@@ -219,10 +237,28 @@ function userJourney(token, vu) {
 
   sleep(1);
 
-  // 5. Leave the room.
-  group('Leave Room', () => {
-    const res = http.post(`${BASE_URL}/api/v1/rooms/leave`, null, { headers, timeout: '30s' });
-    totalRequests.add(1);
-    check(res, { 'leave 200': (r) => r.status === 200 }) || errorRate.add(1);
-  });
+  // Leave is deliberately NOT part of the iteration. It clears the session's
+  // current room, which is the room the next iteration's sync calls target, so
+  // running it every iteration would both break the sync calls and leave each
+  // VU without a room to return to. It is exercised once in teardown() instead,
+  // which is also the only place it belongs: leaving is a one-off at the end of
+  // a session, not a per-iteration action.
+}
+
+// teardown exercises the leave endpoint once, at the end of the run, and checks
+// that leaving actually releases the room. This is the only place leave belongs:
+// it clears the session's current room, so calling it per iteration would break
+// the sync calls that follow.
+export function teardown(data) {
+  const headers = jsonHeaders(data.token);
+
+  const created = http.post(
+    `${BASE_URL}/api/v1/rooms`,
+    JSON.stringify({ name: 'LoadTest Teardown Room' }),
+    { headers, timeout: '30s' }
+  );
+  check(created, { 'teardown create room 201': (r) => r.status === 201 });
+
+  const left = http.post(`${BASE_URL}/api/v1/rooms/leave`, null, { headers, timeout: '30s' });
+  check(left, { 'teardown leave 200': (r) => r.status === 200 });
 }
