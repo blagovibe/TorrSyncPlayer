@@ -70,6 +70,22 @@ void MainWindow::setServerUrl(const QUrl &url)
     }
 }
 
+void MainWindow::setAccessToken(const QString &token)
+{
+    if (m_network) {
+        m_network->setAccessToken(token);
+        qDebug() << "MainWindow: установлен токен доступа";
+    }
+}
+
+void MainWindow::setClientId(const QString &clientId)
+{
+    if (m_network) {
+        m_network->setClientId(clientId);
+        qDebug() << "MainWindow: установлен ID клиента:" << clientId;
+    }
+}
+
 void MainWindow::initialize()
 {
     // Загружаем список торрентов после установки URL сервера

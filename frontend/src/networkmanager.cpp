@@ -750,6 +750,12 @@ void NetworkManager::onSSEReconnect()
 
 
 
+void NetworkManager::setClientId(const QString &clientId)
+{
+    QMutexLocker locker(&m_accessTokenMutex);
+    m_clientId = clientId;
+}
+
 void NetworkManager::applyAuthHeader(QNetworkRequest &request)
 {
     QMutexLocker locker(&m_accessTokenMutex);
