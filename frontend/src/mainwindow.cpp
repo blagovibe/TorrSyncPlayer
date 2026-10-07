@@ -14,7 +14,6 @@
 #include "torrentmanager.h"
 #include "roomdialog.h"
 #include "roommanager.h"
-#include "authdialog.h"
 #include "utils.h"
 
 #include <QDebug>
@@ -109,8 +108,6 @@ void MainWindow::setupUI()
     addTorrentAction->setShortcut(QKeySequence::New);
     connect(addTorrentAction, &QAction::triggered, this, &MainWindow::onAddTorrent);
     fileMenu->addSeparator();
-    QAction *loginAction = fileMenu->addAction(tr("Войти"));
-    connect(loginAction, &QAction::triggered, this, &MainWindow::onLogin);
     fileMenu->addSeparator();
     QAction *quitAction = fileMenu->addAction(tr("Выход"));
     quitAction->setShortcut(QKeySequence::Quit);
@@ -296,7 +293,7 @@ void MainWindow::setupConnections()
     connect(m_network, &NetworkManager::filesReceived, m_torrentManager, &TorrentManager::onFilesReceived);
     connect(m_network, &NetworkManager::roomEvent, m_roomManager, &RoomManager::onRoomEvent);
     connect(m_network, &NetworkManager::signalReceived, m_roomManager, &RoomManager::onSignalReceived);
-    connect(m_network, &NetworkManager::authenticated, this, &MainWindow::onLoginSuccess);
+
     connect(m_network, &NetworkManager::error, this, &MainWindow::onNetworkError);
 
     // Graceful degradation - обработка состояния сервера
@@ -530,27 +527,7 @@ void MainWindow::onRoomLeft()
     updateStatus(tr("Покинули комнату"));
 }
 
-void MainWindow::onLogin()
-{
-    AuthDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted) {
-        QString username = dialog.username();
-        QString password = dialog.password();
-        AuthDialog::Mode mode = dialog.mode();
-        
-        if (mode == AuthDialog::LoginMode) {
-            m_network->login(username, password);
-        } else {
-            m_network->registerUser(username, password);
-        }
-    }
-}
 
-void MainWindow::onLoginSuccess(const QString &token)
-{
-    updateStatus(tr("Авторизация выполнена успешно"));
-    QMessageBox::information(this, tr("Успех"), tr("Добро пожаловать!"));
-}
 
 void MainWindow::onSyncAction(const QString &action, double position)
 {

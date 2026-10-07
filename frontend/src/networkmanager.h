@@ -182,26 +182,6 @@ public:
      */
     void sendSignal(const QJsonObject &signal);
 
-    // ── Auth API ──────────────────────────────────────────────────────
-
-    /**
-     * @brief Авторизоваться и получить JWT токен
-     * Отправляет POST запрос на /api/v1/auth/login (публичный, без CSRF)
-     * При успехе испускает authenticated(token).
-     * @param username Имя пользователя
-     * @param password Пароль
-     */
-    void login(const QString &username, const QString &password);
-
-    /**
-     * @brief Зарегистрироваться и получить JWT токен
-     * Отправляет POST запрос на /api/v1/auth/register (публичный, без CSRF)
-     * При успехе испускает authenticated(token).
-     * @param username Имя пользователя
-     * @param password Пароль
-     */
-    void registerUser(const QString &username, const QString &password);
-
     // ── Sync API ──────────────────────────────────────────────────────
     
     /**
@@ -258,7 +238,7 @@ public:
         }
         // Only http/https are allowed. Never silently upgrade a custom scheme
         // (e.g. file://, ftp://) to https — that would point the client at an
-        // unintended host and could leak the auth token set via setAuthToken.
+        // unintended host and could leak the access token set via setAccessToken.
         if (url.scheme() != "https" && url.scheme() != "http") {
             qWarning() << "NetworkManager: unsupported URL scheme" << url.scheme() << ", keeping previous URL";
             return;
@@ -272,17 +252,17 @@ public:
         m_serverUrl = url;
     }
 
-    void setAuthToken(const QString &token) {
-        QMutexLocker locker(&m_authTokenMutex);
-        m_authToken = token;
+    void setAccessToken(const QString &token) {
+        QMutexLocker locker(&m_accessTokenMutex);
+        m_accessToken = token;
     }
-    void clearAuthToken() {
-        QMutexLocker locker(&m_authTokenMutex);
-        m_authToken.clear();
+    void clearAccessToken() {
+        QMutexLocker locker(&m_accessTokenMutex);
+        m_accessToken.clear();
     }
-    QString authToken() const {
-        QMutexLocker locker(&m_authTokenMutex);
-        return m_authToken;
+    QString accessToken() const {
+        QMutexLocker locker(&m_accessTokenMutex);
+        return m_accessToken;
     }
     
     /**
@@ -459,12 +439,6 @@ signals:
     void serverAvailable();
 
     /**
-     * @brief Испускается после успешного логина/регистрации
-     * @param token JWT Bearer токен, полученный от сервера
-     */
-    void authenticated(const QString &token);
-
-    /**
      * @brief Тикет потока получен
      * @param torrentId ID торрента
      * @param ticket Подписанный тикет для /stream
@@ -549,8 +523,9 @@ private:
     void disconnectSSE();
 
     /**
-     * @brief Применить Bearer-авторизацию к запросу
-     * @param request Запрос для модификации
+     * @brief Apply access-token authentication to a request
+     * Sets X-Access-Token and X-Client-ID headers (no Bearer, no cookies).
+     * @param request Request to modify
      */
     void applyAuthHeader(QNetworkRequest &request);
 
@@ -560,6 +535,12 @@ private:
      * @param reply Ответ сервера
      */
     void handleApiError(QNetworkReply *reply, RequestType type);
+
+    /**
+     * @brief Установить идентификатор клиента для P2P комнат
+     * @param clientId Уникальный идентификатор этого экземпляра плеера
+     */
+    void setClientId(const QString &clientId);
     
     /**
      * @brief Вычислить задержку для retry (экспоненциальный backoff)
@@ -588,22 +569,9 @@ private:
     QAtomicInt m_serverAvailable{1};        ///< Флаг доступности сервера (потокобезопасный)
 
     // ── Auth ───────────────────────────────────────────────────────────
-    mutable QMutex m_authTokenMutex;        ///< Mutex for thread-safe auth token access
-    QString m_authToken;                    ///< JWT Bearer token for API auth
-    void fetchCsrfToken();                  ///< Запросить CSRF-токен с сервера
-    mutable QMutex m_csrfTokenMutex;
-    QString m_csrfToken;
-    bool m_csrfReady = false;
-    struct PendingCsrfRequest {
-        QString method;
-        QString path;
-        QJsonObject body;
-        RequestType type;
-    };
-    QVector<PendingCsrfRequest> m_csrfPendingQueue;
-    void applyCsrfHeader(QNetworkRequest &request);
-    void enqueueOrSend(const QString &method, const QString &path, const QJsonObject &body, RequestType type);
-    void flushCsrfQueue();
+    mutable QMutex m_accessTokenMutex;      ///< Mutex for thread-safe access token access
+    QString m_accessToken;                  ///< Per-process access token (X-Access-Token)
+    QString m_clientId;                     ///< Client identifier for this run (X-Client-ID)
 
     // ── SSL/TLS mode ───────────────────────────────────────────────────
     SslMode m_sslMode = SslMode::Strict;    ///< Current SSL verification mode

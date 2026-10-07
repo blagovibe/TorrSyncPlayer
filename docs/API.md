@@ -16,122 +16,53 @@ TorrSyncPlayer provides an HTTP REST API for managing torrents, P2P rooms, and p
 - **Base URL:** `http://localhost:8889`
 - **API Version:** v1
 - **Format:** JSON
-- **Authentication:** JWT token (for protected endpoints)
+- **Authentication:** `X-Access-Token` header, printed by the server at startup
 - **Swagger UI:** `http://localhost:8889/swagger/`
-
-## Authentication Flow
-
-1. Register: `POST /api/v1/auth/register` `{username, password}`
-2. Login: `POST /api/v1/auth/login` `{username, password}` → returns JWT
-3. Use JWT: Include `Authorization: Bearer <token>` in requests
-4. Logout: `POST /api/v1/auth/logout` (revokes token)
-5. CSRF: For non-JWT requests, obtain token from `GET` response `X-CSRF-Token` header
 
 ## Authentication
 
-### POST /api/v1/auth/register
+There is no registration and no login. When the server starts it generates a
+random access token and prints it to the log. That token is the only thing
+required to call the API, and it is regenerated on every start — nothing is
+stored, nothing expires, and there is nothing to revoke.
 
-Register a new user.
+Send it on every protected request:
 
-**Request:**
-```json
-{
-  "username": "user123",
-  "password": "securepassword"
-}
+```
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
-**Response (201):**
-```json
-{
-  "token": "jwt_token_here",
-  "user": {
-    "id": "uuid",
-    "username": "user123",
-    "createdAt": 1704067200000
-  }
-}
+`X-Client-ID` is not an account. It identifies one connected player inside a
+room for the lifetime of the run; nothing is stored against it.
+
+A request with a missing or wrong token is answered `401`. Comparison is
+constant time.
+
+### Getting the token
+
+The server prints it on startup:
+
+```
+access token (share this with friends along with the server address)  token=<hex>
 ```
 
-### POST /api/v1/auth/login
+Restarting the server produces a new token. To use the token from a script or
+another machine, read it from the log or pass it to the player with
+`--access-token`.
 
-Log in.
+### No CSRF token
 
-**Request:**
-```json
-{
-  "username": "user123",
-  "password": "securepassword"
-}
-```
+There is no CSRF token to fetch. A cross-origin page cannot read the access
+token, and cannot set a custom header on the request without a CORS preflight
+that the server does not approve — so the token itself is the protection.
 
-**Response (200):**
-```json
-{
-  "token": "jwt_token_here",
-  "user": {
-    "id": "uuid",
-    "username": "user123",
-    "createdAt": 1704067200000
-  }
-}
-```
+### Media playback
 
-### POST /api/v1/auth/logout
-
-Log out (revokes JWT token).
-
-**Headers:**
-```
-Authorization: Bearer <jwt_token>
-```
-
-**Response (200):**
-```json
-{
-  "message": "Logged out"
-}
-```
-
-### POST /api/v1/auth/change-password
-
-Change the password for the authenticated user.
-
-**Headers:**
-```
-Authorization: Bearer <jwt_token>
-X-CSRF-Token: <csrf_token>
-```
-
-**Request:**
-```json
-{
-  "currentPassword": "oldpassword",
-  "newPassword": "newsecurepassword"
-}
-```
-
-**Response (200):**
-```json
-{
-  "message": "Password changed"
-}
-```
-
-## CSRF Protection
-
-### GET /api/v1/csrf-token
-
-Get a CSRF token for cross-site request forgery protection.
-
-**Response (200):**
-```json
-{
-  "csrfToken": "csrf_token_here"
-}
-```
-
-Response header: `X-CSRF-Token: csrf_token_here`
+`libmpv` fetches media on its own and cannot attach request headers, so
+`POST /api/v1/torrents/{id}/stream-ticket` returns a short-lived signed ticket
+that `GET /api/v1/torrents/{id}/stream?ticket=...` accepts instead. The ticket
+is bound to one torrent and expires in minutes.
 
 ## Health Check
 
@@ -148,11 +79,12 @@ Basic health check (no authentication required).
 
 ### GET /api/v1/health/detailed
 
-Extended health check with service status (requires JWT).
+Extended health check with service status (requires the access token).
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -218,7 +150,8 @@ Get list of all torrents.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Query parameters:**
@@ -250,7 +183,8 @@ Add a torrent by magnet link.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -281,7 +215,8 @@ Remove a torrent.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -301,7 +236,8 @@ Get list of files in a torrent.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Query parameters:**
@@ -335,7 +271,8 @@ Select a file for streaming.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -362,7 +299,7 @@ Stream the selected file.
 
 **Authentication:** This endpoint is public but requires a signed stream
 ticket (issued via `POST /api/v1/torrents/{id}/stream-ticket`). libmpv cannot
-attach a JWT header to its HTTP fetch, so the ticket is passed as a query
+attach headers to its HTTP fetch, so the ticket is passed as a query
 parameter:
 
 ```
@@ -385,12 +322,13 @@ GET /api/v1/torrents/{id}/stream?ticket=<signed_ticket>
 ### POST /api/v1/torrents/{id}/stream-ticket
 
 Request a short-lived, HMAC-signed stream ticket used to authenticate the
-`/stream` endpoint without a JWT/CSR header (libmpv cannot attach headers to
+`/stream` endpoint without an access-token header (libmpv cannot attach headers to
 its own HTTP fetches).
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -409,7 +347,8 @@ Set buffer position for priority downloading.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -432,7 +371,8 @@ Get buffer status information.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -452,7 +392,8 @@ Create a new room.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -482,7 +423,8 @@ Join a room.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -511,7 +453,8 @@ Leave a room.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -530,7 +473,8 @@ Relay a sync signal to all peers in the room (server-brokered over SSE).
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -557,7 +501,8 @@ Connect to the room's SSE event stream.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response headers:**
@@ -586,7 +531,8 @@ Start synchronized playback.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -605,7 +551,8 @@ Pause playback.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -624,7 +571,8 @@ Synchronize seeking.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Request:**
@@ -653,7 +601,8 @@ Get current sync status.
 
 **Headers:**
 ```
-Authorization: Bearer <jwt_token>
+X-Access-Token: <token printed at startup>
+X-Client-ID: <any id for this player>
 ```
 
 **Response (200):**
@@ -708,7 +657,7 @@ API supports CORS for the following origins:
 - Configurable via `CORS_ORIGINS` environment variable
 
 Allowed methods: `GET, POST, PUT, DELETE, OPTIONS`
-Allowed headers: `Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID`
+Allowed headers: `Content-Type, X-Access-Token, X-Client-ID, X-Requested-With`
 
 ## SSE (Server-Sent Events)
 

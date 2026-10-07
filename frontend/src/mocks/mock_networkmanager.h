@@ -59,9 +59,10 @@ public:
     MOCK_METHOD(bool, isServerAvailable, (), (const, override));
 
     // Additional NetworkManager specific methods (for extended testing)
-    MOCK_METHOD(void, setAuthToken, (const QString &token), (override));
-    MOCK_METHOD(void, clearAuthToken, (), (override));
-    MOCK_METHOD(QString, authToken, (), (const, override));
+    MOCK_METHOD(void, setAccessToken, (const QString &token), (override));
+    MOCK_METHOD(void, clearAccessToken, (), (override));
+    MOCK_METHOD(void, setClientId, (const QString &clientId), (override));
+    MOCK_METHOD(QString, accessToken, (), (const, override));
     MOCK_METHOD(void, login, (const QString &username, const QString &password), (override));
     MOCK_METHOD(void, registerUser, (const QString &username, const QString &password), (override));
     MOCK_METHOD(void, requestStreamTicket, (const QString &torrentId), (override));

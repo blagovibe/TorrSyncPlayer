@@ -1,149 +1,57 @@
-// Package auth provides middleware for JWT authentication.
+// Package auth provides access control middleware.
 package auth
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
-	"strings"
-	"time"
-
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
-	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
 
-// contextKey type for context keys.
+// HeaderAccessToken carries the per-process access token on every API call.
+const HeaderAccessToken = "X-Access-Token"
+
+// HeaderClientID identifies the calling client for the lifetime of its run.
+// It is not an account: nothing is stored against it, and it only ever
+// distinguishes one connected player from another within a room.
+const HeaderClientID = "X-Client-ID"
+
 type contextKey string
 
-const (
-	// ClaimsKey key for storing claims in request context.
-	ClaimsKey contextKey = "auth_claims"
-	// JTIKey key for storing JTI in request context.
-	JTIKey contextKey = "auth_jti"
-)
+const clientIDKey contextKey = "torrsyncplayer.clientID"
 
-// JWTMiddleware creates middleware for JWT token validation.
-// Checks presence, validity and revocation of the token.
-// Token must be in the format: Bearer <token>
-func (s *AuthService) JWTMiddleware(next http.Handler) http.Handler {
+// TokenMiddleware rejects requests that do not present this process's access
+// token, and records the caller's client id for the P2P session.
+//
+// The token is compared in constant time. A missing or wrong token is answered
+// with 401 and no hint about which part was wrong.
+//
+// No CSRF middleware is needed alongside this: a cross-origin page cannot read
+// the token, and cannot set a custom header on the request without a CORS
+// preflight that the server does not approve. That was already true of the
+// previous JWT scheme and is why CSRF was only ever applied to cookie requests.
+func (s *AuthService) TokenMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			writeAuthError(w, http.StatusUnauthorized, "Missing Authorization header")
+		presented := r.Header.Get(HeaderAccessToken)
+		if presented == "" || !s.ValidateAccessToken(presented) {
+			w.Header().Set("WWW-Authenticate", HeaderAccessToken)
+			writeAuthError(w, http.StatusUnauthorized, "invalid or missing access token")
 			return
 		}
 
-		// Check header format
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			writeAuthError(w, http.StatusUnauthorized, "Invalid Authorization header format. Use: Bearer <token>")
-			return
-		}
-
-		tokenString := parts[1]
-		if tokenString == "" {
-			writeAuthError(w, http.StatusUnauthorized, "Empty token")
-			return
-		}
-
-		// Validate token (signature, expiry and revocation in one place)
-		claims, err := s.ValidateTokenWithRevocation(tokenString)
-		if err != nil {
-			if errors.Is(err, ErrExpiredToken) {
-				writeAuthError(w, http.StatusUnauthorized, "Token expired")
-				return
-			}
-			if errors.Is(err, ErrInvalidToken) {
-				writeAuthError(w, http.StatusUnauthorized, "Token revoked or invalid")
-				return
-			}
-			writeAuthError(w, http.StatusUnauthorized, "Invalid token")
-			return
-		}
-
-		// Add claims and JTI to request context
-		ctx := context.WithValue(r.Context(), ClaimsKey, claims)
-		if claims.JTI != "" {
-			ctx = context.WithValue(ctx, JTIKey, claims.JTI)
-		}
+		ctx := context.WithValue(r.Context(), clientIDKey, r.Header.Get(HeaderClientID))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// GetClaims extracts claims from the request context.
-// Returns nil if the user is not authenticated.
-func GetClaims(r *http.Request) *models.Claims {
-	claims, ok := r.Context().Value(ClaimsKey).(*models.Claims)
-	if !ok {
-		return nil
-	}
-	return claims
+// GetClientID returns the client id recorded by TokenMiddleware, or an empty
+// string when the request did not pass through it.
+func GetClientID(r *http.Request) string {
+	id, _ := r.Context().Value(clientIDKey).(string)
+	return id
 }
 
-// GetJTI extracts JTI from the request context.
-// Returns an empty string if JTI is not found.
-func GetJTI(r *http.Request) string {
-	jti, ok := r.Context().Value(JTIKey).(string)
-	if !ok {
-		return ""
-	}
-	return jti
-}
-
-// LogoutHandler handler for revoking a JWT token.
-// POST /api/v1/auth/logout
-//
-// @Summary      Logout
-// @Description  Revokes the JWT token (adds to revoked list)
-// @Tags         auth
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200  {object}  models.SuccessResponse
-// @Failure      400  {object}  models.ErrorResponse
-// @Failure      401  {object}  models.ErrorResponse
-// @Router       /api/v1/auth/logout [post]
-func (s *AuthService) LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	// Get JTI from context first (set by JWTMiddleware).
-	// This avoids re-parsing the JWT token after middleware already validated it.
-	jti := GetJTI(r)
-	if jti == "" {
-		// Fallback 1: extract from claims in context
-		if claims := GetClaims(r); claims != nil && claims.JTI != "" {
-			jti = claims.JTI
-		} else {
-			// Fallback 2: parse token directly (handler called without middleware)
-			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-				tokenString := strings.TrimSpace(authHeader[len("bearer "):])
-				if tokenString == "" {
-					response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Empty token"})
-					return
-				}
-				jti, _ = s.ExtractJTI(tokenString)
-			}
-		}
-	}
-
-	if jti == "" {
-		response.WriteJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Could not identify token"})
-		return
-	}
-
-	// Revoke token (use store from AuthService)
-	// Set expiration as current time + 24 hours
-	// (in case the token has not expired yet)
-	s.revocationStore.Revoke(jti, time.Now().Add(constants.RevocationStoreTTL))
-
-	response.WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Token revoked successfully"})
-}
-
-// writeAuthError writes an authentication error in JSON format.
 func writeAuthError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("WWW-Authenticate", `Bearer realm="TorrSyncPlayer"`)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	fmt.Fprintf(w, `{"error":%q}`, message)
 }

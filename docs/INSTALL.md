@@ -177,13 +177,11 @@ Extract the archive and run `TorrSyncPlayer.exe`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | 8889 | HTTP server port |
-| `JWT_SECRET` | (empty) | JWT token secret |
-| `JWT_TTL_HOURS` | 24 | JWT token lifetime in hours |
 | `LOG_LEVEL` | info | Log level (debug/info/warn/error) |
 | `LOG_FORMAT` | text | Log format (text/json) |
 | `TLS_CERT` | (empty) | Path to TLS certificate |
 | `TLS_KEY` | (empty) | Path to TLS key |
-| `DATA_DIR` | data | Directory for persistent data (users, revoked tokens, room & sync state, and disk storage when `--disk-storage` is set); empty = in-memory only |
+| `DATA_DIR` | data | Directory for persistent data (room & sync state, and disk storage when `--disk-storage` is set); empty = in-memory only |
 | `CORS_ORIGINS` | (empty → `http://localhost:8889`, `https://localhost:8889`, `http://127.0.0.1:8889`, `https://127.0.0.1:8889`) | Allowed CORS origins (comma-separated) |
 | `MEMORY_CAPACITY` | 4GB | Memory storage capacity per-user |
 | `DISK_STORAGE` | false | Persist torrent pieces to disk under `DATA_DIR` (requires `DATA_DIR`) |
@@ -195,7 +193,6 @@ Extract the archive and run `TorrSyncPlayer.exe`.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port` | 8889 | HTTP server port |
-| `--jwt-secret` | (empty) | JWT token secret |
 | `--tls` | false | Enable TLS |
 | `--auto-tls` | false | Generate self-signed certificate |
 | `--enable-profiling` | false | Enable pprof on port 6060 |
@@ -235,7 +232,6 @@ ExecStart=/opt/TorrSyncPlayer/build/torrsyncplayer
 Restart=on-failure
 RestartSec=5
 Environment=PORT=8889
-Environment=JWT_SECRET=your-secret-here
 
 [Install]
 WantedBy=multi-user.target
@@ -324,7 +320,6 @@ docker build -t torrsyncplayer-server .
 # Run with in-memory storage
 docker run -d --name torrsyncplayer \
   -p 8889:8889 \
-  -e JWT_SECRET="your-secure-secret-at-least-32-chars" \
   -e LOG_LEVEL=info \
   torrsyncplayer-server
 
@@ -332,7 +327,6 @@ docker run -d --name torrsyncplayer \
 docker run -d --name torrsyncplayer \
   -p 8889:8889 \
   -v torrsync-data:/data \
-  -e JWT_SECRET="your-secure-secret-at-least-32-chars" \
   -e DATA_DIR=/data \
   -e LOG_LEVEL=info \
   torrsyncplayer-server
@@ -341,7 +335,6 @@ docker run -d --name torrsyncplayer \
 docker run -d --name torrsyncplayer \
   -p 8889:8889 \
   -v /path/to/certs:/certs:ro \
-  -e JWT_SECRET="your-secure-secret-at-least-32-chars" \
   -e TLS_CERT=/certs/cert.pem \
   -e TLS_KEY=/certs/key.pem \
   -e LOG_LEVEL=info \

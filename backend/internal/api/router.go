@@ -8,7 +8,6 @@ package api
 
 import (
 	"net/http"
-	"time"
 
 	"golang.org/x/time/rate"
 
@@ -28,14 +27,12 @@ type RouterConfig struct {
 	TorrentSvc  internal.TorrentService
 	P2pSvc      internal.P2PService
 	SyncSvc     internal.SyncService
-	AuthStore   *auth.UserStore
 	AuthService *auth.AuthService
-	JWTTokenTTL time.Duration
 }
 
 // NewRouter creates and configures an HTTP router.
-// Attaches middleware (SecurityHeaders, Recovery, CORS, ContentType, CSRF, Logger, RateLimit, Auth) and registers routes.
-// Parameter config - router configuration with services and store.
+// Attaches middleware (SecurityHeaders, Recovery, CORS, ContentType, Logger, RateLimit, AccessToken) and registers routes.
+// Parameter config - router configuration with services and the access-token service.
 // Returns a configured http.Handler.
 func NewRouter(config RouterConfig) http.Handler {
 	r := chi.NewRouter()
@@ -50,55 +47,27 @@ func NewRouter(config RouterConfig) http.Handler {
 	// Swagger UI (without rate limiting for development convenience)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
-	// Health check (without CSRF and JWT authentication for monitoring)
+	// Health check — unauthenticated so monitoring works without the token
 	r.Get(APIPathHealth, HealthCheck())
 
 	// Version endpoint
 	r.Get(APIPathVersion, VersionHandler())
 
-	// Prometheus metrics endpoint (per-IP rate limited with stricter limits, without CSRF/JWT for monitoring tools)
+	// Prometheus metrics endpoint (per-IP rate limited with stricter limits, without
+	// the access token for monitoring tools)
 	r.With(NewRateLimiter(rate.Limit(constants.MetricsRateLimit), constants.MetricsRateBurst)).Get(APIPathMetrics, MetricsHandler())
 
-	// CSRF token endpoint for obtaining a token (per-IP rate limited with stricter limits)
-	r.With(NewRateLimiter(rate.Limit(constants.CSRFRateLimit), constants.CSRFRateBurst)).Get(APIPathCSRFToken, func(w http.ResponseWriter, r *http.Request) {
-		sessionID := extractSessionID(r)
-		token, err := CSRFStore.generateToken(sessionID)
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "Token generation error")
-			return
-		}
-		w.Header().Set("X-CSRF-Token", token)
-		WriteJSON(w, http.StatusOK, map[string]string{
-			"csrfToken": token,
-		})
-	})
-
-	// Apply JWT TTL if configured
-	if config.JWTTokenTTL > 0 {
-		config.AuthService.SetTokenTTL(config.JWTTokenTTL)
-	}
-
-	// Create auth handler
-	authHandler := auth.NewAuthHandler(config.AuthStore, config.AuthService)
-
-	// Auth endpoints — without CSRF protection (public endpoints)
-	// Rate limiting: 10 requests/minute (per-IP via NewRateLimiter)
-	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Use(NewRateLimiter(rate.Limit(0.17), 5))
-		r.Post("/register", authHandler.Register)
-		r.Post("/login", authHandler.Login)
-	})
-
 	// Public stream endpoint — authenticated via a signed stream ticket
-	// (query param "?ticket=") rather than JWT/CSRF, because media players
-	// (libmpv) cannot attach auth headers to their own HTTP fetches.
+	// (query param "?ticket=") rather than the access-token header, because media
+	// players (libmpv) cannot attach headers to their own HTTP fetches.
 	r.With(NewRateLimiter(rate.Limit(constants.StreamRateLimit), constants.StreamRateBurst)).Get("/api/v1/torrents/{id}/stream", StreamFile(config.TorrentSvc, config.AuthService))
 
-	// Protected endpoints — with Rate limiting, CSRF and JWT authentication
+	// Protected endpoints — per-IP rate limiting then access-token check.
+	// No CSRF middleware: a cross-origin page cannot read the token and cannot
+	// set X-Access-Token without a preflight the server does not approve.
 	r.Group(func(r chi.Router) {
-		r.Use(PerIPRateLimiter)                 // per-IP rate limiting (60 req/min) — applied before CSRF to prevent DoS on token store
-		r.Use(CSRFMiddleware)                   // CSRF protection
-		r.Use(config.AuthService.JWTMiddleware) // JWT authentication
+		r.Use(PerIPRateLimiter)                   // per-IP rate limiting (60 req/min) — applied first so a bad token cannot be used to flood
+		r.Use(config.AuthService.TokenMiddleware) // access token + client id
 
 		// API v1
 		r.Route("/api/v1", func(r chi.Router) {
@@ -111,7 +80,7 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Post("/{id}/select", SelectFile(config.TorrentSvc))
 				// NOTE: /{id}/stream is served publicly (outside this group) and
 				// authenticated via a signed stream ticket, because libmpv cannot
-				// attach JWT/CSRF headers to its own HTTP fetches.
+				// attach the access-token header to its own HTTP fetches.
 				r.Post("/{id}/stream-ticket", StreamTicket(config.TorrentSvc, config.AuthService))
 				r.Post("/{id}/buffer/position", SetBufferPosition(config.TorrentSvc))
 				r.Get("/{id}/buffer/info", GetBufferInfo(config.TorrentSvc))
@@ -126,10 +95,6 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/{roomID}/events", RoomEvents(config.P2pSvc))
 			})
 
-			// Auth endpoints (protected — require JWT + CSRF)
-			r.Post("/auth/logout", config.AuthService.LogoutHandler)
-			r.Post("/auth/change-password", authHandler.ChangePassword)
-
 			// Sync endpoints
 			r.Route("/sync", func(r chi.Router) {
 				r.Post("/play", SyncPlay(config.SyncSvc, config.P2pSvc))
@@ -138,7 +103,7 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/status", SyncStatus(config.SyncSvc, config.P2pSvc))
 			})
 
-			// Detailed health check (requires JWT authentication)
+			// Detailed health check (requires the access token)
 			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))
 		})
 

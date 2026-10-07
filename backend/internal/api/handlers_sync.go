@@ -30,12 +30,8 @@ import (
 // @Router       /api/v1/sync/play [post]
 func SyncPlay(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		roomInfo, _ := p2pSvc.GetRoomInfo(r.Context(), userID)
 		roomID := ""
@@ -71,12 +67,8 @@ func SyncPlay(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.Han
 // @Router       /api/v1/sync/pause [post]
 func SyncPause(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		roomInfo, _ := p2pSvc.GetRoomInfo(r.Context(), userID)
 		roomID := ""
@@ -131,12 +123,8 @@ func SyncSeek(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.Han
 			return
 		}
 
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		roomInfo, _ := p2pSvc.GetRoomInfo(r.Context(), userID)
 		roomID := ""
@@ -178,8 +166,8 @@ func SyncStatus(syncSvc internal.SyncService, p2pSvc internal.P2PService) http.H
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Determine the room from the caller's current membership.
 		roomID := ""
-		if claims := auth.GetClaims(r); claims != nil {
-			if roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), claims.UserID); err == nil && roomInfo != nil {
+		if clientID := auth.GetClientID(r); clientID != "" {
+			if roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), clientID); err == nil && roomInfo != nil {
 				roomID = roomInfo.ID
 			}
 		}

@@ -232,11 +232,8 @@ jobs:
 
       - name: Start application
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           cd backend
-          # Use fallback if JWT_SECRET not set
-          export JWT_SECRET=${JWT_SECRET:-test-jwt-secret-key-for-security-scanning-min-32}
           ./build/torrsyncplayer --port 8889 --auto-tls &
           # Wait for server to be ready with timeout and retry
           for i in {1..30}; do
@@ -502,7 +499,6 @@ jobs:
       - name: Start backend server
         working-directory: backend
         run: |
-          export JWT_SECRET=test-jwt-secret-key-for-e2e-testing-min-32-chars
           ./build/torrsyncplayer --port 8889 --auto-tls &
           sleep 5
           curl -k -s https://localhost:8889/health
@@ -586,7 +582,6 @@ jobs:
           API_RATE_LIMIT: '500'
           API_RATE_BURST: '2000'
         run: |
-          export JWT_SECRET=test-jwt-secret-key-for-load-testing-min-32-chars
           ./build/torrsyncplayer --port 8889 --auto-tls > server.log 2>&1 &
           for i in $(seq 1 30); do
             curl -k -sf https://localhost:8889/health > /dev/null && break
@@ -594,12 +589,22 @@ jobs:
           done
           curl -k -s https://localhost:8889/health
           echo
+          # The access token is generated at startup and printed to the log.
+          # The load generator needs it; there is no secret to configure.
+          ACCESS_TOKEN=$(grep -oE 'token=[0-9a-f]+' server.log | head -1 | cut -d= -f2)
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "::error::could not read the access token from server.log"
+            cat server.log
+            exit 1
+          fi
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
 
       - name: Run k6 load tests
         working-directory: tests/load/k6
         run: |
           k6 version
-          k6 run --out json=results.json mixed_scenario.js 2>&1
+          k6 run --out json=results.json -e ACCESS_TOKEN="$ACCESS_TOKEN" mixed_scenario.js 2>&1
 
       - name: Upload load test results
         if: always()

@@ -24,7 +24,7 @@ import (
 // The test builds the service the way cmd/server does — persistence set — and
 // fails on a hang rather than blocking the suite.
 func TestCreateRoomWithPersistenceDoesNotDeadlock(t *testing.T) {
-	authService, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-deadlock-32bytes!"))
+	authService, err := auth.NewAuthService()
 	if err != nil {
 		t.Fatalf("auth service: %v", err)
 	}

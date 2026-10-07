@@ -33,10 +33,7 @@ import (
 const pactTokenPlaceholder = "${PACT_TOKEN}"
 
 // Credentials that match the login interaction in the pact file.
-const (
-	pactUsername = "pactuser"
-	pactPassword = "Str0ng!PactPass"
-)
+const ()
 
 // materialisePact loads the pact, replaces every token placeholder with the
 // supplied token and writes the result to a temp file for verification.
@@ -97,10 +94,6 @@ func stateHandlers() models.StateHandlers {
 // served canned mock responses, this stands up the actual router with
 // real services so verification reflects production behaviour.
 func TestPactProvider(t *testing.T) {
-	if err := auth.InitDummyHash(); err != nil {
-		t.Fatalf("failed to init dummy bcrypt hash: %v", err)
-	}
-
 	// Build the real router with real (in-memory) services.
 	bufferSvc := buffer.NewService(64 * 1024 * 1024)
 	torrentSvc, err := torrent.NewServiceWithOptions(bufferSvc, torrent.ServiceOptions{
@@ -114,26 +107,14 @@ func TestPactProvider(t *testing.T) {
 	}
 	defer torrentSvc.Close()
 
-	authService, err := auth.NewAuthService([]byte("pact-test-secret-key-for-verification-32b!"))
+	authService, err := auth.NewAuthService()
 	if err != nil {
 		t.Fatalf("failed to create auth service: %v", err)
 	}
-	authStore := auth.NewUserStore()
 
-	// The pact's login interaction needs an account that already exists, so
-	// create the fixture user up front instead of relying on verification
-	// order to register it first.
-	if _, err := authStore.Create(pactUsername, pactPassword); err != nil {
-		t.Fatalf("failed to create pact fixture user: %v", err)
-	}
-	fixtureUser, ok := authStore.GetByUsername(pactUsername)
-	if !ok {
-		t.Fatal("pact fixture user missing after Create")
-	}
-	pactToken, err := authService.GenerateToken(fixtureUser)
-	if err != nil {
-		t.Fatalf("failed to mint pact token: %v", err)
-	}
+	// The token is generated at startup, so the pact can be materialised with a
+	// real value straight away — no fixture account has to exist first.
+	pactToken := authService.AccessToken()
 
 	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
@@ -148,7 +129,6 @@ func TestPactProvider(t *testing.T) {
 		TorrentSvc:  torrentSvc,
 		P2pSvc:      p2pSvc,
 		SyncSvc:     syncSvc,
-		AuthStore:   authStore,
 		AuthService: authService,
 	})
 

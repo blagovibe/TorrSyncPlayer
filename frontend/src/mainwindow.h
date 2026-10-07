@@ -38,6 +38,7 @@
 #include <QCloseEvent>
 #include <QUrl>
 #include <QTimer>
+#include <QUuid>
 
 // Предварительные объявления
 class MpvWidget;
@@ -45,7 +46,7 @@ class NetworkManager;
 class TorrentModel;
 class TorrentManager;
 class RoomManager;
-class AuthDialog;
+
 
 /**
  * @class MainWindow
@@ -93,6 +94,20 @@ public:
     void setServerUrl(const QUrl &url);
 
     /**
+     * @brief Установить токен доступа для API
+     * Токен выдаётся сервером при запуске и передаётся как аргумент командной строки
+     * @param token Access token для заголовка X-Access-Token
+     */
+    void setAccessToken(const QString &token);
+
+    /**
+     * @brief Установить идентификатор клиента для P2P комнат
+     * Используется заголовок X-Client-ID для идентификации участника в комнате
+     * @param clientId Уникальный идентификатор этого экземпляра плеера
+     */
+    void setClientId(const QString &clientId);
+
+    /**
      * @brief Инициализировать загрузку торрентов после установки URL сервера
      * Вызывает запрос списка торрентов к серверу
      */
@@ -107,11 +122,7 @@ private slots:
      */
     void onAddTorrent();
 
-    /**
-     * @brief Обработка входа в приложение
-     * Открывает диалог авторизации
-     */
-    void onLogin();
+
 
     /**
      * @brief Обработка выбора торрент-файла через диалог

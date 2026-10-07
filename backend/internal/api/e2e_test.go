@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 )
 
 // setupTestServer создаёт тестовый сервер с реальными сервисами.
-func setupTestServer(t *testing.T) (*httptest.Server, func()) {
+func setupTestServer(t *testing.T) (*httptest.Server, string, func()) {
 	t.Helper()
 
 	// Создаём сервис буферизации для тестов
@@ -37,9 +38,8 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 	})
 	require.NoError(t, err)
 
-	authService, err := auth.NewAuthService([]byte("test-secret-key-for-e2e-tests-32bytes!"))
+	authService, err := auth.NewAuthService()
 	require.NoError(t, err)
-	authStore := auth.NewUserStore()
 	p2pSvc, err := p2p.NewService(authService)
 	require.NoError(t, err)
 
@@ -50,11 +50,13 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 		TorrentSvc:  torrentSvc,
 		P2pSvc:      p2pSvc,
 		SyncSvc:     syncSvc,
-		AuthStore:   authStore,
 		AuthService: authService,
 	})
 
 	// Создаём тестовый сервер
+	// Each test gets a full request budget; see clientRateLimiter.resetAll.
+	globalClientRateLimiter.resetAll()
+
 	server := httptest.NewServer(router)
 
 	// Функция очистки
@@ -65,12 +67,24 @@ func setupTestServer(t *testing.T) (*httptest.Server, func()) {
 		syncSvc.Close()
 	}
 
-	return server, cleanup
+	// The access token is printed at startup in production; tests get it here so
+	// they can send it the way a real client does.
+	return server, authService.AccessToken(), cleanup
+}
+
+// authRequest builds a request carrying the headers TokenMiddleware expects.
+func authRequest(t *testing.T, server *httptest.Server, token, method, path string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(method, server.URL+path, nil)
+	require.NoError(t, err)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
+	return req
 }
 
 // TestE2E_HealthCheck проверяет health check endpoint.
 func TestE2E_HealthCheck(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	resp, err := http.Get(server.URL + "/health")
@@ -88,7 +102,7 @@ func TestE2E_HealthCheck(t *testing.T) {
 
 // TestE2E_Version проверяет version endpoint.
 func TestE2E_Version(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	resp, err := http.Get(server.URL + "/api/v1/version")
@@ -109,7 +123,7 @@ func TestE2E_Version(t *testing.T) {
 
 // TestE2E_Metrics проверяет metrics endpoint.
 func TestE2E_Metrics(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	resp, err := http.Get(server.URL + "/metrics")
@@ -120,67 +134,97 @@ func TestE2E_Metrics(t *testing.T) {
 	assert.Contains(t, resp.Header.Get("Content-Type"), "text/plain")
 }
 
-// TestE2E_AuthFlow проверяет полный цикл аутентификации.
-func TestE2E_AuthFlow(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+// TestE2E_AccessToken проверяет схему доступа: токен выдаётся при старте
+// сервера, защищённые endpoint его требуют, а чужие и отсутствующие — нет.
+func TestE2E_AccessToken(t *testing.T) {
+	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// 1. Регистрация пользователя
-	registerBody := map[string]string{
-		"username": "testuser",
-		"password": "TestPass1!",
-	}
-	body, _ := json.Marshal(registerBody)
-
-	resp, err := http.Post(server.URL+"/api/v1/auth/register", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	// 2. Вход в систему
-	loginBody := map[string]string{
-		"username": "testuser",
-		"password": "TestPass1!",
-	}
-	body, _ = json.Marshal(loginBody)
-
-	resp, err = http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var loginResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&loginResult)
-	require.NoError(t, err)
-
-	token, ok := loginResult["token"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, token)
-
-	// 3. Доступ к защищённому endpoint с токеном
-	req, err := http.NewRequest("GET", server.URL+"/api/v1/torrents", nil)
-	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
+	require.NotEmpty(t, token, "сервер должен выдать токен при старте")
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err = client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	t.Run("с корректным токеном — доступ разрешён", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/torrents", nil)
+		require.NoError(t, err)
+		req.Header.Set(auth.HeaderAccessToken, token)
+		req.Header.Set(auth.HeaderClientID, "e2e-client")
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("без токена — доступ запрещён", func(t *testing.T) {
+		resp, err := client.Get(server.URL + "/api/v1/torrents")
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("с чужим токеном — доступ запрещён", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/torrents", nil)
+		require.NoError(t, err)
+		req.Header.Set(auth.HeaderAccessToken, strings.Repeat("ab", 32))
+		req.Header.Set(auth.HeaderClientID, "e2e-client")
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("старый JWT-токен больше не принимается", func(t *testing.T) {
+		// Раньше здесь был структурированный JWT; теперь приведения вида
+		// "Bearer ..." нет вообще, и такой заголовок не должен работать.
+		req, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/torrents", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.valid")
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("эндпоинты регистрации и входа удалены", func(t *testing.T) {
+		for _, path := range []string{"/api/v1/auth/register", "/api/v1/auth/login",
+			"/api/v1/auth/logout", "/api/v1/auth/change-password"} {
+			// Each check gets its own budget; see clientRateLimiter.resetAll.
+			globalClientRateLimiter.resetAll()
+
+			// Without a token the request is refused before routing, which also
+			// means the endpoint is unreachable; send a valid one to prove the
+			// route itself no longer exists.
+			resp, err := client.Post(server.URL+path, "application/json",
+				bytes.NewBufferString(`{"username":"x","password":"y"}`))
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+				"без токена %s не должен быть доступен", path)
+
+			req := authRequest(t, server, token, http.MethodPost, path)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = client.Do(req)
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode,
+				"маршрут %s должен быть удалён", path)
+		}
+	})
 }
 
 // TestE2E_TorrentList проверяет получение списка торрентов.
 func TestE2E_TorrentList(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
-
-	// Получаем токен
-	token := getAuthToken(t, server.URL)
 
 	// Запрашиваем список торрентов
 	req, err := http.NewRequest("GET", server.URL+"/api/v1/torrents", nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
@@ -199,11 +243,9 @@ func TestE2E_TorrentList(t *testing.T) {
 
 // TestE2E_SyncFlow проверяет цикл синхронизации.
 func TestE2E_SyncFlow(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	token := getAuthToken(t, server.URL)
-	csrfToken := getCSRFToken(t, server.URL)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// 1. Play
@@ -212,8 +254,8 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	req, err := http.NewRequest("POST", server.URL+"/api/v1/sync/play", bytes.NewReader(body))
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -234,8 +276,8 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/seek", bytes.NewReader(body))
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err = client.Do(req)
@@ -254,8 +296,8 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/pause", bytes.NewReader(body))
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err = client.Do(req)
@@ -271,7 +313,8 @@ func TestE2E_SyncFlow(t *testing.T) {
 	// 4. Get Status
 	req, err = http.NewRequest("GET", server.URL+"/api/v1/sync/status", nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 
 	resp, err = client.Do(req)
 	require.NoError(t, err)
@@ -287,11 +330,9 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 // TestE2E_RoomFlow проверяет цикл работы с комнатами.
 func TestE2E_RoomFlow(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	token := getAuthToken(t, server.URL)
-	csrfToken := getCSRFToken(t, server.URL)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// 1. Создание комнаты
@@ -303,8 +344,8 @@ func TestE2E_RoomFlow(t *testing.T) {
 
 	req, err := http.NewRequest("POST", server.URL+"/api/v1/rooms", bytes.NewReader(body))
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -321,7 +362,7 @@ func TestE2E_RoomFlow(t *testing.T) {
 
 // TestE2E_UnauthorizedAccess проверяет защиту от несанкционированного доступа.
 func TestE2E_UnauthorizedAccess(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -345,11 +386,9 @@ func TestE2E_UnauthorizedAccess(t *testing.T) {
 
 // TestE2E_InvalidInput проверяет обработку невалидного ввода.
 func TestE2E_InvalidInput(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	token := getAuthToken(t, server.URL)
-	csrfToken := getCSRFToken(t, server.URL)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// Невалидный seek (отрицательная позиция)
@@ -360,8 +399,8 @@ func TestE2E_InvalidInput(t *testing.T) {
 
 	req, err := http.NewRequest("POST", server.URL+"/api/v1/sync/seek", bytes.NewReader(body))
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -370,62 +409,8 @@ func TestE2E_InvalidInput(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-// getCSRFToken получает CSRF токен для тестов.
-func getCSRFToken(t *testing.T, baseURL string) string {
-	t.Helper()
-
-	resp, err := http.Get(baseURL + "/api/v1/csrf-token")
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
-
-	token, ok := result["csrfToken"].(string)
-	require.True(t, ok)
-	require.NotEmpty(t, token)
-	return token
-}
-
-// getAuthToken получает JWT токен для тестов.
-func getAuthToken(t *testing.T, baseURL string) string {
-	t.Helper()
-
-	// Регистрация
-	registerBody := map[string]string{
-		"username": "e2e_test_user",
-		"password": "TestPass1!",
-	}
-	body, _ := json.Marshal(registerBody)
-
-	resp, err := http.Post(baseURL+"/api/v1/auth/register", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	_ = resp.Body.Close()
-
-	// Вход
-	loginBody := map[string]string{
-		"username": "e2e_test_user",
-		"password": "TestPass1!",
-	}
-	body, _ = json.Marshal(loginBody)
-
-	resp, err = http.Post(baseURL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
-
-	token, ok := result["token"].(string)
-	require.True(t, ok)
-	return token
-}
-
-// TestE2E_ContextCancellation проверяет корректную обработку отмены контекста.
 func TestE2E_ContextCancellation(t *testing.T) {
-	server, cleanup := setupTestServer(t)
+	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

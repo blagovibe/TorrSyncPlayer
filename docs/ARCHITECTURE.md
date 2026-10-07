@@ -62,7 +62,7 @@ The architecture follows a client-server model with P2P elements:
 │  │  │  │  Handlers  │ │  Handlers  │ │  Handlers  │ │  Handlers  │ │   │    │
 │  │  │  └────────────┘ └────────────┘ └────────────┘ └────────────┘ │   │    │
 │  │  │                                                              │   │    │
-│  │  │  Middleware: SecurityHeaders → Recovery → CORS → Logger → CSRF│   │    │
+│  │  │  Middleware: SecurityHeaders → Recovery → CORS → Logger  │   │    │
 │  │  └──────────────────────────────────────────────────────────────┘   │    │
 │  │                                    │                                 │    │
 │  │  ┌──────────────────────────────────────────────────────────────┐   │    │
@@ -74,7 +74,7 @@ The architecture follows a client-server model with P2P elements:
 │  │  │  │ - anacrolix/ │  │ - Rooms      │  │ - Play/Pause/Seek  │  │   │    │
 │  │  │  │   torrent    │  │ - SSE events │  │ - Latency comp.    │  │   │    │
 │  │  │  │ - Magnet     │  │ - Peers      │  │ - Smooth adjust    │  │   │    │
-│  │  │  │ - Streaming  │  │ - JWT auth   │  │                    │  │   │    │
+│  │  │  │ - Streaming  │  │ - Token auth  │  │                    │  │   │    │
 │  │  │  └──────────────┘  └──────────────┘  └────────────────────┘  │   │    │
 │  │  │  ┌──────────────┐  ┌──────────────┐                          │   │    │
 │  │  │  │   Buffer     │  │   Storage    │                          │   │    │
@@ -279,14 +279,19 @@ type User struct {
 ## Security
 
 ### Authentication
-- JWT tokens for user authentication (HS256, 24h TTL)
+- No accounts. Each backend generates one random access token at startup and
+  prints it to the log; the token changes on every run and nothing is stored.
+- `X-Access-Token` header, compared in constant time
+- `X-Client-ID` header identifies a connected player for the duration of a run
 - bcrypt hashing for room passwords (cost=12)
-- JTI (JWT ID) for token revocation
-- Tokens have an expiration time
+- Short-lived signed stream tickets (HMAC-SHA256, derived per process with HKDF)
+  so libmpv can fetch media without attaching headers
 
 ### API Protection
-- CSRF tokens for cross-site request forgery protection (TTL 1h)
-- Rate limiting (10 req/min for auth, 60 req/min for API)
+- The access token itself stops a cross-origin page from driving the API: it
+  cannot read the token, and cannot set a custom header without a preflight the
+  server does not approve. No separate CSRF token exists.
+- Rate limiting (60 req/min per address for the protected API)
 - CORS policies
 - Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
 - All input data validation
@@ -312,14 +317,14 @@ backend/
 │   ├── api/              # HTTP API layer
 │   │   ├── router.go     # Routing (chi)
 │   │   ├── handlers.go   # Request handlers
-│   │   ├── middleware.go # Middleware (CORS, CSRF, Rate Limit)
+│   │   ├── middleware.go # Middleware (CORS, Rate Limit)
 │   │   ├── response.go   # Response formatting
 │   │   └── paths.go      # API path constants
 │   │
 │   ├── auth/             # Authentication
-│   │   ├── auth.go       # JWT logic
+│   │   ├── auth.go       # Access token + stream tickets
 │   │   ├── handlers.go   # Register/Login/Logout
-│   │   ├── middleware.go # JWT middleware
+│   │   ├── middleware.go # Access token middleware
 │   │   ├── store.go      # User storage
 │   │   └── revocation.go # Token revocation
 │   │
@@ -420,34 +425,30 @@ Services are designed as independent components without a DI container. Communic
 | `/health` | GET | Basic health check | No |
 | `/api/v1/version` | GET | Server version | No |
 | `/metrics` | GET | Prometheus metrics | No |
-| `/api/v1/csrf-token` | GET | Get CSRF token | No |
 | `/swagger/` | GET | Swagger UI | No |
-| `/api/v1/auth/register` | POST | Register | No |
-| `/api/v1/auth/login` | POST | Login | No |
-| `/api/v1/auth/logout` | POST | Logout | No |
-| `/api/v1/torrents` | GET | List torrents | JWT |
-| `/api/v1/torrents` | POST | Add torrent | JWT |
-| `/api/v1/torrents/{id}` | DELETE | Remove torrent | JWT |
-| `/api/v1/torrents/{id}/files` | GET | List files | JWT |
-| `/api/v1/torrents/{id}/select` | POST | Select file | JWT |
-| `/api/v1/torrents/{id}/stream` | GET | Stream file | Signed stream ticket (public; libmpv cannot send JWT headers) |
-| `/api/v1/torrents/{id}/buffer/position` | POST | Set buffer position | JWT |
-| `/api/v1/torrents/{id}/buffer/info` | GET | Buffer info | JWT |
-| `/api/v1/rooms` | POST | Create room | JWT |
-| `/api/v1/rooms/join` | POST | Join room | JWT |
-| `/api/v1/rooms/leave` | POST | Leave room | JWT |
-| `/api/v1/rooms/signal` | POST | Relay sync signal to room peers | JWT |
-| `/api/v1/rooms/{roomID}/events` | GET | SSE events | JWT |
-| `/api/v1/sync/play` | POST | Sync play | JWT |
-| `/api/v1/sync/pause` | POST | Sync pause | JWT |
-| `/api/v1/sync/seek` | POST | Sync seek | JWT |
-| `/api/v1/sync/status` | GET | Sync status | JWT |
-| `/api/v1/health/detailed` | GET | Detailed health check | JWT |
+| `/api/v1/torrents` | GET | List torrents | Access token |
+| `/api/v1/torrents` | POST | Add torrent | Access token |
+| `/api/v1/torrents/{id}` | DELETE | Remove torrent | Access token |
+| `/api/v1/torrents/{id}/files` | GET | List files | Access token |
+| `/api/v1/torrents/{id}/select` | POST | Select file | Access token |
+| `/api/v1/torrents/{id}/stream` | GET | Stream file | Signed stream ticket (public; libmpv cannot send headers) |
+| `/api/v1/torrents/{id}/buffer/position` | POST | Set buffer position | Access token |
+| `/api/v1/torrents/{id}/buffer/info` | GET | Buffer info | Access token |
+| `/api/v1/rooms` | POST | Create room | Access token |
+| `/api/v1/rooms/join` | POST | Join room | Access token |
+| `/api/v1/rooms/leave` | POST | Leave room | Access token |
+| `/api/v1/rooms/signal` | POST | Relay sync signal to room peers | Access token |
+| `/api/v1/rooms/{roomID}/events` | GET | SSE events | Access token |
+| `/api/v1/sync/play` | POST | Sync play | Access token |
+| `/api/v1/sync/pause` | POST | Sync pause | Access token |
+| `/api/v1/sync/seek` | POST | Sync seek | Access token |
+| `/api/v1/sync/status` | GET | Sync status | Access token |
+| `/api/v1/health/detailed` | GET | Detailed health check | Access token |
 
 **Middleware pipeline** (order matters):
 
 ```
-Request → SecurityHeaders → Recovery → CORS → Logger → CSRF → RateLimit → Auth → Handler
+Request → SecurityHeaders → Recovery → CORS → Logger → RateLimit → AccessToken → Handler
 ```
 
 ### Synchronization Layer
@@ -718,7 +719,7 @@ simple, NAT-friendly and debuggable.
 
 ### Peer Authentication
 
-- JWT token is passed when joining a room
+- Access token and client id are sent on every request, including room joins
 - Token is validated via `authService.ValidateTokenWithRevocation()`
 - Signals and sync commands are relayed through the server to all peers in the room
 

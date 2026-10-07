@@ -61,12 +61,8 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		room, err := p2pSvc.CreateRoom(r.Context(), userID, req.Name, req.Password)
 		if err != nil {
@@ -116,12 +112,8 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		// Do NOT log req.Password - password must not appear in logs
 		if err := p2pSvc.JoinRoom(r.Context(), userID, req.RoomID, req.Password); err != nil {
@@ -146,12 +138,8 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Router       /api/v1/rooms/leave [post]
 func LeaveRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		if err := p2pSvc.LeaveRoom(r.Context(), userID); err != nil {
 			handleError(w, r, err, "leaving room")
@@ -203,12 +191,8 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		if err := p2pSvc.SendSignal(r.Context(), userID, req.Signal); err != nil {
 			handleError(w, r, err, "sending signal")
@@ -241,12 +225,8 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		// Get user ID from JWT claims
-		claims := auth.GetClaims(r)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		// Identify the caller for the P2P session
+		userID := auth.GetClientID(r)
 
 		// Check room membership before subscribing to SSE
 		roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), userID)

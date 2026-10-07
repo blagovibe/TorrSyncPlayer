@@ -1,12 +1,8 @@
 // Package api provides HTTP API for the server.
-// Contains middleware for logging, CORS, recovery, rate limiting, CSRF and security headers.
+// Contains middleware for logging, CORS, recovery, rate limiting and security headers.
 package api
 
 import (
-	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"log/slog"
 	"mime"
 	"net"
@@ -23,312 +19,6 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
-
-// ── CSRF Protection ─────────────────────────────────────────────────────
-
-// csrfTokenKey type for storing CSRF token in context
-type csrfTokenKey struct{}
-
-// sessionIDKey type for storing session ID in context
-type sessionIDKey struct{}
-
-// CSRFTokenFromContext extracts CSRF token from the request context
-func CSRFTokenFromContext(ctx context.Context) string {
-	if token, ok := ctx.Value(csrfTokenKey{}).(string); ok {
-		return token
-	}
-	return ""
-}
-
-// SessionIDFromContext extracts session ID from the request context
-func SessionIDFromContext(ctx context.Context) string {
-	if sessionID, ok := ctx.Value(sessionIDKey{}).(string); ok {
-		return sessionID
-	}
-	return ""
-}
-
-// csrfTokenInfo stores information about a CSRF token and its associated session
-type csrfTokenInfo struct {
-	Expiry    time.Time
-	SessionID string
-}
-
-// csrfTokenStore stores active CSRF tokens with TTL and session binding
-type csrfTokenStore struct {
-	mu      sync.RWMutex
-	tokens  map[string]*csrfTokenInfo
-	ttl     time.Duration
-	maxSize int
-	stop    chan struct{}
-	wg      sync.WaitGroup
-}
-
-// newCSRFTokenStore creates a new CSRF token store
-func newCSRFTokenStore() *csrfTokenStore {
-	store := &csrfTokenStore{
-		tokens:  make(map[string]*csrfTokenInfo),
-		ttl:     constants.CSRFTokenTTL,
-		maxSize: constants.CSRFTokenStoreMaxSize,
-		stop:    make(chan struct{}),
-	}
-
-	// Start periodic cleanup of expired tokens
-	store.wg.Add(1)
-	go func() {
-		defer store.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Error("CSRF: cleanup goroutine exited with panic", "error", r)
-			}
-		}()
-		store.cleanup()
-	}()
-
-	return store
-}
-
-// cleanup periodically removes expired tokens
-func (s *csrfTokenStore) cleanup() {
-	ticker := time.NewTicker(constants.CSRFCleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			s.mu.Lock()
-			now := time.Now()
-			for token, info := range s.tokens {
-				if now.After(info.Expiry) {
-					delete(s.tokens, token)
-				}
-			}
-			s.mu.Unlock()
-		case <-s.stop:
-			return
-		}
-	}
-}
-
-// Stop stops the cleanup goroutine and releases resources.
-// Blocks until the goroutine completes or a timeout occurs.
-func (s *csrfTokenStore) Stop() {
-	close(s.stop)
-	// Wait for goroutine completion with timeout
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		logger.Info("CSRF: cleanup goroutine completed successfully")
-	case <-time.After(constants.CSRFShutdownTimeout):
-		logger.Warn("CSRF: timeout waiting for cleanup goroutine to finish")
-	}
-}
-
-// generateToken creates a new CSRF token and binds it to a session
-func (s *csrfTokenStore) generateToken(sessionID string) (string, error) {
-	bytes := make([]byte, constants.CSRFTokenBytes)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	token := hex.EncodeToString(bytes)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Limit store size
-	if len(s.tokens) >= s.maxSize {
-		// Remove the oldest token (simple heuristic)
-		for k := range s.tokens {
-			delete(s.tokens, k)
-			break
-		}
-	}
-
-	s.tokens[token] = &csrfTokenInfo{
-		Expiry:    time.Now().Add(s.ttl),
-		SessionID: sessionID,
-	}
-	return token, nil
-}
-
-// validateToken validates a CSRF token and its session binding
-func (s *csrfTokenStore) validateToken(token string, sessionID string) bool {
-	if token == "" {
-		return false
-	}
-
-	s.mu.RLock()
-	info, exists := s.tokens[token]
-	s.mu.RUnlock()
-
-	if !exists {
-		return false
-	}
-
-	if time.Now().After(info.Expiry) {
-		s.mu.Lock()
-		delete(s.tokens, token)
-		s.mu.Unlock()
-		return false
-	}
-
-	// Check session binding (if sessionID is provided)
-	if sessionID != "" && info.SessionID != "" && info.SessionID != sessionID {
-		logger.Warn("CSRF: session ID mismatch", "expected", info.SessionID, "got", sessionID)
-		return false
-	}
-
-	return true
-}
-
-// CSRFStore global CSRF token store.
-// Exported for testing.
-var CSRFStore = newCSRFTokenStore()
-
-// mutatingMethods HTTP methods requiring CSRF protection
-var mutatingMethods = map[string]bool{
-	http.MethodPost:   true,
-	http.MethodPut:    true,
-	http.MethodDelete: true,
-	http.MethodPatch:  true,
-}
-
-// extractSessionID extracts session ID from the request (from cookie or header)
-func extractSessionID(r *http.Request) string {
-	// Try to get from cookie
-	cookie, err := r.Cookie("session_id")
-	if err == nil && cookie.Value != "" {
-		return cookie.Value
-	}
-
-	// Try to get from X-Session-ID header
-	sessionID := r.Header.Get("X-Session-ID")
-	if sessionID != "" {
-		return sessionID
-	}
-
-	return ""
-}
-
-// hasJWTAuthorization checks if the request carries JWT Bearer authentication.
-// API clients using JWT tokens are exempt from CSRF protection.
-// Uses case-insensitive comparison for the "Bearer" scheme as per RFC 6750.
-func hasJWTAuthorization(r *http.Request) bool {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return false
-	}
-	// Split and check "Bearer" (case-insensitive per RFC 6750)
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	// Use strings.ToLower only on the scheme part, not the entire header
-	return strings.ToLower(parts[0]) == "bearer"
-}
-
-// CSRFMiddleware creates middleware for CSRF attack protection.
-// Validates CSRF token for all mutating requests (POST, PUT, DELETE, PATCH).
-// Requests with valid JWT Bearer tokens are exempt from CSRF protection,
-// as API clients are not vulnerable to browser-based CSRF attacks.
-// Token can be passed via X-CSRF-Token header or _csrf parameter.
-// Tokens are bound to user sessions to prevent cross-session CSRF attacks.
-func CSRFMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sessionID := extractSessionID(r)
-
-		if !mutatingMethods[r.Method] {
-			// Ensure every browser session has a stable session identifier so CSRF
-			// tokens can be bound to it. Without this the session-binding check in
-			// validateToken is never engaged (both IDs empty) and cross-session
-			// token reuse would be possible. JWT-Bearer requests are exempt (below)
-			// and do not need a cookie. We only generate/set the cookie on
-			// non-mutating requests (typically GET for /csrf-token fetch).
-			if sessionID == "" && !hasJWTAuthorization(r) {
-				var buf [16]byte
-				if _, err := rand.Read(buf[:]); err == nil {
-					sessionID = hex.EncodeToString(buf[:])
-					// #nosec G124 -- Secure is set only when the request was served
-					// over TLS; over plain HTTP the cookie is intentionally insecure
-					// so local/dev sessions still work. HttpOnly and SameSite are set.
-					http.SetCookie(w, &http.Cookie{
-						Name:     "session_id",
-						Value:    sessionID,
-						Path:     "/",
-						HttpOnly: true,
-						Secure:   r.TLS != nil,
-						SameSite: http.SameSiteLaxMode,
-					})
-				}
-			}
-
-			origin := r.Header.Get("Origin")
-			referer := r.Header.Get("Referer")
-			if origin != "" || referer != "" {
-				token, err := CSRFStore.generateToken(sessionID)
-				if err == nil {
-					w.Header().Set("X-CSRF-Token", token)
-					ctx := context.WithValue(r.Context(), csrfTokenKey{}, token)
-					if sessionID != "" {
-						ctx = context.WithValue(ctx, sessionIDKey{}, sessionID)
-					}
-					r = r.WithContext(ctx)
-				}
-			}
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Requests with JWT Bearer tokens are exempt from CSRF protection.
-		// Browser-based CSRF attacks cannot forge Bearer tokens, so this is safe.
-		if hasJWTAuthorization(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// For requests without JWT, check CSRF token
-		csrfToken := r.Header.Get("X-CSRF-Token")
-		if csrfToken == "" {
-			// Try to get from request parameter
-			csrfToken = r.FormValue("_csrf")
-		}
-
-		if csrfToken == "" {
-			logger.Warn("CSRF: missing token", "path", r.URL.Path, "method", r.Method)
-			WriteError(w, http.StatusForbidden, "Missing CSRF token")
-			return
-		}
-
-		// Validate token via store with session check
-		if !CSRFStore.validateToken(csrfToken, sessionID) {
-			hash := sha256.Sum256([]byte(sessionID))
-			truncatedSession := hex.EncodeToString(hash[:])[:8]
-			logger.Warn("CSRF: invalid token or session mismatch", "path", r.URL.Path, "method", r.Method, "sessionID", truncatedSession)
-			WriteError(w, http.StatusForbidden, "Invalid CSRF token")
-			return
-		}
-
-		// Token is valid, allow the request
-		next.ServeHTTP(w, r)
-	})
-}
-
-// GetCSRFToken returns the current CSRF token from context or generates a new one
-func GetCSRFToken(ctx context.Context) string {
-	token := CSRFTokenFromContext(ctx)
-	if token == "" {
-		sessionID := SessionIDFromContext(ctx)
-		newToken, err := CSRFStore.generateToken(sessionID)
-		if err == nil {
-			token = newToken
-		}
-	}
-	return token
-}
 
 // ── Content-Type Validation ──────────────────────────────────────────────
 
@@ -851,6 +541,19 @@ func NewRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	}
+}
+
+// resetAll drops every per-address bucket.
+//
+// Production never calls this — the limiter is deliberately process-wide so
+// the limit applies across all routes. Tests do, because every test in this
+// package shares one global limiter and one loopback address: without a reset
+// the bucket spent by an early test silently throttles later ones, and the
+// suite fails on 429s that have nothing to do with the code under test.
+func (cri *clientRateLimiter) resetAll() {
+	cri.mu.Lock()
+	defer cri.mu.Unlock()
+	cri.limiters = make(map[string]*clientLimiterEntry)
 }
 
 // PerIPRateLimiter creates middleware for per-IP rate limiting.

@@ -19,7 +19,7 @@ TorrSyncPlayer is an application for streaming media content via torrents with t
 
 - **Streaming playback** — instant viewing without full download
 - **Watch rooms** — synchronized viewing with friends (server-brokered over SSE)
-- **JWT authentication** — secure room access
+- **Access token** — the server prints one at startup; no accounts, nothing to register
 - **Privacy** — room passwords, private sessions
 - **Buffering** — smart preloading with priorities
 
@@ -155,7 +155,6 @@ The application automatically compensates for network latency for synchronized v
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--port` | 8889 | HTTP server port |
-| `--jwt-secret` | (empty) | JWT token secret |
 | `--tls` | false | Enable TLS |
 | `--auto-tls` | false | Generate self-signed certificate |
 | `--enable-profiling` | false | Enable pprof on port 6060 |
@@ -163,6 +162,45 @@ The application automatically compensates for network latency for synchronized v
 ### Frontend Settings
 
 The frontend settings UI is not yet implemented.
+
+### Starting the backend
+
+There is nothing to configure and nothing to register. Run the server and read
+the access token from its output:
+
+```
+./build/torrsyncplayer
+...
+access token (share this with friends along with the server address)  token=8f3c...
+```
+
+That token is the only credential the project has. It is generated fresh on
+every start, so restarting the server changes it.
+
+### Connecting a player to the backend
+
+The player needs the server address and the token:
+
+```
+./torrsyncplayer --server-url http://192.168.1.10:8889 --access-token 8f3c...
+```
+
+Both can be omitted when the player starts the backend itself.
+
+### Watching with friends
+
+1. One person starts their backend and sends their friends the address and the
+   token — that is the whole setup.
+2. In the player, create a room (and set a room password if you want to be sure
+   it is not opened to a stranger).
+3. Friends connect to the same address with the same token and join the room
+   using its ID and password.
+
+A room password is optional, but the access token is not: without it the API
+answers `401`. The token is what stops anything else on the internet that finds
+your port from driving your computer.
+
+### Troubleshooting
 
 ## Troubleshooting
 

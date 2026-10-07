@@ -23,7 +23,7 @@ func init() {
 
 // TestNewService tests P2P service initialization
 func TestNewService(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestNewService(t *testing.T) {
 
 // TestCreateRoom tests creating a room without a password
 func TestCreateRoom(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestCreateRoom(t *testing.T) {
 
 // TestCreateRoom_WithPassword tests creating a room with a password
 func TestCreateRoom_WithPassword(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestCreateRoom_WithPassword(t *testing.T) {
 
 // TestJoinRoom_NotFound tests joining a non-existent room
 func TestJoinRoom_NotFound(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestJoinRoom_NotFound(t *testing.T) {
 
 // TestJoinRoom_WrongPassword tests joining with a wrong password
 func TestJoinRoom_WrongPassword(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestJoinRoom_WrongPassword(t *testing.T) {
 
 // TestJoinRoom_CorrectPassword tests joining with a correct password
 func TestJoinRoom_CorrectPassword(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestJoinRoom_CorrectPassword(t *testing.T) {
 
 // TestLeaveRoom_NotJoined tests leaving a room when not connected
 func TestLeaveRoom_NotJoined(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestLeaveRoom_NotJoined(t *testing.T) {
 
 // TestSendSignal_NotJoined tests sending a signal without being connected to a room
 func TestSendSignal_NotJoined(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestSendSignal_NotJoined(t *testing.T) {
 
 // TestGetRoomInfo_NotJoined tests getting room info without being connected
 func TestGetRoomInfo_NotJoined(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestGenerateID(t *testing.T) {
 
 // TestCreateAndJoinRoom tests the full cycle: create and join a room
 func TestCreateAndJoinRoom(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func TestCreateAndJoinRoom(t *testing.T) {
 
 // TestFullRoomLifecycle tests the full lifecycle of a room with password
 func TestFullRoomLifecycle(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestFullRoomLifecycle(t *testing.T) {
 
 // TestClose_EmptiesState tests that Close clears the service state
 func TestClose_EmptiesState(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestClose_EmptiesState(t *testing.T) {
 
 // TestConcurrentRoomCreation tests thread safety of room creation
 func TestConcurrentRoomCreation(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -279,7 +279,7 @@ func TestConcurrentRoomCreation(t *testing.T) {
 
 // TestConcurrentGetRoomInfo tests thread safety of reading room info
 func TestConcurrentGetRoomInfo(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -306,7 +306,7 @@ func TestConcurrentGetRoomInfo(t *testing.T) {
 }
 
 func TestP2PService_NoGoroutineLeak(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 
 	goroutinesBefore := runtime.NumGoroutine()
@@ -330,7 +330,7 @@ func TestP2PService_NoGoroutineLeak(t *testing.T) {
 
 // TestGetOrCreateSession_CreatesSession tests that getOrCreateSession creates a new session with peer and eventChan
 func TestGetOrCreateSession_CreatesSession(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestGetOrCreateSession_CreatesSession(t *testing.T) {
 
 // TestGetOrCreateSession_ReusesSession tests that getOrCreateSession returns existing session
 func TestGetOrCreateSession_ReusesSession(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -360,7 +360,7 @@ func TestGetOrCreateSession_ReusesSession(t *testing.T) {
 
 // TestEmitEvent_NoBlockOnNilSession tests that emitEvent does not block when a session has nil eventChan
 func TestEmitEvent_NoBlockOnNilSession(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -389,7 +389,7 @@ func TestEmitEvent_NoBlockOnNilSession(t *testing.T) {
 
 // TestPruneIdlePeers_RemovesStalePeers tests that pruneIdlePeers removes peers with expired heartbeats
 func TestPruneIdlePeers_RemovesStalePeers(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)
@@ -428,7 +428,7 @@ func TestPruneIdlePeers_RemovesStalePeers(t *testing.T) {
 
 // TestClose_ClosesEventChannels tests that Close closes all session event channels
 func TestClose_ClosesEventChannels(t *testing.T) {
-	authSvc, err := auth.NewAuthService([]byte("test-secret-key-for-p2p-tests-32bytes!"))
+	authSvc, err := auth.NewAuthService()
 	require.NoError(t, err)
 	svc, err := NewService(authSvc)
 	require.NoError(t, err)

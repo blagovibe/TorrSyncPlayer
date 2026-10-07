@@ -46,7 +46,7 @@ When reporting a vulnerability, please include:
 ## Security Best Practices for Deployment
 
 1. **Always use HTTPS** in production
-2. Set a strong `JWT_SECRET` environment variable (minimum 32 bytes)
+2. Share the access token printed at startup only with people you trust
 3. Configure proper `CORS_ORIGINS` for your domain
 4. Set up rate limiting appropriate for your use case
 5. Keep the application updated to the latest version

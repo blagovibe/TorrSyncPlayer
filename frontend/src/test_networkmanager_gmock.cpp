@@ -279,21 +279,21 @@ TEST_F(NetworkManagerGMockTest, SslModeConfiguration)
 
 // ── Authentication ────────────────────────────────────────────────────
 
-TEST_F(NetworkManagerGMockTest, AuthTokenManagement)
+TEST_F(NetworkManagerGMockTest, AccessTokenManagement)
 {
-    EXPECT_CALL(*m_mock, authToken())
+    EXPECT_CALL(*m_mock, accessToken())
         .WillOnce(Return(QString()));
-    EXPECT_TRUE(m_mock->authToken().isEmpty());
+    EXPECT_TRUE(m_mock->accessToken().isEmpty());
     
-    EXPECT_CALL(*m_mock, setAuthToken(QString("test-jwt-token")));
-    m_mock->setAuthToken(QString("test-jwt-token"));
+    EXPECT_CALL(*m_mock, setAccessToken(QString("test-access-token")));
+    m_mock->setAccessToken(QString("test-access-token"));
     
-    EXPECT_CALL(*m_mock, authToken())
+    EXPECT_CALL(*m_mock, accessToken())
         .WillOnce(Return(QString("test-jwt-token")));
-    EXPECT_EQ(m_mock->authToken(), QString("test-jwt-token"));
+    EXPECT_EQ(m_mock->accessToken(), QString("test-access-token"));
     
-    EXPECT_CALL(*m_mock, clearAuthToken());
-    m_mock->clearAuthToken();
+    EXPECT_CALL(*m_mock, clearAccessToken());
+    m_mock->clearAccessToken();
 }
 
 // ── Edge cases ────────────────────────────────────────────────────────

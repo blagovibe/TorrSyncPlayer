@@ -173,9 +173,10 @@ public:
 
     // ── Authentication ────────────────────────────────────────────────────
 
-    virtual void setAuthToken(const QString &token) = 0;
-    virtual void clearAuthToken() = 0;
-    virtual QString authToken() const = 0;
+    virtual void setAccessToken(const QString &token) = 0;
+    virtual void clearAccessToken() = 0;
+    virtual QString accessToken() const = 0;
+    virtual void setClientId(const QString &clientId) = 0;
 
     /**
      * @brief Авторизоваться на сервере

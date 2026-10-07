@@ -85,7 +85,6 @@ NetworkManager::NetworkManager(QObject *parent)
     connect(m_sseReconnectTimer, &QTimer::timeout, this, &NetworkManager::onSSEReconnect);
 
     // Запрашиваем CSRF-токен при старте (для защиты мутирующих запросов без JWT)
-    fetchCsrfToken();
 
     qDebug() << "NetworkManager: инициализирован с URL" << m_serverUrl.toString();
 }
@@ -347,39 +346,8 @@ void NetworkManager::sendSignal(const QJsonObject &signal)
     sendPost("/api/v1/rooms/signal", signal, RequestType::Signal);
 }
 
-void NetworkManager::login(const QString &username, const QString &password)
-{
-    if (username.isEmpty()) {
-        emit error(tr("Имя пользователя не может быть пустым"));
-        return;
-    }
-    if (password.isEmpty()) {
-        emit error(tr("Пароль не может быть пустым"));
-        return;
-    }
 
-    QJsonObject body;
-    body["username"] = username;
-    body["password"] = password;
-    sendPost("/api/v1/auth/login", body, RequestType::Login);
-}
 
-void NetworkManager::registerUser(const QString &username, const QString &password)
-{
-    if (username.isEmpty()) {
-        emit error(tr("Имя пользователя не может быть пустым"));
-        return;
-    }
-    if (password.isEmpty()) {
-        emit error(tr("Пароль не может быть пустым"));
-        return;
-    }
-
-    QJsonObject body;
-    body["username"] = username;
-    body["password"] = password;
-    sendPost("/api/v1/auth/register", body, RequestType::Register);
-}
 
 // ── Sync API ──────────────────────────────────────────────────────────
 
@@ -587,18 +555,7 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         break;
     case RequestType::LeaveRoom:
         break;
-    case RequestType::Login:
-    case RequestType::Register:
-        if (doc.isObject()) {
-            QString token = doc.object()["token"].toString();
-            if (!token.isEmpty()) {
-                setAuthToken(token);
-                emit authenticated(token);
-            } else {
-                emit error(tr("Сервер не вернул токен"));
-            }
-        }
-        break;
+
     case RequestType::StreamTicket:
         if (doc.isObject()) {
             QString ticket = doc.object()["ticket"].toString();
@@ -790,87 +747,16 @@ void NetworkManager::onSSEReconnect()
 
 // ── Private methods ───────────────────────────────────────────────────
 
-void NetworkManager::fetchCsrfToken()
-{
-    QUrl url = safeUrl(m_serverUrl, "/api/v1/csrf-token");
-    QNetworkRequest request(url);
-    request.setRawHeader("Accept", "application/json");
-    request.setTransferTimeout(5000); // 5 second timeout for initial CSRF fetch
 
-    QNetworkReply *reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError) {
-            qDebug() << "NetworkManager: CSRF token fetch failed (non-critical):" << reply->errorString();
-            return;
-        }
-        QByteArray data = reply->readAll();
-        QJsonDocument doc = parseJson(data);
-        if (doc.isObject()) {
-            QString token = doc.object()["csrfToken"].toString();
-            if (!token.isEmpty()) {
-                {
-                    QMutexLocker locker(&m_csrfTokenMutex);
-                    m_csrfToken = token;
-                }
-                m_csrfReady = true;
-                flushCsrfQueue();
-                qDebug() << "NetworkManager: CSRF token obtained";
-            }
-        }
-    });
-}
 
-void NetworkManager::applyCsrfHeader(QNetworkRequest &request)
-{
-    QString token;
-    {
-        QMutexLocker locker(&m_csrfTokenMutex);
-        token = m_csrfToken;
-    }
-    if (!token.isEmpty()) {
-        request.setRawHeader("X-CSRF-Token", token.toUtf8());
-    }
-}
-
-void NetworkManager::enqueueOrSend(const QString &method, const QString &path, const QJsonObject &body, RequestType type)
-{
-    if (!m_csrfReady) {
-        m_csrfPendingQueue.append({method, path, body, type});
-        return;
-    }
-    if (method == "GET") {
-        sendGet(path, type);
-    } else if (method == "POST") {
-        sendPost(path, body, type);
-    } else if (method == "DELETE") {
-        sendDelete(path, type);
-    }
-}
-
-void NetworkManager::flushCsrfQueue()
-{
-    QVector<PendingCsrfRequest> pending;
-    {
-        QMutexLocker locker(&m_csrfTokenMutex);
-        pending.swap(m_csrfPendingQueue);
-    }
-    for (const auto &req : pending) {
-        if (req.method == "GET") {
-            sendGet(req.path, req.type);
-        } else if (req.method == "POST") {
-            sendPost(req.path, req.body, req.type);
-        } else if (req.method == "DELETE") {
-            sendDelete(req.path, req.type);
-        }
-    }
-}
 
 void NetworkManager::applyAuthHeader(QNetworkRequest &request)
 {
-    QMutexLocker locker(&m_authTokenMutex);
-    if (!m_authToken.isEmpty()) {
-        request.setRawHeader("Authorization", "Bearer " + m_authToken.toUtf8());
+    QMutexLocker locker(&m_accessTokenMutex);
+    if (!m_accessToken.isEmpty()) {
+        request.setRawHeader("X-Access-Token", m_accessToken.toUtf8());
+    if (!m_clientId.isEmpty()) {
+        request.setRawHeader("X-Client-ID", m_clientId.toUtf8());
     }
 }
 
@@ -881,7 +767,6 @@ void NetworkManager::sendGet(const QString &path, RequestType type)
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
     applyAuthHeader(request);
-    applyCsrfHeader(request);
     request.setTransferTimeout(TransferTimeout);
 
     QNetworkReply *reply = m_network->get(request);
@@ -901,7 +786,6 @@ void NetworkManager::sendPost(const QString &path, const QJsonObject &body, Requ
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
     applyAuthHeader(request);
-    applyCsrfHeader(request);
     request.setTransferTimeout(TransferTimeout);
 
     QJsonDocument doc(body);
@@ -924,7 +808,6 @@ void NetworkManager::sendDelete(const QString &path, RequestType type)
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
     applyAuthHeader(request);
-    applyCsrfHeader(request);
     request.setTransferTimeout(TransferTimeout);
 
     QNetworkReply *reply = m_network->deleteResource(request);
@@ -954,7 +837,13 @@ void NetworkManager::sendWithRetry(const QString &method, const QString &path, R
         m_pendingRetry.attempt = 0;
     }
 
-    enqueueOrSend(method, path, body, type);
+    if (method == "GET") {
+        sendGet(path, type);
+    } else if (method == "POST") {
+        sendPost(path, body, type);
+    } else if (method == "DELETE") {
+        sendDelete(path, type);
+    }
 }
 
 void NetworkManager::connectToSSE(const QString &path)

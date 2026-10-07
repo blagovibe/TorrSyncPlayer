@@ -30,11 +30,10 @@ import (
 
 // Глобальные сервисы для API-тестов
 var (
-	apiP2pSvc    *p2p.Service
-	apiSyncSvc   *syncsvc.Service
-	apiRouter    http.Handler
-	apiAuthStore *auth.UserStore
-	apiAuthSvc   *auth.AuthService
+	apiP2pSvc  *p2p.Service
+	apiSyncSvc *syncsvc.Service
+	apiRouter  http.Handler
+	apiAuthSvc *auth.AuthService
 
 	torrentOnce    stdsync.Once
 	apiTorrentSvc  *torrent.Service
@@ -60,45 +59,11 @@ func initTorrentService() {
 	})
 }
 
-// getTestToken возвращает токен для тестового пользователя
-func getTestCSRFToken(t *testing.T) string {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/csrf-token", nil)
-	rr := httptest.NewRecorder()
-	apiRouter.ServeHTTP(rr, req)
-	require.Equal(t, http.StatusOK, rr.Code)
-	var result map[string]string
-	err := json.Unmarshal(rr.Body.Bytes(), &result)
-	require.NoError(t, err)
-	return result["csrfToken"]
-}
-
-func getTestToken(t *testing.T) string {
-	t.Helper()
-	// Создаём пользователя и получаем токен
-	authService, err := auth.NewAuthService([]byte("test-secret-for-api-tests-32bytes!"))
-	require.NoError(t, err)
-	authHandler := auth.NewAuthHandler(apiAuthStore, authService)
-
-	body := `{"username":"testuser","password":"TestPass1!"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	authHandler.Register(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		// Если пользователь уже существует, пробуем залогиниться
-		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(body))
-		req.Header.Set("Content-Type", "application/json")
-		rr = httptest.NewRecorder()
-		authHandler.Login(rr, req)
-		require.Equal(t, http.StatusOK, rr.Code)
-	}
-
-	var resp models.AuthResponse
-	err = json.Unmarshal(rr.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	return resp.Token
+// applyAuthHeaders attaches the headers TokenMiddleware expects: the
+// per-process access token plus a client id identifying this caller.
+func applyAuthHeaders(req *http.Request) {
+	req.Header.Set(auth.HeaderAccessToken, apiAuthSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, "test-client")
 }
 
 // TestMain создаёт общие сервисы для всех API-тестов
@@ -106,12 +71,11 @@ func TestMain(m *testing.M) {
 	// Инициализируем логгер до создания сервисов
 	logger.Init("error", "text")
 
-	authService, err := auth.NewAuthService([]byte("test-secret-for-api-tests-32bytes!"))
+	authService, err := auth.NewAuthService()
 	if err != nil {
 		panic(err)
 	}
 	apiAuthSvc = authService
-	apiAuthStore = auth.NewUserStore()
 	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
 		panic(err)
@@ -128,7 +92,6 @@ func TestMain(m *testing.M) {
 		TorrentSvc:  apiTorrentSvc,
 		P2pSvc:      apiP2pSvc,
 		SyncSvc:     apiSyncSvc,
-		AuthStore:   apiAuthStore,
 		AuthService: authService,
 	})
 
@@ -363,12 +326,11 @@ func TestStreamTicket_IssueAndVerify(t *testing.T) {
 
 func TestStreamTicket_Contract_IssueThenStream(t *testing.T) {
 	const torrentID = "0123456789abcdef0123456789abcdef01234567"
-	token := getTestToken(t)
 
 	// 1. Issue a stream ticket via the authenticated endpoint.
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/torrents/"+torrentID+"/stream-ticket", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	applyAuthHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
@@ -789,12 +751,10 @@ func TestValidateTorrentFile(t *testing.T) {
 // ============ Full Integration Flow Tests ============
 
 func TestFullTorrentFlow(t *testing.T) {
-	token := getTestToken(t)
-	csrfToken := getTestCSRFToken(t)
 
 	// 1. Получаем список торрентов (с токеном) - теперь с пагинацией
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	applyAuthHeaders(req)
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -807,16 +767,14 @@ func TestFullTorrentFlow(t *testing.T) {
 	body := `{"magnetUri":"invalid"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/torrents", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	applyAuthHeaders(req)
 	rec = httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// 3. Пытаемся удалить несуществующий торрент (используем валидный формат ID)
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/torrents/0123456789abcdef0123456789abcdef01234567", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-CSRF-Token", csrfToken)
+	applyAuthHeaders(req)
 	rec = httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -947,37 +905,6 @@ func TestRoomEvents_WithRoomID(t *testing.T) {
 
 // ============ Security Tests ============
 
-func TestSecurity_CSRF_RejectsMissingToken(t *testing.T) {
-	handler := CSRFMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusForbidden, rec.Code)
-}
-
-func TestSecurity_CSRF_SkipsWithJWT(t *testing.T) {
-	handler := CSRFMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
-	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.valid-token")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestSecurity_CSRF_SkipsOnGET(t *testing.T) {
-	handler := CSRFMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/torrents", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
 func TestSecurity_SecurityHeaders(t *testing.T) {
 	handler := SecurityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1045,16 +972,6 @@ func TestSecurity_Router_ProtectedEndpointRejectsNoAuth(t *testing.T) {
 	rec := httptest.NewRecorder()
 	apiRouter.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
-func TestSecurity_Router_CSRFOnProtectedEndpoint(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/torrents", nil)
-	// nolint:gosec // Test token, not a real credential
-	req.Header.Set("Authorization", "Bearer test-jwt-token-for-unit-testing-purposes-only")
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	apiRouter.ServeHTTP(rec, req)
-	assert.NotEqual(t, http.StatusForbidden, rec.Code)
 }
 
 func TestSecurity_Pagination_MaxLimit(t *testing.T) {

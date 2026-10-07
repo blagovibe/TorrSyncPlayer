@@ -320,13 +320,13 @@ func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService)
 			return
 		}
 
-		claims := auth.GetClaims(r)
-		if claims == nil {
-			WriteError(w, http.StatusUnauthorized, "authentication required")
+		clientID := auth.GetClientID(r)
+		if clientID == "" {
+			WriteError(w, http.StatusBadRequest, "missing "+auth.HeaderClientID+" header")
 			return
 		}
 
-		ticket, err := authSvc.GenerateStreamTicket(claims.UserID, torrentID)
+		ticket, err := authSvc.GenerateStreamTicket(clientID, torrentID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "failed to issue stream ticket")
 			return

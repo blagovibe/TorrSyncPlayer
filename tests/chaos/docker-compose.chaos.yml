@@ -10,7 +10,6 @@ services:
     ports:
       - "8889:8889"
     environment:
-      - JWT_SECRET=test-jwt-secret-key-for-chaos-testing-min-32-chars
       - LOG_LEVEL=debug
     networks:
       - chaos-net
