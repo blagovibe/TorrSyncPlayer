@@ -14,7 +14,7 @@ const totalRequests = new Counter('total_requests');
 // Guards against a journey that silently stops halfway. Any exception thrown
 // mid-iteration aborts it before the final add, so this rate drops below 1 even
 // though every individual check that did run passed. It is what caught
-// http.delete being called with the wrong argument: checks were 100% green
+// http.delete not existing in k6 v2: checks were 100% green
 // while the delete request was never sent at all.
 const journeyCompleted = new Rate('journey_completed');
 
@@ -234,12 +234,13 @@ function userJourney(token, vu) {
   // 4. Deliberate error path: deleting an unknown torrent must be a 404, not a
   //    500 or a silent success. Torrent ids are 40 hex chars.
   group('Delete Unknown Torrent', () => {
-    // http.delete is (url, body, params) — the second positional argument is the
-    // request body, not the options. Passing { headers, timeout } there makes
-    // k6 fail to serialize an object as a body, which throws and aborts the
-    // iteration before this request is ever sent. It has to be null with the
-    // params in third position.
-    const res = http.delete(
+    // http.del, not http.delete: k6 v2 removed the delete alias, so http.delete
+    // is undefined and calling it throws "TypeError: Object has no member
+    // 'delete'". A throw here aborts the iteration before the request is sent,
+    // and nothing in the summary shows it: every check that did run still
+    // passed, and the journey ended one step early. Signature is
+    // (url, body, params), so the options go in third position.
+    const res = http.del(
       `${BASE_URL}/api/v1/torrents/0000000000000000000000000000000000000000`,
       null,
       { headers, timeout: '30s' }
