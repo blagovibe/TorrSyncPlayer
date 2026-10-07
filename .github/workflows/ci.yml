@@ -90,9 +90,26 @@ jobs:
 
       - name: Run tests with race detector and coverage
         working-directory: backend
+        env:
+          # Measured 60.1% statement coverage. The floor sits below it so a
+          # single new uncovered file cannot block a PR, while a real erosion of
+          # the test suite does. Raise it as tests are added; never lower it
+          # without re-measuring.
+          COVERAGE_MIN_PERCENT: '55'
         run: |
+          set -o pipefail
           CGO_ENABLED=1 go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v 'integration')
           go tool cover -func=coverage.out
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ { gsub("%", "", $3); print $3 }')
+          echo "Total coverage: ${COVERAGE}%"
+          if [ -z "$COVERAGE" ]; then
+            echo "Could not parse total coverage"
+            exit 1
+          fi
+          if awk "BEGIN { exit !($COVERAGE < $COVERAGE_MIN_PERCENT) }"; then
+            echo "Coverage ${COVERAGE}% is below the ${COVERAGE_MIN_PERCENT}% floor"
+            exit 1
+          fi
 
       - name: Run govulncheck
         working-directory: backend
@@ -179,7 +196,7 @@ jobs:
       - name: Run gmock tests
         if: always()
         working-directory: frontend/build
-        run: ctest -R "GMockTest" --output-on-failure -V 2>&1 || true
+        run: ctest -R "GMockTest" --output-on-failure -V 2>&1
 
       - name: Generate frontend coverage
         working-directory: frontend/build
@@ -271,18 +288,24 @@ jobs:
 
       - name: Run AddressSanitizer tests
         working-directory: frontend/build
+        # No `|| true`: that made a red sanitizer run look green in the UI.
+        # continue-on-error keeps the step visible without blocking the build —
+        # sanitizer results are environment-sensitive and would make CI flaky.
+        continue-on-error: true
         run: |
-          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest -R "ASan" --output-on-failure -V 2>&1 || true
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest -R "ASan" --output-on-failure -V 2>&1
 
       - name: Run ThreadSanitizer tests
         working-directory: frontend/build
+        continue-on-error: true
         run: |
-          TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 ctest -R "TSan" --output-on-failure -V 2>&1 || true
+          TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 ctest -R "TSan" --output-on-failure -V 2>&1
 
       - name: Run UBSan tests
         working-directory: frontend/build
+        continue-on-error: true
         run: |
-          ctest -R "UBSan" --output-on-failure -V 2>&1 || true
+          ctest -R "UBSan" --output-on-failure -V 2>&1
 
   # ── Fuzzing tests ────────────────────────────────────────────────────
   fuzz-tests:
@@ -302,34 +325,40 @@ jobs:
 
       - name: Run Go fuzzing (backend)
         working-directory: backend
+        shell: bash
         run: |
-          go test -fuzz=Fuzz -fuzztime=30s ./internal/validation/... 2>&1 | head -100 || true
-
-      - name: Install libFuzzer for C++
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang llvm libfuzzer-17-dev
-
-      - name: Configure CMake with libFuzzer
-        working-directory: frontend
-        run: |
-          mkdir -p build-fuzz && cd build-fuzz
-          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang || echo "CMake configure failed, skipping C++ fuzz tests"
-        continue-on-error: true
-
-      - name: Build fuzz targets
-        working-directory: frontend/build-fuzz
-        run: make -j$(nproc) fuzz_* 2>&1 || true
-
-      - name: Run libFuzzer tests (short)
-        working-directory: frontend/build-fuzz
-        run: |
-          for f in ./tests/fuzz/fuzz_*; do
-            if [ -x "$f" ]; then
-              echo "Running $f..."
-              timeout 30s "$f" -max_total_time=10 -rss_limit_mb=2048 2>&1 || true
-            fi
+          set -o pipefail
+          # Go refuses -fuzz when the pattern matches more than one fuzz
+          # target ("will not fuzz, -fuzz matches more than one fuzz test"),
+          # so each target is driven explicitly. The list is discovered from
+          # the source rather than hardcoded, so adding a FuzzXxx function
+          # cannot silently drop out of CI again.
+          mapfile -t targets < <(
+            grep -hoE '^func (Fuzz[A-Za-z0-9_]+)' internal/validation/*_test.go \
+              | sed -E 's/^func //' | sort -u
+          )
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "No fuzz targets found in internal/validation" >&2
+            exit 1
+          fi
+          echo "Fuzz targets: ${targets[*]}"
+          for t in "${targets[@]}"; do
+            echo "=== $t ==="
+            go test -run='^$' -fuzz="^${t}$" -fuzztime=30s ./internal/validation/...
           done
+
+      # No C++ fuzzing here. The previous steps installed libFuzzer and ran
+      # `make fuzz_*`, but frontend/CMakeLists.txt defines no fuzz target and
+      # frontend/tests/fuzz/ does not exist, so the glob matched nothing. The
+      # configure step printed "CMake configure failed, skipping C++ fuzz tests"
+      # (it never installed Qt6 either) and the build step then died with
+      # "No rule to make target 'fuzz_*'". Under `|| true` all of that was a
+      # green step with zero coverage.
+      #
+      # To restore it: add fuzz harnesses under frontend/tests/fuzz/, declare
+      # executable targets named fuzz_<name> in CMakeLists.txt, install Qt6 in
+      # this job, and re-add the steps. A Qt6-based integration/fuzz entry point
+      # is listed as a non-goal in CONCEPT.md — re-check that first.
 
   # ── Mutation testing ─────────────────────────────────────────────────
   mutation-tests:
@@ -338,9 +367,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # Floor from the measured score (49.5%); raise it as tests are added.
-      MUTATION_MIN_RATIO: '0.45'
-      MUTATION_MIN_PERCENT: 45
+      # Measured 0.494964 over this exact scope (695 mutants). The floor sits
+      # just below it so ordinary noise does not trip the gate, while a real
+      # drop in test quality still fails the job. Raise it as tests are added;
+      # never lower it without re-measuring — see DEV.md, "Соглашения по тестам".
+      MUTATION_MIN_RATIO: '0.49'
+      MUTATION_MIN_PERCENT: 49
 
     steps:
       - uses: actions/checkout@v7
@@ -402,29 +434,32 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
-      - name: Download Pact FFI library
-        working-directory: backend
-        env:
-          PACT_FFI_VERSION: v0.4.28 # matches pact-go v2.5.1
-        run: |
-          # pact-go v2 links against the native Rust FFI library. Asset names
-          # come from pact-foundation/pact-reference (not pact-reference-rust).
-          FFI_URL="https://github.com/pact-foundation/pact-reference/releases/download/libpact_ffi-$PACT_FFI_VERSION/libpact_ffi-linux-x86_64.so.gz"
-          curl -sSL -o libpact_ffi.so.gz "$FFI_URL"
-          gunzip -c libpact_ffi.so.gz > libpact_ffi.so
-          echo "PACT_FFI_DIR=$(pwd)" >> "$GITHUB_ENV"
-          ls -la libpact_ffi.so
-
       - name: Run Pact provider verification (backend)
         working-directory: backend
-        env:
-          # pact-go links against the native libpact_ffi; these point cgo at it.
-          CGO_LDFLAGS: "-L$PACT_FFI_DIR -lpact_ffi"
-          LD_LIBRARY_PATH: "$PACT_FFI_DIR"
+        shell: bash
         run: |
+          # Download and test in ONE step on purpose. The path used to be written
+          # to $GITHUB_ENV in a previous step and referenced as "$PACT_FFI_DIR" in
+          # this step's `env:` block — but workflow env values are resolved by the
+          # runner before bash runs, so the linker received the literal string
+          # "$PACT_FFI_DIR" and failed with "cannot find -lpact_ffi".
+          #
           # -tags contract is required: the provider test is behind that build
           # tag, so without it go test reported "no test files" and the old
           # "|| true" turned that into a green job.
+          #
+          # pipefail is mandatory: `go test ... | tee pact.log` returns tee's exit
+          # status, so a failing verification was reported as a passing job.
+          set -o pipefail
+
+          FFI_URL="https://github.com/pact-foundation/pact-reference/releases/download/libpact_ffi-${PACT_FFI_VERSION:-v0.4.28}/libpact_ffi-linux-x86_64.so.gz"
+          curl -sSL -o libpact_ffi.so.gz "$FFI_URL"
+          gunzip -c libpact_ffi.so.gz > libpact_ffi.so
+
+          export PACT_FFI_DIR="$PWD"
+          export CGO_LDFLAGS="-L$PACT_FFI_DIR -lpact_ffi"
+          export LD_LIBRARY_PATH="$PACT_FFI_DIR"
+
           go test -v -tags contract -timeout 15m -run PactProvider ./internal/contract/... 2>&1 | tee pact.log
 
       - name: Upload Pact log
@@ -434,36 +469,14 @@ jobs:
           name: pact-verification-log
           path: backend/pact.log
 
-  contract-test-frontend:
-    name: Contract Test (Frontend Consumer)
-    needs: [test-backend, frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Qt6 dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov
-
-      - name: Configure CMake with contract tests
-        working-directory: frontend
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
-
-      - name: Build contract tests
-        working-directory: frontend/build
-        run: make -j$(nproc) test_networkmanager_contract test_torrentmanager_contract test_roommanager_contract 2>&1 || true
-
-      - name: Run contract tests
-        working-directory: frontend/build
-        run: |
-          ctest -R "Contract" --output-on-failure -V 2>&1 || true
+  # NOTE: the frontend "contract test" job was removed. It ran
+  # `make test_networkmanager_contract test_torrentmanager_contract
+  # test_roommanager_contract` and `ctest -R "Contract"`, but none of those
+  # targets are defined in frontend/CMakeLists.txt and the filter matched zero
+  # tests — so the job had never checked anything. `|| true` kept it green for
+  # years; removing the mask made it red, which exposed the dead step.
+  # The backend/front-end contract is verified by the Pact provider job above,
+  # and NetworkManager's interface contract by test_networkmanager_gmock.
 
   # ── Integration/E2E tests ────────────────────────────────────────────
   e2e-tests:
@@ -494,14 +507,12 @@ jobs:
           sleep 5
           curl -k -s https://localhost:8889/health
 
-      - name: Install Qt6 and Playwright dependencies
+      - name: Install Qt6 dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov \
-            nodejs npm
-          cd tests/e2e/playwright && npm install
+            libmpv-dev cmake g++ lcov
 
       - name: Configure CMake for E2E
         working-directory: frontend
@@ -511,16 +522,30 @@ jobs:
 
       - name: Build integration tests
         working-directory: frontend/build
-        run: make -j$(nproc) test_integration 2>&1 || true
+        run: make -j$(nproc) test_integration 2>&1
 
-      - name: Run Qt headless E2E tests
+      - name: Run Qt headless integration tests
         working-directory: frontend/build
+        # The ctest target is registered as "IntegrationTest" in
+        # frontend/CMakeLists.txt (add_test(NAME IntegrationTest ...)). The
+        # filter used to be "E2E", which matched no test at all: --no-tests=error
+        # turned that into a red step, and before that `|| true` made it green
+        # while nothing ran. Keep the name in sync with CMakeLists.txt.
         run: |
-          QT_QPA_PLATFORM=offscreen ctest -R "E2E" --output-on-failure -V 2>&1 || true
+          QT_QPA_PLATFORM=offscreen ctest -R "IntegrationTest" --no-tests=error --output-on-failure -V 2>&1
 
-      - name: Run Playwright E2E tests
-        working-directory: tests/e2e/playwright
-        run: npx playwright test 2>&1 || true
+      # No Playwright step. tests/e2e/playwright/tests/app.spec.ts drives a web
+      # UI — it navigates to https://localhost:8889 and looks for
+      # input[name="username"], a .main-window container and a <video> element.
+      # TorrSyncPlayer ships no web frontend: the client is a Qt/C++ desktop app
+      # and the Go backend serves JSON only (its root route returns
+      # {"error":"Route not found"}). The suite could therefore never pass; under
+      # `|| true` it was a green step that asserted nothing. The run also failed
+      # before reaching any test, because webServer had no ignoreHTTPSErrors and
+      # the backend runs with --auto-tls.
+      #
+      # Keep tests/e2e/playwright/ in the tree for when a web UI exists; re-add
+      # the step with webServer.ignoreHTTPSErrors: true and baseURL set to https.
 
   # ── Performance/Load tests ────────────────────────────────────────────
   load-tests:
@@ -561,7 +586,7 @@ jobs:
       - name: Run k6 load tests
         working-directory: tests/load/k6
         run: |
-          k6 run --out json=results.json mixed_scenario.js 2>&1 || true
+          k6 run --out json=results.json mixed_scenario.js 2>&1
 
       - name: Upload load test results
         if: always()

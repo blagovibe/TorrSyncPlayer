@@ -4,7 +4,7 @@
 
 // Package p2p provides the room and real-time event service for synchronized
 // playback. Rooms and peer-to-peer synchronization are brokered by the server:
-// all events (peer roster, WebRTC-style signals, playback sync commands) are
+// all events (peer roster, room signals, playback sync commands) are
 // relayed over Server-Sent Events (SSE) to per-user session channels. The
 // service is intentionally server-centric — there is no direct peer-to-peer
 // data path; clients connect to the backend over REST (commands) and SSE

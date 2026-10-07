@@ -150,6 +150,11 @@ func main() {
 
 	// Create user store
 	authStore := auth.NewUserStore()
+	// Initialize dummy bcrypt hash for timing attack mitigation (fail fast if unavailable)
+	if err := auth.InitDummyHash(); err != nil {
+		logger.Error("Failed to initialize dummy bcrypt hash", "error", err)
+		os.Exit(1)
+	}
 	if config.DataDir != "" {
 		persistStore, perr := persistence.NewStore(config.DataDir)
 		if perr != nil {

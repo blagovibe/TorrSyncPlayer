@@ -990,13 +990,18 @@ void NetworkManager::connectToSSE(const QString &path)
                     emit self->error(tr("SSE ошибка: соединение потеряно"));
                 }
 
-                // Запускаем переподключение с exponential backoff
+                // Запускаем переподключение с exponential backoff и jitter
                 {
                     QMutexLocker locker(&self->m_roomIdMutex);
                     if (!self->m_currentRoomId.isEmpty() && self->m_sseReconnectAttempts.loadRelaxed() < MaxSSEReconnectAttempts) {
-                        int delay = qMin(SSEReconnectBaseDelay * (1 << self->m_sseReconnectAttempts.loadRelaxed()), SSEReconnectMaxDelay);
+                        int attempt = self->m_sseReconnectAttempts.loadRelaxed();
+                        qint64 baseDelay = static_cast<qint64>(SSEReconnectBaseDelay) * (Q_INT64_C(1) << qMin(attempt, 30));
+                        // Add jitter: multiply by random factor in [0.5, 1.5]
+                        double jitterFactor = 0.5 + (QRandomGenerator::global()->generateDouble() * 1.0);
+                        qint64 delay = static_cast<qint64>(baseDelay * jitterFactor);
+                        delay = qMin(delay, static_cast<qint64>(SSEReconnectMaxDelay));
                         qDebug() << "NetworkManager: SSE переподключение через" << delay << "мс";
-                        self->m_sseReconnectTimer->start(delay);
+                        self->m_sseReconnectTimer->start(static_cast<int>(delay));
                     }
                 }
             });
@@ -1105,8 +1110,14 @@ void NetworkManager::handleApiError(QNetworkReply *reply, RequestType type)
 
 int NetworkManager::calculateRetryDelay(int attempt) const
 {
-    // Экспоненциальный backoff: baseDelay * 2^attempt
+    // Экспоненциальный backoff с jitter: baseDelay * 2^attempt * (0.5 + rand())
+    // Jitter prevents thundering herd when many clients retry simultaneously
     int cappedAttempt = qMin(attempt, 30);
-    qint64 delay = static_cast<qint64>(m_retryBaseDelay) * (Q_INT64_C(1) << cappedAttempt);
+    qint64 baseDelay = static_cast<qint64>(m_retryBaseDelay) * (Q_INT64_C(1) << cappedAttempt);
+
+    // Add jitter: multiply by random factor in [0.5, 1.5]
+    double jitterFactor = 0.5 + (QRandomGenerator::global()->generateDouble() * 1.0);
+    qint64 delay = static_cast<qint64>(baseDelay * jitterFactor);
+
     return static_cast<int>(qMin(delay, static_cast<qint64>(SSEReconnectMaxDelay)));
 }

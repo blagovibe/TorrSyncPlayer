@@ -98,10 +98,26 @@ func ValidatePosition(position float64) error {
 	return nil
 }
 
+// NormalizeUsername returns the canonical form of a username: surrounding
+// whitespace removed, then lowercased.
+//
+// Every code path that validates, stores, or looks up a username must go
+// through this function. Validation used to trim internally while the user
+// store only lowercased, so a name registered as "  Alice  " passed the
+// 30-character check on its trimmed form ("Alice") yet was persisted verbatim
+// as "  alice  " — 9 stored characters for a 5-character name. That record
+// could then never be matched by a login for "alice" or "ALICE", breaking the
+// documented "usernames are case-insensitive" invariant.
+func NormalizeUsername(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
+}
+
 // ValidateUsername validates the username.
 // Checks length, allowed characters and absence of leading/trailing spaces.
+// Length and character checks apply to the normalized form, so a value padded
+// with whitespace cannot sneak past MaxUsernameLength.
 func ValidateUsername(username string) error {
-	username = strings.TrimSpace(username)
+	username = NormalizeUsername(username)
 
 	usernameLen := utf8.RuneCountInString(username)
 	if usernameLen < MinUsernameLength || usernameLen > MaxUsernameLength {

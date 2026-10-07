@@ -61,6 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CHANGELOG append-only: commit 6bd47e9 had rewritten the existing v1.1.5 and 1.0.0 entries; original lines restored, the change is now recorded here instead of rewriting history
 - Docs: stale WebRTC references after WebRTC removal — comments in `internal/models/types.go` and `internal/api/handlers_room.go` corrected
 - `.gitignore`: removed rules that swallowed working code (`internal/utils/debouncer.go`) and CI config (`.codecov.yml`)
+- Swagger generation could not be repaired from the annotation side: `@Failure {object} APIError` referenced a type
+  that does not exist (`models.ErrorResponse` is the real one), so `swag init` failed with
+  `cannot find type definition: APIError` and the checked-in spec silently described WebRTC data channels that had
+  been removed in 6bd47e9. The annotations were corrected and the spec regenerated; CI now fails on any spec drift
+  (board `t_0ab2e3d0`)
+- CI: the Pact provider job was green while running zero tests, masked twice over. `CGO_LDFLAGS` referenced
+  `$PACT_FFI_DIR` from a workflow-level `env:` block, which the runner resolves before bash runs, so the linker was
+  handed the literal `$PACT_FFI_DIR` and failed with `cannot find -lpact_ffi`; and `go test ... | tee pact.log` returned
+  tee's exit status because the workflow sets neither `pipefail` nor `shell:`. Removing `|| true` in #51 fixed
+  neither. Download and verification now share one step and `pipefail` is set (boards `t_1452fa61`, `t_70d91346`)
+- CI: `security.yml` pinned Go with a hardcoded `1.26.6` while `ci.yml` and `release.yml` use the `GO_VERSION` env var,
+  so a future version bump would have silently missed one of the three; `security.yml` now uses the same variable
+- Comments: stale WebRTC references dropped from `internal/constants/constants.go` (`MaxSignalSize` is a DoS guard on
+  the server-brokered room signal, not an SDP/ICE size limit) and `internal/p2p/service.go`
 
 ### Removed
 
@@ -96,6 +110,80 @@ session stay on the project board. Verified: no status/roadmap file exists, `DEV
 contain no plans or status markers, the CHANGELOG stays append-only (the only `MUTATION_TESTING.md`
 mention left is inside a historical entry, which is never edited), and every internal Markdown link
 resolves to an existing file.
+
+Audit pass 2026-10-06: three claims in the entries above are inaccurate and are corrected here rather
+than by editing history (the earlier text stays on purpose, since it was true when written and can still
+be quoted):
+
+- The mutation score quoted above (`0.607143`) is not reproducible. The same package scope measures
+  `0.494964`, and the gate in `ci.yml` is `MUTATION_MIN_RATIO: '0.45'` — so the threshold is honest now,
+  but it gates at 45%, not at the 80% the entry describes. Finding: the number was carried from a session
+  that never printed it.
+- "Go pinned to 1.26.6 in ci.yml, release.yml and security.yml" held for the first two only; `security.yml`
+  used a hardcoded literal and would have been silently missed by a version bump. Fixed in this session.
+- The 1.0.0 entry advertises a PR coverage gate of 60%. No such gate exists: `.codecov.yml` has been
+  gitignored since 8a118a4, and coverage is uploaded with `fail_ci_if_error: false`, so it gates nothing.
+
+Fresh reconciliation this session (project-docs step 2): the git boundary is empty — HEAD was itself the
+last CHANGELOG commit — so the check was a direct audit rather than a diff of commits. Backend locally:
+13 packages green, `gofmt -l .` and `go vet ./...` clean. CI on `426e33f`: 14/14 jobs green. Frontend
+cannot be built locally (no cmake); CI covers it.
+Discrepancies found, none fixed silently: the Pact false-green recorded above; a stale WebRTC description
+in the contract for `POST /rooms/signal` (WebRTC is a CONCEPT.md non-goal — the endpoint survives as an
+opaque relay and is a decision for the owner, not a defect to patch); `.gitignore` still swallowing
+`config.yaml` globally, `.codecov.yml` and `backend/internal/testutil/`; and the project board cannot
+express the methodology's `open`/`accepted`/`needs_review` states in its schema (`hermes kanban reopen`
+does not exist, so an archived card cannot be restored).
+
+The Pact provider job now runs and fails honestly on CI run 37461241156 (PR #52). Verified from the uploaded
+`pact-verification-log` artifact: the test binary links (0 occurrences of `cannot find -lpact_ffi`, no
+`build failed`), all 17 interactions execute, 1 passes (`GET /health`) and 16 fail with distinct, concrete causes:
+
+- 12 x 401 — the contract sends `Authorization: Bearer test-token`, which is not a token
+  `ValidateTokenWithRevocation` accepts. This includes `POST /api/v1/auth/login`, which the contract expects to
+  answer 200 while the API correctly rejects those credentials with 401.
+- 3 x 415 — `POST /api/v1/rooms/leave`, `/api/v1/sync/play` and `/api/v1/sync/pause` send neither body nor
+  `Content-Type`, which `ContentTypeMiddleware` rejects.
+- 1 x 429 — `GET /api/v1/sync/status`; the per-IP limiter is `rate.Limit(1), burst 10`
+  (`internal/api/middleware.go:761`), so a 17-interaction run from a single IP trips it.
+- 1 x 400 — `POST /api/v1/auth/register`: the contract's `testpass` violates `ValidatePassword` (minimum 8
+  characters with upper, lower, digit and special character), so the API answers 400 rather than the expected 201.
+- Response shapes also diverge: several interactions expect envelope keys the handlers do not emit (for example
+  `items` and `type` on the torrent list, `token` and `expiresIn` on register).
+
+The contract also points `GET /api/v1/rooms/events` at an unregistered path: the router serves only
+`/{roomID}/events` (`internal/api/router.go:126`), while `APIPathRoomEvents = "/api/v1/rooms/events"`
+(`internal/api/paths.go:70`) is defined but never used — dead code, and the contract is its only mention.
+Separately, `POST /api/v1/rooms/signal` is still described as "sends WebRTC signal" although WebRTC is a
+CONCEPT.md non-goal; the endpoint survives as an opaque relay.
+
+The frontend "contract test" step turned out to be dead too: CI run 37465712937 failed at
+`make -j$(nproc) test_networkmanager_contract test_torrentmanager_contract test_roommanager_contract` with
+"No rule to make target" — those targets are not defined in `frontend/CMakeLists.txt`, and
+`ctest -R "Contract"` matched zero tests. The job had never checked anything; `|| true` had kept it green.
+Also found while auditing: `frontend/src/test_integration.cpp` is a placeholder containing a single
+`testPlaceholder`, with a comment pointing at `tests/e2e/qt_headless/test_e2e_headless.cpp` — and that file is
+not wired into any CMakeLists, so the Qt headless E2E step had no tests to run either. The job was removed;
+the backend/front-end contract is verified by the Pact provider job and NetworkManager's interface contract by
+`test_networkmanager_gmock`.
+
+`backend/Makefile` had the same dead-gate defect as CI once had, which is why local runs never caught it:
+`grep -oP 'Mutation score: \K\d+(\.\d+)?'` matched nothing (go-mutesting prints `The mutation score is
+0.494964`), so `MUTATION_SCORE` was always empty and `make test-mutation` always exited 0. Its threshold was
+80% and its scope the full `./internal/...`, against CI's 45% and six packages. It now parses the real output,
+fails when it cannot parse, uses CI's scope and threshold, and warns that go-mutesting rewrites sources in
+place. Verified: parses 0.494964, passes at the 0.49 floor, fails at 0.48.
+
+Backend statement coverage measured at 60.1% (`go test -coverprofile` + `go tool cover -func`), so the 60% the
+1.0.0 entry advertised is reachable but leaves 0.1 points of headroom, which would flake on any new file. The
+enforced floor is 55%, checked in the test-backend job with an explicit empty-value guard. Verified against the
+real profile: 60.1 passes, 40 fails.
+
+The Go fuzzing job now fails for a real reason, previously hidden by `|| true`:
+`FuzzValidateUsername/537fd2664c896b18` reports `expected error for username length 31` for
+`"000000000000000000000000000000 "` — a 31-character username of digits and a space is rejected by
+`usernameRegex` but accepted by the length check path the test exercises. A genuine gap in the fuzzer's
+expectations, not in the validator.
 
 ## [v1.1.5] - 2026-07-12
 

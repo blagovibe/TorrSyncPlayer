@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -180,6 +181,49 @@ func TestUserStoreGetByUsername(t *testing.T) {
 	// Non-existent user
 	_, exists = store.GetByUsername("nonexistent")
 	assert.False(t, exists)
+}
+
+// TestUserStoreUsernameNormalization pins the invariant that the form used for
+// validation is the same form used for storage and lookup.
+//
+// Validation used to TrimSpace internally while the store only lowercased, so
+// "  Alice  " was checked as "Alice" (5 chars, accepted) but stored as
+// "  alice  ". That record could then never be found by a login for "alice"
+// or "ALICE", and the 30-character limit did not bound the stored value.
+func TestUserStoreUsernameNormalization(t *testing.T) {
+	store := NewUserStore()
+
+	created, err := store.Create("  Alice  ", "TestPass1!")
+	require.NoError(t, err)
+
+	// Stored under the canonical form, not the padded input.
+	assert.Equal(t, "alice", created.Username)
+
+	// Every spelling of the same logical name resolves to the same account.
+	for _, spelling := range []string{"alice", "ALICE", "  Alice  ", "\talice\n", "aLiCe"} {
+		user, exists := store.GetByUsername(spelling)
+		assert.True(t, exists, "lookup failed for %q", spelling)
+		require.NotNil(t, user)
+		assert.Equal(t, created.ID, user.ID, "wrong user for %q", spelling)
+
+		authenticated, err := store.Authenticate(spelling, "TestPass1!")
+		assert.NoError(t, err, "authenticate failed for %q", spelling)
+		require.NotNil(t, authenticated)
+		assert.Equal(t, created.ID, authenticated.ID)
+	}
+
+	// A padded name that normalises to exactly MaxUsernameLength is accepted,
+	// and the stored value respects the limit.
+	padded := "  " + strings.Repeat("b", 30) + "  "
+	atLimit, err := store.Create(padded, "TestPass1!")
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("b", 30), atLimit.Username)
+	assert.Len(t, atLimit.Username, 30)
+
+	// One character over the limit is still rejected despite the padding.
+	tooLong := "  " + strings.Repeat("c", 31) + "  "
+	_, err = store.Create(tooLong, "TestPass1!")
+	assert.Error(t, err)
 }
 
 func TestUserStoreGetByID(t *testing.T) {

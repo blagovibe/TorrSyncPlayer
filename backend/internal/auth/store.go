@@ -5,7 +5,6 @@ package auth
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -22,18 +21,29 @@ import (
 var (
 	dummyHashOnce sync.Once
 	dummyHashVal  []byte
+	dummyHashErr  error
 )
 
-func getDummyHash() []byte {
+// InitDummyHash initializes the dummy bcrypt hash for timing attack mitigation.
+// Returns an error if the hash cannot be generated (fails fast).
+// Must be called before using the UserStore.
+func InitDummyHash() error {
 	dummyHashOnce.Do(func() {
 		hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-mitigation"), constants.BcryptCost)
 		if err != nil {
 			logger.Error("failed to generate dummy bcrypt hash", "error", err)
+			dummyHashErr = fmt.Errorf("failed to generate dummy bcrypt hash for timing mitigation: %w", err)
 			dummyHashVal = nil
 		} else {
 			dummyHashVal = hash
+			dummyHashErr = nil
 		}
 	})
+	return dummyHashErr
+}
+
+func getDummyHash() []byte {
+	// Should be called after initDummyHash()
 	return dummyHashVal
 }
 
@@ -102,7 +112,7 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 		return nil, err
 	}
 
-	username = strings.ToLower(username)
+	username = validation.NormalizeUsername(username)
 
 	// Validate password
 	if err := validation.ValidatePassword(password); err != nil {
@@ -151,7 +161,7 @@ func (s *UserStore) Create(username, password string) (*models.User, error) {
 // Returns the user if credentials are valid.
 // Always performs both hash comparisons (dummy + real) for timing attack protection.
 func (s *UserStore) Authenticate(username, password string) (*models.User, error) {
-	username = strings.ToLower(username)
+	username = validation.NormalizeUsername(username)
 	s.mu.RLock()
 	user, exists := s.users[username]
 	s.mu.RUnlock()
@@ -175,7 +185,7 @@ func (s *UserStore) GetByUsername(username string) (*models.User, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	user, exists := s.users[strings.ToLower(username)]
+	user, exists := s.users[validation.NormalizeUsername(username)]
 	return user, exists
 }
 
@@ -192,7 +202,7 @@ func (s *UserStore) GetByID(id string) (*models.User, bool) {
 // Requires the current password to be verified before changing.
 // Returns an error if the current password is incorrect or user doesn't exist.
 func (s *UserStore) ChangePassword(username, currentPassword, newPassword string) error {
-	username = strings.ToLower(username)
+	username = validation.NormalizeUsername(username)
 
 	// Validate new password
 	if err := validation.ValidatePassword(newPassword); err != nil {
