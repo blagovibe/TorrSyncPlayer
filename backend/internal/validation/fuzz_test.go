@@ -1,8 +1,14 @@
 package validation
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
+
+// strings30 is a username of exactly MaxUsernameLength valid characters,
+// used as a boundary seed for the length checks.
+var strings30 = strings.Repeat("a", MaxUsernameLength)
 
 func FuzzValidateMagnetURI(f *testing.F) {
 	seeds := []string{
@@ -38,15 +44,36 @@ func FuzzValidateUsername(f *testing.F) {
 		"user\tname",
 		"verylongusernamehere123456",
 		"user-name_123",
+		// Regression seeds: padding used to let a name pass the length check on
+		// its trimmed form while being stored with the padding intact.
+		"   abc   ",
+		" 0000000000000000000000000000  ",
+		"\tuser\n",
+		strings30,
+		strings30 + "x",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, username string) {
-		err := ValidateUsername(username)
-		if err == nil {
-			if len(username) < 3 || len(username) > 30 {
-				t.Errorf("expected error for username length %d: %q", len(username), username)
+		normalized := NormalizeUsername(username)
+
+		// Property 1: validation must depend only on the normalized form, so a
+		// padded name and its canonical form are accepted or rejected together.
+		if (ValidateUsername(username) == nil) != (ValidateUsername(normalized) == nil) {
+			t.Errorf("validation disagrees with its own normalized form: input=%q normalized=%q", username, normalized)
+		}
+
+		// Property 2: if the name is accepted, the value the user store will
+		// persist must obey the documented limits and charset.
+		if ValidateUsername(username) == nil {
+			n := utf8.RuneCountInString(normalized)
+			if n < MinUsernameLength || n > MaxUsernameLength {
+				t.Errorf("accepted username %q normalizes to %d characters, outside [%d,%d]",
+					username, n, MinUsernameLength, MaxUsernameLength)
+			}
+			if !usernameRegex.MatchString(normalized) {
+				t.Errorf("accepted username %q normalizes to %q which fails the charset rule", username, normalized)
 			}
 		}
 	})

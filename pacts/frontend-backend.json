@@ -23,350 +23,11 @@
         },
         "body": {
           "status": "ok"
-        }
-      }
-    },
-    {
-      "description": "GET /api/v1/torrents returns list of torrents",
-      "providerState": "no torrents exist",
-      "request": {
-        "method": "GET",
-        "path": "/api/v1/torrents",
-        "headers": {
-          "Accept": "application/json",
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
         },
-        "body": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-              "name": { "type": "string" },
-              "progress": { "type": "number", "minimum": 0, "maximum": 1 },
-              "status": { "type": "string", "enum": ["downloading", "seeding", "paused", "completed", "error"] },
-              "size": { "type": "integer", "minimum": 0 },
-              "downloaded": { "type": "integer", "minimum": 0 },
-              "uploadSpeed": { "type": "integer", "minimum": 0 },
-              "downloadSpeed": { "type": "integer", "minimum": 0 }
-            },
-            "required": ["id", "name", "progress", "status", "size"]
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
           }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/torrents adds a torrent via magnet",
-      "providerState": "no torrents exist",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/torrents",
-        "headers": {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer test-token"
-        },
-        "body": {
-          "magnetUri": "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"
-        }
-      },
-      "response": {
-        "status": 201,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "id": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-          "name": { "type": "string" },
-          "progress": { "type": "number", "minimum": 0, "maximum": 1 },
-          "status": { "type": "string", "enum": ["downloading", "seeding", "paused", "completed", "error"] },
-          "size": { "type": "integer", "minimum": 0 }
-        }
-      }
-    },
-    {
-      "description": "DELETE /api/v1/torrents/{id} removes a torrent",
-      "providerState": "a torrent exists",
-      "request": {
-        "method": "DELETE",
-        "path": "/api/v1/torrents/test-torrent-1",
-        "headers": {
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 204,
-        "headers": {}
-      }
-    },
-    {
-      "description": "GET /api/v1/torrents/{id}/files returns file list",
-      "providerState": "a torrent exists",
-      "request": {
-        "method": "GET",
-        "path": "/api/v1/torrents/test-torrent-1/files",
-        "headers": {
-          "Accept": "application/json",
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "index": { "type": "integer", "minimum": 0 },
-              "name": { "type": "string" },
-              "size": { "type": "integer", "minimum": 0 },
-              "type": { "type": "string", "enum": ["video", "audio", "subtitle", "other"] }
-            },
-            "required": ["index", "name", "size", "type"]
-          }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/torrents/{id}/select selects a file for streaming",
-      "providerState": "a torrent exists",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/torrents/test-torrent-1/select",
-        "headers": {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer test-token"
-        },
-        "body": {
-          "fileIndex": 0
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "streamUrl": { "type": "string", "format": "uri" }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/rooms creates a new room",
-      "providerState": "no rooms exist",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/rooms",
-        "headers": {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer test-token"
-        },
-        "body": {
-          "name": "Test Room",
-          "password": ""
-        }
-      },
-      "response": {
-        "status": 201,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
-          "name": { "type": "string" },
-          "hostId": { "type": "string" },
-          "peerCount": { "type": "integer", "minimum": 1 }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/rooms/join joins an existing room",
-      "providerState": "a room exists",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/rooms/join",
-        "headers": {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer test-token"
-        },
-        "body": {
-          "roomId": "test-room-1",
-          "password": ""
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "hostId": { "type": "string" },
-          "peerCount": { "type": "integer", "minimum": 1 }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/rooms/leave leaves current room",
-      "providerState": "user is in a room",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/rooms/leave",
-        "headers": {
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 204,
-        "headers": {}
-      }
-    },
-    {
-      "description": "POST /api/v1/rooms/signal sends WebRTC signal",
-      "providerState": "user is in a room",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/rooms/signal",
-        "headers": {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer test-token"
-        },
-        "body": {
-          "type": "offer",
-          "from": "peer-1",
-          "to": "peer-2",
-          "payload": { "sdp": "v=0\\r\\no=-..." }
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "success": { "type": "boolean" }
-        }
-      }
-    },
-    {
-      "description": "GET /api/v1/rooms/events SSE stream",
-      "providerState": "user is in a room",
-      "request": {
-        "method": "GET",
-        "path": "/api/v1/rooms/events",
-        "headers": {
-          "Accept": "text/event-stream",
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive"
-        },
-        "body": "data: {\"type\":\"peer-joined\",\"peerId\":\"peer-2\"}\\n\\n"
-      }
-    },
-    {
-      "description": "POST /api/v1/sync/play syncs play",
-      "providerState": "user is in a room and is host",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/sync/play",
-        "headers": {
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "success": { "type": "boolean" },
-          "action": { "type": "string", "const": "play" }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/sync/pause syncs pause",
-      "providerState": "user is in a room and is host",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/sync/pause",
-        "headers": {
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "success": { "type": "boolean" },
-          "action": { "type": "string", "const": "pause" }
-        }
-      }
-    },
-    {
-      "description": "POST /api/v1/sync/seek syncs seek position",
-      "providerState": "user is in a room and is host",
-      "request": {
-        "method": "POST",
-        "path": "/api/v1/sync/seek",
-        "headers": {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer test-token"
-        },
-        "body": {
-          "position": 120.5
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "success": { "type": "boolean" },
-          "action": { "type": "string", "const": "seek" },
-          "position": { "type": "number" }
-        }
-      }
-    },
-    {
-      "description": "GET /api/v1/sync/status gets sync status",
-      "providerState": "user is in a room",
-      "request": {
-        "method": "GET",
-        "path": "/api/v1/sync/status",
-        "headers": {
-          "Accept": "application/json",
-          "Authorization": "Bearer test-token"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "isPlaying": { "type": "boolean" },
-          "position": { "type": "number" },
-          "duration": { "type": "number" },
-          "timestamp": { "type": "integer" }
         }
       }
     },
@@ -377,11 +38,12 @@
         "method": "POST",
         "path": "/api/v1/auth/login",
         "headers": {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Accept": "application/json"
         },
         "body": {
-          "username": "testuser",
-          "password": "testpass"
+          "username": "pactuser",
+          "password": "Str0ng!PactPass"
         }
       },
       "response": {
@@ -390,23 +52,177 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "token": { "type": "string" },
-          "expiresIn": { "type": "integer" }
+          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.signature",
+          "user": {
+            "id": "00000000000000000000000000000000",
+            "username": "pactuser",
+            "createdAt": 1700000000
+          }
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
         }
       }
     },
     {
-      "description": "POST /api/v1/auth/register creates new user",
-      "providerState": "user does not exist",
+      "description": "GET /api/v1/torrents returns a paginated envelope",
+      "providerState": "no torrents exist",
       "request": {
-        "method": "POST",
-        "path": "/api/v1/auth/register",
+        "method": "GET",
+        "path": "/api/v1/torrents",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        }
+      },
+      "response": {
+        "status": 200,
         "headers": {
           "Content-Type": "application/json"
         },
         "body": {
-          "username": "newuser",
-          "password": "newpass"
+          "torrents": [],
+          "totalCount": 0,
+          "limit": 20,
+          "offset": 0,
+          "hasMore": false
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          },
+          "$.body.torrents": {
+            "match": "type"
+          },
+          "$.body.torrents[*]": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "POST /api/v1/torrents rejects a non-btih magnet",
+      "providerState": "no torrents exist",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/torrents",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        },
+        "body": {
+          "magnetUri": "not-a-magnet"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "error": "Invalid magnet URI format"
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "GET /api/v1/torrents/{id}/files rejects a non-hex torrent id",
+      "providerState": "no torrents exist",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/torrents/test-torrent-1/files",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "error": "Invalid torrent ID"
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "GET /api/v1/torrents/{id}/files returns 404 for an unknown torrent",
+      "providerState": "no torrents exist",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/torrents/0000000000000000000000000000000000000000/files",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "error": "Resource not found"
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "DELETE /api/v1/torrents/{id} returns 404 for an unknown torrent",
+      "providerState": "no torrents exist",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/v1/torrents/0000000000000000000000000000000000000000",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "error": "Resource not found"
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "POST /api/v1/rooms creates a new room",
+      "providerState": "user exists",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/rooms",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        },
+        "body": {
+          "name": "Pact Room"
         }
       },
       "response": {
@@ -415,8 +231,107 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "token": { "type": "string" },
-          "expiresIn": { "type": "integer" }
+          "id": "00000000000000000000000000000000",
+          "name": "Pact Room",
+          "hostId": "00000000000000000000000000000000",
+          "peerCount": 0
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "POST /api/v1/rooms/join rejects a malformed room id",
+      "providerState": "user is in a room",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/rooms/join",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        },
+        "body": {
+          "roomId": "short"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "error": "Invalid room ID: room ID must be 32 characters (got 5)"
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "POST /api/v1/sync/seek relays a playback position",
+      "providerState": "user is in a room",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/sync/seek",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        },
+        "body": {
+          "position": 30
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "isPlaying": false,
+          "position": 30,
+          "duration": 0,
+          "timestamp": 1700000000000
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
+        }
+      }
+    },
+    {
+      "description": "GET /api/v1/sync/status reports the playback state",
+      "providerState": "user is in a room",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/sync/status",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${PACT_TOKEN}"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "isPlaying": false,
+          "position": 30,
+          "duration": 0,
+          "timestamp": 1700000000000
+        },
+        "matchingRules": {
+          "$.body": {
+            "match": "type"
+          }
         }
       }
     }
@@ -424,7 +339,6 @@
   "metadata": {
     "pactSpecification": {
       "version": "3.0.0"
-    },
-    "pactfileWriteMode": "overwrite"
+    }
   }
 }

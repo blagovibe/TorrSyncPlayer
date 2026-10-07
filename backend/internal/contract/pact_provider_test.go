@@ -6,9 +6,11 @@
 package contract
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,9 +25,51 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
 )
 
-// noopStateHandler does nothing: the real backend manages its own state per
-// request, so the pact's provider states need no setup here. Signature per
-// pact-go v2 models.StateHandler.
+// Token placeholder used in pacts/frontend-backend.json. The contract pins the
+// *shape* of an authenticated call, not a specific token value: a literal
+// "Bearer test-token" can never satisfy a JWT-validating router (every
+// interaction came back 401). The verifier therefore mints a real token and
+// substitutes it for this marker before running.
+const pactTokenPlaceholder = "${PACT_TOKEN}"
+
+// Credentials that match the login interaction in the pact file.
+const (
+	pactUsername = "pactuser"
+	pactPassword = "Str0ng!PactPass"
+)
+
+// materialisePact loads the pact, replaces every token placeholder with the
+// supplied token and writes the result to a temp file for verification.
+func materialisePact(t *testing.T, token string) string {
+	t.Helper()
+
+	src := filepath.Join("..", "..", "..", "pacts", "frontend-backend.json")
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("pact file not found at %s: %v", src, err)
+	}
+
+	resolved := strings.ReplaceAll(string(raw), pactTokenPlaceholder, token)
+	if strings.Contains(resolved, pactTokenPlaceholder) {
+		t.Fatal("pact still contains an unsubstituted token placeholder")
+	}
+	// Sanity check: the rewritten file must stay valid JSON, otherwise the
+	// verifier would fail with a parse error that looks like a contract mismatch.
+	var probe any
+	if err := json.Unmarshal([]byte(resolved), &probe); err != nil {
+		t.Fatalf("rewritten pact is not valid JSON: %v", err)
+	}
+
+	out := filepath.Join(t.TempDir(), "frontend-backend.json")
+	if err := os.WriteFile(out, []byte(resolved), 0o600); err != nil {
+		t.Fatalf("failed to write rewritten pact: %v", err)
+	}
+	return out
+}
+
+// noopStateHandler does nothing: the backend manages its own per-request state,
+// so no pact provider state needs setup. Signature per pact-go v2
+// models.StateHandler.
 func noopStateHandler(bool, models.ProviderState) (models.ProviderStateResponse, error) {
 	return nil, nil
 }
@@ -33,6 +77,7 @@ func noopStateHandler(bool, models.ProviderState) (models.ProviderStateResponse,
 // stateHandlers maps every provider state named in the pact file.
 func stateHandlers() models.StateHandlers {
 	states := []string{
+		"server is running",
 		"torrent exists",
 		"no torrents exist",
 		"user is in a room",
@@ -52,6 +97,10 @@ func stateHandlers() models.StateHandlers {
 // served canned mock responses, this stands up the actual router with
 // real services so verification reflects production behaviour.
 func TestPactProvider(t *testing.T) {
+	if err := auth.InitDummyHash(); err != nil {
+		t.Fatalf("failed to init dummy bcrypt hash: %v", err)
+	}
+
 	// Build the real router with real (in-memory) services.
 	bufferSvc := buffer.NewService(64 * 1024 * 1024)
 	torrentSvc, err := torrent.NewServiceWithOptions(bufferSvc, torrent.ServiceOptions{
@@ -70,6 +119,22 @@ func TestPactProvider(t *testing.T) {
 		t.Fatalf("failed to create auth service: %v", err)
 	}
 	authStore := auth.NewUserStore()
+
+	// The pact's login interaction needs an account that already exists, so
+	// create the fixture user up front instead of relying on verification
+	// order to register it first.
+	if _, err := authStore.Create(pactUsername, pactPassword); err != nil {
+		t.Fatalf("failed to create pact fixture user: %v", err)
+	}
+	fixtureUser, ok := authStore.GetByUsername(pactUsername)
+	if !ok {
+		t.Fatal("pact fixture user missing after Create")
+	}
+	pactToken, err := authService.GenerateToken(fixtureUser)
+	if err != nil {
+		t.Fatalf("failed to mint pact token: %v", err)
+	}
+
 	p2pSvc, err := p2p.NewService(authService)
 	if err != nil {
 		t.Fatalf("failed to create p2p service: %v", err)
@@ -90,12 +155,7 @@ func TestPactProvider(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// Get the path to the pact file. PactFiles takes local paths; PactURLs is
-	// for URLs, and passing a filesystem path there fails with a builder error.
-	pactPath := filepath.Join("..", "..", "..", "pacts", "frontend-backend.json")
-	if _, err := os.Stat(pactPath); err != nil {
-		t.Fatalf("pact file not found at %s: %v", pactPath, err)
-	}
+	pactPath := materialisePact(t, pactToken)
 
 	// Configure Pact provider verification. The real backend manages its own
 	// state per request, so the provider state handlers are intentionally

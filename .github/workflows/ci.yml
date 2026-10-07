@@ -328,7 +328,24 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test -fuzz=Fuzz -fuzztime=30s ./internal/validation/... 2>&1 | head -100
+          # Go refuses -fuzz when the pattern matches more than one fuzz
+          # target ("will not fuzz, -fuzz matches more than one fuzz test"),
+          # so each target is driven explicitly. The list is discovered from
+          # the source rather than hardcoded, so adding a FuzzXxx function
+          # cannot silently drop out of CI again.
+          mapfile -t targets < <(
+            grep -hoE '^func (Fuzz[A-Za-z0-9_]+)' internal/validation/*_test.go \
+              | sed -E 's/^func //' | sort -u
+          )
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "No fuzz targets found in internal/validation" >&2
+            exit 1
+          fi
+          echo "Fuzz targets: ${targets[*]}"
+          for t in "${targets[@]}"; do
+            echo "=== $t ==="
+            go test -run='^$' -fuzz="^${t}$" -fuzztime=30s ./internal/validation/...
+          done
 
       - name: Install libFuzzer for C++
         run: |
@@ -535,12 +552,15 @@ jobs:
         working-directory: frontend/build
         run: make -j$(nproc) test_integration 2>&1
 
-      - name: Run Qt headless E2E tests
+      - name: Run Qt headless integration tests
         working-directory: frontend/build
-        # --no-tests=error: "No tests were found!!!" exits 0, which turned an
-        # E2E suite that matched nothing into a green step.
+        # The ctest target is registered as "IntegrationTest" in
+        # frontend/CMakeLists.txt (add_test(NAME IntegrationTest ...)). The
+        # filter used to be "E2E", which matched no test at all: --no-tests=error
+        # turned that into a red step, and before that `|| true` made it green
+        # while nothing ran. Keep the name in sync with CMakeLists.txt.
         run: |
-          QT_QPA_PLATFORM=offscreen ctest -R "E2E" --no-tests=error --output-on-failure -V 2>&1
+          QT_QPA_PLATFORM=offscreen ctest -R "IntegrationTest" --no-tests=error --output-on-failure -V 2>&1
 
       - name: Run Playwright E2E tests
         working-directory: tests/e2e/playwright
