@@ -44,6 +44,17 @@ const journeyCompleted = new Rate('journey_completed');
 // a load generator measures the server rather than login throughput. Concurrent
 // room creation by one account means a VU's sync calls may target the room its
 // session currently points at, which is fine for throughput measurement.
+// The journey deliberately probes a torrent id that does not exist to confirm
+// it is answered with 404 rather than a 500 or a silent success. k6 counts any
+// status >= 400 as a failed request by default, so that intentional 404 showed up
+// as exactly one failure per iteration — 16.61% http_req_failed on a server that
+// had answered every other request correctly.
+//
+// Declaring 404 expected leaves http_req_failed measuring transport failures and
+// 5xx, which is what it is useful for. Per-endpoint correctness is not weakened:
+// the checks below still assert exact status codes (201, 200, 404).
+http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 404));
+
 export const options = {
   // k6 v2 removed Params.insecureSkipTLSVerify (per-request); it now exists
   // only as a global option. The backend serves TLS with a self-signed cert
@@ -72,18 +83,27 @@ export const options = {
     },
   },
   thresholds: {
-    // CALIBRATION RUN. These numbers are deliberately loose so the first
-    // measurement can complete; they are replaced with real values derived
-    // from that run's output before this job is allowed to gate anything.
-    http_req_failed: ['rate<0.60'],
-    errors: ['rate<0.60'],
-    http_req_duration: ['p(95)<10000'],
-    list_duration: ['p(95)<10000'],
-    room_create_duration: ['p(95)<10000'],
-    sync_duration: ['p(95)<10000'],
-    delete_duration: ['p(95)<10000'],
+    // Derived from the calibration run (0bcffe8 lineage, 60 VUs, 13m, k6 2.3.0):
+    // list p(95)=1.31ms, room create p(95)=0.87ms, sync p(95)=1.30ms,
+    // delete p(95)=1.33ms, http_req_duration p(95)=1.30ms, 0 failed requests.
+    //
+    // These sit far above the measured values on purpose. A GitHub runner is
+    // shared and noisy, so a tight budget would flake; but they are still tight
+    // enough to catch the failure mode that motivated them. Both deadlocks in
+    // internal/p2p and internal/sync pinned play, pause, seek and room creation
+    // at exactly 30s, which blows through every one of these by three orders of
+    // magnitude. Thresholds that only catch an outage are not worth having.
+    http_req_failed: ['rate<0.01'],
+    errors: ['rate<0.02'],
+    http_req_duration: ['p(95)<50'],
+    list_duration: ['p(95)<50'],
+    room_create_duration: ['p(95)<100'],
+    sync_duration: ['p(95)<50'],
+    delete_duration: ['p(95)<50'],
+    auth_duration: ['p(95)<1000'],
+    // Catches a journey that aborts part-way: any exception before the end of
+    // userJourney leaves this below 1, which the summary alone does not reveal.
     journey_completed: ['rate>0.99'],
-    auth_duration: ['p(95)<10000'],
   },
 };
 

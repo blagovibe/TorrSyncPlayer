@@ -597,15 +597,6 @@ jobs:
 
       - name: Run k6 load tests
         working-directory: tests/load/k6
-        # CALIBRATION RUN — this step reports, it does not gate.
-        #
-        # Every threshold in mixed_scenario.js is currently set loose enough to
-        # record a measurement rather than enforce a target. This run exists to
-        # produce real numbers; the thresholds are replaced with values derived
-        # from its output, and this continue-on-error is removed, only once those
-        # numbers have been reviewed. Do not read the green tick as a passing
-        # performance budget.
-        continue-on-error: true
         run: |
           k6 version
           k6 run --out json=results.json mixed_scenario.js 2>&1
