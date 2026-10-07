@@ -577,15 +577,37 @@ jobs:
 
       - name: Start backend for load testing
         working-directory: backend
+        env:
+          # A load generator drives thousands of requests per second from one
+          # address; the shipped per-IP limit is 1 req/s (60/min). These raise
+          # the ceiling rather than removing the limiter — the same token bucket
+          # stays in the request path, and the server logs a warning naming both
+          # variables. Change them here, never in defaults.
+          API_RATE_LIMIT: '500'
+          API_RATE_BURST: '2000'
         run: |
           export JWT_SECRET=test-jwt-secret-key-for-load-testing-min-32-chars
-          ./build/torrsyncplayer --port 8889 --auto-tls &
-          sleep 5
+          ./build/torrsyncplayer --port 8889 --auto-tls > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -k -sf https://localhost:8889/health > /dev/null && break
+            sleep 1
+          done
           curl -k -s https://localhost:8889/health
+          echo
 
       - name: Run k6 load tests
         working-directory: tests/load/k6
+        # CALIBRATION RUN — this step reports, it does not gate.
+        #
+        # Every threshold in mixed_scenario.js is currently set loose enough to
+        # record a measurement rather than enforce a target. This run exists to
+        # produce real numbers; the thresholds are replaced with values derived
+        # from its output, and this continue-on-error is removed, only once those
+        # numbers have been reviewed. Do not read the green tick as a passing
+        # performance budget.
+        continue-on-error: true
         run: |
+          k6 version
           k6 run --out json=results.json mixed_scenario.js 2>&1
 
       - name: Upload load test results
