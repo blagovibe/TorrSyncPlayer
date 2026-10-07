@@ -11,6 +11,13 @@ const deleteDuration = new Trend('delete_duration');
 const authDuration = new Trend('auth_duration');
 const totalRequests = new Counter('total_requests');
 
+// Guards against a journey that silently stops halfway. Any exception thrown
+// mid-iteration aborts it before the final add, so this rate drops below 1 even
+// though every individual check that did run passed. It is what caught
+// http.delete being called with the wrong argument: checks were 100% green
+// while the delete request was never sent at all.
+const journeyCompleted = new Rate('journey_completed');
+
 // Test configuration — mixed realistic user journey.
 //
 // SCOPE CHANGE (was: Add torrent -> Get files -> Select file -> Stream).
@@ -75,6 +82,7 @@ export const options = {
     room_create_duration: ['p(95)<10000'],
     sync_duration: ['p(95)<10000'],
     delete_duration: ['p(95)<10000'],
+    journey_completed: ['rate>0.99'],
     auth_duration: ['p(95)<10000'],
   },
 };
@@ -226,8 +234,14 @@ function userJourney(token, vu) {
   // 4. Deliberate error path: deleting an unknown torrent must be a 404, not a
   //    500 or a silent success. Torrent ids are 40 hex chars.
   group('Delete Unknown Torrent', () => {
+    // http.delete is (url, body, params) — the second positional argument is the
+    // request body, not the options. Passing { headers, timeout } there makes
+    // k6 fail to serialize an object as a body, which throws and aborts the
+    // iteration before this request is ever sent. It has to be null with the
+    // params in third position.
     const res = http.delete(
       `${BASE_URL}/api/v1/torrents/0000000000000000000000000000000000000000`,
+      null,
       { headers, timeout: '30s' }
     );
     deleteDuration.add(res.timings.duration);
@@ -243,6 +257,7 @@ function userJourney(token, vu) {
   // VU without a room to return to. It is exercised once in teardown() instead,
   // which is also the only place it belongs: leaving is a one-off at the end of
   // a session, not a per-iteration action.
+  journeyCompleted.add(1);
 }
 
 // teardown exercises the leave endpoint once, at the end of the run, and checks
