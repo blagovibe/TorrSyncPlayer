@@ -539,13 +539,3 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
-
-// getEnvInt returns the environment variable as int or the default value
-func getEnvInt(key string, defaultValue int) int {
-	if value, exists := os.LookupEnv(key); exists {
-		if n, err := strconv.Atoi(value); err == nil && n > 0 {
-			return n
-		}
-	}
-	return defaultValue
-}

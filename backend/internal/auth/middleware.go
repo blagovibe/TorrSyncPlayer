@@ -53,5 +53,7 @@ func GetClientID(r *http.Request) string {
 func writeAuthError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `{"error":%q}`, message)
+	if _, err := fmt.Fprintf(w, `{"error":%q}`, message); err != nil {
+		_ = fmt.Errorf("write auth error: %w", err)
+	}
 }
