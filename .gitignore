@@ -29,6 +29,9 @@ desktop.ini
 backend/bin/
 backend/*.exe
 backend/build/
+# `go build ./cmd/server` without -o drops the binary in the package directory
+# as "server"; `make build` writes to backend/build/torrsyncplayer instead.
+backend/server
 vendor/
 *.test
 *.out
