@@ -18,169 +18,6 @@
     "host": "localhost:8889",
     "basePath": "/api/v1",
     "paths": {
-        "/api/v1/auth/change-password": {
-            "post": {
-                "description": "Changes the current user's password",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Change password",
-                "parameters": [
-                    {
-                        "description": "Password change data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/auth/login": {
-            "post": {
-                "description": "Authenticates the user and returns a JWT token",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Login",
-                "parameters": [
-                    {
-                        "description": "Login data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/auth/logout": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Revokes the JWT token (adds to revoked list)",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Logout",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/auth/register": {
-            "post": {
-                "description": "Registers a new user and returns a JWT token",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Registration",
-                "parameters": [
-                    {
-                        "description": "Registration data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/health": {
             "get": {
                 "description": "Basic server health check (does not require authentication)",
@@ -888,17 +725,6 @@
                 }
             }
         },
-        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse": {
-            "type": "object",
-            "properties": {
-                "token": {
-                    "type": "string"
-                },
-                "user": {
-                    "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse"
-                }
-            }
-        },
         "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferInfo": {
             "type": "object",
             "properties": {
@@ -938,17 +764,6 @@
                     "type": "boolean"
                 },
                 "torrent_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest": {
-            "type": "object",
-            "properties": {
-                "currentPassword": {
-                    "type": "string"
-                },
-                "newPassword": {
                     "type": "string"
                 }
             }
@@ -1016,28 +831,6 @@
                     "type": "string"
                 },
                 "roomId": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest": {
-            "type": "object",
-            "properties": {
-                "password": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest": {
-            "type": "object",
-            "properties": {
-                "password": {
-                    "type": "string"
-                },
-                "username": {
                     "type": "string"
                 }
             }
@@ -1177,27 +970,13 @@
                     "type": "integer"
                 }
             }
-        },
-        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse": {
-            "type": "object",
-            "properties": {
-                "createdAt": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                }
-            }
         }
     },
     "securityDefinitions": {
         "BearerAuth": {
-            "description": "Enter JWT token in the format: Bearer \u003ctoken\u003e",
+            "description": "The access token printed by the server at startup. Same value for every friend; it changes on restart.",
             "type": "apiKey",
-            "name": "Authorization",
+            "name": "X-Access-Token",
             "in": "header"
         }
     }

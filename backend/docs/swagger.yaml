@@ -8,13 +8,6 @@ definitions:
         description: base64 encoded torrent file content
         type: string
     type: object
-  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse:
-    properties:
-      token:
-        type: string
-      user:
-        $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse'
-    type: object
   github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferInfo:
     properties:
       buffer_end:
@@ -44,13 +37,6 @@ definitions:
         description: Is buffering in progress
         type: boolean
       torrent_id:
-        type: string
-    type: object
-  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest:
-    properties:
-      currentPassword:
-        type: string
-      newPassword:
         type: string
     type: object
   github_com_blagovibe_TorrSyncPlayer_backend_internal_models.CreateRoomRequest:
@@ -94,20 +80,6 @@ definitions:
       password:
         type: string
       roomId:
-        type: string
-    type: object
-  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest:
-    properties:
-      password:
-        type: string
-      username:
-        type: string
-    type: object
-  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest:
-    properties:
-      password:
-        type: string
-      username:
         type: string
     type: object
   github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo:
@@ -201,15 +173,6 @@ definitions:
       totalCount:
         type: integer
     type: object
-  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.UserResponse:
-    properties:
-      createdAt:
-        type: integer
-      id:
-        type: string
-      username:
-        type: string
-    type: object
 host: localhost:8889
 info:
   contact:
@@ -224,111 +187,6 @@ info:
   title: TorrSyncPlayer API
   version: "1.0"
 paths:
-  /api/v1/auth/change-password:
-    post:
-      consumes:
-      - application/json
-      description: Changes the current user's password
-      parameters:
-      - description: Password change data
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ChangePasswordRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-      summary: Change password
-      tags:
-      - auth
-  /api/v1/auth/login:
-    post:
-      consumes:
-      - application/json
-      description: Authenticates the user and returns a JWT token
-      parameters:
-      - description: Login data
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.LoginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-      summary: Login
-      tags:
-      - auth
-  /api/v1/auth/logout:
-    post:
-      description: Revokes the JWT token (adds to revoked list)
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Logout
-      tags:
-      - auth
-  /api/v1/auth/register:
-    post:
-      consumes:
-      - application/json
-      description: Registers a new user and returns a JWT token
-      parameters:
-      - description: Registration data
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RegisterRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AuthResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-      summary: Registration
-      tags:
-      - auth
   /api/v1/health:
     get:
       description: Basic server health check (does not require authentication)
@@ -789,8 +647,9 @@ paths:
       - torrents
 securityDefinitions:
   BearerAuth:
-    description: 'Enter JWT token in the format: Bearer <token>'
+    description: The access token printed by the server at startup. Same value for
+      every friend; it changes on restart.
     in: header
-    name: Authorization
+    name: X-Access-Token
     type: apiKey
 swagger: "2.0"

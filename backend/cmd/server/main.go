@@ -56,8 +56,8 @@ import (
 
 // @securityDefinitions.apikey BearerAuth
 // @in header
-// @name Authorization
-// @description Enter JWT token in the format: Bearer <token>
+// @name X-Access-Token
+// @description The access token printed by the server at startup. Same value for every friend; it changes on restart.
 
 const (
 	defaultPort     = "8889"
