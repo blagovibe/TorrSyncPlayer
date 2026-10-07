@@ -347,44 +347,18 @@ jobs:
             go test -run='^$' -fuzz="^${t}$" -fuzztime=30s ./internal/validation/...
           done
 
-      - name: Install libFuzzer for C++
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang llvm libfuzzer-17-dev
-
-      - name: Configure CMake with libFuzzer
-        working-directory: frontend
-        run: |
-          mkdir -p build-fuzz && cd build-fuzz
-          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang || echo "CMake configure failed, skipping C++ fuzz tests"
-        continue-on-error: true
-
-      - name: Build fuzz targets
-        working-directory: frontend/build-fuzz
-        run: make -j$(nproc) fuzz_* 2>&1
-
-      - name: Run libFuzzer tests (short)
-        working-directory: frontend/build-fuzz
-        run: |
-          # A short fuzz run is expected to be cut off by the timeout (exit 124),
-          # which is not a defect. A crash (134/SIGABRT) is. `|| true` on every
-          # fuzzer hid crashes, so collect the failures and fail at the end.
-          failed=""
-          for f in ./tests/fuzz/fuzz_*; do
-            if [ -x "$f" ]; then
-              echo "Running $f..."
-              timeout 30s "$f" -max_total_time=10 -rss_limit_mb=2048 2>&1
-              rc=$?
-              if [ $rc -ne 0 ] && [ $rc -ne 124 ]; then
-                echo "FUZZER FAILED: $f (exit $rc)"
-                failed="$failed $f"
-              fi
-            fi
-          done
-          if [ -n "$failed" ]; then
-            echo "Fuzzers with real failures:$failed"
-            exit 1
-          fi
+      # No C++ fuzzing here. The previous steps installed libFuzzer and ran
+      # `make fuzz_*`, but frontend/CMakeLists.txt defines no fuzz target and
+      # frontend/tests/fuzz/ does not exist, so the glob matched nothing. The
+      # configure step printed "CMake configure failed, skipping C++ fuzz tests"
+      # (it never installed Qt6 either) and the build step then died with
+      # "No rule to make target 'fuzz_*'". Under `|| true` all of that was a
+      # green step with zero coverage.
+      #
+      # To restore it: add fuzz harnesses under frontend/tests/fuzz/, declare
+      # executable targets named fuzz_<name> in CMakeLists.txt, install Qt6 in
+      # this job, and re-add the steps. A Qt6-based integration/fuzz entry point
+      # is listed as a non-goal in CONCEPT.md — re-check that first.
 
   # ── Mutation testing ─────────────────────────────────────────────────
   mutation-tests:
@@ -533,14 +507,12 @@ jobs:
           sleep 5
           curl -k -s https://localhost:8889/health
 
-      - name: Install Qt6 and Playwright dependencies
+      - name: Install Qt6 dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov \
-            nodejs npm
-          cd tests/e2e/playwright && npm install
+            libmpv-dev cmake g++ lcov
 
       - name: Configure CMake for E2E
         working-directory: frontend
@@ -562,9 +534,18 @@ jobs:
         run: |
           QT_QPA_PLATFORM=offscreen ctest -R "IntegrationTest" --no-tests=error --output-on-failure -V 2>&1
 
-      - name: Run Playwright E2E tests
-        working-directory: tests/e2e/playwright
-        run: npx playwright test 2>&1
+      # No Playwright step. tests/e2e/playwright/tests/app.spec.ts drives a web
+      # UI — it navigates to https://localhost:8889 and looks for
+      # input[name="username"], a .main-window container and a <video> element.
+      # TorrSyncPlayer ships no web frontend: the client is a Qt/C++ desktop app
+      # and the Go backend serves JSON only (its root route returns
+      # {"error":"Route not found"}). The suite could therefore never pass; under
+      # `|| true` it was a green step that asserted nothing. The run also failed
+      # before reaching any test, because webServer had no ignoreHTTPSErrors and
+      # the backend runs with --auto-tls.
+      #
+      # Keep tests/e2e/playwright/ in the tree for when a web UI exists; re-add
+      # the step with webServer.ignoreHTTPSErrors: true and baseURL set to https.
 
   # ── Performance/Load tests ────────────────────────────────────────────
   load-tests:

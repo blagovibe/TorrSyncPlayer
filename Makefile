@@ -71,16 +71,14 @@ test-frontend-gmock:
 	make -j$(nproc) test_networkmanager_gmock test_torrentmanager_gmock test_roommanager_gmock && \
 	ctest -R "GMock" --output-on-failure
 
+# NOTE: there are no C++ fuzz targets. frontend/CMakeLists.txt defines no
+# fuzz_<name> target and frontend/tests/fuzz/ does not exist, so this recipe
+# never built or ran a fuzzer — every command was absorbed by `|| true`
+# (which also masked the cmake and make failures). Go fuzzing is real and runs
+# via `make test-backend-fuzz`; keep the name in sync with backend/internal/validation.
 test-frontend-fuzz:
-	cd frontend && mkdir -p build-fuzz && cd build-fuzz && \
-	cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ && \
-	make -j$(nproc) fuzz_* 2>&1 || true && \
-	for f in ./tests/fuzz/fuzz_*; do \
-		if [ -x "$$f" ]; then \
-			echo "Running $$f..."; \
-			timeout 30s "$$f" -max_total_time=10 -rss_limit_mb=2048 2>&1 || true; \
-		fi; \
-	done
+	@echo "C++ fuzzing - placeholder: no fuzz targets are defined in frontend/CMakeLists.txt"
+	@echo "Run Go fuzzing instead: make test-backend-fuzz"
 
 test-frontend-mutation:
 	@echo "C++ mutation testing with Mull - placeholder for future implementation"
