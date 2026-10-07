@@ -31,7 +31,7 @@ TorrSyncPlayer/
 - Use structured errors from `internal/errors/errors.go`
 - Interface definitions go in `internal/interfaces.go`
 - Use `errors.As` for error type checking (not direct type assertion)
-- Normalize usernames to lowercase in auth store
+- There is no user store. Auth is a per-process access token, so there are no usernames to normalize
 
 ### C++/Qt
 - Use `m_` prefix for member variables
@@ -39,12 +39,10 @@ TorrSyncPlayer/
 - Sanitize all user-controlled values before URL construction
 
 ## Key Security Considerations
-- JWT tokens are parsed once per request (JTI extracted from already-parsed claims via middleware context, not re-parsed)
-- CSRF protection is skipped for requests with valid JWT Bearer tokens (API clients not vulnerable to browser-based CSRF)
+- Auth is a single access token generated at startup and compared with crypto/subtle.ConstantTimeCompare. No JWT, no accounts, no CSRF store: a cross-origin page cannot read the token and cannot set the X-Access-Token header without a preflight the server rejects
 - Self-signed certs use random serial numbers
 - Auto-generated temp cert files are cleaned up on shutdown; user-provided certs are preserved
-- Usernames are case-insensitive (stored lowercase)
-- Metrics endpoint (/metrics) is per-IP rate limited but not JWT-protected (for Prometheus scraping)
+- Metrics endpoint (/metrics) is per-IP rate limited but not token-protected (for Prometheus scraping)
 - MemoryStorageCapacity has an upper bound of 256GB (MaxMemoryStorageCapacity)
 
 ## Testing
