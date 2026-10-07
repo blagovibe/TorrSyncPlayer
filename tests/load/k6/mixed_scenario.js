@@ -13,6 +13,12 @@ const totalRequests = new Counter('total_requests');
 
 // Test configuration - mixed realistic user journey
 export const options = {
+  // k6 v2 removed Params.insecureSkipTLSVerify (per-request); it now exists only
+  // as a global option. The backend serves TLS with a self-signed cert from
+  // --auto-tls, so without this every request fails with
+  // "x509: certificate signed by unknown authority". The per-request copies left
+  // below are ignored by v2 and are harmless.
+  insecureSkipTLSVerify: true,
   scenarios: {
     // Main load test: realistic user journeys
     mixed_scenario: {

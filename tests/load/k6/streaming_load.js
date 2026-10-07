@@ -7,6 +7,12 @@ const streamStartDuration = new Trend('stream_start_duration');
 const rangeRequestDuration = new Trend('range_request_duration');
 
 export const options = {
+  // k6 v2 removed Params.insecureSkipTLSVerify (per-request); it now exists only
+  // as a global option. The backend serves TLS with a self-signed cert from
+  // --auto-tls, so without this every request fails with
+  // "x509: certificate signed by unknown authority". The per-request copies left
+  // below are ignored by v2 and are harmless.
+  insecureSkipTLSVerify: true,
   scenarios: {
     streaming_load: {
       executor: 'constant-arrival-rate',

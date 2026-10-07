@@ -7,6 +7,12 @@ const addDuration = new Trend('torrent_add_duration');
 const listDuration = new Trend('torrent_list_duration');
 
 export const options = {
+  // k6 v2 removed Params.insecureSkipTLSVerify (per-request); it now exists only
+  // as a global option. The backend serves TLS with a self-signed cert from
+  // --auto-tls, so without this every request fails with
+  // "x509: certificate signed by unknown authority". The per-request copies left
+  // below are ignored by v2 and are harmless.
+  insecureSkipTLSVerify: true,
   scenarios: {
     torrent_load: {
       executor: 'constant-vus',
