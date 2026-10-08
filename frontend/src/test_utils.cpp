@@ -9,7 +9,7 @@
  * - formatSpeed
  */
 
-#include <QtTest>
+#include <QtTest/QtTest>
 #include "utils.h"
 
 class TestUtils : public QObject

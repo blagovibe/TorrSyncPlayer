@@ -15,7 +15,7 @@
  * - JSON parsing edge cases
  */
 
-#include <QtTest>
+#include <QtTest/QtTest>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>

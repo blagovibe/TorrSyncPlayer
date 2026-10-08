@@ -11,7 +11,7 @@
  * - Signal emissions via QSignalSpy
  */
 
-#include <QtTest>
+#include <QtTest/QtTest>
 #include <QSignalSpy>
 #include <QJsonObject>
 #include <QJsonArray>

@@ -448,6 +448,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_link_libraries(test_asan PRIVATE
             Qt6::Core
             Qt6::Network
+            Qt6::Test
             gmock_main
         )
         target_compile_options(test_asan PRIVATE -fsanitize=address -fno-omit-frame-pointer)
@@ -468,6 +469,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         target_link_libraries(test_tsan PRIVATE
             Qt6::Core
             Qt6::Network
+            Qt6::Test
             gmock_main
         )
         target_compile_options(test_tsan PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
