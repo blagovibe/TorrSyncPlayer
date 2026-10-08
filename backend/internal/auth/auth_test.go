@@ -189,7 +189,7 @@ func TestStreamTicketRejects(t *testing.T) {
 // torrent, extend the expiry arbitrarily, re-hex it themselves and splice the
 // constant MAC back on — producing a ticket the server accepted.
 //
-// forgeTicketBelow reproduces exactly that construction. Under the old code
+// forge reproduces exactly that construction. Under the old code
 // every case here validated; they must all be rejected now.
 func TestStreamTicketResistsForgery(t *testing.T) {
 	svc, err := NewAuthService()

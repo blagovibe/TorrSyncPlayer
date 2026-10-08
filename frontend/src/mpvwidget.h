@@ -255,6 +255,8 @@ private:
     QTimer *m_seekDebounceTimer = nullptr;   ///< Таймер debounce для перемотки
     QTimer *m_eventTimer = nullptr;          ///< Таймер для обработки событий mpv
     double m_pendingSeekPosition = 0.0;      ///< Ожидающая позиция перемотки
+    bool m_seekApplied = false;              ///< true — m_pendingSeekPosition уже отправлен в mpv
+                                            ///< false — нужно повторить, когда файл загрузится
 
     // Буфер для событий, ожидающих эмиссии сигналов (защищён m_mutex)
     struct MpvEventData {

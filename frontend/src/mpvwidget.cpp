@@ -233,6 +233,7 @@ bool MpvWidget::initializeMpv()
     observe(m_mpv, "time-pos", MPV_FORMAT_DOUBLE);
     observe(m_mpv, "duration", MPV_FORMAT_DOUBLE);
     observe(m_mpv, "pause", MPV_FORMAT_FLAG);
+    observe(m_mpv, "eof-reached", MPV_FORMAT_FLAG);
 
     if (!m_eventTimer) {
         m_eventTimer = new QTimer(this);
@@ -349,6 +350,11 @@ void MpvWidget::seek(double position)
 
     // Сохраняем позицию для отложенного выполнения
     m_pendingSeekPosition = position;
+    // Команда seek уйдёт в mpv через SEEK_DEBOUNCE_MS, а файл к тому моменту
+    // может быть ещё не открыт (loadfile асинхронный, а поток из торрента
+    // открывается медленно). Помечаем позицию как неприменённую, чтобы
+    // MPV_EVENT_FILE_LOADED повторил её.
+    m_seekApplied = false;
 
     // Сбрасываем предыдущий таймер и запускаем новый (debounce)
     // Это предотвращает утечку памяти при быстрой перемотке
@@ -383,6 +389,9 @@ void MpvWidget::onSeekDebounceTimeout()
         QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
         return;
     }
+    // Команда отправлена. Если файл ещё не загружен, mpv её проигнорирует —
+    // тогда повторим по MPV_EVENT_FILE_LOADED.
+    m_seekApplied = true;
 
     qDebug() << "MpvWidget: перемотка выполнена на" << position;
 #else
@@ -563,6 +572,17 @@ void MpvWidget::processMpvEvent(mpv_event *event)
                 m_paused = *pauseData != 0;
             }
         }
+        else if (strcmp(prop->name, "eof-reached") == 0 && prop->format == MPV_FORMAT_FLAG) {
+            // Конец файла по достижении eof-reached. Основной путь — END_FILE,
+            // но eof-reached приходит раньше и позволяет приложению узнать о
+            // завершении, не дожидаясь разрыва соединения с потоком.
+            int *eofData = static_cast<int *>(prop->data);
+            if (eofData != nullptr && *eofData != 0) {
+                MpvEventData eventData;
+                eventData.type = MpvEventData::PlaybackFinished;
+                m_eventBuffer.append(eventData);
+            }
+        }
         break;
     }
 
@@ -584,6 +604,16 @@ void MpvWidget::processMpvEvent(mpv_event *event)
 
     case MPV_EVENT_FILE_LOADED: {
         qDebug() << "MpvWidget: файл успешно загружен";
+        // Перемотка могла уйти в mpv до открытия файла и быть отброшена.
+        // Теперь файл загружен — применяем ожидающую позицию заново.
+        // Это восстанавливает просмотр после смены stream-тикета: mpv
+        // перезагружает файл, и без этого воспроизведение начиналось с нуля.
+        if (!m_seekApplied && m_pendingSeekPosition > 0.0 && m_seekDebounceTimer) {
+            qDebug() << "MpvWidget: применяю отложенную перемотку на"
+                     << m_pendingSeekPosition;
+            m_seekDebounceTimer->stop();
+            m_seekDebounceTimer->start();
+        }
         break;
     }
 

@@ -438,9 +438,13 @@ X-Client-ID: <any id for this player>
 **Response (200):**
 ```json
 {
-  "message": "Joined room"
+  "message": "Joined the room",
+  "id": "room_id"
 }
 ```
+
+`id` echoes the room that was joined, so a client no longer has to remember
+which room it asked for when it builds its SSE path.
 
 **Errors:**
 - `400` — Invalid room ID

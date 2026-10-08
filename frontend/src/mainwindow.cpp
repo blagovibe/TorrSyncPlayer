@@ -40,6 +40,8 @@ namespace {
 // за 80 % этого срока, чтобы перезагрузка не совпала с моментом истечения.
 constexpr int STREAM_TICKET_TTL_MS = 5 * 60 * 1000;
 constexpr int STREAM_TICKET_REFRESH_MS = STREAM_TICKET_TTL_MS * 4 / 5;
+// Интервал повторов, пока свежий тикет так и не пришёл.
+constexpr int STREAM_TICKET_RETRY_MS = 20 * 1000;
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -346,6 +348,13 @@ void MainWindow::setupConnections()
         }
         qDebug() << "MainWindow: обновление stream-тикета по расписанию";
         m_streamTicketRefresh = true;
+        // Таймер одноразовый, а перезапускался он только при успешном ответе.
+        // Любая ошибка сети на запросе тикета навсегда останавливала бы
+        // обновление, и видео снова умирало на пятой минуте. Поэтому
+        // перезапускаем сразу и с коротким интервалом: пока тикет не пришёл,
+        // пробуем каждые STREAM_TICKET_RETRY_MS, а успешный ответ вернёт
+        // нормальный интервал обновления.
+        m_streamTicketTimer->start(STREAM_TICKET_RETRY_MS);
         m_network->requestStreamTicket(m_currentTorrentId);
     });
 
@@ -486,6 +495,20 @@ void MainWindow::onFileSelectedByManager(const QString &torrentId, int fileIndex
 
 void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString &ticket)
 {
+    const bool isRefresh = m_streamTicketRefresh;
+
+    // Тикет обязан относиться к тому, что мы ожидаем: при обновлении — к
+    // играющему торренту, при старте — к ожидающему. Проверка идёт ДО
+    // построения url: url строится из аргумента, поэтому чужой тикет
+    // перехватил бы воспроизведение и перепрыгнул на другую позицию.
+    const QString expected = isRefresh ? m_currentTorrentId : m_pendingStreamTorrentId;
+    if (expected.isEmpty() || torrentId != expected) {
+        qWarning() << "MainWindow: получен тикет для неожиданного torrentId, игнорируем:"
+                   << torrentId << "ожидали:" << expected;
+        m_streamTicketRefresh = false;
+        return;
+    }
+
     const QString url = m_network->streamUrl(torrentId) +
                         QString("?ticket=%1").arg(ticket);
     if (url.isEmpty()) {
@@ -495,11 +518,16 @@ void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString 
         return;
     }
 
+    // Тикет получен и проверен — попытка по ошибке воспроизведения успешна,
+    // значит право на следующую попытку возвращается. Иначе единственный
+    // повтор тратился бы навсегда после первого же восстановления.
+    m_streamTicketRetryUsed = false;
+
     // ── Обновление тикета для уже идущего видео ──────────────────────────
     // mpv держит один URL; когда тикет протухает, следующее открытие потока
     // получает 401. Поэтому перезагружаем файл с новым тикетом и возвращаем
     // позицию, которой пользователь уже досмотрел.
-    if (m_streamTicketRefresh) {
+    if (isRefresh) {
         m_streamTicketRefresh = false;
         const double resumeAt = m_currentPosition;
         qDebug() << "MainWindow: тикет обновлён, возобновляем с" << resumeAt;
@@ -507,11 +535,6 @@ void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString 
         m_mpvWidget->seek(resumeAt);
         m_streamTicketTimer->start(STREAM_TICKET_REFRESH_MS);
         updateStatus(tr("Тикет потока обновлён"));
-        return;
-    }
-
-    if (torrentId != m_pendingStreamTorrentId) {
-        qWarning() << "MainWindow: получен тикет для неожиданного torrentId, игнорируем";
         return;
     }
 
@@ -529,7 +552,6 @@ void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString 
 #endif // HAS_MPV
     m_isPlaying = true;
     m_currentTorrentId = torrentId;
-    m_streamTicketRetryUsed = false;
     m_streamTicketTimer->start(STREAM_TICKET_REFRESH_MS);
     m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
     m_playPauseButton->setText(tr("Pause"));

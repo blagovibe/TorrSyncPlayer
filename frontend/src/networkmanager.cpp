@@ -32,14 +32,49 @@ namespace {
     // Таймаут передачи данных (мс)
     const int TransferTimeout = 60000;
 
-    QString buildApiPath(const QString &basePath, const QString &id)
+    // Идентификаторы (torrentId, roomId) приходят от сервера, но подставляются
+    // в путь URL, поэтому проходят через одну и ту же очистку. Раньше
+    // регулярка дублировалась в пяти местах.
+    QString sanitizeHexId(const QString &id)
     {
         QString sanitized = id;
         sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+        return sanitized;
+    }
+
+    QString buildApiPath(const QString &basePath, const QString &id)
+    {
+        QString sanitized = sanitizeHexId(id);
         if (sanitized.isEmpty()) {
             return basePath + "/";
         }
         return basePath + "/" + sanitized;
+    }
+
+    // Разворачивает конверт ответа вида {"<key>":[...], "totalCount":N, ...}
+    // и возвращает массив, либо пустой QJsonArray, если конверта нет.
+    // Раньше эта проверка дублировалась для torrents и files, и обе копии
+    // молча проглатывали несовпадение формы ответа.
+    QJsonArray unwrapEnvelope(const QJsonDocument &doc, const QString &key, const QString &what)
+    {
+        if (!doc.isObject()) {
+            qWarning() << "NetworkManager:" << what
+                       << "ответ не объект, isArray:" << doc.isArray();
+            return {};
+        }
+        const QJsonObject obj = doc.object();
+        if (!obj.contains(key)) {
+            qWarning() << what << "конверт без поля" << key << "ключи:" << obj.keys();
+            return {};
+        }
+        return obj.value(key).toArray();
+    }
+
+    // Путь SSE-потока комнаты. Обе точки входа — создание комнаты и вход в
+    // неё — собирали его одинаково, различаясь лишь источником roomId.
+    QString buildRoomEventsPath(const QString &roomId)
+    {
+        return QString("/api/v1/rooms/%1/events").arg(sanitizeHexId(roomId));
     }
 
     QUrl safeUrl(const QUrl &base, const QString &path)
@@ -388,8 +423,7 @@ QString NetworkManager::streamUrl(const QString &torrentId) const
         qWarning() << "NetworkManager: streamUrl вызван с пустым torrentId";
         return QString();
     }
-    QString sanitized = torrentId;
-    sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+    const QString sanitized = sanitizeHexId(torrentId);
     if (sanitized.isEmpty()) {
         qWarning() << "NetworkManager: streamUrl — sanitized ID пуст";
         return QString();
@@ -406,8 +440,7 @@ void NetworkManager::requestStreamTicket(const QString &torrentId)
         emit error(tr("ID торрента не может быть пустым"));
         return;
     }
-    QString sanitized = torrentId;
-    sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+    const QString sanitized = sanitizeHexId(torrentId);
     if (sanitized.isEmpty()) {
         emit error(tr("Некорректный ID торрента"));
         return;
@@ -486,17 +519,11 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         // Раньше здесь проверялось doc.isArray(), что для объекта всегда false:
         // сигнал не эмитился НИКОГДА, список торрентов оставался пустым, и
         // происходило это молча — без ошибки и без лога.
-        if (statusCode == 200 && doc.isObject()) {
-            const QJsonObject obj = doc.object();
-            if (obj.contains(QStringLiteral("torrents"))) {
-                emit torrentListReceived(obj.value(QStringLiteral("torrents")).toArray());
-            } else {
-                qWarning() << "NetworkManager: list-torrents envelope without"
-                              " \"torrents\" field, keys:" << obj.keys();
-            }
+        if (statusCode == 200) {
+            emit torrentListReceived(
+                unwrapEnvelope(doc, QStringLiteral("torrents"), "список торрентов"));
         } else {
-            qWarning() << "NetworkManager: unexpected list-torrents response"
-                       << statusCode << "isArray:" << doc.isArray();
+            qWarning() << "NetworkManager: неожиданный статус списка торрентов:" << statusCode;
         }
         break;
     case RequestType::AddTorrent:
@@ -512,18 +539,8 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         if (match.hasMatch()) {
             QString torrentId = match.captured(1);
             // Конверт models.FileListResponse: {"files":[...], "totalCount":N, ...}
-            if (doc.isObject()) {
-                const QJsonObject obj = doc.object();
-                if (obj.contains(QStringLiteral("files"))) {
-                    emit filesReceived(torrentId, obj.value(QStringLiteral("files")).toArray());
-                } else {
-                    qWarning() << "NetworkManager: file-list envelope without"
-                                  " \"files\" field, keys:" << obj.keys();
-                }
-            } else {
-                qWarning() << "NetworkManager: unexpected file-list response"
-                           << statusCode << "isArray:" << doc.isArray();
-            }
+            emit filesReceived(torrentId,
+                unwrapEnvelope(doc, QStringLiteral("files"), "список файлов"));
         }
         break;
     }
@@ -554,9 +571,7 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
                 qWarning() << "NetworkManager: create-room response without id";
                 break;
             }
-            QString sanitizedRoomId = roomId;
-            sanitizedRoomId.remove(QRegularExpression("[^a-fA-F0-9]"));
-            QString ssePath = QString("/api/v1/rooms/%1/events").arg(sanitizedRoomId);
+            const QString ssePath = buildRoomEventsPath(roomId);
             {
                 QMutexLocker locker(&m_roomIdMutex);
                 m_currentRoomId = roomId;
@@ -584,9 +599,7 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
                 qWarning() << "NetworkManager: join confirmed but no pending room id";
                 break;
             }
-            QString sanitizedRoomId = roomId;
-            sanitizedRoomId.remove(QRegularExpression("[^a-fA-F0-9]"));
-            QString ssePath = QString("/api/v1/rooms/%1/events").arg(sanitizedRoomId);
+            const QString ssePath = buildRoomEventsPath(roomId);
             {
                 QMutexLocker locker(&m_roomIdMutex);
                 m_currentRoomId = roomId;

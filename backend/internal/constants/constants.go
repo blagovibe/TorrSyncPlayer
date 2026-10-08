@@ -151,6 +151,12 @@ const (
 	// access token, which it cannot attach to its own HTTP fetches.
 	StreamTicketTTL = 5 * time.Minute
 
+	// SSEShutdownGrace is how long graceful shutdown waits for live SSE
+	// subscriptions to drain before giving up and exiting anyway. Short on
+	// purpose: without a bound, one idle client holding a room subscription
+	// blocks Ctrl-C for SSETimeout (30 minutes).
+	SSEShutdownGrace = 5 * time.Second
+
 	// StreamTicketSecret domain-separation prefix prepended to the access
 	// token when deriving the HMAC key for stream tickets.
 	StreamTicketSecret = "stream-ticket-v1"

@@ -63,12 +63,6 @@ const (
 	defaultPort     = "8889"
 	defaultDir      = "./data"
 	shutdownTimeout = 30 * time.Second
-
-	// sseShutdownGrace is how long graceful shutdown waits for live SSE
-	// subscriptions to drain. Short on purpose: the HTTP server has already
-	// stopped accepting, and a straggler client must not hold the process
-	// open. Long enough for a client to notice the close and disconnect.
-	sseShutdownGrace = 5 * time.Second
 )
 
 // Config server configuration
@@ -265,7 +259,7 @@ func main() {
 	// Give live SSE subscriptions a short grace period, then stop waiting.
 	// Without this bound Ctrl-C could block for constants.SSETimeout (30
 	// minutes) on a single idle room subscription.
-	if api.WaitForSSEConnections(sseShutdownGrace) {
+	if api.WaitForSSEConnections(constants.SSEShutdownGrace) {
 		logger.Info("HTTP server stopped")
 	} else {
 		logger.Warn("HTTP server stopped, but some SSE connections were still open")

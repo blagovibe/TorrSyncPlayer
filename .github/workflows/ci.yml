@@ -281,8 +281,12 @@ jobs:
       # `continue-on-error: true`, which meant ASan/TSan/UBSan could report
       # nothing but never fail a single build: the only tool able to catch a
       # race or a use-after-free in the threaded Qt code was disabled by the
-      # job that exists to run it. Environment sensitivity is fixed with
-      # retries on the flaky test, not by ignoring the result.
+      # job that exists to run it.
+      #
+      # There is no retry wrapper here on purpose. A retry would hide the very
+      # signal this job exists to produce: a race that reproduces once in
+      # twenty runs is still a race, and ASan/TSan are the only checks in this
+      # workflow that can see one.
       - name: Build with sanitizers
         working-directory: frontend/build
         run: make -j$(nproc)

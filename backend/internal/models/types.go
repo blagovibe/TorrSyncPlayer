@@ -87,6 +87,16 @@ type SuccessResponse struct {
 	Message string `json:"message"`
 }
 
+// JoinRoomResponse is returned by POST /api/v1/rooms/join.
+//
+// The join used to answer with a bare SuccessResponse, so a client had no way
+// to learn the room id from the response and had to remember what it sent —
+// the only symptom being an SSE path built as /api/v1/rooms//events.
+type JoinRoomResponse struct {
+	Message string `json:"message"`
+	RoomID  string `json:"id"`
+}
+
 // StreamTicketResponse carries a signed, short-lived ticket used to authorize
 // the public /stream endpoint without a JWT (see auth.GenerateStreamTicket).
 type StreamTicketResponse struct {

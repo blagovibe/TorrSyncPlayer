@@ -87,12 +87,16 @@ test-frontend-mutation:
 contract-test-backend:
 	cd backend && go test -v -run TestPactProvider ./internal/contract/...
 
+# Frontend Pact consumer tests do not exist yet. The recipe used to build
+# test_networkmanager_contract / test_torrentmanager_contract /
+# test_roommanager_contract, none of which are declared in frontend/CMakeLists.txt,
+# and swallowed the failure with `|| true`. Removing the `|| true` alone would
+# have turned this into a target that can only ever fail, which is worse than
+# one that cannot: a developer running `make test-all` would hit a red build
+# with no way to fix it. Until the targets are declared, the step is absent
+# rather than fake. See docs/audit/ROADMAP.md (F-28) and DELIVERY.md.
 contract-test-frontend:
-	@echo "Frontend contract tests - run via CTest with Pact consumer tests"
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_networkmanager_contract test_torrentmanager_contract test_roommanager_contract && \
-	ctest -R "Contract" --output-on-failure
+	@echo "SKIPPED: frontend contract tests are not implemented (no CMake targets)"
 
 contract-test: contract-test-backend contract-test-frontend
 

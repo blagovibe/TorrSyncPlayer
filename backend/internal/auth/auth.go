@@ -168,11 +168,10 @@ func streamTicketPayload(expiry int64, userID, torrentID string) string {
 // with attacker-controlled bytes, leaving the signature meaningless.
 func (s *AuthService) signStreamTicket(payload string) string {
 	mac := hmac.New(sha256.New, s.streamTicketKey())
-	if _, err := mac.Write([]byte(payload)); err != nil {
-		// hash.Hash documents Write as never returning an error; if that ever
-		// changes, returning a value that cannot verify is the safe direction.
-		return ""
-	}
+	// hash.Hash documents Write as never returning an error, so there is
+	// nothing to handle here; an error branch could only mint a ticket that
+	// silently fails to verify, which is worse than writing it out.
+	_, _ = mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
