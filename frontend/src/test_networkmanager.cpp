@@ -736,7 +736,7 @@ void TestNetworkManager::testTorrentListEnvelopeIsUnwrapped()
     m_manager->listTorrents();
     QVERIFY2(spy.wait(3000), "torrentListReceived не эмитился на конверт {\"torrents\":[...]}" );
     QCOMPARE(spy.count(), 1);
-    QCOMPARE(spy.takeFirst().at(0).toArray().size(), 3);
+    QCOMPARE(spy.takeFirst().at(0).value<QJsonArray>().size(), 3);
 }
 
 void TestNetworkManager::testFileListEnvelopeIsUnwrapped()
@@ -757,7 +757,7 @@ void TestNetworkManager::testFileListEnvelopeIsUnwrapped()
     m_manager->getFiles(QStringLiteral("aabbcc"));
     QVERIFY2(spy.wait(3000), "filesReceived не эмитился на конверт {\"files\":[...]}" );
     QCOMPARE(spy.count(), 1);
-    QCOMPARE(spy.takeFirst().at(1).toArray().size(), 2);
+    QCOMPARE(spy.takeFirst().at(1).value<QJsonArray>().size(), 2);
 }
 
 void TestNetworkManager::testBareArrayEnvelopeStillWorks()
@@ -773,7 +773,7 @@ void TestNetworkManager::testBareArrayEnvelopeStillWorks()
 
     m_manager->listTorrents();
     QVERIFY2(spy.wait(3000), "список торрентов перестал принимать голый массив");
-    QCOMPARE(spy.takeFirst().at(0).toArray().size(), 2);
+    QCOMPARE(spy.takeFirst().at(0).value<QJsonArray>().size(), 2);
 }
 
 void TestNetworkManager::testEnvelopeWithoutExpectedFieldEmitsNothing()
