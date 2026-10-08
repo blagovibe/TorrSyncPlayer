@@ -18,11 +18,16 @@ TorrSyncPlayer/
 ├── frontend/          # Qt/C++ frontend
 │   ├── src/           # Source files
 │   └── resources/     # Icons, etc.
-├── docs/              # Documentation (API.md, ARCHITECTURE.md, INSTALL.md, USER_GUIDE.md)
+├── pacts/             # Contract between frontend and backend
 ├── .github/           # CI/CD workflows
 
 └── Makefile
 ```
+
+Documentation lives in two files: `CONCEPT.md` (why the project exists)
+and `DEV.md` (how to build, run and change it). The OpenAPI spec is
+generated from annotations and checked for freshness in CI, so it is the
+authoritative source for request and response shapes.
 
 ## Code Conventions
 
