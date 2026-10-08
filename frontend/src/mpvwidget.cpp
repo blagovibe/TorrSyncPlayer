@@ -219,6 +219,22 @@ bool MpvWidget::initializeMpv()
         return false;
     }
 
+    // Подписка на изменение свойств mpv. Без неё mpv не генерирует
+    // MPV_EVENT_PROPERTY_CHANGE, поэтому processMpvEvent() никогда не получает
+    // события: m_position и m_duration остаются 0, сигналы positionChanged и
+    // durationChanged не эмитятся, и перемотка в UI не работает.
+    // Список свойств совпадает с ветками MPV_EVENT_PROPERTY_CHANGE в
+    // processMpvEvent(); наблюдение свойства без обработчика было бы no-op.
+    auto observe = [](mpv_handle *handle, const char *name, mpv_format format) {
+        int rc = mpv_observe_property(handle, 0, name, format);
+        if (rc < 0)
+            qWarning() << "mpv observe failed:" << name << mpv_error_string(rc);
+    };
+    observe(m_mpv, "time-pos", MPV_FORMAT_DOUBLE);
+    observe(m_mpv, "duration", MPV_FORMAT_DOUBLE);
+    observe(m_mpv, "pause", MPV_FORMAT_FLAG);
+    observe(m_mpv, "eof-reached", MPV_FORMAT_FLAG);
+
     if (!m_eventTimer) {
         m_eventTimer = new QTimer(this);
         connect(m_eventTimer, &QTimer::timeout, this, &MpvWidget::onMpvEvents);
@@ -334,6 +350,11 @@ void MpvWidget::seek(double position)
 
     // Сохраняем позицию для отложенного выполнения
     m_pendingSeekPosition = position;
+    // Команда seek уйдёт в mpv через SEEK_DEBOUNCE_MS, а файл к тому моменту
+    // может быть ещё не открыт (loadfile асинхронный, а поток из торрента
+    // открывается медленно). Помечаем позицию как неприменённую, чтобы
+    // MPV_EVENT_FILE_LOADED повторил её.
+    m_seekApplied = false;
 
     // Сбрасываем предыдущий таймер и запускаем новый (debounce)
     // Это предотвращает утечку памяти при быстрой перемотке
@@ -368,6 +389,9 @@ void MpvWidget::onSeekDebounceTimeout()
         QMetaObject::invokeMethod(this, &MpvWidget::emitBufferedEvents, Qt::QueuedConnection);
         return;
     }
+    // Команда отправлена. Если файл ещё не загружен, mpv её проигнорирует —
+    // тогда повторим по MPV_EVENT_FILE_LOADED.
+    m_seekApplied = true;
 
     qDebug() << "MpvWidget: перемотка выполнена на" << position;
 #else
@@ -446,20 +470,31 @@ void MpvWidget::showEvent(QShowEvent *event)
 
 #ifdef HAS_MPV
     if (!m_initialized.loadRelaxed()) {
-        // Use invokeMethod with a timer ID instead of singleShot with captured this
-        // to ensure the widget still exists when initializeMpv is called
-        QTimer::singleShot(100, [this]() {
-            if (m_destroying.loadRelaxed()) return;
-            QMutexLocker locker(&m_mutex);
-            if (!m_mpv) {
-                (void)initializeMpv();
+        // Захватываем QPointer, а не сырой this. QTimer::singleShot не
+        // отменяется при уничтожении объекта: одноразовый таймер негде хранить,
+        // поэтому лямбда с `this` срабатывала уже после удаления виджета и
+        // читала m_destroying в освобождённой памяти. QPointer сам обнуляется
+        // в деструкторе — это ровно то, чего требовал комментарий ниже.
+        QPointer<MpvWidget> guard(this);
+        QTimer::singleShot(100, [guard]() {
+            if (!guard) return;
+            MpvWidget *self = guard.data();
+            if (self->m_destroying.loadRelaxed()) return;
+            // Мьютекс здесь намеренно не берётся. m_mutex — нерекурсивный QMutex,
+            // а initializeMpv() захватывает его сам (см. initializeMpv). Внешний
+            // QMutexLocker приводил либо к вечной блокировке, либо к тому, что
+            // ранний выход initializeMpv() разлочивал чужой mutex. initializeMpv()
+            // делает двойную проверку под мьютексом, поэтому внешняя блокировка
+            // не требуется.
+            if (!self->m_mpv) {
+                (void)self->initializeMpv();
             }
 #ifdef HAS_MPV_RENDER
 #ifndef NO_OPENGL
-                // Reinitialize OpenGL context now that we have a valid surface
-                if (m_mpv && !m_mpvGL) {
-                    initializeGL();
-                }
+            // Reinitialize OpenGL context now that we have a valid surface
+            if (self->m_mpv && !self->m_mpvGL) {
+                self->initializeGL();
+            }
 #endif // NO_OPENGL
 #endif // HAS_MPV_RENDER
         });
@@ -537,6 +572,17 @@ void MpvWidget::processMpvEvent(mpv_event *event)
                 m_paused = *pauseData != 0;
             }
         }
+        else if (strcmp(prop->name, "eof-reached") == 0 && prop->format == MPV_FORMAT_FLAG) {
+            // Конец файла по достижении eof-reached. Основной путь — END_FILE,
+            // но eof-reached приходит раньше и позволяет приложению узнать о
+            // завершении, не дожидаясь разрыва соединения с потоком.
+            int *eofData = static_cast<int *>(prop->data);
+            if (eofData != nullptr && *eofData != 0) {
+                MpvEventData eventData;
+                eventData.type = MpvEventData::PlaybackFinished;
+                m_eventBuffer.append(eventData);
+            }
+        }
         break;
     }
 
@@ -558,6 +604,16 @@ void MpvWidget::processMpvEvent(mpv_event *event)
 
     case MPV_EVENT_FILE_LOADED: {
         qDebug() << "MpvWidget: файл успешно загружен";
+        // Перемотка могла уйти в mpv до открытия файла и быть отброшена.
+        // Теперь файл загружен — применяем ожидающую позицию заново.
+        // Это восстанавливает просмотр после смены stream-тикета: mpv
+        // перезагружает файл, и без этого воспроизведение начиналось с нуля.
+        if (!m_seekApplied && m_pendingSeekPosition > 0.0 && m_seekDebounceTimer) {
+            qDebug() << "MpvWidget: применяю отложенную перемотку на"
+                     << m_pendingSeekPosition;
+            m_seekDebounceTimer->stop();
+            m_seekDebounceTimer->start();
+        }
         break;
     }
 

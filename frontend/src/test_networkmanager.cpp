@@ -15,7 +15,7 @@
  * - JSON parsing edge cases
  */
 
-#include <QtTest>
+#include <QtTest/QtTest>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -114,6 +114,15 @@ private:
      *         to outPort.
      */
     QTcpServer *startRoomMockServer(const QString &roomId, int &outPort);
+
+    // ── F-04: разбор конвертов ответа ─────────────────────────────────────
+    // Регрессия: код проверял doc.isArray() у объекта-конверта, что всегда
+    // false, поэтому torrentListReceived/filesReceived не эмитились НИКОГДА,
+    // а пустой список торрентов выглядел как «торрентов нет».
+    void testTorrentListEnvelopeIsUnwrapped();
+    void testFileListEnvelopeIsUnwrapped();
+    void testBareArrayEnvelopeStillWorks();
+    void testEnvelopeWithoutExpectedFieldEmitsNothing();
 };
 
 void TestNetworkManager::initTestCase()
@@ -674,3 +683,113 @@ void TestNetworkManager::testSelectFileEmitsFileSelected()
 
 QTEST_MAIN(TestNetworkManager)
 #include "test_networkmanager.moc"
+
+namespace {
+
+// Отдаёт переданный JSON по любому пути и закрывает соединение.
+QTcpServer *startRawJsonServer(const QByteArray &body, int &outPort,
+                              QObject *owner)
+{
+    QTcpServer *server = new QTcpServer(owner);
+    if (!server->listen(QHostAddress::LocalHost)) {
+        delete server;
+        return nullptr;
+    }
+    outPort = server->serverPort();
+    QObject::connect(server, &QTcpServer::newConnection, [server, body]() {
+        QTcpSocket *sock = server->nextPendingConnection();
+        if (!sock) return;
+        QObject::connect(sock, &QTcpSocket::readyRead, [sock, body]() {
+            sock->readAll();
+            QByteArray response = QByteArray("HTTP/1.1 200 OK\r\n"
+                                             "Content-Type: application/json\r\n"
+                                             "Content-Length: ");
+            response.append(QByteArray::number(body.size())).append("\r\n\r\n").append(body);
+            sock->write(response);
+            sock->disconnectFromHost();
+        });
+    });
+    return server;
+}
+
+} // namespace
+
+// ── F-04: разбор конвертов ─────────────────────────────────────────────────
+
+void TestNetworkManager::testTorrentListEnvelopeIsUnwrapped()
+{
+    QByteArray body = QJsonDocument(QJsonObject{
+        {QStringLiteral("torrents"), QJsonArray{1, 2, 3}},
+        {QStringLiteral("totalCount"), 3},
+        {QStringLiteral("limit"), 50},
+        {QStringLiteral("offset"), 0},
+        {QStringLiteral("hasMore"), false}
+    }).toJson(QJsonDocument::Compact);
+
+    int port = 0;
+    QTcpServer *server = startRawJsonServer(body, port, this);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
+
+    m_manager->listTorrents();
+    QVERIFY2(spy.wait(3000), "torrentListReceived не эмитился на конверт {\"torrents\":[...]}" );
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().at(0).value<QJsonArray>().size(), 3);
+}
+
+void TestNetworkManager::testFileListEnvelopeIsUnwrapped()
+{
+    QByteArray body = QJsonDocument(QJsonObject{
+        {QStringLiteral("files"), QJsonArray{QJsonObject{{QStringLiteral("name"), QStringLiteral("a.mkv")}},
+                                              QJsonObject{{QStringLiteral("name"), QStringLiteral("b.mkv")}}}},
+        {QStringLiteral("totalCount"), 2}
+    }).toJson(QJsonDocument::Compact);
+
+    int port = 0;
+    QTcpServer *server = startRawJsonServer(body, port, this);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    QSignalSpy spy(m_manager, &NetworkManager::filesReceived);
+
+    m_manager->getFiles(QStringLiteral("aabbcc"));
+    QVERIFY2(spy.wait(3000), "filesReceived не эмитился на конверт {\"files\":[...]}" );
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().at(1).value<QJsonArray>().size(), 2);
+}
+
+void TestNetworkManager::testBareArrayEnvelopeStillWorks()
+{
+    QByteArray body = QJsonDocument(QJsonArray{1, 2}).toJson(QJsonDocument::Compact);
+
+    int port = 0;
+    QTcpServer *server = startRawJsonServer(body, port, this);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
+
+    m_manager->listTorrents();
+    QVERIFY2(spy.wait(3000), "список торрентов перестал принимать голый массив");
+    QCOMPARE(spy.takeFirst().at(0).value<QJsonArray>().size(), 2);
+}
+
+void TestNetworkManager::testEnvelopeWithoutExpectedFieldEmitsNothing()
+{
+    QByteArray body = QJsonDocument(QJsonObject{
+        {QStringLiteral("somethingElse"), 1}
+    }).toJson(QJsonDocument::Compact);
+
+    int port = 0;
+    QTcpServer *server = startRawJsonServer(body, port, this);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
+
+    m_manager->listTorrents();
+    QVERIFY(!spy.wait(800));
+    QCOMPARE(spy.count(), 0);
+}

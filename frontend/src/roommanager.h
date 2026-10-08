@@ -115,6 +115,27 @@ public slots:
      */
     void onSignalReceived(const QJsonObject &signal);
 
+    /**
+     * @brief Реакция на подтверждение создания комнаты
+     * @param roomId ID комнаты
+     *
+     * Фиксирует состояние и пере-эмитит сигнал дальше. Без этих слотов
+     * m_currentRoomId никогда не заполнялся, isInRoom() всегда возвращала
+     * false, а сигналы roomCreated/roomJoined до MainWindow не доходили.
+     */
+    void onRoomCreated(const QString &roomId);
+
+    /**
+     * @brief Реакция на подтверждение присоединения к комнате
+     * @param roomId ID комнаты
+     */
+    void onRoomJoined(const QString &roomId);
+
+    /**
+     * @brief Реакция на выход из комнаты
+     */
+    void onRoomLeft();
+
 signals:
     /**
      * @brief Комната создана

@@ -557,6 +557,10 @@ private:
     QPointer<QNetworkReply> m_sseReply;     ///< Текущий SSE ответ (QPointer для безопасности от nullptr)
     mutable QMutex m_roomIdMutex;
     QString m_currentRoomId;                ///< ID текущей комнаты
+    /// ID комнаты, отправленный в последнем POST /rooms/join.
+    /// Ответ сервера поля id НЕ содержит, поэтому берём его отсюда: иначе
+    /// roomId был пустым и SSE-путь собирался как /api/v1/rooms//events.
+    QString m_pendingJoinRoomId;
     QMap<QNetworkReply*, RequestType> m_replyMap; ///< Карта запросов для идентификации
     QMap<QString, int> m_selectFileIndexByTorrent; ///< Индекс выбранного файла по torrentId (для ответа /select)
     mutable QMutex m_replyMutex;            ///< Мьютекс для потокобезопасного доступа к m_replyMap

@@ -19,7 +19,7 @@
 | Пакет | Ответственность |
 |---|---|
 | `internal/api` | Роутинг chi, обработчики, middleware (CORS, CSRF, rate limit), константы путей |
-| `internal/auth` | JWT (HS256), bcrypt, хранилище пользователей, отзыв токенов |
+| `internal/auth` | Per-process access token, constant-time compare, HMAC stream tickets |
 | `internal/torrent` | Управление торрентами, HTTP-стриминг через anacrolix/torrent |
 | `internal/buffer` | LRU-буфер с приоритетами частей для немедленного воспроизведения |
 | `internal/p2p` | Комнаты, участники, сессии; брокер событий комнаты по SSE |
@@ -63,7 +63,7 @@
 
 | Слой | Технологии и версии |
 |---|---|
-| Бэкенд | Go 1.26, anacrolix/torrent v1.61.0, go-chi/chi/v5, golang-jwt/jwt/v5, swaggo/swag v1.16.6 (Swagger) |
+| Бэкенд | Go 1.26, anacrolix/torrent v1.61.0, go-chi/chi/v5, swaggo/swag v1.16.6 (Swagger) |
 | Фронтенд | C++17, Qt 6, libmpv, CMake 3.16+ |
 | Тесты бэкенда | go test, testify, race-детектор, go-mutesting (мутационное покрытие), pact-go (контракт) |
 | Тесты фронтенда | Qt Test, gtest/gmock, sanitizers (ASan/TSan/UBSan) |

@@ -35,10 +35,11 @@ When reporting a vulnerability, please include:
 
 ## Security Features
 
-- JWT authentication with token revocation (JTI-based)
-- bcrypt password hashing (cost=12)
-- CSRF protection with session binding
-- Rate limiting (per-IP and per-user)
+- Single per-process access token (random at startup, constant-time compare,
+  sent as `X-Access-Token`). No accounts, no JWT, no token revocation.
+- bcrypt password hashing (cost=12) for room passwords
+- Rate limiting (per-IP; a bad token cannot be used to flood)
+- Forwarded headers ignored unless the proxy is explicitly trusted
 - Security headers (CSP, HSTS, X-Frame-Options)
 - TLS 1.2+ support
 - Input validation on all endpoints

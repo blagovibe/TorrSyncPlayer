@@ -32,14 +32,49 @@ namespace {
     // Таймаут передачи данных (мс)
     const int TransferTimeout = 60000;
 
-    QString buildApiPath(const QString &basePath, const QString &id)
+    // Идентификаторы (torrentId, roomId) приходят от сервера, но подставляются
+    // в путь URL, поэтому проходят через одну и ту же очистку. Раньше
+    // регулярка дублировалась в пяти местах.
+    QString sanitizeHexId(const QString &id)
     {
         QString sanitized = id;
         sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+        return sanitized;
+    }
+
+    QString buildApiPath(const QString &basePath, const QString &id)
+    {
+        QString sanitized = sanitizeHexId(id);
         if (sanitized.isEmpty()) {
             return basePath + "/";
         }
         return basePath + "/" + sanitized;
+    }
+
+    // Разворачивает конверт ответа вида {"<key>":[...], "totalCount":N, ...}
+    // и возвращает массив, либо пустой QJsonArray, если конверта нет.
+    // Раньше эта проверка дублировалась для torrents и files, и обе копии
+    // молча проглатывали несовпадение формы ответа.
+    QJsonArray unwrapEnvelope(const QJsonDocument &doc, const QString &key, const QString &what)
+    {
+        if (!doc.isObject()) {
+            qWarning() << "NetworkManager:" << what
+                       << "ответ не объект, isArray:" << doc.isArray();
+            return {};
+        }
+        const QJsonObject obj = doc.object();
+        if (!obj.contains(key)) {
+            qWarning() << what << "конверт без поля" << key << "ключи:" << obj.keys();
+            return {};
+        }
+        return obj.value(key).toArray();
+    }
+
+    // Путь SSE-потока комнаты. Обе точки входа — создание комнаты и вход в
+    // неё — собирали его одинаково, различаясь лишь источником roomId.
+    QString buildRoomEventsPath(const QString &roomId)
+    {
+        return QString("/api/v1/rooms/%1/events").arg(sanitizeHexId(roomId));
     }
 
     QUrl safeUrl(const QUrl &base, const QString &path)
@@ -309,6 +344,12 @@ void NetworkManager::joinRoom(const QString &roomId, const QString &password)
     if (!password.isEmpty()) {
         body["password"] = password;
     }
+    // Запоминаем roomId: ответ /rooms/join не содержит поля id, а без него
+    // дальнейший SSE-путь собирался бы с пустым идентификатором.
+    {
+        QMutexLocker locker(&m_roomIdMutex);
+        m_pendingJoinRoomId = roomId;
+    }
     sendWithRetry("POST", "/api/v1/rooms/join", RequestType::JoinRoom, body);
 }
 
@@ -382,8 +423,7 @@ QString NetworkManager::streamUrl(const QString &torrentId) const
         qWarning() << "NetworkManager: streamUrl вызван с пустым torrentId";
         return QString();
     }
-    QString sanitized = torrentId;
-    sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+    const QString sanitized = sanitizeHexId(torrentId);
     if (sanitized.isEmpty()) {
         qWarning() << "NetworkManager: streamUrl — sanitized ID пуст";
         return QString();
@@ -400,8 +440,7 @@ void NetworkManager::requestStreamTicket(const QString &torrentId)
         emit error(tr("ID торрента не может быть пустым"));
         return;
     }
-    QString sanitized = torrentId;
-    sanitized.remove(QRegularExpression("[^a-fA-F0-9]"));
+    const QString sanitized = sanitizeHexId(torrentId);
     if (sanitized.isEmpty()) {
         emit error(tr("Некорректный ID торрента"));
         return;
@@ -475,8 +514,16 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
 
     switch (type) {
     case RequestType::ListTorrents:
-        if (statusCode == 200 && doc.isArray()) {
-            emit torrentListReceived(doc.array());
+        // Бэкенд отдаёт конверт models.TorrentListResponse:
+        //   {"torrents":[...], "totalCount":N, "limit":N, "offset":N, "hasMore":bool}
+        // Раньше здесь проверялось doc.isArray(), что для объекта всегда false:
+        // сигнал не эмитился НИКОГДА, список торрентов оставался пустым, и
+        // происходило это молча — без ошибки и без лога.
+        if (statusCode == 200) {
+            emit torrentListReceived(
+                unwrapEnvelope(doc, QStringLiteral("torrents"), "список торрентов"));
+        } else {
+            qWarning() << "NetworkManager: неожиданный статус списка торрентов:" << statusCode;
         }
         break;
     case RequestType::AddTorrent:
@@ -491,9 +538,9 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         QRegularExpressionMatch match = re.match(path);
         if (match.hasMatch()) {
             QString torrentId = match.captured(1);
-            if (doc.isArray()) {
-                emit filesReceived(torrentId, doc.array());
-            }
+            // Конверт models.FileListResponse: {"files":[...], "totalCount":N, ...}
+            emit filesReceived(torrentId,
+                unwrapEnvelope(doc, QStringLiteral("files"), "список файлов"));
         }
         break;
     }
@@ -520,20 +567,39 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
             QString roomId = obj["id"].toString();
+            if (roomId.isEmpty()) {
+                qWarning() << "NetworkManager: create-room response without id";
+                break;
+            }
+            const QString ssePath = buildRoomEventsPath(roomId);
             {
                 QMutexLocker locker(&m_roomIdMutex);
                 m_currentRoomId = roomId;
+                m_sseReconnectPath = ssePath;
             }
             emit roomCreated(roomId);
+            // Хост тоже обязан подписаться на события комнаты. Без этого
+            // создатель комнаты не видел peer_joined / peer_left и не получал
+            // эхо синхронизации — то есть главный персонаж CONCEPT.md работал
+            // вслепую.
+            connectToSSE(ssePath);
         }
         break;
     case RequestType::JoinRoom:
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
-            QString roomId = obj["id"].toString();
-            QString sanitizedRoomId = roomId;
-            sanitizedRoomId.remove(QRegularExpression("[^a-fA-F0-9]"));
-            QString ssePath = QString("/api/v1/rooms/%1/events").arg(sanitizedRoomId);
+            // Ответ сервера НЕ содержит "id" (и docs/API.md его не описывает),
+            // поэтому берём roomId, который сами отправили в запросе.
+            QString roomId;
+            {
+                QMutexLocker locker(&m_roomIdMutex);
+                roomId = m_pendingJoinRoomId;
+            }
+            if (roomId.isEmpty()) {
+                qWarning() << "NetworkManager: join confirmed but no pending room id";
+                break;
+            }
+            const QString ssePath = buildRoomEventsPath(roomId);
             {
                 QMutexLocker locker(&m_roomIdMutex);
                 m_currentRoomId = roomId;
@@ -634,8 +700,13 @@ void NetworkManager::onSsEReadyRead()
             
             emit roomEvent(event);
 
+            // Бэкенд шлёт четыре типа событий комнаты:
+            //   peer_joined / peer_left / signal / sync   (models.P2PEvent)
+            // Синхронизация приходит ИМЕННО как type=="sync" — раньше роутился
+            // только "signal", поэтому события play/pause/seek до UI не доходили
+            // вовсе и комнаты не синхронизировались.
             QString type = event["type"].toString();
-            if (type == "signal") {
+            if (type == "signal" || type == "sync") {
                 emit signalReceived(event["data"].toObject());
             }
         }

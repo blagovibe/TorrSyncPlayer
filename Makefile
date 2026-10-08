@@ -7,7 +7,7 @@
     contract-test contract-test-backend contract-test-frontend \
     integration-test e2e-test \
     load-test chaos-test \
-    test-all
+    test-all test-ci test-full
 
 all: backend
 
@@ -87,12 +87,16 @@ test-frontend-mutation:
 contract-test-backend:
 	cd backend && go test -v -run TestPactProvider ./internal/contract/...
 
+# Frontend Pact consumer tests do not exist yet. The recipe used to build
+# test_networkmanager_contract / test_torrentmanager_contract /
+# test_roommanager_contract, none of which are declared in frontend/CMakeLists.txt,
+# and swallowed the failure with `|| true`. Removing the `|| true` alone would
+# have turned this into a target that can only ever fail, which is worse than
+# one that cannot: a developer running `make test-all` would hit a red build
+# with no way to fix it. Until the targets are declared, the step is absent
+# rather than fake. See docs/audit/ROADMAP.md (F-28) and DELIVERY.md.
 contract-test-frontend:
-	@echo "Frontend contract tests - run via CTest with Pact consumer tests"
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_networkmanager_contract test_torrentmanager_contract test_roommanager_contract 2>&1 || true && \
-	ctest -R "Contract" --output-on-failure
+	@echo "SKIPPED: frontend contract tests are not implemented (no CMake targets)"
 
 contract-test: contract-test-backend contract-test-frontend
 
@@ -104,7 +108,7 @@ integration-test:
 	@echo "Frontend integration tests require running backend"
 	cd frontend && mkdir -p build && cd build && \
 	cmake .. -DBUILD_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_integration 2>&1 || true && \
+	make -j$(nproc) test_integration && \
 	ctest -R "Integration" --output-on-failure
 
 # End-to-end tests
@@ -112,34 +116,32 @@ e2e-test:
 	@echo "Running E2E tests..."
 	@echo "1. Starting backend..."
 	cd backend && make build && \
-	export JWT_SECRET=test-jwt-secret-key-for-e2e-testing-min-32-chars && \
 	./build/torrsyncplayer --port 8889 --auto-tls & \
 	sleep 5 && \
 	curl -k -s https://localhost:8889/health
 	@echo "2. Running Qt headless E2E tests..."
 	cd frontend && mkdir -p build && cd build && \
 	cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_e2e 2>&1 || true && \
+	make -j$(nproc) test_e2e && \
 	QT_QPA_PLATFORM=offscreen ctest -R "E2E" --output-on-failure
 	@echo "3. Running Playwright E2E tests..."
-	cd tests/e2e/playwright && npm ci && npx playwright test 2>&1 || true
+	cd tests/e2e/playwright && npm ci && npx playwright test
 
 # Load/performance tests
 load-test:
 	@echo "Running k6 load tests..."
 	@echo "Starting backend for load testing..."
 	cd backend && make build && \
-	export JWT_SECRET=test-jwt-secret-key-for-load-testing-min-32-chars && \
 	./build/torrsyncplayer --port 8889 --auto-tls & \
 	sleep 5 && \
 	curl -k -s https://localhost:8889/health
-	cd tests/load/k6 && k6 run mixed_scenario.js 2>&1 || true
+	cd tests/load/k6 && k6 run mixed_scenario.js
 
 # Chaos tests
 chaos-test:
 	@echo "Running chaos tests with Toxiproxy..."
 	@echo "Requires docker-compose with toxiproxy service"
-	cd tests/chaos && ./run_chaos.sh 2>&1 || true
+	cd tests/chaos && ./run_chaos.sh
 
 # Combined test targets
 test-all: test-backend test-frontend contract-test integration-test

@@ -122,7 +122,10 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
-		WriteJSON(w, http.StatusOK, models.SuccessResponse{Message: "Joined the room"})
+		WriteJSON(w, http.StatusOK, models.JoinRoomResponse{
+			Message: "Joined the room",
+			RoomID:  req.RoomID,
+		})
 	}
 }
 

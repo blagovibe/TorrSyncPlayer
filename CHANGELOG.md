@@ -7,7 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Auth: the stream-ticket signature was computed over an empty payload — `hash.Hash.Sum` appends the
+  MAC of whatever was written *so far*, and nothing was ever written, so the "signature" only
+  prefixed attacker-controlled bytes. It now writes the payload before summing, and rejects ids
+  containing dots and non-positive expiry (B-01)
+- Streaming: `http.Server.WriteTimeout` is an absolute deadline for the whole response and aborted
+  every SSE stream and every torrent stream at the deadline. Removed (B-02)
+- SSE: a middleware wrapper dropped `http.Flusher`, so type-asserting it failed and the handler
+  answered 500 instead of streaming (B-03)
+- Proxy handling: `isTrustedProxy` accepted any private, loopback or link-local address, so
+  `X-Forwarded-For` from any such client decided the client IP. It now trusts nothing unless
+  `TRUSTED_PROXIES` is set (B-07)
+- P2P: `emitEvent` iterated peers without holding `RLock` — a fatal, unrecoverable concurrent map
+  access with any Join/Leave in flight; `Close()` also ran `close(doneChan)` outside `sync.Once`
+  and panicked on every call after the first (B-04, B-08)
+- Shutdown: `WaitForSSEConnections` waited without a bound, so one idle SSE client held Ctrl-C for
+  the 30-minute SSE timeout (B-08)
+- Rooms: `RoomManager` never connected `roomCreated/Joined/Left`, so `isInRoom()` was always false,
+  and peer events were read from a `peerId` key the backend never sent (F-02)
+- Rooms: the join path read `obj["id"]` from a response that contained none, and the host never
+  subscribed to SSE at all (F-03, F-06)
+- Torrent list: the response envelope was checked with `doc.isArray()`, which is always false for
+  an object, so `torrentListReceived` never fired and the list was silently always empty (F-04)
+- Player: no mpv property was observed, so position, duration and pause never updated (F-01);
+  a nested `QMutexLocker` deadlocked initialisation (F-07)
+- Player: a stream ticket lasts 5 minutes and was never renewed, so video died at minute five —
+  and a transient network error stopped renewal permanently (F-13, B-01)
+- Player: the ticket-refresh branch played whatever torrent its argument named before checking it
+- Player: the resume seek was dropped whenever the new stream took longer than 300 ms to open
+- CI: removed `|| true` and `continue-on-error`, so ASan/TSan, e2e and contract tests can fail again.
+  The sanitizer targets never compiled and are fixed; `make test-all` no longer builds three CMake
+  targets that do not exist
+
+### Changed
+
+- Docs: README, DEV.md, API.md, ARCHITECTURE.md and SECURITY.md described a JWT auth system and
+  endpoints (`/auth/login`, `/auth/register`, `/csrf-token`) that are not registered in the router.
+  Rewritten to the per-process access token that is actually implemented
+- Removed dead JWT constants and the `Claims` type
+
 ### Added
+
 
 - `DEV.md` — the project's file 2 (how it is built): architecture with per-package
   responsibilities, tech stack with versions, development principles, repository layout and test
