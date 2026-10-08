@@ -81,6 +81,8 @@ func TestSSEStreamSurvivesLoggerWrapper(t *testing.T) {
 	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
+	//nolint:bodyclose // тело SSE-ответа закрывается через closeSSE() ниже;
+	// bodyclose не видит закрытие, переданное наружу из openSSE.
 	resp, closeSSE := openSSE(t, server, token)
 	defer closeSSE() // LIFO: выполняется до cleanup, сервер не ждёт живой поток
 
@@ -106,6 +108,8 @@ func TestSSEContextCancellationReleasesConnection(t *testing.T) {
 	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
+	//nolint:bodyclose // тело SSE-ответа закрывается через closeSSE() ниже;
+	// bodyclose не видит закрытие, переданное наружу из openSSE.
 	resp, closeSSE := openSSE(t, server, token)
 	defer closeSSE()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -147,6 +151,8 @@ func TestSSEOutlivesServerWriteTimeout(t *testing.T) {
 	server, token, cleanup := setupTestServer(t)
 	defer cleanup()
 
+	//nolint:bodyclose // тело SSE-ответа закрывается через closeSSE() ниже;
+	// bodyclose не видит закрытие, переданное наружу из openSSE.
 	resp, closeSSE := openSSE(t, server, token)
 	defer closeSSE()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
