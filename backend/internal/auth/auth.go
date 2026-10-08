@@ -100,15 +100,23 @@ func (s *AuthService) ValidateAccessToken(presented string) bool {
 // Format:
 //
 //	<expiry>.<userID>.<torrentID>.<hex(HMAC(expiry|userID|torrentID))>
+//
+// The signature covers every field that a client can influence — including the
+// expiry. A client that tampers with any part of the payload produces a
+// signature that no longer matches and is rejected.
 func (s *AuthService) GenerateStreamTicket(userID, torrentID string) (string, error) {
 	if userID == "" || torrentID == "" {
 		return "", fmt.Errorf("userID and torrentID are required for a stream ticket")
 	}
+	// A "." in either field would break the dotted format below: ValidateStreamTicket
+	// splits on "." and insists on exactly 4 parts, so such a ticket could never
+	// validate. Refuse it here instead of minting something unusable.
+	if strings.ContainsAny(userID+"\x00"+torrentID, ".") {
+		return "", fmt.Errorf("stream ticket fields must not contain a dot")
+	}
 	expiry := time.Now().Add(constants.StreamTicketTTL).Unix()
-	payload := fmt.Sprintf("%d|%s|%s", expiry, userID, torrentID)
-	mac := hmac.New(sha256.New, s.streamTicketKey())
-	sig := hex.EncodeToString(mac.Sum([]byte(payload)))
-	return fmt.Sprintf("%d.%s.%s.%s", expiry, userID, torrentID, sig), nil
+	payload := streamTicketPayload(expiry, userID, torrentID)
+	return fmt.Sprintf("%d.%s.%s.%s", expiry, userID, torrentID, s.signStreamTicket(payload)), nil
 }
 
 // ValidateStreamTicket verifies a ticket issued by GenerateStreamTicket. It
@@ -127,20 +135,45 @@ func (s *AuthService) ValidateStreamTicket(ticket, torrentID string) (string, bo
 	if err != nil {
 		return "", false
 	}
-	if time.Now().Unix() > expiry {
+	// Reject a non-positive expiry: it is a forged field rather than a real
+	// timestamp, and the comparison below would otherwise treat it as valid.
+	if expiry <= 0 || time.Now().Unix() > expiry {
 		return "", false
 	}
 	userID := parts[1]
 	if parts[2] != torrentID {
 		return "", false
 	}
-	payload := fmt.Sprintf("%d|%s|%s", expiry, userID, torrentID)
-	mac := hmac.New(sha256.New, s.streamTicketKey())
-	expected := hex.EncodeToString(mac.Sum([]byte(payload)))
-	if !hmac.Equal([]byte(expected), []byte(parts[3])) {
+	// Recompute the signature over exactly the fields the caller supplied. Any
+	// modification to the expiry, the userID or the torrentID changes the MAC.
+	payload := streamTicketPayload(expiry, userID, torrentID)
+	if !hmac.Equal([]byte(s.signStreamTicket(payload)), []byte(parts[3])) {
 		return "", false
 	}
 	return userID, true
+}
+
+// streamTicketPayload builds the canonical string that the signature covers.
+// Signing and verifying must agree byte for byte, so both go through here
+// rather than each formatting the string itself.
+func streamTicketPayload(expiry int64, userID, torrentID string) string {
+	return fmt.Sprintf("%d|%s|%s", expiry, userID, torrentID)
+}
+
+// signStreamTicket returns the hex-encoded HMAC over payload.
+//
+// The payload MUST be written to the hash before summing. hash.Hash.Sum
+// appends the MAC of whatever has been written *so far*; passing the payload as
+// the append argument instead would MAC the empty string and merely prefix it
+// with attacker-controlled bytes, leaving the signature meaningless.
+func (s *AuthService) signStreamTicket(payload string) string {
+	mac := hmac.New(sha256.New, s.streamTicketKey())
+	if _, err := mac.Write([]byte(payload)); err != nil {
+		// hash.Hash documents Write as never returning an error; if that ever
+		// changes, returning a value that cannot verify is the safe direction.
+		return ""
+	}
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // streamTicketKey derives the HMAC key for stream tickets from the per-process

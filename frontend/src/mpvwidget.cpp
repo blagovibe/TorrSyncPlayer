@@ -219,6 +219,21 @@ bool MpvWidget::initializeMpv()
         return false;
     }
 
+    // Подписка на изменение свойств mpv. Без неё mpv не генерирует
+    // MPV_EVENT_PROPERTY_CHANGE, поэтому processMpvEvent() никогда не получает
+    // события: m_position и m_duration остаются 0, сигналы positionChanged и
+    // durationChanged не эмитятся, и перемотка в UI не работает.
+    // Список свойств совпадает с ветками MPV_EVENT_PROPERTY_CHANGE в
+    // processMpvEvent(); наблюдение свойства без обработчика было бы no-op.
+    auto observe = [](mpv_handle *handle, const char *name, mpv_format format) {
+        int rc = mpv_observe_property(handle, 0, name, format);
+        if (rc < 0)
+            qWarning() << "mpv observe failed:" << name << mpv_error_string(rc);
+    };
+    observe(m_mpv, "time-pos", MPV_FORMAT_DOUBLE);
+    observe(m_mpv, "duration", MPV_FORMAT_DOUBLE);
+    observe(m_mpv, "pause", MPV_FORMAT_FLAG);
+
     if (!m_eventTimer) {
         m_eventTimer = new QTimer(this);
         connect(m_eventTimer, &QTimer::timeout, this, &MpvWidget::onMpvEvents);
@@ -446,20 +461,31 @@ void MpvWidget::showEvent(QShowEvent *event)
 
 #ifdef HAS_MPV
     if (!m_initialized.loadRelaxed()) {
-        // Use invokeMethod with a timer ID instead of singleShot with captured this
-        // to ensure the widget still exists when initializeMpv is called
-        QTimer::singleShot(100, [this]() {
-            if (m_destroying.loadRelaxed()) return;
-            QMutexLocker locker(&m_mutex);
-            if (!m_mpv) {
-                (void)initializeMpv();
+        // Захватываем QPointer, а не сырой this. QTimer::singleShot не
+        // отменяется при уничтожении объекта: одноразовый таймер негде хранить,
+        // поэтому лямбда с `this` срабатывала уже после удаления виджета и
+        // читала m_destroying в освобождённой памяти. QPointer сам обнуляется
+        // в деструкторе — это ровно то, чего требовал комментарий ниже.
+        QPointer<MpvWidget> guard(this);
+        QTimer::singleShot(100, [guard]() {
+            if (!guard) return;
+            MpvWidget *self = guard.data();
+            if (self->m_destroying.loadRelaxed()) return;
+            // Мьютекс здесь намеренно не берётся. m_mutex — нерекурсивный QMutex,
+            // а initializeMpv() захватывает его сам (см. initializeMpv). Внешний
+            // QMutexLocker приводил либо к вечной блокировке, либо к тому, что
+            // ранний выход initializeMpv() разлочивал чужой mutex. initializeMpv()
+            // делает двойную проверку под мьютексом, поэтому внешняя блокировка
+            // не требуется.
+            if (!self->m_mpv) {
+                (void)self->initializeMpv();
             }
 #ifdef HAS_MPV_RENDER
 #ifndef NO_OPENGL
-                // Reinitialize OpenGL context now that we have a valid surface
-                if (m_mpv && !m_mpvGL) {
-                    initializeGL();
-                }
+            // Reinitialize OpenGL context now that we have a valid surface
+            if (self->m_mpv && !self->m_mpvGL) {
+                self->initializeGL();
+            }
 #endif // NO_OPENGL
 #endif // HAS_MPV_RENDER
         });

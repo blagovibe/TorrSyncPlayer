@@ -14,7 +14,16 @@ const (
 	// ServerReadTimeout HTTP request read timeout
 	ServerReadTimeout = 30 * time.Second
 
-	// ServerWriteTimeout HTTP response write timeout
+	// ServerWriteTimeout bounds the total duration of a response body.
+	//
+	// Do NOT apply this to the main API server. net/http treats WriteTimeout as
+	// an absolute deadline for the entire response, not as a per-write idle
+	// timer, so it truncates exactly the responses this application depends on:
+	// /stream dies mid-film and the SSE room-events feed drops. The main server
+	// therefore leaves WriteTimeout unset — see cmd/server/main.go.
+	//
+	// It is still correct for short-lived, non-streaming endpoints, and is used
+	// by the localhost pprof server.
 	ServerWriteTimeout = 30 * time.Second
 
 	// ServerIdleTimeout HTTP connection idle timeout
@@ -122,47 +131,28 @@ const (
 	StreamRateBurst = 20
 )
 
-// ── JWT Constants ─────────────────────────────────────────────────────────
+// ── Auth Constants ────────────────────────────────────────────────────────
+//
+// Здесь НЕТ JWT. Аутентификация — это один access-токен, который сервер
+// генерирует при старте и печатает в консоль; клиент присылает его в
+// заголовке X-Access-Token, а сравнение выполняется constant-time.
+// Ни токенов с отзывом, ни JTI, ни issuer/audience, ни библиотеки JWT в
+// проекте нет и не планируется (см. AGENTS.md).
 
 const (
-	// JWTTokenTTL JWT token lifetime
-	JWTTokenTTL = 24 * time.Hour
-
-	// JWTSecretLength JWT secret length in bytes
-	JWTSecretLength = 32
-
-	// JTIBytes number of bytes for JWT ID generation
-	JTIBytes = 16
-
-	// JWTIssuer issuer claim (iss) embedded in and required by tokens.
-	JWTIssuer = "torrsyncplayer"
-
-	// JWTAudience audience claim (aud) embedded in and required by tokens.
-	JWTAudience = "torrsyncplayer-api"
-
 	// BcryptCost bcrypt cost for password hashing
 	BcryptCost = 12
 
 	// MaxPasswordLength maximum password length for bcrypt
 	MaxPasswordLength = 72
 
-	// RevocationStoreTTL revoked token storage duration
-	RevocationStoreTTL = 24 * time.Hour
-
-	// RevocationCleanupInterval interval for scanning expired revocation entries.
-	// Shorter than RevocationStoreTTL so revoked tokens do not linger too long.
-	RevocationCleanupInterval = 15 * time.Minute
-
-	// MinTokenLength minimum JWT token length for validation
-	MinTokenLength = 30
-
 	// StreamTicketTTL lifetime of a short-lived, HMAC-signed stream ticket used
-	// by the media player (libmpv) to authenticate /stream requests without a
-	// JWT/CSR token, which it cannot attach to its own HTTP fetches.
+	// by the media player (libmpv) to authenticate /stream requests without an
+	// access token, which it cannot attach to its own HTTP fetches.
 	StreamTicketTTL = 5 * time.Minute
 
-	// StreamTicketSecret domain-separation prefix prepended to the JWT secret
-	// when deriving the HMAC key for stream tickets.
+	// StreamTicketSecret domain-separation prefix prepended to the access
+	// token when deriving the HMAC key for stream tickets.
 	StreamTicketSecret = "stream-ticket-v1"
 )
 

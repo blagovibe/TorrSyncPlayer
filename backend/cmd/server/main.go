@@ -63,6 +63,12 @@ const (
 	defaultPort     = "8889"
 	defaultDir      = "./data"
 	shutdownTimeout = 30 * time.Second
+
+	// sseShutdownGrace is how long graceful shutdown waits for live SSE
+	// subscriptions to drain. Short on purpose: the HTTP server has already
+	// stopped accepting, and a straggler client must not hold the process
+	// open. Long enough for a client to notice the close and disconnect.
+	sseShutdownGrace = 5 * time.Second
 )
 
 // Config server configuration
@@ -163,13 +169,25 @@ func main() {
 		AuthService: authService,
 	})
 
-	// Configure HTTP server
+	// Configure HTTP server.
+	//
+	// WriteTimeout is deliberately zero. In net/http it is an absolute deadline
+	// for the *whole* response, measured from the end of the request headers —
+	// not a per-write idle timer. Any non-zero value therefore kills long-lived
+	// responses: a film longer than the timeout is truncated mid-stream with an
+	// unexpected EOF, and an SSE room-events connection dies with it. Both are
+	// core features (see CONCEPT.md), so the deadline has to stay off here.
+	//
+	// Reads stay bounded by ReadTimeout, idle connections by IdleTimeout, and
+	// every endpoint is rate limited, so this does not leave the server open to
+	// slow-loris style stalls. Handlers that need to bound their own output do
+	// so explicitly — the SSE handler carries its own context timeout.
 	server := &http.Server{
-		Addr:         fmt.Sprintf(":%s", config.Port),
-		Handler:      router,
-		ReadTimeout:  constants.ServerReadTimeout,
-		WriteTimeout: constants.ServerWriteTimeout,
-		IdleTimeout:  constants.ServerIdleTimeout,
+		Addr:        fmt.Sprintf(":%s", config.Port),
+		Handler:     router,
+		ReadTimeout: constants.ServerReadTimeout,
+		IdleTimeout: constants.ServerIdleTimeout,
+		// WriteTimeout intentionally unset — see above.
 	}
 
 	if config.UseTLS {
@@ -243,8 +261,15 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("Error stopping HTTP server", "error", err)
 	}
-	api.WaitForSSEConnections()
-	logger.Info("HTTP server stopped")
+
+	// Give live SSE subscriptions a short grace period, then stop waiting.
+	// Without this bound Ctrl-C could block for constants.SSETimeout (30
+	// minutes) on a single idle room subscription.
+	if api.WaitForSSEConnections(sseShutdownGrace) {
+		logger.Info("HTTP server stopped")
+	} else {
+		logger.Warn("HTTP server stopped, but some SSE connections were still open")
+	}
 
 	// Stop sync service
 	syncSvc.Close()

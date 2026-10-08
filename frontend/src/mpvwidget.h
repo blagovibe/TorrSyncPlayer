@@ -18,6 +18,7 @@
 #include <QVector>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QPointer>
 
 // macOS 14+ removed AGL framework, QOpenGLWidget cannot be used without it
 // Use QWidget as base when NO_OPENGL is defined (macOS without AGL)

@@ -350,10 +350,23 @@ func loadTrustedCIDRs() {
 	}
 }
 
-// isTrustedProxy checks if the request comes from a trusted proxy.
-// Reads from TRUSTED_PROXIES env var (comma-separated CIDRs).
-// If not set, defaults to localhost and private network ranges.
-// CIDR networks are cached after first parse for performance.
+// isTrustedProxy reports whether the peer address is a proxy whose
+// forwarding headers we are willing to believe.
+//
+// Trust is opt-in and configured through TRUSTED_PROXIES (comma-separated
+// CIDRs). When that variable is unset, NOTHING is trusted.
+//
+// The previous default trusted every private, loopback and link-local address.
+// That was actively harmful here: this server is designed to be reached from
+// other people's machines, often across a LAN or a forwarded port, so any
+// such client could set X-Forwarded-For to an arbitrary value. Per-IP rate
+// limiting keys on that value, so a forged header both evades the limit and
+// allocates a fresh bucket per request — turning the limiter into an
+// unbounded-memory denial of service.
+//
+// A direct connection carries no forwarding header and never needed this
+// trust, so defaulting to "trust nobody" costs nothing in normal operation.
+// Deployments behind a reverse proxy must now say so explicitly.
 func isTrustedProxy(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -365,48 +378,17 @@ func isTrustedProxy(remoteAddr string) bool {
 	}
 
 	trustedCIDRsOnce.Do(loadTrustedCIDRs)
-	if hasTrustedCIDRs {
-		for _, ipNet := range cachedTrustedCIDRs {
-			if ipNet.Contains(ip) {
-				return true
-			}
-		}
+	if !hasTrustedCIDRs {
+		// TRUSTED_PROXIES unset or unparseable: trust no proxy at all.
 		return false
 	}
 
-	return isPrivateIP(ip) || ip.IsLoopback() || ip.IsLinkLocalUnicast()
-}
-
-var (
-	privateNetsOnce sync.Once
-	private10       *net.IPNet
-	private172      *net.IPNet
-	private192      *net.IPNet
-	loopbackNet     *net.IPNet
-	linkLocalNet    *net.IPNet
-	uniqueLocal6    *net.IPNet
-	linkLocal6      *net.IPNet
-	loopback6       *net.IPNet
-)
-
-func initPrivateNets() {
-	_, private10, _ = net.ParseCIDR("10.0.0.0/8")
-	_, private172, _ = net.ParseCIDR("172.16.0.0/12")
-	_, private192, _ = net.ParseCIDR("192.168.0.0/16")
-	_, loopbackNet, _ = net.ParseCIDR("127.0.0.0/8")
-	_, linkLocalNet, _ = net.ParseCIDR("169.254.0.0/16")
-	_, uniqueLocal6, _ = net.ParseCIDR("fc00::/7")
-	_, linkLocal6, _ = net.ParseCIDR("fe80::/10")
-	_, loopback6, _ = net.ParseCIDR("::1/128")
-}
-
-func isPrivateIP(ip net.IP) bool {
-	privateNetsOnce.Do(initPrivateNets)
-	if ip.To4() != nil {
-		return private10.Contains(ip) || private172.Contains(ip) ||
-			private192.Contains(ip) || loopbackNet.Contains(ip) || linkLocalNet.Contains(ip)
+	for _, ipNet := range cachedTrustedCIDRs {
+		if ipNet.Contains(ip) {
+			return true
+		}
 	}
-	return uniqueLocal6.Contains(ip) || linkLocal6.Contains(ip) || loopback6.Contains(ip)
+	return false
 }
 
 // getLimiter returns the rate limiter for the specified IP.
@@ -514,6 +496,12 @@ func StopGlobalRateLimiters() {
 
 // responseWriter wrapper for capturing the response status.
 // Allows middleware to get the HTTP response code after processing.
+//
+// It must forward the optional interfaces the underlying writer implements, or
+// handlers silently lose the capability. The important one is http.Flusher: the
+// SSE room-events handler asserts w.(http.Flusher) and returns 500 when the
+// assertion fails. Because Logger wraps every route in this type, a wrapper
+// without Flush() turned every event stream into an error response.
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -524,6 +512,19 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush forwards to the underlying writer so streaming handlers keep working
+// through this wrapper.
+//
+// This makes responseWriter satisfy http.Flusher unconditionally. If the
+// underlying writer genuinely cannot flush, the pending write reports the
+// error to the handler instead — which is the honest outcome, and far better
+// than failing the interface assertion and answering 500.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // NewRateLimiter creates a middleware for rate limiting requests.

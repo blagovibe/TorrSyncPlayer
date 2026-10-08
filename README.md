@@ -10,7 +10,7 @@ Desktop torrent player with P2P playback synchronization.
 
 - **Streaming playback** — instant viewing without full download
 - **Sync rooms** — server-brokered synchronized viewing with friends (REST + SSE; no direct peer-to-peer data channel)
-- **Security** — JWT authentication (HS256), CSRF protection, rate limiting, bcrypt passwords
+- **Security** — a per-process access token compared in constant time, per-IP rate limiting, bcrypt-hashed room passwords. No accounts, no JWT
 - **Metrics** — Prometheus metrics for monitoring
 - **Buffering** — LRU cache with piece download priorities
 - **CI/CD** — GitHub Actions with golangci-lint, clang-tidy, tests, coverage ≥60%
@@ -18,7 +18,7 @@ Desktop torrent player with P2P playback synchronization.
 
 ## Tech Stack
 
-- **Backend:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5, golang-jwt/jwt/v5
+- **Backend:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5
 - **Frontend:** C++17, Qt 6.5+, libmpv, CMake 3.16+
 - **Build:** Make (backend), CMake (frontend)
 - **CI/CD:** GitHub Actions
@@ -72,7 +72,7 @@ TorrSyncPlayer/
 │   ├── cmd/server/    # Entry point (main.go, 408 lines)
 │   ├── internal/
 │   │   ├── api/       # HTTP API (router, handlers, middleware, tests)
-│   │   ├── auth/      # JWT authentication (HS256, bcrypt, token revocation)
+│   │   ├── auth/      # Per-process access token, constant-time compare, stream tickets
 │   │   ├── buffer/    # LRU cache, piece priorities
 │   │   ├── constants/ # All magic numbers extracted to constants
 │   │   ├── errors/    # AppError, ErrorType
@@ -138,28 +138,35 @@ TorrSyncPlayer/
 | GET | `/health` | Health check | No |
 | GET | `/api/v1/version` | Server version | No |
 | GET | `/metrics` | Prometheus metrics | No |
-| GET | `/api/v1/csrf-token` | Get CSRF token | No |
-| POST | `/api/v1/auth/register` | Register | No |
-| POST | `/api/v1/auth/login` | Login | No |
-| POST | `/api/v1/auth/logout` | Logout | No |
-| GET | `/api/v1/torrents` | List torrents | JWT |
-| POST | `/api/v1/torrents` | Add torrent | JWT |
-| DELETE | `/api/v1/torrents/{id}` | Remove torrent | JWT |
-| GET | `/api/v1/torrents/{id}/files` | List files | JWT |
-| POST | `/api/v1/torrents/{id}/select` | Select file | JWT |
-| GET | `/api/v1/torrents/{id}/stream` | Stream file | JWT |
-| POST | `/api/v1/torrents/{id}/buffer/position` | Set buffer position | JWT |
-| GET | `/api/v1/torrents/{id}/buffer/info` | Buffer info | JWT |
-| POST | `/api/v1/rooms` | Create room | JWT |
-| POST | `/api/v1/rooms/join` | Join room | JWT |
-| POST | `/api/v1/rooms/leave` | Leave room | JWT |
-| POST | `/api/v1/rooms/signal` | Relay signal to room peers (SSE) | JWT |
-| GET | `/api/v1/rooms/{roomID}/events` | SSE events | JWT |
-| POST | `/api/v1/sync/play` | Sync play | JWT |
-| POST | `/api/v1/sync/pause` | Sync pause | JWT |
-| POST | `/api/v1/sync/seek` | Sync seek | JWT |
-| GET | `/api/v1/sync/status` | Sync status | JWT |
-| GET | `/api/v1/health/detailed` | Detailed health check | JWT |
+| GET | `/swagger/*` | Interactive API docs | No |
+| GET | `/api/v1/torrents/{id}/stream` | Stream file | Stream ticket (`?ticket=`) |
+| GET | `/api/v1/torrents` | List torrents | Access token |
+| POST | `/api/v1/torrents` | Add torrent | Access token |
+| DELETE | `/api/v1/torrents/{id}` | Remove torrent | Access token |
+| GET | `/api/v1/torrents/{id}/files` | List files | Access token |
+| POST | `/api/v1/torrents/{id}/select` | Select file | Access token |
+| POST | `/api/v1/torrents/{id}/stream-ticket` | Mint a short-lived stream ticket | Access token |
+| POST | `/api/v1/torrents/{id}/buffer/position` | Set buffer position | Access token |
+| GET | `/api/v1/torrents/{id}/buffer/info` | Buffer info | Access token |
+| POST | `/api/v1/rooms` | Create room | Access token |
+| POST | `/api/v1/rooms/join` | Join room | Access token |
+| POST | `/api/v1/rooms/leave` | Leave room | Access token |
+| POST | `/api/v1/rooms/signal` | Relay signal to room peers (SSE) | Access token |
+| GET | `/api/v1/rooms/{roomID}/events` | SSE events | Access token |
+| POST | `/api/v1/sync/play` | Sync play | Access token |
+| POST | `/api/v1/sync/pause` | Sync pause | Access token |
+| POST | `/api/v1/sync/seek` | Sync seek | Access token |
+| GET | `/api/v1/sync/status` | Sync status | Access token |
+| GET | `/api/v1/health/detailed` | Detailed health check | Access token |
+
+There is no registration and no login. The server generates one random access
+token at startup, prints it to the console, and forgets it — nothing is stored,
+and nothing survives a restart. Send it in `X-Access-Token` on every request
+above.
+
+`/api/v1/torrents/{id}/stream` is the one exception: media players (libmpv)
+cannot attach headers to their own HTTP fetches, so that endpoint takes a
+short-lived HMAC-signed `?ticket=` minted via `/stream-ticket` instead.
 
 Full API documentation is available in [docs/API.md](docs/API.md) and in Swagger UI at `/swagger/`.
 

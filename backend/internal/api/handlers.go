@@ -111,10 +111,35 @@ func (m *sseConnectionManager) Wait() {
 	m.wg.Wait()
 }
 
-// WaitForSSEConnections waits for all active SSE connections to close.
-// Call during graceful shutdown to avoid cutting in-flight subscriptions.
-func WaitForSSEConnections() {
-	sseManager.Wait()
+// WaitForSSEConnections waits for active SSE connections to close, giving up
+// after timeout and reporting whether every connection finished in time.
+//
+// The wait used to be an unbounded wg.Wait(). An SSE connection is designed
+// to live for constants.SSETimeout (30 minutes), so a single idle client
+// holding a room subscription could block Ctrl-C for half an hour — long
+// after the HTTP server had already shut down and the process could have
+// exited. Shutdown must always be bounded; a straggler is logged, not awaited
+// forever.
+func WaitForSSEConnections(timeout time.Duration) bool {
+	if timeout <= 0 {
+		sseManager.Wait()
+		return true
+	}
+
+	done := make(chan struct{})
+	go func() {
+		sseManager.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		logger.Warn("API: timeout waiting for SSE connections to close",
+			"timeout", timeout.String())
+		return false
+	}
 }
 
 // sseManager global SSE connection manager
@@ -343,7 +368,8 @@ func HealthCheck() http.HandlerFunc {
 }
 
 // DetailedHealthCheck extended health check with service state verification.
-// REQUIRES JWT AUTHENTICATION - available only to authorized users.
+// REQUIRES AN ACCESS TOKEN - available only to authorized clients that send
+// the startup token in the X-Access-Token header.
 // Returns detailed information about service state:
 //   - status: "ok" or "degraded"
 //   - services: state of each service (torrent, p2p, sync)

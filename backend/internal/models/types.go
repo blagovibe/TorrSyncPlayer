@@ -144,14 +144,6 @@ type AuthResponse struct {
 	User  UserResponse `json:"user"`
 }
 
-// Claims JWT token data
-type Claims struct {
-	UserID    string `json:"userId"`
-	Username  string `json:"username"`
-	ExpiresAt int64  `json:"expiresAt"`
-	JTI       string `json:"jti"`
-}
-
 // ============ Pagination Models ============
 
 // PaginationParams pagination parameters from request

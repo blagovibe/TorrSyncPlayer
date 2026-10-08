@@ -679,9 +679,12 @@ eventSource.addEventListener('signal', (e) => {
 
 ## Security
 
-- JWT authentication (HS256, 24h TTL, JTI for revocation)
-- bcrypt password hashing (cost=12)
-- CSRF protection (token store with TTL 1h)
+- Single per-process access token, generated at startup and printed to the
+  console, compared in constant time (`crypto/subtle`), sent as `X-Access-Token`.
+  No accounts, no registration, no JWT, no token revocation.
+- Short-lived HMAC stream tickets for `/stream`, because libmpv cannot attach
+  headers to its own fetches
+- bcrypt password hashing (cost=12) for room passwords
 - Rate limiting
 - Security headers (X-Content-Type-Options, X-Frame-Options, HSTS)
 - CORS policies

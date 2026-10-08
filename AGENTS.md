@@ -49,3 +49,26 @@ TorrSyncPlayer/
 - Backend: `cd backend && make test`
 - Frontend: `cd frontend/build && ctest --output-on-failure`
 - Race detection: `cd backend && make test-race`
+
+## Checks must be able to fail
+
+A green build is only worth something if a broken build can turn it red. For
+this reason the following are banned outside a deliberate, commented exception:
+
+- `|| true` at the end of a Makefile recipe
+- `continue-on-error: true` on a CI step or job
+- trailing `-` on a shell command in a recipe
+- a test that only asserts a non-nil pointer, or that reproduces the logic it
+  is meant to check
+
+Two bugs reached main with a fully green pipeline precisely because of this:
+the SSE handler answered 500 because a middleware wrapper dropped
+`http.Flusher`, and the stream ticket signature was computed over an empty
+string, which made it authenticate nothing. Both were invisible because no
+check could fail.
+
+When a check looks flaky, fix the flake. Do not silence the check.
+
+Note that `test-frontend-fuzz` and `test-frontend-mutation` are honest
+placeholders that only echo; they promise nothing, which is correct. The rule
+above is about checks that *look* real and are not.

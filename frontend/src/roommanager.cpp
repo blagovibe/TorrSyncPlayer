@@ -14,7 +14,50 @@ RoomManager::RoomManager(NetworkManager *network, QObject *parent)
     : QObject(parent)
     , m_network(network)
 {
+    // Связи с NetworkManager. Без них RoomManager был мёртвым: он получал
+    // события комнаты, но никогда не узнавал, в какой комнате находится, и
+    // никогда не сообщал MainWindow о создании/входе/выходе.
+    if (m_network) {
+        connect(m_network, &NetworkManager::roomCreated,
+                this, &RoomManager::onRoomCreated);
+        connect(m_network, &NetworkManager::roomJoined,
+                this, &RoomManager::onRoomJoined);
+        connect(m_network, &NetworkManager::roomLeft,
+                this, &RoomManager::onRoomLeft);
+    }
     qDebug() << "RoomManager: инициализирован";
+}
+
+void RoomManager::onRoomCreated(const QString &roomId)
+{
+    if (roomId.isEmpty()) {
+        qWarning() << "RoomManager: создана комната без id";
+        return;
+    }
+    m_currentRoomId = roomId;
+    m_isHost = true;
+    qDebug() << "RoomManager: создана комната" << roomId << "(хост)";
+    emit roomCreated(roomId);
+}
+
+void RoomManager::onRoomJoined(const QString &roomId)
+{
+    if (roomId.isEmpty()) {
+        qWarning() << "RoomManager: вход в комнату без id";
+        return;
+    }
+    m_currentRoomId = roomId;
+    m_isHost = false;
+    qDebug() << "RoomManager: вошли в комнату" << roomId;
+    emit roomJoined(roomId);
+}
+
+void RoomManager::onRoomLeft()
+{
+    m_currentRoomId.clear();
+    m_isHost = false;
+    qDebug() << "RoomManager: вышли из комнаты";
+    emit roomLeft();
 }
 
 RoomManager::~RoomManager()
@@ -104,12 +147,21 @@ void RoomManager::onRoomEvent(const QJsonObject &event)
     if (type.isEmpty()) return;
     qDebug() << "RoomManager: событие комнаты" << type;
 
-    if (type == "peer_joined") {
-        QString peerId = event["peerId"].toString();
-        emit peerJoined(peerId);
-    } else if (type == "peer_left") {
-        QString peerId = event["peerId"].toString();
-        emit peerLeft(peerId);
+    if (type == "peer_joined" || type == "peer_left") {
+        // Полезная нагрузка лежит вложенно в "data", а идентификатор пира
+        // называется "peerID". Раньше читался event["peerId"] — путь и
+        // написание ключа не совпадали с сервером, поэтому сигналы уходили
+        // с пустым идентификатором.
+        const QJsonObject data = event["data"].toObject();
+        const QString peerId = data["peerID"].toString();
+        if (peerId.isEmpty()) {
+            qWarning() << "RoomManager: событие" << type << "без peerID, data:" << data;
+        }
+        if (type == "peer_joined") {
+            emit peerJoined(peerId);
+        } else {
+            emit peerLeft(peerId);
+        }
     }
 
     emit roomEvent(event);
@@ -117,8 +169,21 @@ void RoomManager::onRoomEvent(const QJsonObject &event)
 
 void RoomManager::onSignalReceived(const QJsonObject &signal)
 {
+    // Бэкенд шлёт синхронизацию так (handlers_sync.go → BroadcastSync):
+    //   {"action":"seek", "status":{"isPlaying":…,"position":…,"duration":…,
+    //    "timestamp":…}, "initiator":"…"}
+    // Позиция лежит В status.position. Раньше читался signal["position"],
+    // которого в payload нет, поэтому всегда приходил 0.
     QString action = signal["action"].toString();
-    double position = signal["position"].toDouble(0.0);
+
+    double position = 0.0;
+    const QJsonObject status = signal["status"].toObject();
+    if (status.contains(QStringLiteral("position"))) {
+        position = status["position"].toDouble(0.0);
+    } else if (signal.contains(QStringLiteral("position"))) {
+        // Запасной путь для более простых форм payload.
+        position = signal["position"].toDouble(0.0);
+    }
 
     // Валидируем action — только play/pause/seek
     static const QStringList validActions = {"play", "pause", "seek"};

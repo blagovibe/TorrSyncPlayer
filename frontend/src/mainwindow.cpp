@@ -34,6 +34,14 @@
 #include <QFileDialog>
 #include <QFile>
 
+namespace {
+// Срок жизни подписанного stream-тикета на бэкенде — 5 минут
+// (backend/internal/constants: StreamTicketTTL). Обновляем тикет заранее,
+// за 80 % этого срока, чтобы перезагрузка не совпала с моментом истечения.
+constexpr int STREAM_TICKET_TTL_MS = 5 * 60 * 1000;
+constexpr int STREAM_TICKET_REFRESH_MS = STREAM_TICKET_TTL_MS * 4 / 5;
+} // namespace
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_network(new NetworkManager(this))
@@ -326,6 +334,21 @@ void MainWindow::setupConnections()
         }
     });
 
+    // Обновление подписанного stream-тикета. Тикет живёт 5 минут, поэтому
+    // заранее (за 80 % срока) запрашиваем новый и перезагружаем файл с
+    // сохранением позиции. Без этого видео обрывалось ровно на пятой минуте.
+    m_streamTicketTimer = new QTimer(this);
+    m_streamTicketTimer->setSingleShot(true);
+    m_streamTicketTimer->setInterval(STREAM_TICKET_REFRESH_MS);
+    connect(m_streamTicketTimer, &QTimer::timeout, this, [this]() {
+        if (!m_isPlaying || m_currentTorrentId.isEmpty()) {
+            return;
+        }
+        qDebug() << "MainWindow: обновление stream-тикета по расписанию";
+        m_streamTicketRefresh = true;
+        m_network->requestStreamTicket(m_currentTorrentId);
+    });
+
     // MpvWidget
     connect(m_mpvWidget, &MpvWidget::positionChanged, this, &MainWindow::onPositionChanged);
     connect(m_mpvWidget, &MpvWidget::durationChanged, this, &MainWindow::onDurationChanged);
@@ -463,10 +486,6 @@ void MainWindow::onFileSelectedByManager(const QString &torrentId, int fileIndex
 
 void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString &ticket)
 {
-    if (torrentId != m_pendingStreamTorrentId) {
-        qWarning() << "MainWindow: получен тикет для неожиданного torrentId, игнорируем";
-        return;
-    }
     const QString url = m_network->streamUrl(torrentId) +
                         QString("?ticket=%1").arg(ticket);
     if (url.isEmpty()) {
@@ -475,10 +494,31 @@ void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString 
         m_pendingStreamFileIndex = -1;
         return;
     }
+
+    // ── Обновление тикета для уже идущего видео ──────────────────────────
+    // mpv держит один URL; когда тикет протухает, следующее открытие потока
+    // получает 401. Поэтому перезагружаем файл с новым тикетом и возвращаем
+    // позицию, которой пользователь уже досмотрел.
+    if (m_streamTicketRefresh) {
+        m_streamTicketRefresh = false;
+        const double resumeAt = m_currentPosition;
+        qDebug() << "MainWindow: тикет обновлён, возобновляем с" << resumeAt;
+        m_mpvWidget->play(url);
+        m_mpvWidget->seek(resumeAt);
+        m_streamTicketTimer->start(STREAM_TICKET_REFRESH_MS);
+        updateStatus(tr("Тикет потока обновлён"));
+        return;
+    }
+
+    if (torrentId != m_pendingStreamTorrentId) {
+        qWarning() << "MainWindow: получен тикет для неожиданного torrentId, игнорируем";
+        return;
+    }
+
     m_mpvWidget->play(url);
 #ifndef HAS_MPV
     // Сборка без libmpv: видео не воспроизведётся. Честно сообщаем пользователю,
-    // вместо того чтобы молча делать вид, что播放 начался.
+    // вместо того чтобы молча делать вид, что воспроизведение началось.
     QMessageBox::warning(this, tr("Воспроизведение недоступно"),
         tr("Эта сборка собрана без поддержки libmpv. Воспроизведение видео отключено. "
            "Установите libmpv и пересоберите приложение для просмотра."));
@@ -489,6 +529,8 @@ void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString 
 #endif // HAS_MPV
     m_isPlaying = true;
     m_currentTorrentId = torrentId;
+    m_streamTicketRetryUsed = false;
+    m_streamTicketTimer->start(STREAM_TICKET_REFRESH_MS);
     m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
     m_playPauseButton->setText(tr("Pause"));
     m_playPauseButton->setEnabled(true);
@@ -619,6 +661,7 @@ void MainWindow::onSeekSliderReleased()
 
 void MainWindow::onPositionChanged(double position)
 {
+    m_currentPosition = position;
     if (!m_isSeeking && m_duration > 0) {
         const int seekSliderMax = 1000;
         m_seekSlider->setValue(static_cast<int>((position / m_duration) * seekSliderMax));
@@ -644,6 +687,8 @@ void MainWindow::onPlaybackFinished()
 {
     m_isPlaying = false;
     m_bufferPollTimer->stop();
+    m_streamTicketTimer->stop();
+    m_streamTicketRefresh = false;
     m_currentTorrentId.clear();
     m_bufferProgress->setValue(0);
     m_playPauseButton->setIcon(QIcon(":/icons/play.png"));
@@ -654,6 +699,25 @@ void MainWindow::onPlaybackFinished()
 void MainWindow::onPlaybackError(const QString &message)
 {
     m_bufferPollTimer->stop();
+    m_streamTicketTimer->stop();
+
+    // Протухший тикет даёт обрыв на середине фильма. Пробуем ровно один раз
+    // взять свежий и продолжить с того же места; повторяем только при первом
+    // сбое, чтобы не превратить реальную ошибку сети в бесконечный цикл.
+    const bool resumable = m_isPlaying
+                           && !m_streamTicketRetryUsed
+                           && !m_currentTorrentId.isEmpty();
+    if (resumable) {
+        m_streamTicketRetryUsed = true;
+        qWarning() << "MainWindow: ошибка воспроизведения, пробуем свежий тикет:" << message;
+        m_streamTicketRefresh = true;
+        m_network->requestStreamTicket(m_currentTorrentId);
+        updateStatus(tr("Воспроизведение прервано, переподключаемся…"));
+        return;
+    }
+
+    m_streamTicketRefresh = false;
+    m_isPlaying = false;
     QMessageBox::critical(this, tr("Ошибка воспроизведения"), message);
     updateStatus(tr("Ошибка: %1").arg(message));
 }
@@ -768,6 +832,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
     if (m_mpvWidget) {
         qDebug() << "MainWindow: остановка MpvWidget";
         m_mpvWidget->pause();
+    }
+
+    if (m_streamTicketTimer) {
+        m_streamTicketTimer->stop();
+    }
+    if (m_bufferPollTimer) {
+        m_bufferPollTimer->stop();
     }
 
     qDebug() << "MainWindow: graceful shutdown завершён";

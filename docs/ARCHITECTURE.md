@@ -390,8 +390,8 @@ Services are designed as independent components without a DI container. Communic
 │                                                                 │
 │  1. Initialize services:                                        │
 │     - logger.Init()                                             │
-│     - authService = auth.NewAuthService(jwtSecret)              │
-│     - torrentService = torrent.NewService(bufferService)              │
+│     - authService = auth.NewService()  // random token at start │
+│     - torrentService = torrent.NewService(bufferService)        │
 │     - p2pService = p2p.NewService(authService)                  │
 │     - syncService = sync.NewService()                           │
 │     - bufferService = buffer.NewService()                       │

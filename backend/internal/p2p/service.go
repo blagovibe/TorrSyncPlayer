@@ -614,43 +614,44 @@ func (s *Service) getSessionUnlocked(userID string) *Session {
 	return s.sessions[userID]
 }
 
-// Close closes the P2P service.
+// Close closes the P2P service. It is safe to call more than once and from
+// multiple goroutines: every destructive step — including close(doneChan) —
+// runs inside closeOnce. Previously only the ticker and closeChan were
+// guarded, so a second call reached close(s.doneChan) and panicked with
+// "close of closed channel".
 func (s *Service) Close() error {
+	var roomCount int
+
 	s.closeOnce.Do(func() {
 		if s.pruneTicker != nil {
 			s.pruneTicker.Stop()
 		}
 		close(s.closeChan)
-	})
 
-	// Persist room metadata before dropping in-memory state.
-	s.saveDebouncer.Stop()
-	s.flushRooms()
+		// Persist room metadata before dropping in-memory state.
+		s.saveDebouncer.Stop()
+		s.flushRooms()
 
-	s.mu.Lock()
-	s.closed.Store(true)
+		s.mu.Lock()
+		s.closed.Store(true)
 
-	// Close all session event channels
-	for _, session := range s.sessions {
-		if session.eventChan != nil {
-			go func(ch chan models.P2PEvent) {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Debug("P2P: event channel already closed")
-					}
-				}()
-				close(ch)
-			}(session.eventChan)
+		// Close all session event channels. Close every one while holding the
+		// write lock: doing it without the lock let a concurrent JoinRoom
+		// append a session we then missed, leaving its SSE connection open.
+		for _, session := range s.sessions {
+			if session.eventChan != nil {
+				close(session.eventChan)
+			}
 		}
-	}
 
-	roomCount := len(s.rooms)
-	s.rooms = make(map[string]*Room)
-	s.peers = make(map[string]*Peer)
-	s.sessions = make(map[string]*Session)
+		roomCount = len(s.rooms)
+		s.rooms = make(map[string]*Room)
+		s.peers = make(map[string]*Peer)
+		s.sessions = make(map[string]*Session)
 
-	close(s.doneChan)
-	s.mu.Unlock()
+		close(s.doneChan)
+		s.mu.Unlock()
+	})
 
 	done := make(chan struct{})
 	go func() {
@@ -694,42 +695,48 @@ func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
 	default:
 	}
 
-	s.mu.RLock()
-	room, exists := s.rooms[roomID]
-	s.mu.RUnlock()
-
-	if !exists {
-		return
-	}
-
 	event := models.P2PEvent{Type: eventType, Data: data}
 
-	// Send event to all peers in the room
-	for _, peer := range room.Peers {
-		s.mu.RLock()
-		session := s.sessions[peer.UserID]
+	// Snapshot the recipients while holding the read lock, then send outside it.
+	//
+	// room.Peers is mutated by Join, Leave and peer pruning. Ranging over it
+	// without the lock made a concurrent write during iteration possible, and
+	// Go's runtime raises "concurrent map iteration and map write" as a fatal
+	// error that recover() cannot catch — it takes the whole process down.
+	//
+	// Copying first keeps the critical section short and avoids holding the
+	// lock across delivery, so no lock-ordering question can arise.
+	s.mu.RLock()
+	room, exists := s.rooms[roomID]
+	if !exists {
 		s.mu.RUnlock()
-		s.sendToSession(session, peer.UserID, event, eventType)
+		return
 	}
-
-	// Also send to host if different from peers
-	if room.HostUserID != "" {
-		s.mu.RLock()
-		hostSession := s.sessions[room.HostUserID]
-		s.mu.RUnlock()
-
-		if hostSession == nil || hostSession.eventChan == nil {
-			// Host has no live SSE session; nothing to deliver.
-			// Skip silently — client will re-subscribe on (re)connect.
-		} else if hostPeer := hostSession.GetPeer(); hostPeer != nil {
-			_, isPeer := room.Peers[hostPeer.ID]
-			if !isPeer {
-				s.sendToSession(hostSession, room.HostUserID, event, eventType)
-			}
+	recipients := make([]string, 0, len(room.Peers)+1)
+	seen := make(map[string]struct{}, len(room.Peers)+1)
+	for _, peer := range room.Peers {
+		recipients = append(recipients, peer.UserID)
+		seen[peer.UserID] = struct{}{}
+	}
+	// The host is a participant too. Deduplicating by user id means the host
+	// receives the event exactly once, whether or not it is also in room.Peers.
+	hostUserID := room.HostUserID
+	if hostUserID != "" {
+		if _, dup := seen[hostUserID]; !dup {
+			recipients = append(recipients, hostUserID)
 		}
 	}
+	peerCount := len(room.Peers)
+	s.mu.RUnlock()
 
-	logger.Debug("P2P: event emitted to room", "roomID", roomID, "eventType", eventType, "peerCount", len(room.Peers))
+	for _, userID := range recipients {
+		s.mu.RLock()
+		session := s.sessions[userID]
+		s.mu.RUnlock()
+		s.sendToSession(session, userID, event, eventType)
+	}
+
+	logger.Debug("P2P: event emitted to room", "roomID", roomID, "eventType", eventType, "peerCount", peerCount)
 }
 
 // BroadcastSync sends a sync event (play/pause/seek) to all participants in a room.
