@@ -50,9 +50,10 @@
         },
         "body": {
           "torrents": [],
-          "total": 0,
-          "page": 1,
-          "limit": 20
+          "totalCount": 0,
+          "limit": 20,
+          "offset": 0,
+          "hasMore": false
         }
       }
     },
