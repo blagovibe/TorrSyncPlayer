@@ -94,7 +94,8 @@ contract-test-backend:
 # have turned this into a target that can only ever fail, which is worse than
 # one that cannot: a developer running `make test-all` would hit a red build
 # with no way to fix it. Until the targets are declared, the step is absent
-# rather than fake. See docs/audit/ROADMAP.md (F-28) and DELIVERY.md.
+# rather than fake. The backend side of that contract (pact provider) is
+# implemented and runs in CI. See DEV.md, "Соглашения по тестам".
 contract-test-frontend:
 	@echo "SKIPPED: frontend contract tests are not implemented (no CMake targets)"
 
