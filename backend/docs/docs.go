@@ -115,7 +115,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomResponse"
                         }
                     },
                     "400": {
@@ -837,6 +837,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "roomId": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "message": {
                     "type": "string"
                 }
             }

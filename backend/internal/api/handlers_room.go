@@ -88,7 +88,7 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Accept       json
 // @Produce      json
 // @Param        request  body      models.JoinRoomRequest  true  "Login data"
-// @Success      200      {object}  models.SuccessResponse
+// @Success      200      {object}  models.JoinRoomResponse
 // @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/join [post]
 func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
