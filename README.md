@@ -4,194 +4,149 @@
 [![Release](https://github.com/blagovibe/TorrSyncPlayer/actions/workflows/release.yml/badge.svg)](https://github.com/blagovibe/TorrSyncPlayer/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Desktop torrent player with P2P playback synchronization.
+Настольный плеер для торрентов с синхронизацией просмотра между участниками
+комнаты. Файл играет, не дожидаясь скачивания; друзья видят тот же момент в
+той же секунде.
 
-## Features
+Что проект делает и зачем — в [CONCEPT.md](CONCEPT.md).
+Как собрать, запустить и править — в [DEV.md](DEV.md).
 
-- **Streaming playback** — instant viewing without full download
-- **Sync rooms** — server-brokered synchronized viewing with friends (REST + SSE; no direct peer-to-peer data channel)
-- **Security** — a per-process access token compared in constant time, per-IP rate limiting, bcrypt-hashed room passwords. No accounts, no JWT
-- **Metrics** — Prometheus metrics for monitoring
-- **Buffering** — LRU cache with piece download priorities
-- **CI/CD** — GitHub Actions with golangci-lint, clang-tidy, tests, coverage ≥60%
-- **Swagger** — interactive API documentation at `/swagger/`
+## Возможности
 
-## Tech Stack
+- **Воспроизведение на лету** — старт без полной загрузки, остальное
+  докачивается на фоне
+- **Комнаты** — сервер-брокерованная синхронизация просмотра (REST + SSE,
+  без прямых P2P-соединений)
+- **Доступ без аккаунтов** — токен доступа на процесс, сравнение за постоянное
+  время, пароли комнат хранятся как bcrypt-хэши
+- **Метрики** — Prometheus на `/metrics`
+- **Буферизация** — LRU-буфер с приоритетами частей для немедленного старта
+- **Swagger** — интерактивная документация API на `/swagger/`
 
-- **Backend:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5
-- **Frontend:** C++17, Qt 6.5+, libmpv, CMake 3.16+
-- **Build:** Make (backend), CMake (frontend)
-- **CI/CD:** GitHub Actions
-
-## Documentation
-
-- [Concept](CONCEPT.md) — what the project is for and its boundaries
-- [Dev](DEV.md) — architecture, stack, code conventions, test commands
-- [API documentation](docs/API.md) — complete REST API reference (22 routes)
-- [Architecture details](docs/ARCHITECTURE.md) — diagrams, request flows, data model
-- [User Guide](docs/USER_GUIDE.md) — usage instructions
-- [Installation Guide](docs/INSTALL.md) — installation and configuration
-- [Changelog](CHANGELOG.md) — version history
-- [Swagger UI](http://localhost:8889/swagger/) — interactive API docs (when server is running)
-
-## Quick Start
-
-### Backend
+## Быстрый старт
 
 ```bash
-cd backend
-make build
-make run
+# Терминал 1 — бэкенд, печатает токен доступа при старте
+cd backend && make build && ./build/torrsyncplayer
+
+# Терминал 2 — плеер
+cd frontend && ./build.sh && ./build/TorrSyncPlayer
 ```
 
-The server will start on port 8889.
+Подробности сборки, флаги, systemd/launchd/NSSM и Docker — в
+[DEV.md](DEV.md).
 
-### Frontend
+## Как пользоваться
 
-```bash
-cd frontend
-./build.sh  # Linux/macOS
-build.bat   # Windows
-```
+**Посмотреть фильм.** Скопируйте magnet-ссылку и вставьте в поле добавления.
+Торрент появится в списке; откройте его и выберите нужный файл. Видео начнёт
+играть, как только наберётся достаточно данных — обычно через несколько
+секунд, не дожидаясь конца загрузки.
 
-## Running
+**Посмотреть вместе.** Тот, у кого включено видео, создаёт комнату и при
+необходимости задаёт ей пароль. Остальные подключают плеер к своему
+бэкенду, вводят тот же адрес, тот же токен и ту же комнату. Кто управляет
+воспроизведением — тот хост; пауза и перемотка уходят остальным, и они
+плавно догоняют общий момент с учётом задержки сети.
 
-```bash
-# Terminal 1
-cd backend && make run
+Перемотка у всех слегка различается по времени, но не расходится: приложение
+подстраивает позицию плавно, а не рывком.
 
-# Terminal 2
-cd frontend/build && ./TorrSyncPlayer
-```
+**Что защищено.** Пароль комнаты не даёт случайному человеку из интернета
+подключиться к вашей компании. Сам сервер закрыт токеном, который печатается
+при запуске и меняется при каждом старте, — его достаточно передать друзьям
+вместе с адресом. Регистрации нет, ничего не хранится.
 
-## Project Structure
-
-```
-TorrSyncPlayer/
-├── backend/           # Go backend (HTTP API + P2P + Torrent)
-│   ├── cmd/server/    # Entry point (main.go, 408 lines)
-│   ├── internal/
-│   │   ├── api/       # HTTP API (router, handlers, middleware, tests)
-│   │   ├── auth/      # Per-process access token, constant-time compare, stream tickets
-│   │   ├── buffer/    # LRU cache, piece priorities
-│   │   ├── constants/ # All magic numbers extracted to constants
-│   │   ├── errors/    # AppError, ErrorType
-│   │   ├── metrics/   # Prometheus metrics
-│   │   ├── models/    # Data models
-│   │   ├── p2p/       # Sync rooms + SSE event relay (server-brokered)
-│   │   ├── storage/   # In-memory storage
-│   │   ├── sync/      # Playback sync with latency compensation
-│   │   ├── torrent/   # Torrent management + HTTP streaming
-│   │   ├── validation/# Input validation
-│   │   └── version/   # Version info
-│   ├── pkg/logger/    # slog-based logger
-│   ├── docs/          # Swagger spec (swagger.yaml, swagger.json, docs.go)
-│   ├── Makefile
-│   └── go.mod
-│
-├── frontend/          # Qt/C++ frontend
-│   ├── src/           # Source files
-│   │   ├── main.cpp
-│   │   ├── mainwindow.h/.cpp
-│   │   ├── mpvwidget.h/.cpp
-│   │   ├── networkmanager.h/.cpp
-│   │   ├── torrentmodel.h/.cpp
-│   │   ├── torrentmanager.h/.cpp
-│   │   ├── roommanager.h/.cpp
-│   │   ├── roomdialog.h/.cpp
-│   │   ├── systemtray.h/.cpp
-│   │   ├── utils.h/.cpp
-│   │   ├── inetworkmanager.h
-│   │   ├── test_torrentmodel.cpp
-│   │   └── test_networkmanager.cpp
-│   ├── resources/     # Resources (icons, etc.)
-│   ├── CMakeLists.txt
-│   └── build.sh / build.bat
-│
-├── CONCEPT.md         # What the project is for, and its boundaries
-├── DEV.md             # How it is built: architecture, stack, conventions, tests
-├── docs/              # Documentation
-│   ├── API.md         # API documentation
-│   ├── ARCHITECTURE.md # Diagrams, request flows, data model
-│   ├── INSTALL.md     # Installation guide
-│   ├── METRICS.md     # Prometheus metrics
-│   └── USER_GUIDE.md  # User guide
-│
-├── .github/           # GitHub Actions workflows
-│   └── workflows/
-│       ├── ci.yml     # CI pipeline (lint, test, build, coverage)
-│       └── release.yml # Release pipeline
-│
-├── CHANGELOG.md       # Version history
-├── CONTRIBUTING.md    # Contributor guide
-├── AGENTS.md          # AI agent guide
-├── tests/             # Chaos (toxiproxy), load (k6), and e2e suites
-└── LICENSE            # MIT license
-```
+**Если что-то не работает.** Плеер не подключается — сверьте адрес и токен в
+настройках с тем, что напечатал сервер. Комната не открывается — проверьте
+пароль. Видео не идёт, а плеер собрался без libmpv — приложение честно
+предупредит об этом при выборе файла; поставьте `libmpv-dev` и пересоберите.
 
 ## API
 
-### Main Endpoints
+Интерактивная документация с примерами запросов — на `/swagger/` запущенного
+сервера. Она генерируется из аннотаций в коде, поэтому всегда соответствует
+реализации.
 
-| Method | Path | Description | Authentication |
-|--------|------|-------------|----------------|
-| GET | `/health` | Health check | No |
-| GET | `/api/v1/version` | Server version | No |
-| GET | `/metrics` | Prometheus metrics | No |
-| GET | `/swagger/*` | Interactive API docs | No |
-| GET | `/api/v1/torrents/{id}/stream` | Stream file | Stream ticket (`?ticket=`) |
-| GET | `/api/v1/torrents` | List torrents | Access token |
-| POST | `/api/v1/torrents` | Add torrent | Access token |
-| DELETE | `/api/v1/torrents/{id}` | Remove torrent | Access token |
-| GET | `/api/v1/torrents/{id}/files` | List files | Access token |
-| POST | `/api/v1/torrents/{id}/select` | Select file | Access token |
-| POST | `/api/v1/torrents/{id}/stream-ticket` | Mint a short-lived stream ticket | Access token |
-| POST | `/api/v1/torrents/{id}/buffer/position` | Set buffer position | Access token |
-| GET | `/api/v1/torrents/{id}/buffer/info` | Buffer info | Access token |
-| POST | `/api/v1/rooms` | Create room | Access token |
-| POST | `/api/v1/rooms/join` | Join room | Access token |
-| POST | `/api/v1/rooms/leave` | Leave room | Access token |
-| POST | `/api/v1/rooms/signal` | Relay signal to room peers (SSE) | Access token |
-| GET | `/api/v1/rooms/{roomID}/events` | SSE events | Access token |
-| POST | `/api/v1/sync/play` | Sync play | Access token |
-| POST | `/api/v1/sync/pause` | Sync pause | Access token |
-| POST | `/api/v1/sync/seek` | Sync seek | Access token |
-| GET | `/api/v1/sync/status` | Sync status | Access token |
-| GET | `/api/v1/health/detailed` | Detailed health check | Access token |
+| Группа | Методы | Доступ |
+|---|---|---|
+| `/health`, `/api/v1/version`, `/metrics`, `/swagger/*` | GET | без токена |
+| `/api/v1/torrents` | GET, POST, DELETE | токен |
+| `/api/v1/torrents/{id}/files`, `/select`, `/stream-ticket` | GET, POST | токен |
+| `/api/v1/torrents/{id}/buffer/position`, `/buffer/info` | GET, POST | токен |
+| `/api/v1/torrents/{id}/stream` | GET | тикет в `?ticket=` |
+| `/api/v1/rooms`, `/rooms/join`, `/rooms/leave`, `/rooms/signal` | POST | токен |
+| `/api/v1/rooms/{roomID}/events` | GET (SSE) | токен |
+| `/api/v1/sync/play`, `/pause`, `/seek` | POST | токен |
+| `/api/v1/sync/status`, `/api/v1/health/detailed` | GET | токен |
 
-There is no registration and no login. The server generates one random access
-token at startup, prints it to the console, and forgets it — nothing is stored,
-and nothing survives a restart. Send it in `X-Access-Token` on every request
-above.
+Регистрации и логина нет. Сервер генерирует один случайный токен при старте,
+печатает его и забывает — передайте его клиентам в заголовке
+`X-Access-Token`.
 
-`/api/v1/torrents/{id}/stream` is the one exception: media players (libmpv)
-cannot attach headers to their own HTTP fetches, so that endpoint takes a
-short-lived HMAC-signed `?ticket=` minted via `/stream-ticket` instead.
+`/api/v1/torrents/{id}/stream` — единственное исключение: libmpv не умеет
+прикреплять заголовки к своим HTTP-запросам, поэтому этот эндпоинт принимает
+короткоживущий HMAC-тикет в `?ticket=`, который нужно заранее получить через
+`/stream-ticket`.
 
-Full API documentation is available in [docs/API.md](docs/API.md) and in Swagger UI at `/swagger/`.
+## Документация
 
-## Testing
+- [CONCEPT.md](CONCEPT.md) — зачем проект существует и его границы
+- [DEV.md](DEV.md) — архитектура, сборка, запуск, соглашения, тесты
+- [CHANGELOG.md](CHANGELOG.md) — журнал изменений
+- [Swagger UI](http://localhost:8889/swagger/) — формы запросов и ответов
 
-```bash
-# Backend tests
-cd backend
-make test
+## Структура репозитория
 
-# Backend tests with coverage
-go test -cover ./...
-
-# Frontend tests
-cd frontend/build
-ctest --output-on-failure
+```
+TorrSyncPlayer/
+├── CONCEPT.md         # зачем проект существует
+├── DEV.md             # как собрать, запустить и править
+├── README.md          # этот файл
+├── CHANGELOG.md       # журнал изменений
+├── backend/           # Go-бэкенд
+│   ├── cmd/server/    # точка входа
+│   ├── internal/      # пакеты предметной области и HTTP-слой
+│   ├── pkg/           # журнал и ответы
+│   └── docs/          # сгенерированная спецификация Swagger
+├── frontend/          # Qt/C++-фронтенд
+│   ├── src/           # исходники
+│   └── resources/     # ресурсы
+├── tests/             # chaos (toxiproxy), нагрузка (k6), e2e (Playwright, Qt headless)
+├── pacts/             # контракт между фронтендом и бэкендом
+├── .github/           # workflow и шаблоны
+├── AGENTS.md          # правила работы с агентами
+├── CONTRIBUTING.md    # руководство контрибьюторам
+└── LICENSE            # MIT
 ```
 
-## Known Limitations
+Подробная карта пакетов — в [DEV.md](DEV.md#архитектура).
 
-1. **In-memory storage** — UserStore and TokenRevocationStore are not persistent (data is lost on restart) unless `--data-dir` is set
-2. **No database integration** — a production deployment requires a database
-3. **Frontend tests** — MainWindow and MpvWidget do not have unit tests
-4. **SSE client disconnect detection** — backend detects client disconnect via context cancellation but does not immediately remove the peer from the room (relies on prune loop with 5-minute timeout)
+## Технологии
 
-## License
+- **Бэкенд:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5
+- **Фронтенд:** C++17, Qt 6.5+, libmpv, CMake 3.16+
+- **Сборка:** Make (бэкенд), CMake (фронтенд)
+- **CI/CD:** GitHub Actions
+
+## Тесты
+
+```bash
+cd backend && make test          # весь набор
+cd backend && make test-race     # с race-детектором
+cd frontend/build && ctest --output-on-failure
+```
+
+## Ограничения
+
+1. **Данные в памяти.** Куски торрента лежат в памяти (лимит `--memory-capacity`,
+   максимум 256 ГБ), если не задан `--data-dir` с `--disk-storage`
+2. **Нет базы данных** — состояние комнат и синхронизации пишется в JSON-файлы
+3. **Обнаружение отключения SSE** — участник удаляется из комнаты не сразу, а
+   по циклу очистки с пятиминутным таймаутом
+4. **Pact-потребитель на фронтенде** не реализован; контракт проверяется только
+   со стороны бэкенда
+
+## Лицензия
 
 [MIT](LICENSE)

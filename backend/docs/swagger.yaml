@@ -82,6 +82,13 @@ definitions:
       roomId:
         type: string
     type: object
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomResponse:
+    properties:
+      id:
+        type: string
+      message:
+        type: string
+    type: object
   github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo:
     properties:
       hostId:
@@ -265,7 +272,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse'
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.JoinRoomResponse'
         "400":
           description: Bad Request
           schema:

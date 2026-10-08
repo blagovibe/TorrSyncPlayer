@@ -588,8 +588,9 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
     case RequestType::JoinRoom:
         if (doc.isObject()) {
             QJsonObject obj = doc.object();
-            // Ответ сервера НЕ содержит "id" (и docs/API.md его не описывает),
-            // поэтому берём roomId, который сами отправили в запросе.
+            // Берём roomId из собственного запроса, а не из ответа: ответ
+            // теперь содержит "id", но доверять эху стоит меньше, чем собственному
+            // запросу — так требует F-03, и так нельзя ошибиться при рассинхроне.
             QString roomId;
             {
                 QMutexLocker locker(&m_roomIdMutex);
