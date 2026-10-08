@@ -442,8 +442,14 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     
     if(ENABLE_SANITIZERS AND NOT MSVC AND BUILD_GMOCK)
         # AddressSanitizer test target
-        add_executable(test_asan ${TEST_NETWORK_MANAGER_SOURCES}
+        # Mirrors test_networkmanager_gmock: the gmock contract tests are
+        # what these sanitizers exist for. Pulling in TEST_NETWORK_MANAGER_SOURCES
+        # added test_networkmanager.cpp, whose QTEST_MAIN defines main() in the
+        # same binary as the gmock file's own main() — a link-time duplicate.
+        add_executable(test_asan
             src/test_networkmanager_gmock.cpp
+            src/mocks/mock_networkmanager.cpp
+            src/interfaces/inetworkmanager.h
         )
         target_link_libraries(test_asan PRIVATE
             Qt6::Core
@@ -458,13 +464,20 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
             ${CMAKE_CURRENT_BINARY_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
         )
         add_test(NAME NetworkManagerTestASan COMMAND test_asan)
         set_tests_properties(NetworkManagerTestASan PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1")
 
         # ThreadSanitizer test target
-        add_executable(test_tsan ${TEST_NETWORK_MANAGER_SOURCES}
+        # Mirrors test_networkmanager_gmock: the gmock contract tests are
+        # what these sanitizers exist for. Pulling in TEST_NETWORK_MANAGER_SOURCES
+        # added test_networkmanager.cpp, whose QTEST_MAIN defines main() in the
+        # same binary as the gmock file's own main() — a link-time duplicate.
+        add_executable(test_tsan
             src/test_networkmanager_gmock.cpp
+            src/mocks/mock_networkmanager.cpp
+            src/interfaces/inetworkmanager.h
         )
         target_link_libraries(test_tsan PRIVATE
             Qt6::Core
@@ -479,6 +492,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
             ${CMAKE_CURRENT_BINARY_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_SOURCE_DIR}/src/mocks
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/interfaces
         )
         add_test(NAME NetworkManagerTestTSan COMMAND test_tsan)
         set_tests_properties(NetworkManagerTestTSan PROPERTIES ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1")
