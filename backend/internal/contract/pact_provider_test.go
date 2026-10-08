@@ -7,6 +7,7 @@ package contract
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -132,7 +133,16 @@ func TestPactProvider(t *testing.T) {
 		AuthService: authService,
 	})
 
-	server := httptest.NewServer(router)
+	// The verifier replays every recorded interaction back-to-back from
+	// 127.0.0.1, so the production per-IP limiter would throttle the run
+	// part-way through and report 429s that have nothing to do with the
+	// contract. Clearing the bucket before each request keeps the replay
+	// faithful; the limiter is a defence against real clients, not against
+	// a test harness reading a file.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.ResetClientRateLimiter()
+		router.ServeHTTP(w, r)
+	}))
 	defer server.Close()
 
 	pactPath := materialisePact(t, pactToken)

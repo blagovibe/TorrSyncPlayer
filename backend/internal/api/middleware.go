@@ -556,6 +556,15 @@ func (cri *clientRateLimiter) resetAll() {
 	cri.limiters = make(map[string]*clientLimiterEntry)
 }
 
+// ResetClientRateLimiter clears every per-IP bucket in the process-wide
+// limiter. Exported for test harnesses outside this package, most notably the
+// pact provider verifier, which replays recorded interactions in a tight
+// loop from one address and would otherwise throttle itself part-way through.
+// Production never calls this.
+func ResetClientRateLimiter() {
+	globalClientRateLimiter.resetAll()
+}
+
 // PerIPRateLimiter creates middleware for per-IP rate limiting.
 // Uses the global per-IP rate limiter.
 func PerIPRateLimiter(next http.Handler) http.Handler {
