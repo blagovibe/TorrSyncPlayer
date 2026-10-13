@@ -49,6 +49,24 @@ QString generateToken()
     return QUuid::createUuid().toString(QUuid::WithoutBraces).remove(QLatin1Char('-'));
 }
 
+QStringList candidateBackendPaths(const QString &appDir)
+{
+    // Расширение .exe оставлено для Windows, где так называется собранный
+    // бинарник. Без расширения — то, во что он собирается на Linux и macOS;
+    // именно эти имена отсутствовали, и приложение стартовало без бэкенда
+    // (bug-0066).
+    return {
+        appDir + QStringLiteral("/torrsyncplayer"),
+        appDir + QStringLiteral("/torrserver/torrsyncplayer"),
+        appDir + QStringLiteral("/../torrserver/torrsyncplayer"),
+        appDir + QStringLiteral("/../backend/build/torrsyncplayer"),
+        appDir + QStringLiteral("/torrsyncplayer.exe"),
+        appDir + QStringLiteral("/torrserver/torrsyncplayer.exe"),
+        appDir + QStringLiteral("/../torrserver/torrsyncplayer.exe"),
+        appDir + QStringLiteral("/torrserver.exe"),
+    };
+}
+
 quint16 pickFreePort()
 {
     // Порт выбирается тем же способом, каким его потом займёт бэкенд:

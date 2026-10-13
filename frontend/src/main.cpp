@@ -222,19 +222,15 @@ bool startGoServer(QObject *parent, quint16 port, const QString &token)
 #endif
 
     if (serverPath.isEmpty()) {
-        QString appDir = QApplication::applicationDirPath();
-        QStringList candidatePaths;
-        candidatePaths << appDir + "/torrserver/torrserver.exe";
-        candidatePaths << appDir + "/../torrserver/torrserver.exe";
-        candidatePaths << appDir + "/torrsyncplayer.exe";
-        candidatePaths << appDir + "/torrserver.exe";
-
-        for (const QString &path : candidatePaths) {
-            if (path.contains("..")) {
-                continue;
-            }
+        // Список кандидатов живёт в backendargs, а не здесь: он перечислял
+        // только *.exe, поэтому на Linux и macOS бэкенд не находился и
+        // приложение стартовало без торрент-клиента (bug-0066). main.cpp не
+        // входит ни в один тестовый таргет — именно поэтому список проверяется
+        // отдельно.
+        const QString appDir = QApplication::applicationDirPath();
+        for (const QString &path : BackendArgs::candidateBackendPaths(appDir)) {
             if (QFile::exists(path)) {
-                QFileDevice::Permissions perm = QFile::permissions(path);
+                const QFileDevice::Permissions perm = QFile::permissions(path);
                 if (perm & QFileDevice::WriteOther) {
                     qWarning() << "Server binary has suspicious world-writable permissions:" << path;
                 }

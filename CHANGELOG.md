@@ -470,6 +470,50 @@ frontend built, `ctest` 7/7 with three new tests.
 (`idea-0064`), затем перенос фронтенда на Go (`idea-0063`), затем дистрибуция
 (`idea-0026`).
 
+### The desktop app could not start its own backend on Linux or macOS
+
+Found by running the built application rather than its tests — the tests were
+green and the app was dead. Launching it produced no new listening port and no
+backend process at all.
+
+Two layers of it:
+
+- `EMBED_BACKEND` in `frontend/CMakeLists.txt` defaults to `OFF`, so
+  `HAS_EMBEDDED_BACKEND` is never defined and `extractEmbeddedBackend()` is
+  compiled out entirely.
+- The fallback search then listed only `*.exe` names — `torrserver.exe`,
+  `torrsyncplayer.exe`. Nothing matched what the project actually builds on
+  Linux or macOS.
+
+This is not a developer-only edge: the Linux release job copies the backend to
+`AppDir/usr/bin/torrsyncplayer`, next to `AppDir/usr/bin/TorrSyncPlayer`, with
+no extension. So **the shipped Linux build could never start its own backend** —
+no torrent client, empty list, no playback, and no error the user would see,
+because the failure is a `qWarning` in a process whose stderr nobody is reading.
+
+The search list moves into `backendargs.cpp`, which exists for exactly this
+reason: `main.cpp` is in no test target, and that blind spot is what let
+`--jwt-secret` reach a release once already. Three tests now cover it — the list
+must contain the extension-less name, must keep the Windows names, and must not
+escape the application directory. The old code rejected any candidate containing
+`..` outright; that would have thrown away the dev-tree layout, so the rule is
+now narrower and verified.
+
+Verified in the running application, with the backend placed the way the AppImage
+places it: the app starts its own backend on a **free port** (`38791`, not the
+old fixed 8889), passes a **token it generated itself**, and that token answers
+`200` where a request without one answers `401`. Both halves of bug-0060 and
+this defect are now confirmed on the real binary, not only in unit tests.
+
+Also established while doing it, and worth knowing: `qDebug`/`qWarning` print
+nothing at all in this environment — a minimal Qt program shows it. So the app's
+silence says nothing about its health, and every conclusion above was drawn from
+processes and ports instead.
+
+Still not verified, and it is the one that matters: **nobody has yet watched a
+film with two real machines.** The slice is confirmed at the protocol level and
+the app now starts, but the end-to-end experience is unproven.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

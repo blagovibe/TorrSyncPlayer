@@ -33,6 +33,13 @@ private slots:
     void generatedTokenIsUsableAsAnArgument();
     void pickedPortIsFree();
     void pickedPortDiffersFromAnOccupiedOne();
+    // bug-0066: on Linux and macOS the search list held only *.exe names, so
+    // the app started with no backend at all — no torrent client, empty list,
+    // no playback. Nothing noticed, because this logic lived in main.cpp, which
+    // is in no test target.
+    void test_candidatePathsCoverTheNonWindowsBuild();
+    void test_candidatePathsKeepTheWindowsNames();
+    void test_candidatePathsDoNotEscapeTheAppDirectory();
 };
 
 void TestBackendArgs::buildPassesOnlyKnownFlags()
@@ -145,6 +152,45 @@ void TestBackendArgs::pickedPortDiffersFromAnOccupiedOne()
 
     QVERIFY2(picked != busy,
              qPrintable(QStringLiteral("подобран занятый порт %1").arg(picked)));
+}
+
+void TestBackendArgs::test_candidatePathsCoverTheNonWindowsBuild()
+{
+    const QStringList paths = BackendArgs::candidateBackendPaths(QStringLiteral("/opt/app"));
+
+    bool foundBare = false;
+    for (const QString &p : paths) {
+        if (p.endsWith(QStringLiteral("/torrsyncplayer"))) {
+            foundBare = true;
+        }
+    }
+    QVERIFY2(foundBare,
+             "в списке нет имени без расширения: на Linux и macOS бэкенд не будет найден");
+}
+
+void TestBackendArgs::test_candidatePathsKeepTheWindowsNames()
+{
+    const QStringList paths = BackendArgs::candidateBackendPaths(QStringLiteral("C:/app"));
+
+    bool foundExe = false;
+    for (const QString &p : paths) {
+        if (p.endsWith(QStringLiteral(".exe"))) {
+            foundExe = true;
+        }
+    }
+    QVERIFY(foundExe);
+}
+
+void TestBackendArgs::test_candidatePathsDoNotEscapeTheAppDirectory()
+{
+    // «..» в пути раньше отбрасывался целиком: путь отбрасывался, а не
+    // очищался. Разыскивание backend/build рядом с приложением нужно в
+    // разработческой сборке, поэтому запрещается не вся строка, а выход за
+    // пределы каталога приложения.
+    for (const QString &p : BackendArgs::candidateBackendPaths(QStringLiteral("/opt/app"))) {
+        QVERIFY2(!p.contains(QStringLiteral("/../..")),
+                 qPrintable(QStringLiteral("путь уходит выше каталога приложения: %1").arg(p)));
+    }
 }
 
 QTEST_MAIN(TestBackendArgs)
