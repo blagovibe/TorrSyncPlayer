@@ -94,6 +94,8 @@ public:
      * @param url URL сервера
      */
     void setServerUrl(const QUrl &url);
+    void setControlServerUrl(const QUrl &url);
+    void setLocalBackendUrl(const QUrl &url);
 
     /**
      * @brief Установить токен доступа для API
@@ -101,6 +103,8 @@ public:
      * @param token Access token для заголовка X-Access-Token
      */
     void setAccessToken(const QString &token);
+    void setControlAccessToken(const QString &token);
+    void setLocalAccessToken(const QString &token);
 
     /**
      * @brief Установить идентификатор клиента для P2P комнат

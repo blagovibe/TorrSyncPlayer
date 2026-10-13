@@ -361,6 +361,68 @@ path produced a different infohash and a torrent with no piece hashes (bug-0053,
 now fixed). The line stays where it is — history is not edited — and the
 correction is this entry plus the fix recorded above.
 
+### Split the planes — the first half of deviation-0055
+
+The owner decided the topology: the host's server brokers control only, and
+every participant pulls the media from the swarm into their own backend. This
+entry records the half that makes that possible; handing the torrent to guests
+is not done yet.
+
+Three defects stood in the way, all found by running the thing rather than
+reading it.
+
+- **The app could not talk to its own backend** (bug-0060). Started with only
+  `--port`, the embedded backend generated a random token and printed it to
+  stdout; the frontend forwarded stdout to `qDebug()` and never read it, and
+  `setAccessToken` was reachable only from `--access-token`. Every request to
+  its own backend therefore answered 401. Reproduced directly: the backend logs
+  `msg="access token …" token=0c6275cd…` and `GET /api/v1/torrents` with no
+  header returns 401. The client now generates the secret and passes `--token`,
+  which is the mode DEV.md already documents for the flag ("тот, кто его задал,
+  знает его и так"). The residual cost — the secret is visible in the process
+  list — is filed as its own deviation rather than waved through.
+- **Two backends could not run on one machine.** The torrent client's default
+  listen port is a fixed `42069`, so the second instance died with
+  `first listen: listen tcp4 :42069: bind: address already in use` and the
+  server refused to start. With every participant running their own backend this
+  is an ordinary situation, not an exotic one. `cfg.ListenPort = 0` now makes
+  anacrolix choose a free port shared across TCP and uTP; an explicitly
+  configured port still wins. Every other test in the package disables TCP,
+  which is exactly why the suite had never seen it — the new test deliberately
+  leaves TCP on.
+- **The embedded backend is now always started**, with a free port picked by the
+  client. A fixed 8889 made a second instance fail to bind and then quietly talk
+  to somebody else's server.
+
+Frontend, `NetworkManager` now holds two endpoints instead of one, and routes
+every request by kind:
+
+| plane | carries | address | token |
+|---|---|---|---|
+| control | rooms, roster, sync commands, SSE | the room's server (`--server-url`) | the host's token (`--access-token`) |
+| data | torrents, files, selection, buffer telemetry, media stream | the local backend | the one the client generated |
+
+`streamUrl()` now points at the local backend. That is the line that decides who
+actually downloads the film, and it is the test that now pins it. Server
+availability is tracked per plane as well: a host going offline no longer makes
+the app report itself broken while torrents keep downloading.
+
+`--server-url` changes meaning rather than being replaced — it now names the
+control plane, and no longer suppresses the local backend. `--access-token`
+belongs to that same control plane; the local token is never typed by a human.
+
+Verified: backend `go test -race ./...` green across 18 packages; frontend built
+and `ctest` 7/7, with four new tests — torrent requests reach the local backend,
+room requests reach the control plane, each plane gets its own token, and the
+stream URL is not built from the host's address. Against two real backends on
+one machine: each answers 200 with its own token, 401 with the other's, a guest
+joins the host's room over the control plane, and the host's roster shows it.
+
+Not yet done, and it is the point of the whole exercise: a guest still receives
+no torrent, so it has nothing to download. The room carries a `torrentId` and
+the guest's own backend is empty. That is the remaining half of
+deviation-0055.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

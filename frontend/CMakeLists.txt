@@ -448,6 +448,7 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     add_executable(test_backendargs ${TEST_BACKENDARGS_SOURCES})
     target_link_libraries(test_backendargs PRIVATE
         Qt6::Core
+        Qt6::Network
         Qt6::Test
     )
 

@@ -4,6 +4,10 @@
 
 #include "backendargs.h"
 
+#include <QHostAddress>
+#include <QTcpServer>
+#include <QUuid>
+
 namespace BackendArgs {
 
 const QStringList &knownBackendFlags()
@@ -33,17 +37,48 @@ const QStringList &knownBackendFlags()
     return flags;
 }
 
-QStringList build(const QString &port)
+QString generateToken()
+{
+    // 128 бит в виде 32 hex-символов: длиннее становится неуместно в выводе,
+    // короче — уже не ощущается как секрет. Бэкенд принимает любую строку,
+    // формат здесь задаёт только клиент.
+    //
+    // Сравнение в бэкенде — crypto/subtle.ConstantTimeCompare, поэтому
+    // длину токена стоит держать постоянной: иначе длина утекала бы через
+    // время ответа. QUuid без фигурных скобок даёт 32 hex-символа.
+    return QUuid::createUuid().toString(QUuid::WithoutBraces).remove(QLatin1Char('-'));
+}
+
+quint16 pickFreePort()
+{
+    // Порт выбирается тем же способом, каким его потом займёт бэкенд:
+    // слушателем на всех интерфейсах. Выбор на loopback дал бы порт, который
+    // тут же окажется занят снаружи — и обратно.
+    QTcpServer probe;
+    if (!probe.listen(QHostAddress::Any, 0)) {
+        return 0;
+    }
+    return probe.serverPort();
+}
+
+QStringList build(const QString &port, const QString &token)
 {
     // Явно передаём порт, хотя он совпадает с умолчанием бэкенда: значение
     // видно в логах запуска, и «откуда взялся порт» не приходится выяснять.
     //
-    // Токен сюда не передаётся. Его генерирует сам бэкенд при старте и
-    // печатает в свой лог, а игрок получает его от пользователя — из
-    // `--access-token` либо из настроек. Передавать секрет аргументом
-    // командной строки означало бы показать его в списке процессов, где его
-    // видит любой, кто может запускать `ps`.
-    return {QStringLiteral("--port"), port};
+    // Токен передаётся флагом, а не оставляется бэкенду на генерацию.
+    // Пустой бэкенд напечатал бы его в лог, откуда клиент его не забирает, и
+    // приложение осталось бы без доступа к собственному бэкенду (bug-0060).
+    // Цена решения — секрет виден в списке процессов; она зафиксирована как
+    // открытое отклонение, потому что бэкенд слушает и внешние интерфейсы, а
+    // не только loopback.
+    QStringList args = {
+        QStringLiteral("--port"), port,
+    };
+    if (!token.isEmpty()) {
+        args << QStringLiteral("--token") << token;
+    }
+    return args;
 }
 
 } // namespace BackendArgs

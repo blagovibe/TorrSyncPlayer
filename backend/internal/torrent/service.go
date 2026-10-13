@@ -392,8 +392,16 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 	if opts.DisableTCP {
 		cfg.DisableTCP = true
 	}
+	// Torrent client's default listen port is a fixed 42069. Every participant
+	// runs their own backend, so two instances on one machine is ordinary — and
+	// the second one died with "address already in use" and took the whole
+	// server down with it. Port 0 makes anacrolix pick a free port and share it
+	// across TCP and uTP, which is what every other library here does by
+	// default. An explicitly configured port still wins.
 	if opts.ListenPort != 0 {
 		cfg.ListenPort = opts.ListenPort
+	} else {
+		cfg.ListenPort = 0
 	}
 
 	backend, err := newLocalBackend(cfg)

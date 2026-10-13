@@ -16,6 +16,7 @@
  */
 
 #include <QtTest>
+#include <QTcpServer>
 #include "backendargs.h"
 
 class TestBackendArgs : public QObject
@@ -25,13 +26,18 @@ class TestBackendArgs : public QObject
 private slots:
     void buildPassesOnlyKnownFlags();
     void buildPassesPortAndItsValue();
-    void buildHasNoSecretArgument();
+    void buildPassesTheTokenItWasGiven();
+    void buildOmitsTokenWhenThereIsNone();
     void buildHasNoStrayPositionalArgument();
+    void tokenIsNotEmptyByDefault();
+    void generatedTokenIsUsableAsAnArgument();
+    void pickedPortIsFree();
+    void pickedPortDiffersFromAnOccupiedOne();
 };
 
 void TestBackendArgs::buildPassesOnlyKnownFlags()
 {
-    const QStringList args = BackendArgs::build(QStringLiteral("8889"));
+    const QStringList args = BackendArgs::build(QStringLiteral("8889"), QStringLiteral("tok"));
     const QStringList &known = BackendArgs::knownBackendFlags();
 
     QStringList unknown;
@@ -51,26 +57,34 @@ void TestBackendArgs::buildPassesOnlyKnownFlags()
 
 void TestBackendArgs::buildPassesPortAndItsValue()
 {
-    const QStringList args = BackendArgs::build(QStringLiteral("9999"));
+    const QStringList args = BackendArgs::build(QStringLiteral("9999"), QStringLiteral("tok"));
 
-    QCOMPARE(args.size(), 2);
     QCOMPARE(args.at(0), QStringLiteral("--port"));
     QCOMPARE(args.at(1), QStringLiteral("9999"));
 }
 
-void TestBackendArgs::buildHasNoSecretArgument()
+// bug-0060: the app starts its own backend and then cannot talk to it.
+//
+// The backend generates a random token when none is given and prints it to
+// stdout. The frontend forwarded stdout to qDebug() and never read the token,
+// so with no --access-token on the command line every request to its own
+// backend came back 401. The client now owns the secret and hands it over.
+void TestBackendArgs::buildPassesTheTokenItWasGiven()
 {
-    // Секрет в командной строке виден в списке процессов. Токен генерирует
-    // сам бэкенд, а игрок получает его от пользователя, поэтому передавать его
-    // аргументом нельзя.
-    const QStringList args = BackendArgs::build(QStringLiteral("8889"));
+    const QString secret = QStringLiteral("a3f1c9e7b2d84f06");
+    const QStringList args = BackendArgs::build(QStringLiteral("8889"), secret);
 
-    for (const QString &arg : args) {
-        QVERIFY2(!arg.contains(QLatin1String("secret"), Qt::CaseInsensitive),
-                 qPrintable(QStringLiteral("аргумент выглядит как секрет: %1").arg(arg)));
-        QVERIFY2(!arg.contains(QLatin1String("token"), Qt::CaseInsensitive),
-                 qPrintable(QStringLiteral("аргумент выглядит как секрет: %1").arg(arg)));
-    }
+    const int at = args.indexOf(QStringLiteral("--token"));
+    QVERIFY2(at >= 0, "встроенный бэкенд запущен без токена: клиент не сможет к нему обратиться");
+    QCOMPARE(args.at(at + 1), secret);
+}
+
+void TestBackendArgs::buildOmitsTokenWhenThereIsNone()
+{
+    const QStringList args = BackendArgs::build(QStringLiteral("8889"), QString());
+
+    QVERIFY2(args.indexOf(QStringLiteral("--token")) < 0,
+             "пустой токен передавать нельзя: --token \"\" зафиксирует пустой секрет вместо случайного");
 }
 
 void TestBackendArgs::buildHasNoStrayPositionalArgument()
@@ -78,7 +92,7 @@ void TestBackendArgs::buildHasNoStrayPositionalArgument()
     // Позиционный аргумент Go тоже трактует как флаг и завершает разбор с
     // ошибкой, поэтому в списке не должно быть ничего, что не является
     // парой «флаг, значение» для флагов со значением.
-    const QStringList args = BackendArgs::build(QStringLiteral("8889"));
+    const QStringList args = BackendArgs::build(QStringLiteral("8889"), QStringLiteral("tok"));
 
     for (int i = 0; i < args.size(); i += 2) {
         QVERIFY2(args.at(i).startsWith(QLatin1String("--")),
@@ -86,6 +100,51 @@ void TestBackendArgs::buildHasNoStrayPositionalArgument()
         QVERIFY2(i + 1 < args.size(),
                  qPrintable(QStringLiteral("флаг без значения: %1").arg(args.at(i))));
     }
+}
+
+void TestBackendArgs::tokenIsNotEmptyByDefault()
+{
+    // Пустой токен означал бы «бэкенд сгенерирует случайный», то есть ровно
+    // то состояние, из-за которого клиент не мог обратиться к своему
+    // бэкенду. Значение по умолчанию обязано быть пригодным секретом.
+    QVERIFY2(!BackendArgs::generateToken().isEmpty(),
+             "токен по умолчанию пуст — клиент снова останется без доступа к своему бэкенду");
+}
+
+void TestBackendArgs::generatedTokenIsUsableAsAnArgument()
+{
+    const QString secret = BackendArgs::generateToken();
+    const QStringList args = BackendArgs::build(QStringLiteral("8889"), secret);
+
+    QVERIFY(secret.contains(QRegularExpression(QStringLiteral("^[0-9a-f]{32,}$"))));
+    QVERIFY(args.contains(secret));
+}
+
+void TestBackendArgs::pickedPortIsFree()
+{
+    const quint16 port = BackendArgs::pickFreePort();
+
+    QVERIFY2(port != 0, "не удалось подобрать свободный порт");
+
+    // Free means bindable right now: the same check the picker itself makes.
+    QTcpServer probe;
+    QVERIFY2(probe.listen(QHostAddress::Any, port),
+             qPrintable(QStringLiteral("выбранный порт %1 уже занят").arg(port)));
+}
+
+void TestBackendArgs::pickedPortDiffersFromAnOccupiedOne()
+{
+    // Every instance starts its own backend. With a fixed port the second
+    // instance on the same machine fails to bind and the app comes up talking
+    // to somebody else's server.
+    QTcpServer occupied;
+    QVERIFY(occupied.listen(QHostAddress::Any, 0));
+    const quint16 busy = occupied.serverPort();
+
+    const quint16 picked = BackendArgs::pickFreePort();
+
+    QVERIFY2(picked != busy,
+             qPrintable(QStringLiteral("подобран занятый порт %1").arg(picked)));
 }
 
 QTEST_MAIN(TestBackendArgs)

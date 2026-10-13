@@ -55,12 +55,16 @@ public:
     MOCK_METHOD(QString, streamUrl, (const QString &torrentId), (const, override));
     MOCK_METHOD(QString, serverUrl, (), (const, override));
     MOCK_METHOD(void, setServerUrl, (const QUrl &url), (override));
+    MOCK_METHOD(void, setControlServerUrl, (const QUrl &url), (override));
+    MOCK_METHOD(void, setLocalBackendUrl, (const QUrl &url), (override));
     MOCK_METHOD(bool, isInRoom, (), (const, override));
     MOCK_METHOD(QString, currentRoomId, (), (const, override));
     MOCK_METHOD(bool, isServerAvailable, (), (const, override));
 
     // Additional NetworkManager specific methods (for extended testing)
     MOCK_METHOD(void, setAccessToken, (const QString &token), (override));
+    MOCK_METHOD(void, setControlAccessToken, (const QString &token), (override));
+    MOCK_METHOD(void, setLocalAccessToken, (const QString &token), (override));
     MOCK_METHOD(void, clearAccessToken, (), (override));
     MOCK_METHOD(void, setClientId, (const QString &clientId), (override));
 MOCK_METHOD(QString, clientId, (), (const, override));

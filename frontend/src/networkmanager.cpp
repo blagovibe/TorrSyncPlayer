@@ -92,7 +92,8 @@ namespace {
 NetworkManager::NetworkManager(QObject *parent)
     : INetworkManager(parent)
     , m_network(new QNetworkAccessManager(this))
-    , m_serverUrl(QStringLiteral("http://localhost:8889"))
+    , m_controlServerUrl(QStringLiteral("http://localhost:8889"))
+    , m_localBackendUrl(QStringLiteral("http://localhost:8889"))
     , m_sseReply(nullptr)
     , m_retryTimer(new QTimer(this))
     , m_sseReconnectTimer(new QTimer(this))
@@ -121,7 +122,8 @@ NetworkManager::NetworkManager(QObject *parent)
 
     // Запрашиваем CSRF-токен при старте (для защиты мутирующих запросов без JWT)
 
-    qDebug() << "NetworkManager: инициализирован с URL" << m_serverUrl.toString();
+    qDebug() << "NetworkManager: инициализирован, плоскость управления"
+             << m_controlServerUrl.toString() << "плоскость данных" << m_localBackendUrl.toString();
 }
 
 NetworkManager::~NetworkManager()
@@ -304,8 +306,8 @@ void NetworkManager::createRoom(const QString &name, const QString &password, co
     }
 
     // Безопасность: блокируем отправку пароля по незащищённому соединению (кроме localhost)
-    if (!password.isEmpty() && m_serverUrl.host() != "localhost" && m_serverUrl.host() != "127.0.0.1") {
-        if (m_serverUrl.scheme() != "https") {
+    if (!password.isEmpty() && m_controlServerUrl.host() != "localhost" && m_controlServerUrl.host() != "127.0.0.1") {
+        if (m_controlServerUrl.scheme() != "https") {
             emit error(tr("Пароль не может быть отправлен по незащищённому соединению. Используйте HTTPS или localhost."));
             return;
         }
@@ -342,8 +344,8 @@ void NetworkManager::joinRoom(const QString &roomId, const QString &password, co
 
     // Безопасность: блокируем отправку пароля по незащищённому соединению (кроме localhost),
     // так же как в createRoom.
-    if (!password.isEmpty() && m_serverUrl.host() != "localhost" && m_serverUrl.host() != "127.0.0.1") {
-        if (m_serverUrl.scheme() != "https") {
+    if (!password.isEmpty() && m_controlServerUrl.host() != "localhost" && m_controlServerUrl.host() != "127.0.0.1") {
+        if (m_controlServerUrl.scheme() != "https") {
             emit error(tr("Пароль не может быть отправлен по незащищённому соединению. Используйте HTTPS или localhost."));
             return;
         }
@@ -454,8 +456,10 @@ QString NetworkManager::streamUrl(const QString &torrentId) const
         qWarning() << "NetworkManager: streamUrl — sanitized ID пуст";
         return QString();
     }
+    // The local backend, never the host's server: every participant pulls the
+    // media from the swarm into its own backend and plays it from there.
     return QString("%1/api/v1/torrents/%2/stream")
-        .arg(m_serverUrl.toString())
+        .arg(m_localBackendUrl.toString())
         .arg(sanitized);
 }
 
@@ -506,8 +510,11 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
         return;
     }
 
-    // Сервер доступен - обновляем состояние (потокобезопасно)
-    if (!m_serverAvailable.loadRelaxed()) {
+    // Доступность отслеживается по плоскостям: упавший сервер комнаты не должен
+    // выглядеть как поломка приложения. Торренты качаются и воспроизводятся
+    // без него, и наоборот — свой бэкенд поднят, а хост офлайн, значит
+    // синхронизации нет, а воспроизведение есть.
+    if (planeFor(type) == Plane::LocalBackend && !m_serverAvailable.loadRelaxed()) {
         m_serverAvailable.storeRelaxed(1);
         emit serverAvailable();
     }
@@ -784,7 +791,7 @@ void NetworkManager::onSslErrors(QNetworkReply *reply, const QList<QSslError> &e
             }
         }
 
-        if (onlySelfSigned && m_serverUrl.scheme() == "https" && m_serverUrl.host() == "localhost") {
+        if (onlySelfSigned && m_controlServerUrl.scheme() == "https" && m_controlServerUrl.host() == "localhost") {
             qWarning() << "NetworkManager: accepting self-signed cert for localhost (dev mode)";
             reply->ignoreSslErrors();
             return;
@@ -812,7 +819,10 @@ void NetworkManager::retryRequest()
     if (m_pendingRetry.attempt >= m_maxRetries) {
         emit error(tr("Сервер недоступен после %1 попыток").arg(m_maxRetries));
 
-        if (m_serverAvailable.loadRelaxed()) {
+        // Недоступность засчитывается только за плоскость данных: потеря
+        // связи с сервером комнаты не означает, что перестал работать плеер.
+        if (planeFor(m_pendingRetry.type) == Plane::LocalBackend
+            && m_serverAvailable.loadRelaxed()) {
             m_serverAvailable.storeRelaxed(0);
             emit serverUnavailable();
         }
@@ -877,24 +887,67 @@ QString NetworkManager::clientId() const
     return m_clientId;
 }
 
-void NetworkManager::applyAuthHeader(QNetworkRequest &request)
+// Which server a request belongs to.
+//
+// The split is the whole point of the room topology: the control plane carries
+// commands and the roster, the data plane carries the bytes. Sending a torrent
+// request to the host's server is what made every guest a viewer of the
+// host's download instead of a participant pulling its own copy.
+NetworkManager::Plane NetworkManager::planeFor(RequestType type) const
 {
-    QMutexLocker locker(&m_accessTokenMutex);
-    if (!m_accessToken.isEmpty()) {
-        request.setRawHeader("X-Access-Token", m_accessToken.toUtf8());
+    switch (type) {
+    case RequestType::ListTorrents:
+    case RequestType::AddTorrent:
+    case RequestType::RemoveTorrent:
+    case RequestType::GetFiles:
+    case RequestType::SelectFile:
+    case RequestType::StreamTicket:
+    case RequestType::SetBufferPosition:
+    case RequestType::GetBufferInfo:
+        return Plane::LocalBackend;
+
+    default:
+        return Plane::ControlServer;
     }
+}
+
+QUrl NetworkManager::baseUrlFor(RequestType type) const
+{
+    return planeFor(type) == Plane::LocalBackend ? m_localBackendUrl : m_controlServerUrl;
+}
+
+QString NetworkManager::tokenFor(RequestType type) const
+{
+    return planeFor(type) == Plane::LocalBackend ? localAccessToken() : accessToken();
+}
+
+void NetworkManager::applyAuthHeader(QNetworkRequest &request, const QString &token)
+{
+    if (!token.isEmpty()) {
+        request.setRawHeader("X-Access-Token", token.toUtf8());
+    }
+    // The client id goes to both planes: ownership on the local backend is
+    // keyed by it, and on the control plane it identifies the peer in the room.
+    // It shares the guard with the control-plane token, as it always did; the
+    // local token was already read and released by the caller.
+    QMutexLocker locker(&m_accessTokenMutex);
     if (!m_clientId.isEmpty()) {
         request.setRawHeader("X-Client-ID", m_clientId.toUtf8());
     }
 }
 
+void NetworkManager::applyAuthHeader(QNetworkRequest &request)
+{
+    applyAuthHeader(request, accessToken());
+}
+
 void NetworkManager::sendGet(const QString &path, RequestType type)
 {
-    QUrl url = safeUrl(m_serverUrl, path);
+    QUrl url = safeUrl(baseUrlFor(type), path);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
-    applyAuthHeader(request);
+    applyAuthHeader(request, tokenFor(type));
     request.setTransferTimeout(TransferTimeout);
 
     QNetworkReply *reply = m_network->get(request);
@@ -909,11 +962,11 @@ void NetworkManager::sendGet(const QString &path, RequestType type)
 
 void NetworkManager::sendPost(const QString &path, const QJsonObject &body, RequestType type)
 {
-    QUrl url = safeUrl(m_serverUrl, path);
+    QUrl url = safeUrl(baseUrlFor(type), path);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
-    applyAuthHeader(request);
+    applyAuthHeader(request, tokenFor(type));
     request.setTransferTimeout(TransferTimeout);
 
     QJsonDocument doc(body);
@@ -931,11 +984,11 @@ void NetworkManager::sendPost(const QString &path, const QJsonObject &body, Requ
 
 void NetworkManager::sendDelete(const QString &path, RequestType type)
 {
-    QUrl url = safeUrl(m_serverUrl, path);
+    QUrl url = safeUrl(baseUrlFor(type), path);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "application/json");
-    applyAuthHeader(request);
+    applyAuthHeader(request, tokenFor(type));
     request.setTransferTimeout(TransferTimeout);
 
     QNetworkReply *reply = m_network->deleteResource(request);
@@ -979,7 +1032,7 @@ void NetworkManager::connectToSSE(const QString &path)
     // Отключаем предыдущий SSE перед подключением нового (предотвращает утечку)
     disconnectSSE();
 
-    QUrl url = safeUrl(m_serverUrl, path);
+    QUrl url = safeUrl(m_controlServerUrl, path);
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "text/event-stream");
     applyAuthHeader(request);

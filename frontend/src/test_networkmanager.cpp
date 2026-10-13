@@ -99,6 +99,13 @@ private slots:
 
     // ── SelectFile → fileSelected signal ──────────────────────────────────
     void testSelectFileEmitsFileSelected();
+    // ── Плоскости ─────────────────────────────────────────────────────
+    // Разделение плоскостей — это не про скорость: от того, куда уйдёт
+    // запрос, зависит, кто именно скачивает фильм.
+    void testTorrentRequestsGoToTheLocalBackend();
+    void testRoomRequestsGoToTheControlPlane();
+    void testEachPlaneIsServedWithItsOwnToken();
+    void testStreamUrlPointsAtTheLocalBackendNotTheHost();
 
 private:
     NetworkManager *m_manager;
@@ -166,6 +173,22 @@ private:
      */
     QTcpServer *startSSEMockServer(const QString &roomId, SseMockState *state,
                                    int &outPort);
+
+    /**
+     * @brief Поднять сервер-заглушку, который только запоминает, что до него дошло
+     *
+     * Нужен, чтобы проверить, к какой из двух плоскостей ушёл запрос: оба
+     * сервера отвечают одинаково, иначе разницу нечем поймать. Заглушка
+     * отвечает 404 — тесту не нужен успех, нужен сам факт попадания.
+     */
+    quint16 startRecordingServer(QHash<quint16, QString> *seenTokens,
+                                 QHash<quint16, QString> *seenPaths);
+
+    /// Дождаться, пока придут запросы: сеть асинхронна, тест — нет.
+    static bool waitForHits(const QHash<quint16, QString> &book, int expected);
+
+    /// Порт, на который пришёл хоть один запрос, или 0.
+
     // ── F-04: разбор конвертов ответа ─────────────────────────────────────
     // Регрессия: код проверял doc.isArray() у объекта-конверта, что всегда
     // false, поэтому torrentListReceived/filesReceived не эмитились НИКОГДА,
@@ -953,6 +976,122 @@ void TestNetworkManager::testParseLargeJsonArray()
     QCOMPARE(parsed.array()[999].toString(), QString("item_999"));
 }
 
+bool TestNetworkManager::waitForHits(const QHash<quint16, QString> &book, int expected)
+{
+    for (int i = 0; i < 100 && book.size() < expected; ++i) {
+        QTest::qWait(50);
+    }
+    return book.size() >= expected;
+}
+
+quint16 TestNetworkManager::startRecordingServer(QHash<quint16, QString> *seenTokens,
+                                                    QHash<quint16, QString> *seenPaths)
+{
+    auto *server = new QTcpServer(this);
+    if (!server->listen(QHostAddress::LocalHost, 0)) {
+        return 0;
+    }
+    const quint16 port = server->serverPort();
+
+    connect(server, &QTcpServer::newConnection, server, [server, port, seenTokens, seenPaths]() {
+        QTcpSocket *sock = server->nextPendingConnection();
+        if (!sock) return;
+        QObject::connect(sock, &QTcpSocket::readyRead, [sock, port, seenTokens, seenPaths]() {
+            const QByteArray raw = sock->readAll();
+            if (seenPaths) {
+                (*seenPaths)[port] = QString::fromLatin1(raw);
+            }
+            if (seenTokens) {
+                // Заголовки приходят в одном пакете с запросом; ищем нужный.
+                const int at = raw.indexOf("X-Access-Token:");
+                if (at >= 0) {
+                    const int end = raw.indexOf('\r', at);
+                    (*seenTokens)[port] = QString::fromLatin1(
+                        raw.mid(at + 16, end - at - 16)).trimmed();
+                }
+            }
+            sock->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            sock->disconnectFromHost();
+        });
+    });
+
+    return port;
+}
+
+void TestNetworkManager::testTorrentRequestsGoToTheLocalBackend()
+{
+    QHash<quint16, QString> paths;
+    const quint16 localPort = startRecordingServer(nullptr, &paths);
+    const quint16 controlPort = startRecordingServer(nullptr, &paths);
+    QVERIFY(localPort != 0);
+    QVERIFY(controlPort != 0);
+
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(localPort)));
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(controlPort)));
+
+    m_manager->listTorrents();
+    waitForHits(paths, 1);
+
+    QVERIFY2(paths.contains(localPort),
+             "запрос списка торрентов ушёл не в свой бэкенд: гость смотрел бы чужую загрузку");
+    QVERIFY2(!paths.contains(controlPort),
+             "запрос списка торрентов ушёл на сервер хоста");
+}
+
+void TestNetworkManager::testRoomRequestsGoToTheControlPlane()
+{
+    QHash<quint16, QString> paths;
+    const quint16 localPort = startRecordingServer(nullptr, &paths);
+    const quint16 controlPort = startRecordingServer(nullptr, &paths);
+    QVERIFY(controlPort != 0);
+
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(localPort)));
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(controlPort)));
+
+    m_manager->syncPlay();
+    waitForHits(paths, 1);
+
+    QVERIFY2(paths.contains(controlPort),
+             "команда синхронизации ушла в свой бэкенд вместо сервера комнаты");
+    QVERIFY2(!paths.contains(localPort),
+             "команда синхронизации не должна попадать в локальный бэкенд");
+}
+
+void TestNetworkManager::testEachPlaneIsServedWithItsOwnToken()
+{
+    // Токены разные: свой — для своего бэкенда, чужой — для чужого сервера.
+    // Отправка не того означает 401, и приложение не работает ни там, ни там.
+    QHash<quint16, QString> tokens;
+    const quint16 localPort = startRecordingServer(&tokens, nullptr);
+    const quint16 controlPort = startRecordingServer(&tokens, nullptr);
+    QVERIFY(localPort != 0);
+
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(localPort)));
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(controlPort)));
+    m_manager->setLocalAccessToken(QStringLiteral("local-secret"));
+    m_manager->setAccessToken(QStringLiteral("control-secret"));
+
+    m_manager->listTorrents();
+    m_manager->syncPlay();
+    waitForHits(tokens, 2);
+
+    QCOMPARE(tokens.value(localPort), QStringLiteral("local-secret"));
+    QCOMPARE(tokens.value(controlPort), QStringLiteral("control-secret"));
+}
+
+void TestNetworkManager::testStreamUrlPointsAtTheLocalBackendNotTheHost()
+{
+    // Медиапоток идёт со своего бэкенда. Если URL собран с адреса сервера
+    // хоста, гость смотрит чужую загрузку — то самое, что цель отрицает.
+    const QString torrentId = "abc123def456";
+
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:5555")));
+    m_manager->setServerUrl(QUrl(QString("http://192.168.1.50:8889")));
+
+    QCOMPARE(m_manager->streamUrl(torrentId),
+             QString("http://127.0.0.1:5555/api/v1/torrents/%1/stream").arg(torrentId));
+}
+
 void TestNetworkManager::testSelectFileEmitsFileSelected()
 {
     // Локальный mock-сервер, отвечающий 200 на POST /api/v1/torrents/{id}/select.
@@ -977,7 +1116,7 @@ void TestNetworkManager::testSelectFileEmitsFileSelected()
         });
     });
 
-    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
 
     const QString torrentId = "abc123def456";
     const int fileIndex = 2;
@@ -1047,7 +1186,7 @@ void TestNetworkManager::testTorrentListEnvelopeIsUnwrapped()
     QVERIFY2(server, "не удалось поднять mock-сервер");
     m_mockServers.append(server);
 
-    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
 
     m_manager->listTorrents();
@@ -1069,7 +1208,7 @@ void TestNetworkManager::testFileListEnvelopeIsUnwrapped()
     QVERIFY2(server, "не удалось поднять mock-сервер");
     m_mockServers.append(server);
 
-    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::filesReceived);
 
     m_manager->getFiles(QStringLiteral("aabbcc"));
@@ -1087,7 +1226,7 @@ void TestNetworkManager::testBareArrayEnvelopeStillWorks()
     QVERIFY2(server, "не удалось поднять mock-сервер");
     m_mockServers.append(server);
 
-    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
 
     m_manager->listTorrents();
@@ -1106,7 +1245,7 @@ void TestNetworkManager::testEnvelopeWithoutExpectedFieldEmitsNothing()
     QVERIFY2(server, "не удалось поднять mock-сервер");
     m_mockServers.append(server);
 
-    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+    m_manager->setLocalBackendUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
 
     m_manager->listTorrents();

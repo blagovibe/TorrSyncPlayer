@@ -158,10 +158,25 @@ public:
     virtual QString serverUrl() const = 0;
     
     /**
-     * @brief Установить базовый URL сервера
+     * @brief Установить базовый URL сервера комнаты (плоскость управления)
      * @param url Новый URL
      */
     virtual void setServerUrl(const QUrl &url) = 0;
+
+    /**
+     * @brief Установить адрес сервера комнаты явно
+     *
+     * Именно он имеется в виду под «сервером»: комнаты, ростер, синхронизация.
+     */
+    virtual void setControlServerUrl(const QUrl &url) = 0;
+
+    /**
+     * @brief Установить адрес собственного бэкенда (плоскость данных)
+     *
+     * Торренты, файлы и медиапоток идут сюда, а не к серверу хоста: каждый
+     * участник тянет данные из роя сам.
+     */
+    virtual void setLocalBackendUrl(const QUrl &url) = 0;
     
     /**
      * @brief Проверить, подключен ли к комнате
@@ -184,6 +199,8 @@ public:
     // ── Authentication ────────────────────────────────────────────────────
 
     virtual void setAccessToken(const QString &token) = 0;
+    virtual void setControlAccessToken(const QString &token) = 0;
+    virtual void setLocalAccessToken(const QString &token) = 0;
     virtual void clearAccessToken() = 0;
     virtual QString accessToken() const = 0;
     virtual void setClientId(const QString &clientId) = 0;

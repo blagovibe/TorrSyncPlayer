@@ -211,7 +211,7 @@ bool extractEmbeddedBackend()
     return true;
 }
 
-bool startGoServer(QObject *parent)
+bool startGoServer(QObject *parent, quint16 port, const QString &token)
 {
     QString serverPath;
 
@@ -261,7 +261,11 @@ bool startGoServer(QObject *parent)
     // is in no test target, and an unknown flag makes the Go backend exit(2),
     // which is exactly how --jwt-secret survived the removal of JWT auth and
     // broke the Windows release with a fully green pipeline.
-    process->setArguments(BackendArgs::build(QStringLiteral("8889")));
+    //
+    // The token goes with it: the client generated it a moment ago and passes
+    // it in, so the backend does not print a random one the client would never
+    // see (bug-0060).
+    process->setArguments(BackendArgs::build(QString::number(port), token));
 
     // Connect logging signals (with read limit)
     QPointer<QProcess> p = process;
@@ -637,30 +641,50 @@ int main(int argc, char *argv[])
     }
 
     // ── Start Go backend ─────────────────────────────────────────────
-    bool serverStarted = false;
-    if (!parser.isSet(serverUrlOption)) {
-        // Start embedded server if URL not specified
-        serverStarted = startGoServer(&app);
-        if (!serverStarted) {
-            qWarning() << "Failed to start embedded server";
-        }
+    // The backend is started unconditionally now, even when --server-url is
+    // given. Every participant runs their own torrent client and pulls the
+    // media from the swarm themselves; the host's server is only the
+    // rendezvous for sync commands and the roster. A client without a backend
+    // of its own could not download anything, so --server-url configures the
+    // control plane alone and no longer replaces the local one.
+    //
+    // Port and token are ours to choose. A fixed port makes a second instance
+    // on the same machine fail to bind and then quietly talk to somebody
+    // else's server, and a backend-generated token is one the client never
+    // learns, so it would answer 401 to every request (bug-0060).
+    const quint16 backendPort = BackendArgs::pickFreePort();
+    const QString backendToken = BackendArgs::generateToken();
+
+    if (backendPort == 0) {
+        qWarning() << "Could not pick a free port for the embedded backend";
+    } else if (!startGoServer(&app, backendPort, backendToken)) {
+        qWarning() << "Failed to start embedded backend on port" << backendPort;
     }
 
     // ── Create main window ─────────────────────────────────────────────
     MainWindow mainWindow;
 
-    // Set server URL if specified
+    // The local backend is the data plane: torrents, files, selection, buffer
+    // telemetry and the media stream itself.
+    const QUrl localBackendUrl = QUrl(QStringLiteral("http://127.0.0.1:%1").arg(backendPort));
+    mainWindow.setLocalBackendUrl(localBackendUrl);
+    mainWindow.setLocalAccessToken(backendToken);
+
+    // --server-url is the control plane: the server hosting the room you
+    // join. Without it the client is the host, and its own local backend
+    // serves the room it creates.
     if (parser.isSet(serverUrlOption)) {
-        QUrl serverUrl(parser.value(serverUrlOption));
-        mainWindow.setServerUrl(serverUrl);
-        qDebug() << "Server URL:" << serverUrl.toString();
+        mainWindow.setControlServerUrl(QUrl(parser.value(serverUrlOption)));
+        qDebug() << "Control server URL:" << parser.value(serverUrlOption);
+    } else {
+        mainWindow.setControlServerUrl(localBackendUrl);
     }
 
-    // Apply access token and client ID if provided
+    // --access-token belongs to the remote control plane. The local backend
+    // always gets the token generated above, which is a different secret.
     if (parser.isSet(accessTokenOption)) {
-        QString token = parser.value(accessTokenOption);
-        mainWindow.setAccessToken(token);
-        qDebug() << "Access token provided at startup";
+        mainWindow.setControlAccessToken(parser.value(accessTokenOption));
+        qDebug() << "Control access token provided at startup";
     }
 
     QString clientId;

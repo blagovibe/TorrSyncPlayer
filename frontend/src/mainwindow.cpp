@@ -73,21 +73,44 @@ MainWindow::~MainWindow()
 
 void MainWindow::setServerUrl(const QUrl &url)
 {
+    setControlServerUrl(url);
+}
+
+void MainWindow::setControlServerUrl(const QUrl &url)
+{
     if (m_network) {
-        if (!url.isValid() || url.isEmpty()) {
-            qWarning() << "MainWindow: невалидный URL сервера:" << url.toString();
-            return;
-        }
-        m_network->setServerUrl(url);
-        qDebug() << "MainWindow: установлен URL сервера:" << url.toString();
+        m_network->setControlServerUrl(url);
+        qDebug() << "MainWindow: плоскость управления:" << url.toString();
+    }
+}
+
+void MainWindow::setLocalBackendUrl(const QUrl &url)
+{
+    if (m_network) {
+        m_network->setLocalBackendUrl(url);
+        qDebug() << "MainWindow: плоскость данных:" << url.toString();
     }
 }
 
 void MainWindow::setAccessToken(const QString &token)
 {
+    setControlAccessToken(token);
+}
+
+void MainWindow::setControlAccessToken(const QString &token)
+{
     if (m_network) {
-        m_network->setAccessToken(token);
-        qDebug() << "MainWindow: установлен токен доступа";
+        m_network->setControlAccessToken(token);
+        qDebug() << "MainWindow: установлен токен плоскости управления";
+    }
+}
+
+void MainWindow::setLocalAccessToken(const QString &token)
+{
+    if (m_network) {
+        m_network->setLocalAccessToken(token);
+        // The value itself is a secret and never logged.
+        qDebug() << "MainWindow: установлен токен локального бэкенда";
     }
 }
 

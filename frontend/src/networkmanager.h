@@ -57,6 +57,19 @@ enum class RequestType {
     Unknown
 };
 
+/**
+ * @brief Which of the two servers a request is addressed to
+ *
+ * Every participant runs their own backend and pulls the media from the swarm
+ * themselves; the host's server is a rendezvous for sync commands and the
+ * roster only. Sending a request to the wrong one is not a performance
+ * question — it decides who actually downloads the film.
+ *
+ * Declared inside NetworkManager (see below) because nothing outside the class
+ * routes requests, and a namespace-scope enum with two users would only invite
+ * the third to reach for it.
+ */
+
 struct RetryRequest {
     QString path;
     QJsonObject body;
@@ -256,16 +269,53 @@ public:
     void requestStreamTicket(const QString &torrentId);
     
     /**
-     * @brief Получить базовый URL сервера
-     * @return URL сервера
+     * @brief Базовый URL плоскости управления — сервера, где живёт комната
+     *
+     * Именно этот адрес имеется в виду под «сервером» во всём прежнем коде:
+     * комнаты, ростер, команды синхронизации и SSE. Токен у него тоже свой —
+     * чужой, если комната чужая.
      */
-    QString serverUrl() const { return m_serverUrl.toString(); }
-    
+    QString serverUrl() const { return m_controlServerUrl.toString(); }
+    QUrl controlServerUrl() const { return m_controlServerUrl; }
+
     /**
-     * @brief Установить базовый URL сервера
+     * @brief Базовый URL локального бэкенда — плоскости данных
+     *
+     * Торренты, файлы, выбор файла, телеметрия буфера и сам медиапоток идут
+     * сюда, а не к серверу хоста: каждый участник тянет данные из роя сам.
+     */
+    QUrl localBackendUrl() const { return m_localBackendUrl; }
+
+    /**
+     * @brief Установить базовый URL плоскости управления
      * @param url Новый URL
      */
     void setServerUrl(const QUrl &url) {
+        setControlServerUrl(url);
+    }
+
+    /**
+     * @brief Установить базовый URL локального бэкенда
+     * @param url Новый URL
+     */
+    void setLocalBackendUrl(const QUrl &url) {
+        if (url.isEmpty()) {
+            qWarning() << "NetworkManager: empty local backend URL, keeping previous";
+            return;
+        }
+        if (url.scheme() != QLatin1String("https") && url.scheme() != QLatin1String("http")) {
+            qWarning() << "NetworkManager: unsupported local backend URL scheme" << url.scheme()
+                       << "- keeping previous URL";
+            return;
+        }
+        m_localBackendUrl = url;
+    }
+
+    /**
+     * @brief Установить базовый URL плоскости управления
+     * @param url Новый URL
+     */
+    void setControlServerUrl(const QUrl &url) {
         if (url.isEmpty()) {
             qWarning() << "NetworkManager: empty URL, keeping default";
             return;
@@ -283,10 +333,19 @@ public:
             qWarning() << "NetworkManager: using plain HTTP to non-localhost host" << url.host()
                        << "- auth tokens will be sent unencrypted";
         }
-        m_serverUrl = url;
+        m_controlServerUrl = url;
     }
 
+    /**
+     * @brief Токен плоскости управления — токен чужого сервера
+     *
+     * Передаётся командной строкой, потому что задаётся человеком: он
+     * передал адрес сервера и токен вместе.
+     */
     void setAccessToken(const QString &token) {
+        setControlAccessToken(token);
+    }
+    void setControlAccessToken(const QString &token) {
         QMutexLocker locker(&m_accessTokenMutex);
         m_accessToken = token;
     }
@@ -297,6 +356,23 @@ public:
     QString accessToken() const {
         QMutexLocker locker(&m_accessTokenMutex);
         return m_accessToken;
+    }
+
+    /**
+     * @brief Токен локального бэкенда
+     *
+     * Другой секрет, чем у плоскости управления, и никогда не вводится
+     * человеком: приложение само порождает его при запуске своего бэкенда
+     * (bug-0060). Смешивать их нельзя — токен чужого сервера не подойдёт к
+     * своему, а свой не откроет чужой.
+     */
+    void setLocalAccessToken(const QString &token) {
+        QMutexLocker locker(&m_localTokenMutex);
+        m_localAccessToken = token;
+    }
+    QString localAccessToken() const {
+        QMutexLocker locker(&m_localTokenMutex);
+        return m_localAccessToken;
     }
 
     /**
@@ -613,6 +689,15 @@ private:
      * @param request Request to modify
      */
     void applyAuthHeader(QNetworkRequest &request);
+    void applyAuthHeader(QNetworkRequest &request, const QString &token);
+    enum class Plane {
+        ControlServer,  ///< Rooms, roster, sync commands, SSE
+        LocalBackend,   ///< Torrents, files, selection, buffer telemetry, media
+    };
+
+    Plane planeFor(RequestType type) const;
+    QUrl baseUrlFor(RequestType type) const;
+    QString tokenFor(RequestType type) const;
 
     /**
      * @brief Обработка ошибки API
@@ -629,7 +714,10 @@ private:
     int calculateRetryDelay(int attempt) const;
 
     QNetworkAccessManager *m_network;       ///< Менеджер сетевых запросов
-    QUrl m_serverUrl;                       ///< Базовый URL сервера
+    QUrl m_controlServerUrl;                ///< Базовый URL плоскости управления
+    QUrl m_localBackendUrl;                 ///< Базовый URL локального бэкенда (данные)
+    mutable QMutex m_localTokenMutex;         ///< Guards the local-backend token
+    QString m_localAccessToken;             ///< Токен локального бэкенда
     QPointer<QNetworkReply> m_sseReply;     ///< Текущий SSE ответ (QPointer для безопасности от nullptr)
     mutable QMutex m_roomIdMutex;
     QString m_currentRoomId;                ///< ID текущей комнаты
@@ -652,7 +740,7 @@ private:
     QAtomicInt m_serverAvailable{1};        ///< Флаг доступности сервера (потокобезопасный)
 
     // ── Auth ───────────────────────────────────────────────────────────
-    mutable QMutex m_accessTokenMutex;      ///< Mutex for thread-safe access token access
+    mutable QMutex m_accessTokenMutex;      ///< Guards the control-plane token and the client id
     QString m_accessToken;                  ///< Per-process access token (X-Access-Token)
     QString m_clientId;                     ///< Client identifier for this run (X-Client-ID)
 
