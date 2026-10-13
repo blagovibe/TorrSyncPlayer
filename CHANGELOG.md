@@ -554,6 +554,58 @@ on a free port (`40313`) with a token it generated, waits until the backend
 answers `/api/v1/version` before showing the window, and a magnet added through
 its data plane comes back in the torrent list it polls every two seconds.
 
+### mpv can send headers — the premise of deviation-0029 is false
+
+Found while wiring playback into the Go frontend, when the question arose of how
+mpv gets the access token. It turns out it does not need to be told twice: mpv
+is told to send it.
+
+Checked against the binaries, not against documentation:
+
+- **mpv as a process.** `--http-header-fields` is an mpv option. Against a test
+  server: without the flag it sees `token=""`, with it, `token="letmein"`.
+- **libmpv.** `mpv_set_option_string(ctx, "http-header-fields", …)` before
+  `mpv_initialize` returns `success`. The option belongs to mpv's core, and
+  `mpv_set_option_string` is the documented way to set any option by name.
+
+So the claim written identically in CONCEPT.md, DEV.md and SECURITY.md — that
+libmpv cannot attach headers to its own HTTP fetches — was not a property of the
+tool. It was a property of how the tool was used. `deviation-0029`, the only
+`accepted` compromise on the board, rests on it, and it is the reason for the
+public `/stream` route, the HMAC ticket machinery, the ticket endpoint, the
+separate stream rate limiter, and a transmissible bearer value in a URL.
+
+**Step 1 of the removal is done, and it is additive.** `/stream` now also accepts
+the ordinary `X-Access-Token` header. A ticket, when present, still decides
+everything — it names the peer unambiguously, and a header alongside it must not
+override that, which an existing test pins. With no ticket, the header is
+accepted like on every other endpoint.
+
+Verified: no credential 401, wrong token 401, correct token passes
+authentication and reaches the torrent lookup.
+
+**Step 2: playback in the Go frontend, without tickets.** mpv runs as its own
+process — no libmpv to link, no C ABI in the build, and a decoder crash takes
+the player window with it rather than the application. That is Multiplex's
+arrangement, and it is what makes step 1 usable: mpv receives the token as
+`--http-header-fields` and the stream URL stays clean.
+
+Three new tests drive the real mpv binary: it opens its IPC socket, it answers
+commands, and it puts the configured header on the stream request. The last one
+is the whole claim of this entry, checked against the real binary rather than
+asserted.
+
+What is **not** verified, and should not be read as verified: `GOOS=windows`
+compiles every package of this repository, but the Fyne window does not
+cross-compile from Linux — it needs cgo and a Windows GL toolchain. The
+three-platform promise is intact in the source and unproven for Windows and
+macOS, which will need a native build to confirm. The Windows named-pipe dial in
+`internal/player` is written and compiles but has never been run.
+
+The ticket machinery itself is still there. `deviation-0029` is still
+`accepted` — closing it is the owner's call, and it should happen only after the
+header path has been in use for a while.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

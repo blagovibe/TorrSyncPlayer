@@ -77,6 +77,12 @@ func (c *Client) token(plane Plane) string {
 // DataURL is the base URL of this application's own backend.
 func (c *Client) DataURL() string { return c.dataBaseURL }
 
+// DataToken is the token for this application's own backend.
+//
+// Exposed because mpv needs it as a header: it fetches the stream itself and
+// cannot ask this client to attach it (idea-0066).
+func (c *Client) DataToken() string { return c.dataToken }
+
 // ControlURL is the base URL of the server hosting the room.
 func (c *Client) ControlURL() string { return c.controlBaseURL }
 

@@ -289,15 +289,38 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 			return
 		}
 
-		// Authenticate via a short-lived, HMAC-signed stream ticket passed as a
-		// query parameter. libmpv cannot attach JWT/CSRF headers to its own
-		// HTTP fetches, so it appends "?ticket=" obtained from an authenticated
-		// endpoint. The ticket is self-contained and validated without a JWT.
-		// The ticket contains: expiry.userID.torrentID.signature
-		ticket := r.URL.Query().Get("ticket")
-		userID, ok := authSvc.ValidateStreamTicket(ticket, torrentID)
+		// Two ways in.
+		//
+		// A ticket, when present, decides everything: it names the peer
+		// unambiguously, and a header alongside it must not override that. The
+		// ticket is expiry.userID.torrentID.signature — self-contained, and
+		// validated without any other state.
+		//
+		// Without a ticket, the ordinary access-token header is accepted, like
+		// every other endpoint. This exists because mpv CAN send custom
+		// headers: as a process via --http-header-fields, and through libmpv
+		// via mpv_set_option_string before mpv_initialize. The project long
+		// assumed it could not, and that assumption is what forced the ticket
+		// to be the only way in (idea-0066).
+		if ticket := r.URL.Query().Get("ticket"); ticket != "" {
+			userID, ok := authSvc.ValidateStreamTicket(ticket, torrentID)
+			if !ok {
+				WriteError(w, http.StatusUnauthorized, "invalid or expired stream ticket")
+				return
+			}
+			torrentSvc.ServeFile(w, r, torrentID, userID)
+			return
+		}
+
+		token := r.Header.Get(auth.HeaderAccessToken)
+		if token == "" {
+			WriteError(w, http.StatusUnauthorized, "missing access token or stream ticket")
+			return
+		}
+
+		userID, ok := authSvc.ValidateAccessTokenForClient(token, r.Header.Get(auth.HeaderClientID))
 		if !ok {
-			WriteError(w, http.StatusUnauthorized, "invalid or expired stream ticket")
+			WriteError(w, http.StatusUnauthorized, "invalid or missing access token")
 			return
 		}
 

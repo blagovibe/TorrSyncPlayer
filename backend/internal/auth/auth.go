@@ -92,10 +92,26 @@ func (s *AuthService) ValidateAccessToken(presented string) bool {
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(s.accessToken)) == 1
 }
 
+// ValidateAccessTokenForClient reports whether the presented token matches and
+// returns the client it belongs to.
+//
+// It exists so the media endpoint can take the ordinary header like every other
+// endpoint does: mpv can be told to send custom headers (idea-0066), so /stream
+// no longer has to be a public route reached through a bearer value in a URL.
+func (s *AuthService) ValidateAccessTokenForClient(presented, clientID string) (string, bool) {
+	if !s.ValidateAccessToken(presented) {
+		return "", false
+	}
+	return clientID, true
+}
+
 // GenerateStreamTicket mints a short-lived ticket that lets a media player fetch
-// one torrent's media without attaching an access-token header. libmpv issues
-// its own HTTP requests and cannot be given one, which is why this exists
-// instead of simply putting the token in a header.
+// one torrent's media without attaching an access-token header.
+//
+// It predates the discovery that mpv can send headers (idea-0066), and is kept
+// only so players built against the older contract keep working. A bearer value
+// in a URL is transmissible, which is what deviation-0029 was filed about; that
+// becomes removable once the header path has proven itself.
 //
 // Format:
 //

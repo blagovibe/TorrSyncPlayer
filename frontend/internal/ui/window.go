@@ -11,6 +11,9 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -21,6 +24,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
 )
 
 // Torrent is one row of the list, as the data plane reports it.
@@ -38,12 +42,16 @@ type window struct {
 	clientID string
 
 	list      *widget.List
+	fileList  *widget.List
 	status    *widget.Label
 	entry     *widget.Entry
 	addButton *widget.Button
 
 	mu       sync.RWMutex
 	torrents []Torrent
+	current  *Torrent
+	files    []fileEntry
+	mpv      *player.Player
 }
 
 // NewWindow builds the main window around a client.
@@ -88,9 +96,38 @@ func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
 		widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), w.refresh),
 	)
 
+	// The file list sits next to the torrent list: picking a torrent answers
+	// "which file", and that question is asked every time.
+	w.fileList = widget.NewList(
+		func() int {
+			w.mu.RLock()
+			defer w.mu.RUnlock()
+			return len(w.files)
+		},
+		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			w.mu.RLock()
+			defer w.mu.RUnlock()
+			if id < 0 || id >= len(w.files) {
+				return
+			}
+			obj.(*widget.Label).SetText(fmt.Sprintf("%d. %s (%s)",
+				w.files[id].Index, w.files[id].Name, humanSize(w.files[id].Size)))
+		},
+	)
+	w.fileList.OnSelected = func(id widget.ListItemID) {
+		w.mu.RLock()
+		var f fileEntry
+		if id >= 0 && id < len(w.files) {
+			f = w.files[id]
+		}
+		w.mu.RUnlock()
+		w.playFile(f)
+	}
+
 	content := container.NewBorder(
 		toolbar, w.status, nil, nil,
-		container.NewScroll(w.list),
+		container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList)),
 	)
 
 	go w.poll()
@@ -108,14 +145,130 @@ func (w *window) item(id widget.ListItemID) *Torrent {
 	return &t
 }
 
-// play is where playback is wired in. Until the player exists the row is
-// selectable and nothing more, which is deliberate: half a player that looks
-// finished is worse than none.
+// play starts the torrent in mpv.
+//
+// mpv runs as its own process and gets the access token as an HTTP header, so
+// the media endpoint is a protected route and no ticket travels in the URL
+// (idea-0066). It gets the file list first: which file to play is the user's
+// choice, and a torrent is routinely a season of episodes rather than a film.
 func (w *window) play(t *Torrent) {
 	if t == nil {
 		return
 	}
-	w.setStatus("Selected: " + t.Name)
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		var listed struct {
+			Files []fileEntry `json:"files"`
+		}
+		if err := w.client.Get(ctx, api.Data, "/api/v1/torrents/"+t.ID+"/files", &listed); err != nil {
+			w.setStatus("Could not read the torrent: " + err.Error())
+			return
+		}
+		if len(listed.Files) == 0 {
+			w.setStatus("The torrent has no files yet")
+			return
+		}
+
+		w.presentFiles(t, listed.Files)
+	}()
+}
+
+// presentFiles shows the file list and plays the first video once one is picked.
+func (w *window) presentFiles(t *Torrent, files []fileEntry) {
+	// Fyne's list draws from the length and update callbacks, so the data is
+	// just the slice behind them: swap it, refresh, done.
+	w.mu.Lock()
+	w.current = t
+	w.files = files
+	w.mu.Unlock()
+
+	w.fileList.Refresh()
+	w.setStatus("Choose a file to play")
+}
+
+// playFile selects the file on the data plane and hands the stream to mpv.
+func (w *window) playFile(f fileEntry) {
+	w.mu.RLock()
+	torrent := w.current
+	w.mu.RUnlock()
+	if torrent == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		var selected struct {
+			Index int    `json:"index"`
+			Name  string `json:"name"`
+		}
+		body := map[string]int{"fileIndex": f.Index}
+		if err := w.client.Post(ctx, api.Data, "/api/v1/torrents/"+torrent.ID+"/select", body, &selected); err != nil {
+			w.setStatus("Could not select the file: " + err.Error())
+			return
+		}
+
+		p, err := w.startPlayer()
+		if err != nil {
+			w.setStatus("Could not start mpv: " + err.Error())
+			return
+		}
+
+		if err := p.Play(ctx, w.client.StreamURL(torrent.ID)); err != nil {
+			w.setStatus("Could not play: " + err.Error())
+			return
+		}
+		w.setStatus("Playing: " + f.Name)
+	}()
+}
+
+// startPlayer launches mpv once and reuses it for the rest of the run.
+func (w *window) startPlayer() (*player.Player, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.mpv != nil {
+		return w.mpv, nil
+	}
+
+	header, err := player.FormatHeader("X-Access-Token", w.client.DataToken())
+	if err != nil {
+		return nil, err
+	}
+
+	mpv, err := player.Start(context.Background(), player.Options{
+		SocketPath: filepath.Join(os.TempDir(), fmt.Sprintf("torrsync-%d.sock", os.Getpid())),
+	}, []string{header})
+	if err != nil {
+		return nil, err
+	}
+	w.mpv = mpv
+	return mpv, nil
+}
+
+// fileEntry is one row of the file list.
+type fileEntry struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+}
+
+// humanSize formats a byte count for the file list.
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for size := n / unit; size >= unit && exp < 3; size /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGT"[exp])
 }
 
 func (w *window) addTorrent() {
