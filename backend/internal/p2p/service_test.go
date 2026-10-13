@@ -44,13 +44,15 @@ func TestCreateRoom(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	room, err := svc.CreateRoom(context.Background(), "test-user", "Test Room", "")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Test Room", "", "torrent-test-user")
 	require.NoError(t, err)
 	require.NotNil(t, room)
 
 	assert.NotEmpty(t, room.ID)
 	assert.Equal(t, "Test Room", room.Name)
-	assert.Equal(t, 0, room.PeerCount)
+	// The creator is already a participant (bug-0021). It was reported as 0
+	// while it sat outside the roster, which made every count one short.
+	assert.Equal(t, 1, room.PeerCount)
 }
 
 // TestCreateRoom_WithPassword tests creating a room with a password
@@ -61,7 +63,7 @@ func TestCreateRoom_WithPassword(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "secret123")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "secret123", "torrent-test-user")
 	require.NoError(t, err)
 	require.NotNil(t, room)
 
@@ -77,7 +79,7 @@ func TestJoinRoom_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	err = svc.JoinRoom(context.Background(), "test-user", "nonexistent", "")
+	err = svc.JoinRoom(context.Background(), "test-user", "nonexistent", "", "torrent-test-user")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -91,11 +93,11 @@ func TestJoinRoom_WrongPassword(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create a room with a password
-	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "correct_password")
+	room, err := svc.CreateRoom(context.Background(), "test-user", "Private Room", "correct_password", "torrent-test-user")
 	require.NoError(t, err)
 
 	// Attempt to join with wrong password (need different user)
-	err = svc.JoinRoom(context.Background(), "other-user", room.ID, "wrong_password")
+	err = svc.JoinRoom(context.Background(), "other-user", room.ID, "wrong_password", "torrent-test-user")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid password")
 }
@@ -109,17 +111,17 @@ func TestJoinRoom_CorrectPassword(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create a room with a password
-	room, err := svc.CreateRoom(context.Background(), "host-user", "Private Room", "secret123")
+	room, err := svc.CreateRoom(context.Background(), "host-user", "Private Room", "secret123", "torrent-host-user")
 	require.NoError(t, err)
 
 	// Join with correct password
-	err = svc.JoinRoom(context.Background(), "joining-user", room.ID, "secret123")
+	err = svc.JoinRoom(context.Background(), "joining-user", room.ID, "secret123", "torrent-host-user")
 	require.NoError(t, err)
 
-	// Verify we are in the room
+	// Verify we are in the room: the creator plus the joiner (bug-0021).
 	info, err := svc.GetRoomInfo(context.Background(), "joining-user")
 	require.NoError(t, err)
-	assert.Equal(t, 1, info.PeerCount)
+	assert.Equal(t, 2, info.PeerCount)
 }
 
 // TestLeaveRoom_NotJoined tests leaving a room when not connected
@@ -182,17 +184,17 @@ func TestCreateAndJoinRoom(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create room
-	room, err := svc.CreateRoom(context.Background(), "test-user-1", "Test Room", "")
+	room, err := svc.CreateRoom(context.Background(), "test-user-1", "Test Room", "", "torrent-test-user-1")
 	require.NoError(t, err)
 
 	// Join room
-	err = svc.JoinRoom(context.Background(), "test-user-2", room.ID, "")
+	err = svc.JoinRoom(context.Background(), "test-user-2", room.ID, "", "torrent-test-user-1")
 	require.NoError(t, err)
 
-	// Check room info
+	// Check room info: the creator plus the joiner (bug-0021).
 	info, err := svc.GetRoomInfo(context.Background(), "test-user-2")
 	require.NoError(t, err)
-	assert.Equal(t, 1, info.PeerCount)
+	assert.Equal(t, 2, info.PeerCount)
 
 	// Leave room
 	err = svc.LeaveRoom(context.Background(), "test-user-2")
@@ -208,18 +210,18 @@ func TestFullRoomLifecycle(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// 1. Create a room with password
-	room, err := svc.CreateRoom(context.Background(), "host-user", "Lifecycle Room", "pass123")
+	room, err := svc.CreateRoom(context.Background(), "host-user", "Lifecycle Room", "pass123", "torrent-host-user")
 	require.NoError(t, err)
 	assert.Equal(t, "Lifecycle Room", room.Name)
-	assert.Equal(t, 0, room.PeerCount)
+	assert.Equal(t, 1, room.PeerCount) // the creator counts (bug-0021)
 
 	// 2. Attempt to join with wrong password - should be rejected
-	err = svc.JoinRoom(context.Background(), "joiner", room.ID, "wrong_pass")
+	err = svc.JoinRoom(context.Background(), "joiner", room.ID, "wrong_pass", "torrent-host-user")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid password")
 
 	// 3. Join with correct password
-	err = svc.JoinRoom(context.Background(), "joiner", room.ID, "pass123")
+	err = svc.JoinRoom(context.Background(), "joiner", room.ID, "pass123", "torrent-host-user")
 	require.NoError(t, err)
 
 	// 4. Check room info
@@ -227,7 +229,7 @@ func TestFullRoomLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, room.ID, info.ID)
 	assert.Equal(t, "Lifecycle Room", info.Name)
-	assert.Equal(t, 1, info.PeerCount)
+	assert.Equal(t, 2, info.PeerCount) // host + joiner (bug-0021)
 
 	// 5. Leave room
 	err = svc.LeaveRoom(context.Background(), "joiner")
@@ -247,7 +249,7 @@ func TestClose_EmptiesState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a room
-	_, err = svc.CreateRoom(context.Background(), "test-user", "Test Room", "")
+	_, err = svc.CreateRoom(context.Background(), "test-user", "Test Room", "", "torrent-test-user")
 	require.NoError(t, err)
 
 	// Close service
@@ -270,7 +272,7 @@ func TestConcurrentRoomCreation(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			_, _ = svc.CreateRoom(context.Background(), fmt.Sprintf("user_%d", idx), fmt.Sprintf("Room %d", idx), "")
+			_, _ = svc.CreateRoom(context.Background(), fmt.Sprintf("user_%d", idx), fmt.Sprintf("Room %d", idx), "", fmt.Sprintf("torrent_%d", idx))
 		}(i)
 	}
 
@@ -285,10 +287,10 @@ func TestConcurrentGetRoomInfo(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Close() }()
 
-	room, err := svc.CreateRoom(context.Background(), "host-user", "Test Room", "")
+	room, err := svc.CreateRoom(context.Background(), "host-user", "Test Room", "", "torrent-host-user")
 	require.NoError(t, err)
 
-	err = svc.JoinRoom(context.Background(), "joining-user", room.ID, "")
+	err = svc.JoinRoom(context.Background(), "joining-user", room.ID, "", "torrent-host-user")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -367,10 +369,10 @@ func TestEmitEvent_NoBlockOnNilSession(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create a room and add a peer
-	room, err := svc.CreateRoom(context.Background(), "host", "Room", "")
+	room, err := svc.CreateRoom(context.Background(), "host", "Room", "", "torrent-host")
 	require.NoError(t, err)
 
-	err = svc.JoinRoom(context.Background(), "peer", room.ID, "")
+	err = svc.JoinRoom(context.Background(), "peer", room.ID, "", "torrent-host")
 	require.NoError(t, err)
 
 	// Set the peer's eventChan to nil to simulate a disconnected SSE session
@@ -396,16 +398,16 @@ func TestPruneIdlePeers_RemovesStalePeers(t *testing.T) {
 	defer func() { _ = svc.Close() }()
 
 	// Create a room and join a peer
-	room, err := svc.CreateRoom(context.Background(), "host", "Room", "")
+	room, err := svc.CreateRoom(context.Background(), "host", "Room", "", "torrent-host")
 	require.NoError(t, err)
 
-	err = svc.JoinRoom(context.Background(), "peer", room.ID, "")
+	err = svc.JoinRoom(context.Background(), "peer", room.ID, "", "torrent-host")
 	require.NoError(t, err)
 
-	// Verify peer is in room
+	// Verify peer is in room: the creator plus the joiner (bug-0021).
 	info, err := svc.GetRoomInfo(context.Background(), "peer")
 	require.NoError(t, err)
-	assert.Equal(t, 1, info.PeerCount)
+	assert.Equal(t, 2, info.PeerCount)
 
 	// Manually set the peer's heartbeat to expired
 	svc.mu.Lock()

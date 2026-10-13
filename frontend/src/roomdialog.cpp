@@ -129,7 +129,32 @@ QWidget* RoomDialog::createJoinTab()
     QFormLayout *layout = new QFormLayout(tab);
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(10);
-    
+
+    // ── Код приглашения ────────────────────────────────────────────────
+    // Чистое удобство: раскладывает «ID:пароль» по двум полям ниже. Код не
+    // шифрует и не защищает — в нём ровно те данные, что и так нужно передать.
+    QLabel *codeLabel = new QLabel(tr("Код приглашения:"), tab);
+    QHBoxLayout *codeLayout = new QHBoxLayout();
+
+    m_inviteCodeEdit = new QLineEdit(tab);
+    m_inviteCodeEdit->setPlaceholderText(tr("Вставьте код от хоста — подставим ID и пароль"));
+    m_inviteCodeEdit->setClearButtonEnabled(true);
+    codeLayout->addWidget(m_inviteCodeEdit);
+
+    QPushButton *applyCodeButton = new QPushButton(tr("Подставить"), tab);
+    codeLayout->addWidget(applyCodeButton);
+
+    layout->addRow(codeLabel, codeLayout);
+
+    connect(applyCodeButton, &QPushButton::clicked, this, &RoomDialog::applyInviteCode);
+    connect(m_inviteCodeEdit, &QLineEdit::returnPressed, this, &RoomDialog::applyInviteCode);
+
+    QLabel *codeHint = new QLabel(tr("Код — это тот же ID и пароль через двоеточие, "
+                                     "чтобы отправить одним сообщением"), tab);
+    codeHint->setWordWrap(true);
+    codeHint->setStyleSheet("color: gray; font-size: 11px;");
+    layout->addRow("", codeHint);
+
     // ── ID комнаты ────────────────────────────────────────────────────
     QLabel *idLabel = new QLabel(tr("ID комнаты:"), tab);
     m_idEdit = new QLineEdit(tab);
@@ -207,6 +232,29 @@ void RoomDialog::onAccept()
     if (validateInput()) {
         accept();
     }
+}
+
+void RoomDialog::applyInviteCode()
+{
+    QString roomId;
+    QString password;
+
+    if (!RoomManager::parseInviteCode(m_inviteCodeEdit->text(), &roomId, &password)) {
+        m_statusLabel->setText(tr("Код не разобран: ожидается ID комнаты "
+                                  "(32 hex-символа) и пароль после двоеточия"));
+        m_statusLabel->show();
+        return;
+    }
+
+    m_idEdit->setText(roomId);
+    // Пустой пароль — законное состояние для комнаты без пароля, стирать
+    // ранее введённый пароль молча не нужно: код его и не содержал.
+    if (!password.isEmpty()) {
+        m_joinPasswordEdit->setText(password);
+    }
+
+    m_statusLabel->setText(tr("ID и пароль подставлены из кода"));
+    m_statusLabel->show();
 }
 
 void RoomDialog::onTabChanged(int index)

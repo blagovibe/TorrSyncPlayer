@@ -21,6 +21,8 @@
 #include <QGroupBox>
 #include <QFormLayout>
 
+#include "roommanager.h"
+
 /**
  * @class RoomDialog
  * @brief Диалог для работы с комнатами синхронизации
@@ -88,6 +90,14 @@ private slots:
      * Валидирует введённые данные перед закрытием
      */
     void onAccept();
+
+    /**
+     * @brief Разложить код приглашения по полям ID и пароля
+     *
+     * Ничего не отправляет: только заполняет поля, чтобы перед входом можно
+     * было увидеть, что именно пришло от хоста.
+     */
+    void applyInviteCode();
     
     /**
      * @brief Обработка переключения вкладок
@@ -137,6 +147,7 @@ private:
     // Вкладка "Присоединиться"
     QLineEdit *m_idEdit;            ///< Поле ID комнаты
     QLineEdit *m_joinPasswordEdit;  ///< Поле пароля для входа
+    QLineEdit *m_inviteCodeEdit;   ///< Поле кода приглашения «ID:пароль»
     QCheckBox *m_showJoinPassword;  ///< Показать пароль (вход)
     
     // Кнопки

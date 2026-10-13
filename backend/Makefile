@@ -118,9 +118,13 @@ test-mutation:
 	fi
 
 ## contract-test: Запустить Pact contract тесты (provider verification)
+#
+# -tags contract обязателен: весь пакет internal/contract закрыт этим тегом.
+# Без него go test сообщает "matched no packages" и цель не может стать ни
+# зелёной, ни красной по существу — она ничего не проверяет.
 contract-test:
 	@echo "Запуск Pact contract тестов (provider)..."
-	go test -v -run TestPactProvider ./internal/contract/...
+	go test -v -tags contract -run TestPactProvider ./internal/contract/...
 
 ## test-integration: Запустить интеграционные тесты (реальный роутер через e2e)
 test-integration:

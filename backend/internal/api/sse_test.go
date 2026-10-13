@@ -26,7 +26,7 @@ import (
 func openSSE(t *testing.T, server *httptest.Server, token string) (*http.Response, func()) {
 	t.Helper()
 
-	body, err := json.Marshal(map[string]string{"name": "SSE Test Room"})
+	body, err := json.Marshal(map[string]string{"name": "SSE Test Room", "torrentId": "torrent-sse"})
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/rooms", bytes.NewReader(body))

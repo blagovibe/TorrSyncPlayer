@@ -17,15 +17,35 @@ type FileInfo struct {
 	Size  int64  `json:"size"`
 }
 
+// PeerInfo describes one participant in a room (idea-0017).
+//
+// Only what the server actually knows is listed. In particular there is no
+// "in sync" flag: the room shares one playback position, so the server cannot
+// tell how far any individual peer has drifted.
+type PeerInfo struct {
+	// PeerID is the session identifier of this participant. It changes on
+	// reconnect; UserID does not.
+	PeerID   string `json:"peerID" example:"peer-abc"`
+	UserID   string `json:"userID" example:"user-1"`
+	Username string `json:"username,omitempty"`
+	// IsHost marks the room's host, who controls play/pause/seek.
+	IsHost bool `json:"isHost" example:"false"`
+	// Buffering reports that this peer last said it was out of data. It is
+	// sticky until the peer says otherwise, so a peer that vanishes without
+	// saying is dropped from the roster instead.
+	Buffering bool `json:"buffering" example:"false"`
+}
+
 // RoomInfo information about a P2P room
 type RoomInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	// HostID is the host's peer (session) identifier, NOT the host's user ID.
-	// The host's user ID is tracked separately server-side (HostUserID in the
-	// p2p service room struct) and is the authoritative key for host checks.
-	HostID    string `json:"hostId"`
-	PeerCount int    `json:"peerCount"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	TorrentID  string     `json:"torrentId,omitempty"` // infohash of the torrent bound to this room
+	HostID     string     `json:"hostId"`
+	HostUserID string     `json:"hostUserId"`
+	PeerCount  int        `json:"peerCount" example:"2"`
+	Peers      []PeerInfo `json:"peers,omitempty"`
+	RosterSeq  int64      `json:"rosterSeq,omitempty"`
 }
 
 // SyncStatus playback synchronization status
@@ -34,6 +54,7 @@ type SyncStatus struct {
 	Position  float64 `json:"position"`
 	Duration  float64 `json:"duration"`
 	Timestamp int64   `json:"timestamp"`
+	Buffering bool    `json:"buffering"`
 }
 
 // P2PEvent is a server-brokered room event delivered to clients over SSE.
@@ -41,6 +62,9 @@ type SyncStatus struct {
 type P2PEvent struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
+	// Seq is the sequence number of this event within its room.
+	// Clients use it to detect gaps and request replay.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // AddTorrentRequest request to add a torrent
@@ -51,14 +75,16 @@ type AddTorrentRequest struct {
 
 // CreateRoomRequest request to create a room
 type CreateRoomRequest struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
+	Name      string `json:"name"`
+	Password  string `json:"password"`
+	TorrentID string `json:"torrentId,omitempty"` // infohash of the torrent to bind this room to
 }
 
 // JoinRoomRequest request to join a room
 type JoinRoomRequest struct {
-	RoomID   string `json:"roomId"`
-	Password string `json:"password"`
+	RoomID    string `json:"roomId"`
+	Password  string `json:"password"`
+	TorrentID string `json:"torrentId,omitempty"` // must match room's torrent (idea-0046)
 }
 
 // SignalRequest request to relay a room signal to peers (server-brokered over SSE)
@@ -70,6 +96,11 @@ type SignalRequest struct {
 // SeekRequest seek request
 type SeekRequest struct {
 	Position float64 `json:"position"`
+}
+
+// BufferingRequest reports that a peer started or stopped buffering.
+type BufferingRequest struct {
+	Buffering bool `json:"buffering"`
 }
 
 // SelectFileRequest file selection request
@@ -102,56 +133,6 @@ type JoinRoomResponse struct {
 type StreamTicketResponse struct {
 	Ticket    string `json:"ticket"`
 	TorrentID string `json:"torrentId"`
-}
-
-// ============ Auth Models ============
-
-// User system user
-type User struct {
-	ID           string `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"-"`
-	CreatedAt    int64  `json:"createdAt"`
-}
-
-// RegisterRequest registration request
-type RegisterRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-// LoginRequest login request
-type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-// ChangePasswordRequest password change request
-type ChangePasswordRequest struct {
-	CurrentPassword string `json:"currentPassword"`
-	NewPassword     string `json:"newPassword"`
-}
-
-// UserResponse is the API-safe user representation (no password hash)
-type UserResponse struct {
-	ID        string `json:"id"`
-	Username  string `json:"username"`
-	CreatedAt int64  `json:"createdAt"`
-}
-
-// ToUserResponse converts a User to UserResponse
-func (u *User) ToUserResponse() UserResponse {
-	return UserResponse{
-		ID:        u.ID,
-		Username:  u.Username,
-		CreatedAt: u.CreatedAt,
-	}
-}
-
-// AuthResponse auth token response
-type AuthResponse struct {
-	Token string       `json:"token"`
-	User  UserResponse `json:"user"`
 }
 
 // ============ Pagination Models ============

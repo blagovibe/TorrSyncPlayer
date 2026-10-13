@@ -15,17 +15,6 @@ import (
 // PersistenceVersion is the current format version for migration handling
 const PersistenceVersion = 1
 
-type UserData struct {
-	Version   int                     `json:"version"`
-	Users     map[string]*models.User `json:"users"`
-	UsersByID map[string]*models.User `json:"usersByID"`
-}
-
-type TokenRevocationData struct {
-	Version       int              `json:"version"`
-	RevokedTokens map[string]int64 `json:"revokedTokens"`
-}
-
 // RoomSnapshot is the serializable subset of a room. Live peer connections
 // (SSE channels) cannot be persisted; only room metadata and the host are
 // saved so a room can be re-created after a restart.
@@ -48,6 +37,13 @@ type SyncData struct {
 	Status  map[string]models.SyncStatus `json:"status"`
 }
 
+// TorrentOwnershipData persists torrent ownership (bug-0049).
+// torrentID -> userID mapping so a restart knows who added each torrent.
+type TorrentOwnershipData struct {
+	Version int               `json:"version"`
+	Owners  map[string]string `json:"owners"`
+}
+
 type Store struct {
 	dir string
 	mu  sync.RWMutex
@@ -58,208 +54,6 @@ func NewStore(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create data directory %s: %w", dataDir, err)
 	}
 	return &Store{dir: dataDir}, nil
-}
-
-// persistedUser is an internal representation for JSON serialization.
-// Unlike models.User, it includes PasswordHash for persistence.
-type persistedUser struct {
-	ID           string `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"passwordHash"`
-	CreatedAt    int64  `json:"createdAt"`
-}
-
-// toPersistedUser converts a models.User to persistedUser for serialization.
-func toPersistedUser(u *models.User) *persistedUser {
-	return &persistedUser{
-		ID:           u.ID,
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		CreatedAt:    u.CreatedAt,
-	}
-}
-
-// fromPersistedUser converts a persistedUser back to models.User.
-func fromPersistedUser(p *persistedUser) *models.User {
-	return &models.User{
-		ID:           p.ID,
-		Username:     p.Username,
-		PasswordHash: p.PasswordHash,
-		CreatedAt:    p.CreatedAt,
-	}
-}
-
-func (s *Store) SaveUsers(data *UserData) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Set version for future migration support
-	data.Version = PersistenceVersion
-
-	path := filepath.Join(s.dir, "users.json")
-	tmpPath := path + ".tmp"
-
-	// Convert users to persistedUser format for serialization
-	persistedData := struct {
-		Version   int                       `json:"version"`
-		Users     map[string]*persistedUser `json:"users"`
-		UsersByID map[string]*persistedUser `json:"usersByID"`
-	}{
-		Version: PersistenceVersion,
-	}
-	persistedData.Users = make(map[string]*persistedUser, len(data.Users))
-	persistedData.UsersByID = make(map[string]*persistedUser, len(data.UsersByID))
-	for k, v := range data.Users {
-		persistedData.Users[k] = toPersistedUser(v)
-	}
-	for k, v := range data.UsersByID {
-		persistedData.UsersByID[k] = toPersistedUser(v)
-	}
-
-	encoded, err := json.Marshal(persistedData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal users: %w", err)
-	}
-
-	if err := os.WriteFile(tmpPath, encoded, 0600); err != nil {
-		return fmt.Errorf("failed to write users file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		if rmErr := os.Remove(tmpPath); rmErr != nil {
-			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
-		}
-		return fmt.Errorf("failed to rename users file: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Store) LoadUsers() (*UserData, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	path := filepath.Join(s.dir, "users.json")
-	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &UserData{
-				Version:   PersistenceVersion,
-				Users:     make(map[string]*models.User),
-				UsersByID: make(map[string]*models.User),
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to read users file: %w", err)
-	}
-
-	// Use internal type for deserialization to include PasswordHash
-	var persistedData struct {
-		Version   int                       `json:"version"`
-		Users     map[string]*persistedUser `json:"users"`
-		UsersByID map[string]*persistedUser `json:"usersByID"`
-	}
-	if err := json.Unmarshal(data, &persistedData); err != nil {
-		logger.Warn("persistence: corrupted users.json, starting fresh", "error", err)
-		return &UserData{
-			Version:   PersistenceVersion,
-			Users:     make(map[string]*models.User),
-			UsersByID: make(map[string]*models.User),
-		}, nil
-	}
-
-	result := &UserData{
-		Version:   persistedData.Version,
-		Users:     make(map[string]*models.User),
-		UsersByID: make(map[string]*models.User),
-	}
-
-	// Convert back to models.User
-	for k, v := range persistedData.Users {
-		result.Users[k] = fromPersistedUser(v)
-	}
-	for k, v := range persistedData.UsersByID {
-		result.UsersByID[k] = fromPersistedUser(v)
-	}
-
-	// Version check for migration (future-proofing)
-	if result.Version == 0 {
-		result.Version = PersistenceVersion // Assume v1 for legacy files without version
-	}
-
-	if result.Users == nil {
-		result.Users = make(map[string]*models.User)
-	}
-	if result.UsersByID == nil {
-		result.UsersByID = make(map[string]*models.User)
-	}
-
-	return result, nil
-}
-
-func (s *Store) SaveRevokedTokens(data *TokenRevocationData) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Set version for future migration support
-	data.Version = PersistenceVersion
-
-	path := filepath.Join(s.dir, "revoked_tokens.json")
-	tmpPath := path + ".tmp"
-
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal revoked tokens: %w", err)
-	}
-
-	if err := os.WriteFile(tmpPath, encoded, 0600); err != nil {
-		return fmt.Errorf("failed to write revoked tokens file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		if rmErr := os.Remove(tmpPath); rmErr != nil {
-			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
-		}
-		return fmt.Errorf("failed to rename revoked tokens file: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Store) LoadRevokedTokens() (*TokenRevocationData, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	path := filepath.Join(s.dir, "revoked_tokens.json")
-	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &TokenRevocationData{
-				Version:       PersistenceVersion,
-				RevokedTokens: make(map[string]int64),
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to read revoked tokens file: %w", err)
-	}
-
-	var result TokenRevocationData
-	if err := json.Unmarshal(data, &result); err != nil {
-		logger.Warn("persistence: corrupted revoked_tokens.json, starting fresh", "error", err)
-		return &TokenRevocationData{
-			Version:       PersistenceVersion,
-			RevokedTokens: make(map[string]int64),
-		}, nil
-	}
-
-	// Version check for migration (future-proofing)
-	if result.Version == 0 {
-		result.Version = PersistenceVersion // Assume v1 for legacy files without version
-	}
-
-	if result.RevokedTokens == nil {
-		result.RevokedTokens = make(map[string]int64)
-	}
-
-	return &result, nil
 }
 
 // SaveRooms persists room metadata atomically to rooms.json.
@@ -377,6 +171,165 @@ func (s *Store) LoadSync() (*SyncData, error) {
 	}
 	if result.Status == nil {
 		result.Status = make(map[string]models.SyncStatus)
+	}
+
+	return &result, nil
+}
+
+// SaveTorrents persists torrent ownership atomically to torrents.json.
+func (s *Store) SaveTorrents(data *TorrentOwnershipData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data.Version = PersistenceVersion
+
+	path := filepath.Join(s.dir, "torrents.json")
+	tmpPath := path + ".tmp"
+
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal torrent ownership: %w", err)
+	}
+
+	if err := os.WriteFile(tmpPath, encoded, 0600); err != nil {
+		return fmt.Errorf("failed to write torrents file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		if rmErr := os.Remove(tmpPath); rmErr != nil {
+			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
+		}
+		return fmt.Errorf("failed to rename torrents file: %w", err)
+	}
+
+	return nil
+}
+
+// LoadTorrents loads torrent ownership from torrents.json, tolerating a missing
+// or corrupted file by returning an empty collection.
+func (s *Store) LoadTorrents() (*TorrentOwnershipData, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	path := filepath.Join(s.dir, "torrents.json")
+	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &TorrentOwnershipData{Version: PersistenceVersion, Owners: make(map[string]string)}, nil
+		}
+		return nil, fmt.Errorf("failed to read torrents file: %w", err)
+	}
+
+	var result TorrentOwnershipData
+	if err := json.Unmarshal(data, &result); err != nil {
+		logger.Warn("persistence: corrupted torrents.json, starting fresh", "error", err)
+		return &TorrentOwnershipData{Version: PersistenceVersion, Owners: make(map[string]string)}, nil
+	}
+
+	if result.Version == 0 {
+		result.Version = PersistenceVersion
+	}
+	if result.Owners == nil {
+		result.Owners = make(map[string]string)
+	}
+
+	return &result, nil
+}
+
+// TorrentRegistryData persists the torrent registry (bug-0038).
+// Maps infohash -> torrent metadata so the server can re-add torrents on restart.
+type TorrentRegistryData struct {
+	Version  int                    `json:"version"`
+	Torrents map[string]TorrentInfo `json:"torrents"`
+}
+
+// TorrentInfo describes one torrent in the registry.
+//
+// MagnetURI and TorrentFile are the *source* the torrent was added from, and
+// they are the only fields restoration can use. The name, size and file list
+// below are a description of the torrent, not its identity: the infohash is the
+// SHA-1 of the bencoded info dict, so a .torrent rebuilt from this summary —
+// without the real piece hashes and the real piece length — hashes to something
+// else entirely. Restoring such a torrent silently produced a different torrent
+// under the same name, and every room bound to the original infohash lost its
+// binding (bug-0053).
+//
+// Exactly one of MagnetURI / TorrentFile is set, matching how the torrent was
+// added: a magnet carries its identity in the URI, an upload in the bytes.
+type TorrentInfo struct {
+	InfoHash  string `json:"infoHash"`
+	MagnetURI string `json:"magnetUri,omitempty"`
+	// TorrentFile is the original bencoded .torrent. encoding/json encodes
+	// []byte as base64, so the JSON stays plain text.
+	TorrentFile []byte     `json:"torrentFile,omitempty"`
+	Name        string     `json:"name"`
+	Size        int64      `json:"size"`
+	FileCount   int        `json:"fileCount"`
+	Files       []FileInfo `json:"files"`
+}
+
+type FileInfo struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+}
+
+// SaveTorrentRegistry persists the torrent registry atomically to
+// torrents_registry.json.
+func (s *Store) SaveTorrentRegistry(data *TorrentRegistryData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data.Version = PersistenceVersion
+
+	path := filepath.Join(s.dir, "torrents_registry.json")
+	tmpPath := path + ".tmp"
+
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal torrent registry: %w", err)
+	}
+
+	if err := os.WriteFile(tmpPath, encoded, 0600); err != nil {
+		return fmt.Errorf("failed to write torrent registry file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		if rmErr := os.Remove(tmpPath); rmErr != nil {
+			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
+		}
+		return fmt.Errorf("failed to rename torrent registry file: %w", err)
+	}
+
+	return nil
+}
+
+// LoadTorrentRegistry loads the torrent registry from torrents_registry.json,
+// tolerating a missing or corrupted file by returning an empty collection.
+func (s *Store) LoadTorrentRegistry() (*TorrentRegistryData, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	path := filepath.Join(s.dir, "torrents_registry.json")
+	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &TorrentRegistryData{Version: PersistenceVersion, Torrents: make(map[string]TorrentInfo)}, nil
+		}
+		return nil, fmt.Errorf("failed to read torrent registry file: %w", err)
+	}
+
+	var result TorrentRegistryData
+	if err := json.Unmarshal(data, &result); err != nil {
+		logger.Warn("persistence: corrupted torrents_registry.json, starting fresh", "error", err)
+		return &TorrentRegistryData{Version: PersistenceVersion, Torrents: make(map[string]TorrentInfo)}, nil
+	}
+
+	if result.Version == 0 {
+		result.Version = PersistenceVersion
+	}
+	if result.Torrents == nil {
+		result.Torrents = make(map[string]TorrentInfo)
 	}
 
 	return &result, nil

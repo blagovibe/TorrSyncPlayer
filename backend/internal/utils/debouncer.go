@@ -9,14 +9,53 @@ import (
 	"time"
 )
 
+// Clock abstracts time operations for testability.
+// Production code uses realClock; tests use fakeClock.
+type Clock interface {
+	AfterFunc(d time.Duration, f func()) Timer
+	NewTimer(d time.Duration) Timer
+}
+
+// Timer abstracts time.Timer for testability.
+type Timer interface {
+	Stop() bool
+	C() <-chan time.Time
+}
+
+type realClock struct{}
+
+func (realClock) AfterFunc(d time.Duration, f func()) Timer {
+	return &realTimer{t: time.AfterFunc(d, f)}
+}
+
+func (realClock) NewTimer(d time.Duration) Timer {
+	return &realTimer{t: time.NewTimer(d)}
+}
+
+type realTimer struct {
+	t *time.Timer
+}
+
+func (rt *realTimer) Stop() bool {
+	return rt.t.Stop()
+}
+
+func (rt *realTimer) C() <-chan time.Time {
+	return rt.t.C
+}
+
+// defaultClock is the production clock implementation.
+var defaultClock Clock = realClock{}
+
 // Debouncer delays a callback until calls stop coming, then fires it once.
 // Used to collapse bursts of state mutations into a single disk write.
 type Debouncer struct {
 	mu      sync.Mutex
 	delay   time.Duration
 	fn      func()
-	timer   *time.Timer
+	timer   Timer
 	stopped bool
+	clock   Clock
 
 	// inFlight is non-nil while a callback is running. It is replaced with a
 	// fresh channel before each run and closed once that run returns, so
@@ -30,6 +69,16 @@ func NewDebouncer(delay time.Duration, fn func()) *Debouncer {
 	return &Debouncer{
 		delay: delay,
 		fn:    fn,
+		clock: defaultClock,
+	}
+}
+
+// NewDebouncerWithClock creates a Debouncer with a custom clock (for tests).
+func NewDebouncerWithClock(delay time.Duration, fn func(), clock Clock) *Debouncer {
+	return &Debouncer{
+		delay: delay,
+		fn:    fn,
+		clock: clock,
 	}
 }
 
@@ -45,7 +94,7 @@ func (d *Debouncer) Trigger() {
 	if d.timer != nil {
 		d.timer.Stop()
 	}
-	d.timer = time.AfterFunc(d.delay, d.fire)
+	d.timer = d.clock.AfterFunc(d.delay, d.fire)
 }
 
 // fire runs the callback in its own goroutine and publishes a completion

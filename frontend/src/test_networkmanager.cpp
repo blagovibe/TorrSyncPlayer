@@ -21,6 +21,13 @@
 #include <QJsonArray>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QAtomicInt>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QTimer>
+#include <QStringList>
+#include <QList>
+#include <utility>
 #include "networkmanager.h"
 
 class TestNetworkManager : public QObject
@@ -76,6 +83,12 @@ private slots:
     void testSSEConnectionStateAfterJoin();
     void testSSEStateAfterLeave();
 
+    // ── SSE reconnect + state reconciliation (bug-0012) ────────────────────
+    void testSSEReconnectsAfterStreamDrop();
+    void testReconcileFetchesStatusAndRoomInfoOnReconnect();
+    void testReconcileEmitsStatusWithServerValues();
+    void testReconcileNotAppliedWhenStatusRequestFails();
+
     // ── JSON parsing edge cases ───────────────────────────────────────────
     void testParseEmptyData();
     void testParseMalformedJson();
@@ -89,6 +102,10 @@ private slots:
 
 private:
     NetworkManager *m_manager;
+    /// Mock-серверы текущего теста. Их нужно гасить в cleanup(): сервер,
+    /// переживший тест, продолжает принимать соединения от клиента и
+    /// обращается к SseMockState, который лежал на стеке уже ушедшего теста.
+    QList<QTcpServer *> m_mockServers;
 
     QJsonObject createTorrentJson(const QString &id = "test-id",
                                    const QString &name = "Test Torrent");
@@ -115,6 +132,40 @@ private:
      */
     QTcpServer *startRoomMockServer(const QString &roomId, int &outPort);
 
+    /**
+     * @brief Shared bookkeeping for the SSE mock server.
+     *
+     * The reconnect path is asynchronous and its outcome is only observable on
+     * the wire, so the tests count what the server actually received rather
+     * than inspecting NetworkManager internals.
+     */
+    struct SseMockState {
+        QAtomicInt sseConnections{0};   ///< How many times the SSE stream was opened
+        QMutex mutex;
+        QStringList paths;             ///< Every request path the client sent
+        /// Status code the mock answers /sync/status with (bug-0019 scenarios).
+        int syncStatusStatus = 200;
+    };
+
+    /**
+     * @brief Start a mock server that holds the SSE stream open, then drops it.
+     *
+     * Behaviour mirrors the real backend closely enough to exercise reconnect:
+     *  - POST /api/v1/rooms/join   -> 200 {"id":<roomId>}
+     *  - GET  .../events            -> 200 text/event-stream, then
+     *                                 `event: connected` exactly as
+     *                                 SSEEventHandler writes it. The FIRST such
+     *                                 stream is aborted shortly after, which is
+     *                                 what a real network drop looks like; later
+     *                                 ones stay open.
+     *  - GET  /api/v1/sync/status   -> 200 SyncStatus JSON
+     *  - GET  /api/v1/rooms/info    -> 200 RoomInfo JSON
+     *  - anything else              -> 200 {}
+     *
+     * Every requested path is recorded in state->paths.
+     */
+    QTcpServer *startSSEMockServer(const QString &roomId, SseMockState *state,
+                                   int &outPort);
     // ── F-04: разбор конвертов ответа ─────────────────────────────────────
     // Регрессия: код проверял doc.isArray() у объекта-конверта, что всегда
     // false, поэтому torrentListReceived/filesReceived не эмитились НИКОГДА,
@@ -140,8 +191,16 @@ void TestNetworkManager::init()
 
 void TestNetworkManager::cleanup()
 {
+    // Порядок важен: сначала клиент перестаёт слать запросы, и только потом
+    // гаснут серверы. Наоборот — сервер начнёт отвечать на запросы, которых
+    // уже никто не ждёт.
     delete m_manager;
     m_manager = nullptr;
+
+    for (QTcpServer *server : std::as_const(m_mockServers)) {
+        delete server;
+    }
+    m_mockServers.clear();
 }
 
 QJsonObject TestNetworkManager::createTorrentJson(const QString &id, const QString &name)
@@ -183,6 +242,7 @@ QTcpServer *TestNetworkManager::startRoomMockServer(const QString &roomId, int &
         return nullptr;
     }
     outPort = server->serverPort();
+    m_mockServers.append(server);
 
     QObject::connect(server, &QTcpServer::newConnection, [server, roomId]() {
         QTcpSocket *sock = server->nextPendingConnection();
@@ -215,6 +275,127 @@ QTcpServer *TestNetworkManager::startRoomMockServer(const QString &roomId, int &
 
             QByteArray response = QByteArray("HTTP/1.1 200 OK\r\n"
                                              "Content-Type: application/json\r\n");
+            response.append("Content-Length: ").append(QByteArray::number(body.size())).append("\r\n");
+            response.append("\r\n").append(body);
+            sock->write(response);
+            sock->disconnectFromHost();
+        });
+    });
+
+    return server;
+}
+
+QTcpServer *TestNetworkManager::startSSEMockServer(const QString &roomId,
+                                                  SseMockState *state,
+                                                  int &outPort)
+{
+    QTcpServer *server = new QTcpServer(this);
+    if (!server->listen(QHostAddress::LocalHost)) {
+        delete server;
+        return nullptr;
+    }
+    outPort = server->serverPort();
+    // Гасится в cleanup(). Пока сервер жил до конца прогона, его
+    // readyRead-лямбда держала указатель на SseMockState — а тот лежит на стеке
+    // теста и к следующему тесту уже освобождён. Обращение к освобождённой
+    // памяти давало то, что наблюдалось: иногда std::bad_alloc, иногда
+    // блокировку по мусору, иногда «тест прошёл».
+    m_mockServers.append(server);
+
+    QObject::connect(server, &QTcpServer::newConnection, [server, roomId, state]() {
+        QTcpSocket *sock = server->nextPendingConnection();
+        if (!sock) return;
+        QObject::connect(sock, &QTcpSocket::readyRead, [sock, roomId, state]() {            const QByteArray request = sock->readAll();
+
+            // Extract the request path from the HTTP request line.
+            QString path;
+            const int firstNewline = request.indexOf('\n');
+            if (firstNewline > 0) {
+                const QByteArray line = request.left(firstNewline).trimmed();
+                const QList<QByteArray> parts = line.split(' ');
+                if (parts.size() >= 2) {
+                    path = QString::fromUtf8(parts.at(1));
+                }
+            }
+
+            {
+                QMutexLocker locker(&state->mutex);
+                state->paths.append(path);
+            }
+
+            if (path.contains(QStringLiteral("/events"))) {
+                // Count the attempt BEFORE replying, so a test that races the
+                // reconnect cannot observe a stale count.
+                const int attempt = state->sseConnections.fetchAndAddOrdered(1) + 1;
+
+                // The real backend streams with Transfer-Encoding: chunked, so
+                // the mock must too. Without it, aborting the socket looks like
+                // a clean end-of-body and QNetworkReply finishes WITHOUT an
+                // error — which would make this mock unable to reproduce a
+                // network drop at all, and the reconnect path untestable.
+                sock->write("HTTP/1.1 200 OK\r\n"
+                            "Content-Type: text/event-stream\r\n"
+                            "Cache-Control: no-cache\r\n"
+                            "Connection: keep-alive\r\n"
+                            "Transfer-Encoding: chunked\r\n"
+                            "\r\n");
+                const QByteArray frame = "event: connected\ndata: {\"status\":\"ok\"}\n\n";
+                sock->write(QByteArray::number(frame.size(), 16) + "\r\n" + frame + "\r\n");
+                sock->flush();
+
+                if (attempt == 1) {
+                    // Simulate a mid-stream network drop: the chunked stream is
+                    // left unterminated. 150 ms is long enough for the client to
+                    // see the headers and treat the stream as open, so the test
+                    // really exercises "opened, then dropped".
+                    QTimer::singleShot(150, sock, [sock]() { sock->abort(); });
+                }
+                return;
+            }
+
+            QByteArray body;
+            int statusCode = 200;
+            if (path == QStringLiteral("/api/v1/rooms/join")) {
+                body = QJsonDocument(QJsonObject{{QStringLiteral("id"), roomId}})
+                           .toJson(QJsonDocument::Compact);
+            } else if (path == QStringLiteral("/api/v1/sync/status")) {
+                if (state->syncStatusStatus != 200) {
+                    // bug-0019: the server tells a caller outside any room that
+                    // there is no room. The reconciliation must not treat this
+                    // body as a status, and must not hammer the endpoint.
+                    statusCode = state->syncStatusStatus;
+                    body = QJsonDocument(QJsonObject{
+                        {QStringLiteral("error"), QStringLiteral("Not connected to a room")}
+                    }).toJson(QJsonDocument::Compact);
+                } else {
+                    body = QJsonDocument(QJsonObject{
+                        {QStringLiteral("isPlaying"), true},
+                        {QStringLiteral("position"), 42.5},
+                        {QStringLiteral("duration"), 3600.0},
+                        {QStringLiteral("buffering"), false},
+                        {QStringLiteral("timestamp"), QDateTime::currentDateTime().toMSecsSinceEpoch()}
+                    }).toJson(QJsonDocument::Compact);
+                }
+            } else if (path == QStringLiteral("/api/v1/rooms/info")) {
+                body = QJsonDocument(QJsonObject{
+                    {QStringLiteral("id"), roomId},
+                    {QStringLiteral("name"), QStringLiteral("Test Room")},
+                    {QStringLiteral("hostId"), QStringLiteral("host-1")},
+                    {QStringLiteral("hostUserId"), QStringLiteral("test-client")},
+                    {QStringLiteral("peerCount"), 3}
+                }).toJson(QJsonDocument::Compact);
+            } else if (path == QStringLiteral("/api/v1/csrf-token")) {
+                body = QJsonDocument(QJsonObject{
+                    {QStringLiteral("csrfToken"), QStringLiteral("test-csrf-token")}
+                }).toJson(QJsonDocument::Compact);
+            } else {
+                body = QByteArray("{}");
+            }
+
+            QByteArray response("HTTP/1.1 ");
+            response.append(QByteArray::number(statusCode)).append(' ');
+            response.append(statusCode == 200 ? "OK" : "Bad Request");
+            response.append("\r\nContent-Type: application/json\r\n");
             response.append("Content-Length: ").append(QByteArray::number(body.size())).append("\r\n");
             response.append("\r\n").append(body);
             sock->write(response);
@@ -289,7 +470,7 @@ void TestNetworkManager::testJoinRoomState()
     QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
     QVERIFY(joinedSpy.isValid());
 
-    m_manager->joinRoom("test-room-id", "");
+    m_manager->joinRoom("test-room-id", "", "torrent-test");
 
     QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
 
@@ -307,7 +488,7 @@ void TestNetworkManager::testLeaveRoomState()
     QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
     QVERIFY(joinedSpy.isValid());
 
-    m_manager->joinRoom("test-room-id", "");
+    m_manager->joinRoom("test-room-id", "", "torrent-test");
     QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
 
     QVERIFY(m_manager->isInRoom());
@@ -399,16 +580,16 @@ void TestNetworkManager::testEmptyMagnetUri()
 
 void TestNetworkManager::testEmptyRoomName()
 {
-    m_manager->createRoom("", "");
+    m_manager->createRoom("", "", "torrent-test");
 
     QVERIFY(m_manager != nullptr);
 }
 
 void TestNetworkManager::testSpecialCharactersInRoomName()
 {
-    m_manager->createRoom("Test Room 日本語", "");
-    m_manager->createRoom("Комната тест", "");
-    m_manager->createRoom("Room with spaces", "");
+    m_manager->createRoom("Test Room 日本語", "", "torrent-test");
+    m_manager->createRoom("Комната тест", "", "torrent-test");
+    m_manager->createRoom("Room with spaces", "", "torrent-test");
 
     QVERIFY(true);
 }
@@ -528,7 +709,7 @@ void TestNetworkManager::testSSEConnectionStateAfterJoin()
     QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
     QVERIFY(joinedSpy.isValid());
 
-    m_manager->joinRoom("sse-test-room", "");
+    m_manager->joinRoom("sse-test-room", "", "torrent-test");
 
     // After the server confirms the join, room state should be set.
     QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
@@ -546,7 +727,7 @@ void TestNetworkManager::testSSEStateAfterLeave()
     QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
     QVERIFY(joinedSpy.isValid());
 
-    m_manager->joinRoom("sse-leave-test", "");
+    m_manager->joinRoom("sse-leave-test", "", "torrent-test");
     QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
     QVERIFY(m_manager->isInRoom());
 
@@ -555,6 +736,141 @@ void TestNetworkManager::testSSEStateAfterLeave()
     // After leaving, room state should be cleared
     QVERIFY(!m_manager->isInRoom());
     QVERIFY(m_manager->currentRoomId().isEmpty());
+}
+
+// ── SSE reconnect + state reconciliation (bug-0012) ─────────────────────────
+
+void TestNetworkManager::testSSEReconnectsAfterStreamDrop()
+{
+    // Regression: reconnect never happened at all. connectToSSE() opens by
+    // calling disconnectSSE(), and disconnectSSE() cleared m_sseReconnectPath —
+    // so by the time onSSEReconnect() ran, the path it needed was already gone
+    // and it bailed out with "путь SSE переподключения пуст". Every drop was
+    // therefore terminal, and everything downstream of a successful reconnect
+    // (state reconciliation) was unreachable.
+    SseMockState state;
+    int port = 0;
+    QTcpServer *server = startSSEMockServer("reconnect-room", &state, port);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    m_manager->joinRoom("reconnect-room", "", "torrent-test");
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
+
+    // The mock aborts the first stream; the client must come back on its own.
+    QTRY_VERIFY_WITH_TIMEOUT(state.sseConnections.loadAcquire() >= 2, 8000);
+}
+
+void TestNetworkManager::testReconcileFetchesStatusAndRoomInfoOnReconnect()
+{
+    // After a reconnect the client has a live stream again but knows nothing
+    // about what happened while it was away: it may be sitting at the wrong
+    // position, playing while the room is paused, or unaware of who joined.
+    // Reconnecting therefore has to pull /sync/status and /rooms/info.
+    SseMockState state;
+    int port = 0;
+    QTcpServer *server = startSSEMockServer("reconcile-room", &state, port);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    m_manager->joinRoom("reconcile-room", "", "torrent-test");
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
+
+    QTRY_VERIFY_WITH_TIMEOUT(state.sseConnections.loadAcquire() >= 2, 8000);
+
+    QStringList paths;
+    QTRY_VERIFY_WITH_TIMEOUT([&] {
+        QMutexLocker locker(&state.mutex);
+        paths = state.paths;
+        return paths.contains(QStringLiteral("/api/v1/sync/status"))
+            && paths.contains(QStringLiteral("/api/v1/rooms/info"));
+    }(), 5000);
+}
+
+void TestNetworkManager::testReconcileEmitsStatusWithServerValues()
+{
+    // The fetch is only useful if the values actually reach the caller as a
+    // parsed object: raw JSON would push re-parsing onto every consumer.
+    SseMockState state;
+    int port = 0;
+    QTcpServer *server = startSSEMockServer("emit-room", &state, port);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy statusSpy(m_manager, &NetworkManager::syncStatusReceived);
+    QSignalSpy roomSpy(m_manager, &NetworkManager::roomInfoReceived);
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    m_manager->joinRoom("emit-room", "", "torrent-test");
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
+
+    // Exactly two reconciliations: one for the initial stream, one after the
+    // drop. Not zero (state would go stale) and not more (no request storms).
+    //
+    // Оба ожидания — с ожиданием, а не QCOMPARE «здесь и сейчас»: статуса и
+    // сведения о комнате запрашиваются параллельно, и к моменту, когда
+    // statusSpy уже насчитал два, второй ответ rooms/info может ещё быть в
+    // пути. Мгновенная проверка делала тест нестабильным (~2% прогонов).
+    QTRY_COMPARE_WITH_TIMEOUT(statusSpy.count(), 2, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(roomSpy.count(), 2, 10000);
+
+    const QJsonObject status = statusSpy.first().at(0).toJsonObject();
+    QCOMPARE(status.value(QStringLiteral("isPlaying")).toBool(), true);
+    QCOMPARE(status.value(QStringLiteral("position")).toDouble(), 42.5);
+    QVERIFY(status.contains(QStringLiteral("buffering")));
+
+    const QJsonObject info = roomSpy.first().at(0).toJsonObject();
+    QCOMPARE(info.value(QStringLiteral("peerCount")).toInt(), 3);
+    QCOMPARE(info.value(QStringLiteral("hostUserId")).toString(),
+             QStringLiteral("test-client"));
+}
+
+void TestNetworkManager::testReconcileNotAppliedWhenStatusRequestFails()
+{
+    // bug-0019 changed the server contract: outside a room, /sync/status answers
+    // 400 instead of 200 with a zeroed status. Two things must hold on the
+    // client, or the reconciliation from bug-0012 becomes a new bug source:
+    //
+    //  1. The error body must not be applied as room state. It is a JSON object,
+    //     so `doc.isObject()` is true — without the error check the client would
+    //     happily emit a "status" of {error: ...} and seek to 0.
+    //  2. A 400 must not be retried. Retrying a request that is refused because
+    //     of who we are cannot succeed, and it would hammer the server on every
+    //     single reconnect.
+    SseMockState state;
+    state.syncStatusStatus = 400;
+    int port = 0;
+    QTcpServer *server = startSSEMockServer("no-room", &state, port);
+    QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
+
+    QSignalSpy statusSpy(m_manager, &NetworkManager::syncStatusReceived);
+
+    QSignalSpy joinedSpy(m_manager, &NetworkManager::roomJoined);
+    m_manager->joinRoom("no-room", "", "torrent-test");
+    QTRY_COMPARE_WITH_TIMEOUT(joinedSpy.count(), 1, 5000);
+
+    // The stream is still opened and re-opened — a failing status endpoint must
+    // not stop the client from being in the room.
+    QTRY_COMPARE_WITH_TIMEOUT(state.sseConnections.loadAcquire(), 2, 10000);
+
+    // Give any (wrongly) scheduled retry a generous chance to show up.
+    QTest::qWait(1500);
+
+    QCOMPARE(statusSpy.count(), 0);
+
+    int statusRequests = 0;
+    {
+        QMutexLocker locker(&state.mutex);
+        for (const QString &p : state.paths) {
+            if (p == QStringLiteral("/api/v1/sync/status")) ++statusRequests;
+        }
+    }
+    // Exactly one per stream open: the initial join plus the reconnect. A retry
+    // storm would show up as more than two.
+    QCOMPARE(statusRequests, 2);
 }
 
 // ── JSON parsing edge cases ─────────────────────────────────────────────────
@@ -729,6 +1045,7 @@ void TestNetworkManager::testTorrentListEnvelopeIsUnwrapped()
     int port = 0;
     QTcpServer *server = startRawJsonServer(body, port, this);
     QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_mockServers.append(server);
 
     m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
@@ -750,6 +1067,7 @@ void TestNetworkManager::testFileListEnvelopeIsUnwrapped()
     int port = 0;
     QTcpServer *server = startRawJsonServer(body, port, this);
     QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_mockServers.append(server);
 
     m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::filesReceived);
@@ -767,6 +1085,7 @@ void TestNetworkManager::testBareArrayEnvelopeStillWorks()
     int port = 0;
     QTcpServer *server = startRawJsonServer(body, port, this);
     QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_mockServers.append(server);
 
     m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);
@@ -785,6 +1104,7 @@ void TestNetworkManager::testEnvelopeWithoutExpectedFieldEmitsNothing()
     int port = 0;
     QTcpServer *server = startRawJsonServer(body, port, this);
     QVERIFY2(server, "не удалось поднять mock-сервер");
+    m_mockServers.append(server);
 
     m_manager->setServerUrl(QUrl(QString("http://127.0.0.1:%1").arg(port)));
     QSignalSpy spy(m_manager, &NetworkManager::torrentListReceived);

@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"strconv"
 	"sync"
 	"testing"
@@ -28,7 +29,7 @@ import (
 // concurrent access a load test produces. It fails on a hang rather than
 // blocking the suite.
 func TestSyncWriteOpsWithPersistenceDoNotDeadlock(t *testing.T) {
-	svc := NewService()
+	svc := NewService(nil)
 	defer svc.Close()
 
 	store, err := persistence.NewStore(t.TempDir())
@@ -50,9 +51,11 @@ func TestSyncWriteOpsWithPersistenceDoNotDeadlock(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			room := "room-" + strconv.Itoa(i)
-			svc.Play(room)
-			svc.Pause(room)
-			if _, err := svc.Seek(room, float64(i)); err != nil {
+			ctx := context.Background()
+			userID := "user-" + strconv.Itoa(i)
+			svc.Play(ctx, room, userID)
+			svc.Pause(ctx, room, userID)
+			if _, err := svc.Seek(ctx, room, userID, float64(i)); err != nil {
 				t.Errorf("Seek: %v", err)
 			}
 		}(i)
@@ -74,7 +77,7 @@ func TestSyncWriteOpsWithPersistenceDoNotDeadlock(t *testing.T) {
 // reads kept working while writes were deadlocked, so a health check against
 // the sync API looks healthy on a completely wedged service.
 func TestSyncGetStatusWorksWithoutWriteOps(t *testing.T) {
-	svc := NewService()
+	svc := NewService(nil)
 	defer svc.Close()
 
 	// SyncStatus carries playback state, not the room id, so assert on the

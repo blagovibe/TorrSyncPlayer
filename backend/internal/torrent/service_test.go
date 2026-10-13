@@ -49,7 +49,7 @@ func createTestService(t *testing.T) *Service {
 func TestNewService(t *testing.T) {
 	svc := createTestService(t)
 	require.NotNil(t, svc)
-	assert.NotNil(t, svc.client)
+	assert.NotNil(t, svc.backend)
 	assert.NotNil(t, svc.torrents)
 }
 
@@ -59,7 +59,7 @@ func TestAddMagnet_EmptyURI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := svc.AddMagnet(ctx, "")
+	_, err := svc.AddMagnet(ctx, "peer-a", "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot be empty")
 }
@@ -70,7 +70,7 @@ func TestAddMagnet_InvalidURI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := svc.AddMagnet(ctx, "not-a-magnet-link")
+	_, err := svc.AddMagnet(ctx, "peer-a", "not-a-magnet-link")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid magnet URI")
 }
@@ -78,14 +78,14 @@ func TestAddMagnet_InvalidURI(t *testing.T) {
 // TestListTorrents_Empty tests getting an empty torrent list
 func TestListTorrents_Empty(t *testing.T) {
 	svc := createTestService(t)
-	torrents := svc.ListTorrents(context.Background())
+	torrents := svc.ListTorrents(context.Background(), "peer-a")
 	assert.NotNil(t, torrents)
 }
 
 // TestRemoveTorrent_NotFound tests removing a non-existent torrent
 func TestRemoveTorrent_NotFound(t *testing.T) {
 	svc := createTestService(t)
-	err := svc.RemoveTorrent(context.Background(), "nonexistent")
+	err := svc.RemoveTorrent(context.Background(), "nonexistent", "peer-a")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -93,7 +93,7 @@ func TestRemoveTorrent_NotFound(t *testing.T) {
 // TestGetFiles_NotFound tests getting files of a non-existent torrent
 func TestGetFiles_NotFound(t *testing.T) {
 	svc := createTestService(t)
-	_, err := svc.GetFiles(context.Background(), "nonexistent")
+	_, err := svc.GetFiles(context.Background(), "peer-a", "nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -122,7 +122,13 @@ func TestSanitizeFilename(t *testing.T) {
 
 // TestService_CreateWithNilBuffer tests that service can be created with nil buffer
 func TestService_CreateWithNilBuffer(t *testing.T) {
-	svc, err := NewService(nil)
+	// Use the same test options as createTestService to avoid port conflicts
+	svc, err := NewServiceWithOptions(nil, ServiceOptions{
+		NoDHT:      true,
+		DisableUTP: true,
+		DisableTCP: true,
+		ListenPort: 0,
+	})
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 	assert.Nil(t, svc.bufferService)
@@ -138,7 +144,7 @@ func TestMaxTorrentsConstant(t *testing.T) {
 // TestSelectFile_InvalidIndex tests selecting a file with invalid index
 func TestSelectFile_InvalidIndex(t *testing.T) {
 	svc := createTestService(t)
-	err := svc.SelectFile(context.Background(), "nonexistent", -1)
+	err := svc.SelectFile(context.Background(), "nonexistent", "test-user", -1)
 	assert.Error(t, err)
 }
 
@@ -148,7 +154,7 @@ func TestBufferInfo_NilBuffer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = svc.Close() })
 
-	_, err = svc.GetBufferInfo(context.Background(), "test")
+	_, err = svc.GetBufferInfo(context.Background(), "peer-a", "test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not initialized")
 }
@@ -202,7 +208,7 @@ func TestRemoveTorrent_Concurrent(t *testing.T) {
 
 	t.Run("concurrent remove of non-existent", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
-			err := svc.RemoveTorrent(context.Background(), "nonexistent")
+			err := svc.RemoveTorrent(context.Background(), "nonexistent", "peer-a")
 			assert.Error(t, err)
 		}
 	})

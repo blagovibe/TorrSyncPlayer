@@ -29,6 +29,7 @@ desktop.ini
 backend/bin/
 backend/*.exe
 backend/build/
+backend/data/
 # `go build ./cmd/server` without -o drops the binary in the package directory
 # as "server"; `make build` writes to backend/build/torrsyncplayer instead.
 backend/server
@@ -91,6 +92,14 @@ Thumbs.db
 desktop.ini
 *~
 
+# Build tools cache (downloaded binaries like cmake)
+.build-tools/
+
 # ZCode IDE
 .zcode/
 .kilo/
+
+# Scratch checkouts of upstream projects, read while auditing against them
+# (e.g. the htorrent gateway behind idea-0023). Reference material only —
+# never part of this repository's source.
+.mxwork/

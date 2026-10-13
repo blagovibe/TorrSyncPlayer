@@ -93,15 +93,19 @@ public:
      * @brief Создать новую комнату
      * @param name Имя комнаты
      * @param password Пароль (опционально)
+     * @param torrentId infohash торрента, к которому привязывается комната
+     *        (idea-0046). Обязателен: сервер отвергает комнату без него.
      */
-    virtual void createRoom(const QString &name, const QString &password = "") = 0;
+    virtual void createRoom(const QString &name, const QString &password, const QString &torrentId) = 0;
     
     /**
      * @brief Присоединиться к комнате
      * @param roomId ID комнаты
      * @param password Пароль (опционально)
+     * @param torrentId infohash торрента комнаты; сервер сверяет его и отказывает
+     *        при несовпадении.
      */
-    virtual void joinRoom(const QString &roomId, const QString &password = "") = 0;
+    virtual void joinRoom(const QString &roomId, const QString &password, const QString &torrentId) = 0;
     
     /**
      * @brief Покинуть текущую комнату
@@ -131,6 +135,12 @@ public:
      * @param position Позиция в секундах
      */
     virtual void syncSeek(double position) = 0;
+
+    /**
+     * @brief Сообщить комнате о начале/окончании буферизации
+     * @param buffering true — началась буферизация, false — закончилась
+     */
+    virtual void syncBuffering(bool buffering) = 0;
 
     // ── Утилиты ───────────────────────────────────────────────────────
     
@@ -177,6 +187,14 @@ public:
     virtual void clearAccessToken() = 0;
     virtual QString accessToken() const = 0;
     virtual void setClientId(const QString &clientId) = 0;
+
+    /**
+     * @brief Узнать собственный идентификатор клиента
+     * Нужен, чтобы сравнить свой X-Client-ID с hostUserId из /rooms/info и
+     * понять, являемся ли мы хостом.
+     * @return X-Client-ID этого запуска
+     */
+    virtual QString clientId() const = 0;
 
     /**
      * @brief Запросить stream-тикет для воспроизведения без заголовков

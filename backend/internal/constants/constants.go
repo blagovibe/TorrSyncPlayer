@@ -129,6 +129,33 @@ const (
 
 	// StreamRateBurst burst size for stream endpoint
 	StreamRateBurst = 20
+
+	// BufferPositionRateLimit is the per-address limit for
+	// POST /torrents/{id}/buffer/position, in requests per second.
+	//
+	// This endpoint is playback telemetry, not a control-plane call: the Qt
+	// frontend reports the current position every 500 ms for as long as a file
+	// is playing (MainWindow::m_bufferPositionTimer). Under APIRateLimit —
+	// 1 req/s, burst 10 — a single player exhausted the bucket within seconds
+	// of starting and every later report was answered 429. The client does not
+	// retry a 4xx, so piece priorities silently froze a few seconds into
+	// playback, which is exactly the defect bug-0028 set out to remove.
+	//
+	// The budget therefore covers what the topology actually produces: several
+	// participants of one room may share one public address, each reporting
+	// twice a second. 20 req/s carries eight such players with headroom.
+	//
+	// Unlike the API group this limit has no environment override, on purpose.
+	// An override would let the test suite raise it away, and the suite runs
+	// with API_RATE_LIMIT relaxed for unrelated reasons — which is precisely
+	// why shipped limits went unnoticed there. See
+	// buffer_position_limit_test.go, which exercises the shipped values.
+	BufferPositionRateLimit = 20.0
+
+	// BufferPositionRateBurst is the burst for the same endpoint. It is above
+	// BufferPositionRateLimit so a seek that lands during a burst of reports is
+	// not lost, while a runaway client still runs the bucket dry.
+	BufferPositionRateBurst = 40
 )
 
 // ── Auth Constants ────────────────────────────────────────────────────────
@@ -137,7 +164,7 @@ const (
 // генерирует при старте и печатает в консоль; клиент присылает его в
 // заголовке X-Access-Token, а сравнение выполняется constant-time.
 // Ни токенов с отзывом, ни JTI, ни issuer/audience, ни библиотеки JWT в
-// проекте нет и не планируется (см. AGENTS.md).
+// проекте нет и не планируется (см. DEV.md, «Принципы разработки»).
 
 const (
 	// BcryptCost bcrypt cost for password hashing
@@ -233,6 +260,16 @@ const (
 	// MaxGlobalSSEConnections maximum total SSE connections across all rooms
 	// Independent of room count to prevent DoS via many rooms
 	MaxGlobalSSEConnections = 1000
+
+	// MaxSessions maximum number of concurrent P2P sessions (bug-0041)
+	// Prevents unbounded memory growth from arbitrary X-Client-IDs
+	MaxSessions = 1000
+
+	// SessionIdleTimeout after which an idle session (no room) is pruned (bug-0041)
+	SessionIdleTimeout = 30 * time.Minute
+
+	// EventHistoryMaxSize maximum number of events stored per room for replay (bug-0040)
+	EventHistoryMaxSize = 1000
 
 	// SSETimeout SSE connection timeout
 	SSETimeout = 30 * time.Minute

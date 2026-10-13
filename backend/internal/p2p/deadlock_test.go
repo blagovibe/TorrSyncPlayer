@@ -58,7 +58,7 @@ func TestCreateRoomWithPersistenceDoesNotDeadlock(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			user := "user-" + strconv.Itoa(i)
-			_, err := svc.CreateRoom(context.Background(), user, "Room "+user, "")
+			_, err := svc.CreateRoom(context.Background(), user, "Room "+user, "", "torrent-"+strconv.Itoa(i))
 			done <- err
 		}(i)
 	}

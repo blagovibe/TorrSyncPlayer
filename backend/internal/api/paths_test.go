@@ -61,6 +61,7 @@ func TestAPIPaths_Rooms(t *testing.T) {
 	assert.Equal(t, "/api/v1/rooms/leave", APIPathRoomLeave)
 	assert.Equal(t, "/api/v1/rooms/signal", APIPathRoomSignal)
 	assert.Equal(t, "/api/v1/rooms/events", APIPathRoomEvents)
+	assert.Equal(t, "/api/v1/rooms/info", APIPathRoomInfo)
 }
 
 // TestAPIPaths_Sync tests sync paths

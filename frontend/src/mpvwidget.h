@@ -149,6 +149,16 @@ signals:
      */
     void ready();
 
+    /**
+     * @brief Сигнал изменения состояния буферизации
+     * Испускается когда mpv вошёл в core-idle (данных не хватает — идёт
+     * буферизация) или вышел из него. Основной потребитель — комната
+     * синхронизации: остальные участники паузуют, пока этот пир не догонит
+     * (bug-0011).
+     * @param buffering true — идёт буферизация, false — воспроизведение идёт
+     */
+    void bufferingStateChanged(bool buffering);
+
 protected:
 #ifndef NO_OPENGL
     /**
@@ -252,6 +262,7 @@ private:
     double m_position = 0.0;            ///< Текущая позиция
     double m_duration = 0.0;            ///< Длительность медиа
     bool m_paused = false;              ///< Флаг паузы
+    bool m_coreIdle = false;            ///< mpv простаивает: не хватает данных (буферизация)
     QTimer *m_seekDebounceTimer = nullptr;   ///< Таймер debounce для перемотки
     QTimer *m_eventTimer = nullptr;          ///< Таймер для обработки событий mpv
     double m_pendingSeekPosition = 0.0;      ///< Ожидающая позиция перемотки
@@ -265,10 +276,11 @@ private:
             DurationChanged,
             PlaybackFinished,
             Error,
-            Ready
+            Ready,
+            BufferingStateChanged
         };
         Type type;
-        double value;       ///< для position/duration
+        double value;       ///< для position/duration/buffering (1 = буферизация)
         QString message;    ///< для error
     };
     QVector<MpvEventData> m_eventBuffer; ///< Буфер событий для безопасной эмиссии

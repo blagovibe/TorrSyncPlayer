@@ -19,14 +19,19 @@
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QProcess>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QCommandLineParser>
 #include <QStyleFactory>
 #include <QFile>
 #include <QFileDevice>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QTimer>
+#include <QTranslator>
 #include <QUuid>
 #include <QPointer>
 #include <QAtomicInt>
@@ -34,9 +39,11 @@
 #include <QSharedPointer>
 #include <QTemporaryFile>
 #include <QTemporaryDir>
+#include <utility>
 
 #include "mainwindow.h"
 #include "systemtray.h"
+#include "backendargs.h"
 
 // ── Graceful Shutdown Support ──────────────────────────────────────────
 
@@ -50,6 +57,10 @@
 // QPointer for thread-safe access to server process
 // QPointer automatically becomes nullptr when object is deleted
 static QPointer<QProcess> g_serverProcess;
+
+// Язык, запрошенный ключом --lang. Пустая строка означает «не задан», и тогда
+// выбор делает resolveLanguage(): настройка → язык системы.
+static QString g_requestedLanguage;
 
 // Atomic flag to prevent re-entrant shutdown across threads (signal handlers)
 // Signal handlers must only set this flag, NOT call Qt API (not async-signal-safe)
@@ -244,15 +255,13 @@ bool startGoServer(QObject *parent)
     QProcess *process = new QProcess(parent);
     process->setProgram(serverPath);
     
-    // Desktop version uses HTTP (safe for localhost-only connections)
-    // Use default dev secret if not already set via environment variable
-    QString jwtSecret = qgetenv("JWT_SECRET");
-    if (jwtSecret.isEmpty()) {
-        jwtSecret = "dev-secret-key-for-torrsyncplayer-development-min-32";
-    }
-    
-    // Pass JWT_SECRET via command line (more reliable than environment on Windows)
-    process->setArguments(QStringList() << "--port" << "8889" << "--jwt-secret" << jwtSecret);
+    // Desktop version uses HTTP (safe for localhost-only connections).
+    //
+    // The argument list lives in backendargs.cpp so it can be tested: main.cpp
+    // is in no test target, and an unknown flag makes the Go backend exit(2),
+    // which is exactly how --jwt-secret survived the removal of JWT auth and
+    // broke the Windows release with a fully green pipeline.
+    process->setArguments(BackendArgs::build(QStringLiteral("8889")));
 
     // Connect logging signals (with read limit)
     QPointer<QProcess> p = process;
@@ -379,6 +388,141 @@ void setupStyle()
     QApplication::setStyle(QStyleFactory::create("Fusion"));
 }
 
+// ── Интернационализация (i18n) ──────────────────────────────────────────
+
+// Переводчик держится всё время работы приложения: если дать ему умереть,
+// Qt продолжит показывать исходные строки вместо переведённых.
+static QTranslator *g_appTranslator = nullptr;
+
+// Язык, для которого удалось загрузить перевод. Пустая строка означает
+// «используем язык исходников» — это штатный режим, а не ошибка.
+static QString g_loadedLanguage;
+
+/**
+ * @brief Перевести путь в файловой системе приложения
+ * @return true, если файл читается
+ */
+static bool translationsDirExists(const QString &dir)
+{
+    return !dir.isEmpty() && QFileInfo(dir).isDir();
+}
+
+/**
+ * @brief Найти и загрузить перевод для указанного языка
+ *
+ * Перевод ищется в нескольких местах, потому что «правильного» нет:
+ * запущенная из сборки копия, установленная в систему и AppDir у собранного
+ * бинарника лежат в разных каталогах, а у portable-сборки переводы рядом с
+ * exe — единственное разумное место.
+ *
+ * @param code код языка ("ru", "en") или пустая строка для языка исходников
+ * @return true, если перевод загружен
+ */
+static bool loadTranslation(const QString &code)
+{
+    if (code.isEmpty()) {
+        return true; // язык исходников — ничего загружать не нужно
+    }
+
+    delete g_appTranslator;
+    g_appTranslator = new QTranslator();
+
+    const QString qmName = QString("TorrSyncPlayer_%1.qm").arg(code);
+
+    QStringList candidates;
+    // Рядом с exe: portable-сборка, AppImage, распакованный AppDir
+    candidates << QCoreApplication::applicationDirPath() + "/translations/" + qmName;
+#ifdef Q_OS_MACOS
+    candidates << QCoreApplication::applicationDirPath() + "/../Resources/translations/" + qmName;
+#endif
+    // Установленная сборка: cmake ставит в share/<имя>/translations
+    candidates << QCoreApplication::applicationDirPath()
+                     + "/../share/" + QCoreApplication::applicationName()
+                     + "/translations/" + qmName;
+    candidates << QCoreApplication::applicationDirPath()
+                     + "/../share/TorrSyncPlayer/translations/" + qmName;
+    // Qt-системные переводы — на случай, если мы переведём и стандартные
+    // диалоги (QMessageBox и прочие), а не только свой текст.
+    candidates << QLibraryInfo::path(QLibraryInfo::TranslationsPath) + "/" + qmName;
+
+    for (const QString &path : std::as_const(candidates)) {
+        if (!translationsDirExists(QFileInfo(path).absolutePath())) {
+            continue;
+        }
+        if (g_appTranslator->load(path)) {
+            QCoreApplication::installTranslator(g_appTranslator);
+            qDebug() << "Loaded translation:" << path;
+            g_loadedLanguage = code;
+            return true;
+        }
+    }
+
+    delete g_appTranslator;
+    g_appTranslator = nullptr;
+
+    // Нет перевода — не беда: приложение полностью работоспособно на
+    // языке исходников. Молча падать здесь нельзя.
+    qWarning() << "Translation not found for" << code << "- falling back to source language";
+    return false;
+}
+
+/**
+ * @brief Определить язык из настроек, аргументов или системы
+ *
+ * Порядок: явный --lang → сохранённая настройка → язык системы. Язык системы
+ * используется, только если он реально поддержан: иначе пользователь с
+ * немецкой локалью получил бы немецкий интерфейс из ничего.
+ *
+ * @return код языка или пустая строка для языка исходников
+ */
+static QString resolveLanguage()
+{
+    const QStringList supported = {"ru", "en"};
+    auto isSupported = [&supported](const QString &code) {
+        return !code.isEmpty() && supported.contains(code);
+    };
+
+    // 1. Явно запрошенный язык
+    if (!g_requestedLanguage.isEmpty()) {
+        return isSupported(g_requestedLanguage) ? g_requestedLanguage : QString();
+    }
+
+    // 2. Выбор пользователя из прошлого запуска
+    QSettings settings;
+    const QString saved = settings.value("ui/language").toString();
+    if (isSupported(saved)) {
+        return saved;
+    }
+    // Пустая настройка — не «русский по умолчанию», а «выбирать по системе».
+    // Иначе немецкая система получила бы русский интерфейс без спроса.
+    if (!saved.isEmpty()) {
+        return QString();
+    }
+
+    // 3. Язык системы: ru_RU → ru, en_US → en
+    const QString system = QLocale::system().name().left(2);
+    if (isSupported(system)) {
+        return system;
+    }
+
+    // Система на неподдерживаемом языке — берём английский: исходники
+    // написаны по-русски, и для не-русской системы это честный fallback.
+    return QStringLiteral("en");
+}
+
+/**
+ * @brief Загрузить переводы до создания виджетов
+ *
+ * Порядок важен: QTranslator надо установить до того, какMainWindow создаст
+ * подписи и надписи. Установленные позже переводы не применятся к уже
+ * созданным строкам, и интерфейс останется смешанным.
+ */
+static void setupTranslations()
+{
+    g_loadedLanguage = resolveLanguage();
+    loadTranslation(g_loadedLanguage);
+}
+
 /**
  * @brief Main function
  * @param argc argument count
@@ -452,11 +596,27 @@ int main(int argc, char *argv[])
         "Use dark theme");
     parser.addOption(darkThemeOption);
 
+    // Option: язык интерфейса. Без неё выбор делает resolveLanguage():
+    // сохранённая настройка, иначе язык системы.
+    // Именно QCoreApplication::translate, а не tr(): main() — не метод
+    // QObject, у него нет контекста, и lupdate такую строку пропускает.
+    QCommandLineOption langOption(
+        QStringList() << "lang",
+        QCoreApplication::translate("CommandLine", "Interface language: ru, en (default: saved setting or system language)"),
+        "code");
+    parser.addOption(langOption);
+
     // Parse
     parser.process(app);
 
+    g_requestedLanguage = parser.value(langOption).trimmed().toLower();
+
     // ── Setup style ────────────────────────────────────────────────
     setupStyle();
+
+    // Переводы — до создания любых виджетов: подписи и надписи берут текст
+    // в конструкторах, и установленный позже перевод к ним уже не применится.
+    setupTranslations();
 
     if (parser.isSet(darkThemeOption)) {
         QPalette darkPalette;

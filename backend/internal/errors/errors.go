@@ -10,14 +10,15 @@ import (
 type ErrorType string
 
 const (
-	ErrNotFound      ErrorType = "NOT_FOUND"
-	ErrAlreadyExists ErrorType = "ALREADY_EXISTS"
-	ErrInvalidInput  ErrorType = "INVALID_INPUT"
-	ErrUnauthorized  ErrorType = "UNAUTHORIZED"
-	ErrForbidden     ErrorType = "FORBIDDEN"
-	ErrInternal      ErrorType = "INTERNAL"
-	ErrTimeout       ErrorType = "TIMEOUT"
-	ErrUnavailable   ErrorType = "UNAVAILABLE"
+	ErrNotFound       ErrorType = "NOT_FOUND"
+	ErrAlreadyExists  ErrorType = "ALREADY_EXISTS"
+	ErrInvalidInput   ErrorType = "INVALID_INPUT"
+	ErrUnauthorized   ErrorType = "UNAUTHORIZED"
+	ErrForbidden      ErrorType = "FORBIDDEN"
+	ErrInternal       ErrorType = "INTERNAL"
+	ErrTimeout        ErrorType = "TIMEOUT"
+	ErrUnavailable    ErrorType = "UNAVAILABLE"
+	ErrNotImplemented ErrorType = "NOT_IMPLEMENTED"
 )
 
 type AppError struct {
@@ -99,6 +100,13 @@ func Unavailable(service string) *AppError {
 	return &AppError{
 		Type:    ErrUnavailable,
 		Message: fmt.Sprintf("service unavailable: %s", service),
+	}
+}
+
+func NotImplemented(details string) *AppError {
+	return &AppError{
+		Type:    ErrNotImplemented,
+		Message: fmt.Sprintf("not implemented: %s", details),
 	}
 }
 

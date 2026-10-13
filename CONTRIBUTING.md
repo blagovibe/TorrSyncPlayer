@@ -14,7 +14,7 @@ Thank you for your interest in TorrSyncPlayer!
 |-----------|---------|
 | C++ | C++17 |
 | Qt | 6.5+ |
-| CMake | 3.16+ |
+| CMake | 3.20+ |
 | libmpv | 0.35+ |
 
 ## Quick Start
@@ -37,6 +37,9 @@ cd frontend/build && ./TorrSyncPlayer
 ```
 
 ## Running Tests
+
+The authoritative list of targets and what each one covers is in
+[DEV.md, "Соглашения по тестам"](DEV.md#Соглашения-по-тестам). The short version:
 
 ```bash
 cd backend
@@ -64,14 +67,15 @@ ctest --output-on-failure    # Frontend tests
 
 ## PR Process
 
-1. Branch from `develop`:
+1. Branch from `main`:
    ```
    git checkout -b feature/your-feature
    ```
 2. Make changes, add tests
 3. Verify: `make test && go vet ./...`
-4. Push and open a PR to `develop`
-5. CI must pass, coverage >= 60%
+4. Push and open a PR to `main`
+5. CI must pass; backend statement coverage must stay at or above the floor
+   enforced in `ci.yml` (currently 55%)
 
 ## Commit Format
 

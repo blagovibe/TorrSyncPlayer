@@ -43,7 +43,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, string, func()) {
 	p2pSvc, err := p2p.NewService(authService)
 	require.NoError(t, err)
 
-	syncSvc := sync.NewService()
+	syncSvc := sync.NewService(p2pSvc)
 
 	// Создаём роутер
 	router := NewRouter(RouterConfig{
@@ -248,17 +248,63 @@ func TestE2E_SyncFlow(t *testing.T) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// 1. Play
-	playBody := map[string]interface{}{}
-	body, _ := json.Marshal(playBody)
+	// Reset rate limiter for this test
+	globalClientRateLimiter.resetAll()
 
-	req, err := http.NewRequest("POST", server.URL+"/api/v1/sync/play", bytes.NewReader(body))
+	// 1. Create a room
+	createBody := map[string]string{
+		"name":      "Test Room",
+		"password":  "",
+		"torrentId": "torrent-e2e",
+	}
+	body, _ := json.Marshal(createBody)
+
+	req, err := http.NewRequest("POST", server.URL+"/api/v1/rooms", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set(auth.HeaderAccessToken, token)
 	req.Header.Set(auth.HeaderClientID, "e2e-client")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var roomResult map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&roomResult)
+	require.NoError(t, err)
+	roomID := roomResult["id"].(string)
+
+	// 2. Join the room
+	joinBody := map[string]string{
+		"roomId":    roomID,
+		"password":  "",
+		"torrentId": "torrent-e2e",
+	}
+	body, _ = json.Marshal(joinBody)
+
+	req, err = http.NewRequest("POST", server.URL+"/api/v1/rooms/join", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err = client.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// 3. Play
+	playBody := map[string]interface{}{}
+	body, _ = json.Marshal(playBody)
+
+	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/play", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set(auth.HeaderAccessToken, token)
+	req.Header.Set(auth.HeaderClientID, "e2e-client")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err = client.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -268,7 +314,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, true, playResult["isPlaying"])
 
-	// 2. Seek (small jump, applied directly under latency compensation)
+	// 4. Seek (small jump, applied directly under latency compensation)
 	seekBody := map[string]float64{
 		"position": 1.5,
 	}
@@ -290,7 +336,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1.5, seekResult["position"])
 
-	// 3. Pause
+	// 5. Pause
 	pauseBody := map[string]interface{}{}
 	body, _ = json.Marshal(pauseBody)
 
@@ -310,7 +356,7 @@ func TestE2E_SyncFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, false, pauseResult["isPlaying"])
 
-	// 4. Get Status
+	// 6. Get Status
 	req, err = http.NewRequest("GET", server.URL+"/api/v1/sync/status", nil)
 	require.NoError(t, err)
 	req.Header.Set(auth.HeaderAccessToken, token)
@@ -337,8 +383,9 @@ func TestE2E_RoomFlow(t *testing.T) {
 
 	// 1. Создание комнаты
 	createBody := map[string]string{
-		"name":     "Test Room",
-		"password": "roompass123",
+		"name":      "Test Room",
+		"password":  "roompass123",
+		"torrentId": "torrent-e2e",
 	}
 	body, _ := json.Marshal(createBody)
 

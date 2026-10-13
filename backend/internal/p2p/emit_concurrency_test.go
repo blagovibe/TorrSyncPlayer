@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // newTestService создаёт сервис с готовым auth-сервисом.
@@ -40,7 +41,7 @@ func TestEmitEventConcurrentWithMembershipChanges(t *testing.T) {
 	ctx := context.Background()
 
 	// Хост создаёт комнату — emitEvent будет рассылать события её участникам.
-	room, err := svc.CreateRoom(ctx, "host", "Race Room", "")
+	room, err := svc.CreateRoom(ctx, "host", "Race Room", "", "torrent-race-room")
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
@@ -56,12 +57,14 @@ func TestEmitEventConcurrentWithMembershipChanges(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for r := 0; r < rounds; r++ {
-				svc.emitEvent(room.ID, "sync", map[string]interface{}{
-					"position": float64(r),
-					"playing":  r%2 == 0,
-				})
+				status := models.SyncStatus{
+					Position:  float64(r),
+					IsPlaying: r%2 == 0,
+				}
+				svc.emitEvent(room.ID, models.EventTypeSync, status)
 				// BroadcastSync идёт тем же путём и используется SyncService.
-				svc.BroadcastSync(room.ID, map[string]interface{}{"position": float64(r)})
+				svc.BroadcastSync(room.ID,
+					models.NewSyncEvent(models.SyncActionPlay, status, "concurrency-test"))
 			}
 		}()
 	}
@@ -73,7 +76,7 @@ func TestEmitEventConcurrentWithMembershipChanges(t *testing.T) {
 			defer wg.Done()
 			userID := fmt.Sprintf("user-%d", n)
 			for r := 0; r < rounds; r++ {
-				if err := svc.JoinRoom(ctx, userID, room.ID, ""); err != nil {
+				if err := svc.JoinRoom(ctx, userID, room.ID, "", "torrent-race-room"); err != nil {
 					// Выход и повторный вход могут столкнуться; это ожидаемо и
 					// не относится к проверяемой гонке.
 					_ = err
@@ -104,11 +107,11 @@ func TestEmitEventDeliversToHostAndPeersOnce(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	room, err := svc.CreateRoom(ctx, "host", "Delivery Room", "")
+	room, err := svc.CreateRoom(ctx, "host", "Delivery Room", "", "torrent-delivery-room")
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
-	if err := svc.JoinRoom(ctx, "guest", room.ID, ""); err != nil {
+	if err := svc.JoinRoom(ctx, "guest", room.ID, "", "torrent-delivery-room"); err != nil {
 		t.Fatalf("JoinRoom: %v", err)
 	}
 

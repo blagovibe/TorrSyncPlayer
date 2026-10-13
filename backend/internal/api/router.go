@@ -62,6 +62,18 @@ func NewRouter(config RouterConfig) http.Handler {
 	// players (libmpv) cannot attach headers to their own HTTP fetches.
 	r.With(NewRateLimiter(rate.Limit(constants.StreamRateLimit), constants.StreamRateBurst)).Get("/api/v1/torrents/{id}/stream", StreamFile(config.TorrentSvc, config.AuthService))
 
+	// Playback-position telemetry — its own budget, outside the protected
+	// group below.
+	//
+	// It carries a 2 Hz heartbeat from every playing client, so sharing the
+	// group's 1 req/s bucket throttled a single player's own stream within
+	// seconds of playback starting, silently freezing piece priorities. The
+	// endpoint is still token-protected and still rate-limited, just not by
+	// the control-plane budget; the limiter runs first so an unauthenticated
+	// caller cannot spend a legitimate client's budget.
+	r.With(BufferPositionRateLimiter, config.AuthService.TokenMiddleware).
+		Post(APIPathTorrentBufferPosition, SetBufferPosition(config.TorrentSvc))
+
 	// Protected endpoints — per-IP rate limiting then access-token check.
 	// No CSRF middleware: a cross-origin page cannot read the token and cannot
 	// set X-Access-Token without a preflight the server does not approve.
@@ -82,7 +94,10 @@ func NewRouter(config RouterConfig) http.Handler {
 				// authenticated via a signed stream ticket, because libmpv cannot
 				// attach the access-token header to its own HTTP fetches.
 				r.Post("/{id}/stream-ticket", StreamTicket(config.TorrentSvc, config.AuthService))
-				r.Post("/{id}/buffer/position", SetBufferPosition(config.TorrentSvc))
+				// NOTE: /{id}/buffer/position is registered ABOVE, outside this
+				// group. It is a 2 Hz heartbeat from every playing client and
+				// cannot share this group's 1 req/s budget; see the route above
+				// and constants.BufferPositionRateLimit.
 				r.Get("/{id}/buffer/info", GetBufferInfo(config.TorrentSvc))
 			})
 
@@ -92,6 +107,10 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Post("/join", JoinRoom(config.P2pSvc))
 				r.Post("/leave", LeaveRoom(config.P2pSvc))
 				r.Post("/signal", Signal(config.P2pSvc))
+				// /info resolves the caller's own room from membership instead of a
+				// path parameter, so it is a static segment — registered here so the
+				// {roomID} pattern below can never shadow it.
+				r.Get("/info", GetRoomInfo(config.P2pSvc))
 				r.Get("/{roomID}/events", RoomEvents(config.P2pSvc))
 			})
 
@@ -100,6 +119,7 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Post("/play", SyncPlay(config.SyncSvc, config.P2pSvc))
 				r.Post("/pause", SyncPause(config.SyncSvc, config.P2pSvc))
 				r.Post("/seek", SyncSeek(config.SyncSvc, config.P2pSvc))
+				r.Post("/buffering", SyncBuffering(config.SyncSvc, config.P2pSvc))
 				r.Get("/status", SyncStatus(config.SyncSvc, config.P2pSvc))
 			})
 

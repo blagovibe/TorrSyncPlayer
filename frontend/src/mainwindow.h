@@ -26,7 +26,9 @@
 #include <QPushButton>
 #include <QListView>
 #include <QSlider>
+#include "roommanager.h"
 #include <QLabel>
+#include <QAction>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -167,6 +169,16 @@ private slots:
      */
     void onLeaveRoom();
 
+    /**
+     * @brief Скопировать код приглашения текущей комнаты в буфер обмена
+     *
+     * Код — это «ID:пароль», то есть ровно то, что и так нужно передать
+     * приглашённому. Он не шифрует и не защищает: пароль остаётся паролем.
+     * Токен доступа в код не входит намеренно — это учётка на весь процесс,
+     * и в приглашении ей не место.
+     */
+    void onCopyInviteCode();
+
     // ── Слоты управления воспроизведением ─────────────────────────────
 
     /**
@@ -301,6 +313,22 @@ private slots:
     void onSyncAction(const QString &action, double position);
 
     /**
+     * @brief Наш mpv начал или закончил буферизацию
+     * Сообщает комнате, чтобы остальные участники держали паузу, пока
+     * данных не хватает (bug-0011).
+     * @param buffering true — идёт буферизация
+     */
+    void onLocalBufferingState(bool buffering);
+
+    /**
+     * @brief Другой участник начал или закончил буферизацию
+     * Ставит/снимает паузу локально. Команда в комнату при этом не
+     * отправляется: буферизация — не команда хоста.
+     * @param buffering true — пир буферизует
+     */
+    void onPeerBufferingState(bool buffering);
+
+    /**
      * @brief Обработка присоединения пира
      * @param peerId ID пира
      */
@@ -311,6 +339,59 @@ private slots:
      * @param peerId ID пира
      */
     void onPeerLeft(const QString &peerId);
+
+    /**
+     * @brief Применение состояния комнаты после реконнекта
+     * Возвращает локальный плеер к тому, в чём комната жила, пока соединение
+     * было рвано: play/pause, позиция, буферизация (bug-0012).
+     * @param position Позиция комнаты, секунды
+     * @param isPlaying Идёт ли воспроизведение в комнате
+     * @param buffering Буферизует ли кто-то в комнате
+     */
+    void onStateReconciled(double position, bool isPlaying, bool buffering);
+
+    /**
+     * @brief Обновление состава комнаты после реконнекта
+     * Пока соединение было рвано, кто-то мог войти или выйти, а хостом мог
+     * стать другой участник (bug-0012).
+     * @param peerCount Сколько сейчас участников
+     * @param hostUserId Идентификатор клиента хоста
+     * @param isHost Являемся ли мы хостом
+     */
+    void onRosterChanged(int peerCount, const QString &hostUserId, bool isHost);
+
+    /**
+     * @brief Список участников обновлён
+     * @param peers Состав комнаты, как сообщил сервер
+     */
+    void onRosterUpdated(const QVector<PeerEntry> &peers);
+
+    /**
+     * @brief ID торрента комнаты определён
+     * Вызывается при получении /rooms/info. Если у нас нет этого торрента —
+     * добавляем его и выбираем файл (idea-0046: per-peer selectedFiles, bug-0048).
+     * @param torrentId infohash торрента, к которому привязана комната
+     */
+    void onRoomTorrentIdentified(const QString &torrentId);
+
+    /**
+     * @brief Пересобрать строку состава комнаты
+     *
+     * Показывает только то, что сервер действительно знает: кто в комнате, кто
+     * хост, кто буферизирует. Отдельного «синхронизирован с комнатой» нет и
+     * быть не может — сервер не знает позицию отдельного пира. Своё отставание
+     * показывает отдельный индикатор.
+     */
+    void updateRosterLabel();
+
+    /**
+     * @brief Пересчитать индикатор отставания от комнаты
+     *
+     * Показывает, насколько наша позиция расходится с позицией комнаты. Ниже
+     * порога ничего не показывается: небольшой разброс — это нормальное
+     * дрожание, и мигающая надпись об отставании в полсекунды только мешает.
+     */
+    void updateLagIndicator();
 
 protected:
     /**
@@ -403,9 +484,16 @@ private:
     QPushButton *m_joinRoomButton = nullptr;      ///< Кнопка присоединения
     QPushButton *m_leaveRoomButton = nullptr;     ///< Кнопка выхода из комнаты
     QLabel *m_roomStatusLabel = nullptr;          ///< Статус комнаты
+    QAction *m_copyInviteAction = nullptr;      ///< «Скопировать код приглашения»
+
+    // Пароль, заданный при создании комнаты. Нужен, чтобы после получения
+    // серверного ID собрать код приглашения. Пустой — комната без пароля.
+    QString m_createdRoomPassword;
 
     // Статусная строка
     QLabel *m_statusLabel = nullptr;              ///< Статусное сообщение
+    QLabel *m_rosterLabel = nullptr;             ///< Строка состава комнаты
+    QLabel *m_lagLabel = nullptr;                ///< Индикатор отставания от комнаты
 
     // ── Менеджеры ─────────────────────────────────────────────────────
 
@@ -423,6 +511,7 @@ private:
     qint64 m_currentFileSize = 0;       ///< Размер выбранного файла в байтах (для расчёта позиции буфера)
     QVector<qint64> m_fileSizes;         ///< Размеры файлов текущего торрента (по индексу)
     QTimer *m_bufferPollTimer = nullptr; ///< Таймер опроса состояния буфера во время воспроизведения
+    QTimer *m_bufferPositionTimer = nullptr; ///< Таймер отправки позиции воспроизведения на бэкенд
 
     // ── Обновление stream-тикета ────────────────────────────────────────
     // Тикет живёт 5 минут (backend constants.StreamTicketTTL) и раньше
@@ -441,6 +530,9 @@ private:
     QString m_pendingStreamTorrentId;   ///< torrentId, ожидающий тикет для play
     QString m_currentTorrentId;          ///< torrentId активно воспроизводимого файла
     int m_pendingStreamFileIndex = -1;  ///< fileIndex, ожидающий тикет для play
+
+    // ── Авто-добавление торрента комнаты (bug-0048) ────────────────────
+    QString m_pendingRoomTorrentId;      ///< torrentId комнаты, который нужно добавить/выбрать
 };
 
 #endif // MAINWINDOW_H

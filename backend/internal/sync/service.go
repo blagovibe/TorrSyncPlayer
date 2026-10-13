@@ -8,6 +8,7 @@
 package sync
 
 import (
+	"context"
 	"math"
 	"sync"
 	"time"
@@ -28,14 +29,21 @@ type Service struct {
 	closeOnce     sync.Once
 	persistence   *persistence.Store
 	saveDebouncer *utils.Debouncer
+	hostChecker   HostChecker
+}
+
+// HostChecker checks if a user is the host of a room.
+type HostChecker interface {
+	IsHost(ctx context.Context, userID, roomID string) (bool, error)
 }
 
 // NewService creates a new synchronization service.
 // State is tracked per room so concurrent rooms do not overwrite each other.
 // Returns an initialized service.
-func NewService() *Service {
+func NewService(hostChecker HostChecker) *Service {
 	svc := &Service{
-		rooms: make(map[string]models.SyncStatus),
+		rooms:       make(map[string]models.SyncStatus),
+		hostChecker: hostChecker,
 	}
 	svc.saveDebouncer = utils.NewDebouncer(constants.P2PDebounceInterval, svc.flushState)
 
@@ -118,16 +126,40 @@ func (s *Service) ensureRoomLocked(roomID string) models.SyncStatus {
 	return status
 }
 
+// validateHost checks if the user is the host of the room.
+// Returns an error if the user is not the host or if the check fails.
+func (s *Service) validateHost(ctx context.Context, userID, roomID string) error {
+	if s.hostChecker == nil {
+		// If no host checker is configured, allow (for backward compatibility in tests)
+		return nil
+	}
+	isHost, err := s.hostChecker.IsHost(ctx, userID, roomID)
+	if err != nil {
+		logger.Warn("Sync: host check failed", "userID", userID, "roomID", roomID, "error", err)
+		return errors.Wrap(errors.ErrUnavailable, "host check failed", err)
+	}
+	if !isHost {
+		logger.Warn("Sync: non-host attempted to control playback", "userID", userID, "roomID", roomID)
+		return errors.New(errors.ErrForbidden, "only the room host can control playback")
+	}
+	return nil
+}
+
 // Play starts playback for the specified room.
+// Only the room host can call this.
 // Sets IsPlaying flag to true and updates the timestamp.
-// Returns the current synchronization status.
-func (s *Service) Play(roomID string) models.SyncStatus {
+// Returns the current synchronization status or an error if not host.
+func (s *Service) Play(ctx context.Context, roomID, userID string) (models.SyncStatus, error) {
+	if err := s.validateHost(ctx, userID, roomID); err != nil {
+		return models.SyncStatus{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.isClosed {
 		logger.Warn("Sync: attempt to play on a closed service")
-		return s.rooms[roomID]
+		return s.rooms[roomID], errors.New(errors.ErrUnavailable, "service closed")
 	}
 
 	status := s.ensureRoomLocked(roomID)
@@ -136,20 +168,25 @@ func (s *Service) Play(roomID string) models.SyncStatus {
 	s.rooms[roomID] = status
 	s.scheduleSave()
 
-	logger.Info("Sync: playback started", "roomID", roomID, "position", status.Position)
-	return status
+	logger.Info("Sync: playback started", "roomID", roomID, "position", status.Position, "userID", userID)
+	return status, nil
 }
 
 // Pause pauses playback for the specified room.
+// Only the room host can call this.
 // Sets IsPlaying flag to false and updates the timestamp.
-// Returns the current synchronization status.
-func (s *Service) Pause(roomID string) models.SyncStatus {
+// Returns the current synchronization status or an error if not host.
+func (s *Service) Pause(ctx context.Context, roomID, userID string) (models.SyncStatus, error) {
+	if err := s.validateHost(ctx, userID, roomID); err != nil {
+		return models.SyncStatus{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.isClosed {
 		logger.Warn("Sync: attempt to pause on a closed service")
-		return s.rooms[roomID]
+		return s.rooms[roomID], errors.New(errors.ErrUnavailable, "service closed")
 	}
 
 	status := s.ensureRoomLocked(roomID)
@@ -158,18 +195,23 @@ func (s *Service) Pause(roomID string) models.SyncStatus {
 	s.rooms[roomID] = status
 	s.scheduleSave()
 
-	logger.Info("Sync: playback paused", "roomID", roomID, "position", status.Position)
-	return status
+	logger.Info("Sync: playback paused", "roomID", roomID, "position", status.Position, "userID", userID)
+	return status, nil
 }
 
 // Seek seeks to the specified position in the given room.
+// Only the room host can call this.
 // Parameter position - position in seconds (0 - 86400).
 // Validates position before applying. Large jumps (greater than
 // MaxPositionJump) are smoothed toward the requested position using
 // SmoothAdjustmentRatio to avoid visual glitches and desync caused by
 // network latency or out-of-order events.
-// Returns the updated status or an error if position is invalid.
-func (s *Service) Seek(roomID string, position float64) (models.SyncStatus, error) {
+// Returns the updated status or an error if position is invalid or not host.
+func (s *Service) Seek(ctx context.Context, roomID, userID string, position float64) (models.SyncStatus, error) {
+	if err := s.validateHost(ctx, userID, roomID); err != nil {
+		return models.SyncStatus{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -193,7 +235,7 @@ func (s *Service) Seek(roomID string, position float64) (models.SyncStatus, erro
 
 	logger.Info("Sync: seek", "roomID", roomID, "oldPosition", oldPosition,
 		"requestedPosition", position, "appliedPosition", status.Position,
-		"smoothed", math.Abs(position-oldPosition) > constants.MaxPositionJump)
+		"smoothed", math.Abs(position-oldPosition) > constants.MaxPositionJump, "userID", userID)
 	return status, nil
 }
 
@@ -207,6 +249,41 @@ func applyLatencyCompensation(current, requested float64) float64 {
 		return requested
 	}
 	return current + (requested-current)*constants.SmoothAdjustmentRatio
+}
+
+// Buffering sets the buffering state for the specified room.
+//
+// Unlike Play, Pause and Seek, this is NOT a host-only command: buffering is a
+// peer reporting its own local condition ("I am out of data"), not a decision
+// about what the room should do. Restricting it to the host would strand the
+// room: a non-host peer that recovered could not say so, and the pause would
+// never lift. Any room member may report buffering (idea-0018).
+//
+// Room membership is the caller's precondition, not this method's job: the
+// HTTP handler resolves the room via P2PService.GetRoomInfo for the calling
+// client, which fails with "not connected to a room" (400) before this method
+// is reached. The ctx and userID parameters are kept for interface uniformity
+// with the host-only methods and for logging.
+//
+// Updates the buffering flag and timestamp.
+// Returns the current synchronization status.
+func (s *Service) Buffering(_ context.Context, roomID, userID string, buffering bool) (models.SyncStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.isClosed {
+		logger.Warn("Sync: attempt to set buffering on a closed service")
+		return s.rooms[roomID], errors.New(errors.ErrUnavailable, "service closed")
+	}
+
+	status := s.ensureRoomLocked(roomID)
+	status.Buffering = buffering
+	status.Timestamp = time.Now().UnixMilli()
+	s.rooms[roomID] = status
+	s.scheduleSave()
+
+	logger.Info("Sync: buffering changed", "roomID", roomID, "buffering", buffering, "userID", userID)
+	return status, nil
 }
 
 // GetStatus returns the current playback status for the given room.

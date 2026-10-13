@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -66,10 +67,33 @@ func applyAuthHeaders(req *http.Request) {
 	req.Header.Set(auth.HeaderClientID, "test-client")
 }
 
+// applyAuthContext sets the client ID in the request context as TokenMiddleware would.
+func applyAuthContext(req *http.Request) {
+	const clientIDKey = "torrsyncplayer.clientID"
+	ctx := context.WithValue(req.Context(), clientIDKey, "test-client")
+	*req = *req.WithContext(ctx)
+}
+
+// applyAuthHeadersAs attaches auth headers for a specific client id. Needed for
+// multi-peer tests: the shared access token is per-process, so peers differ only
+// by X-Client-ID — which is exactly what the host model and the room
+// membership check are keyed on.
+func applyAuthHeadersAs(req *http.Request, clientID string) {
+	req.Header.Set(auth.HeaderAccessToken, apiAuthSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, clientID)
+}
+
 // TestMain создаёт общие сервисы для всех API-тестов
 func TestMain(m *testing.M) {
+	// Increase rate limits for tests to avoid 429 errors
+	os.Setenv(constants.EnvAPIRateLimit, "100")
+	os.Setenv(constants.EnvAPIRateBurst, "1000")
+
 	// Инициализируем логгер до создания сервисов
 	logger.Init("error", "text")
+
+	// Recreate global rate limiter with test values
+	ResetGlobalRateLimiter()
 
 	authService, err := auth.NewAuthService()
 	if err != nil {
@@ -82,7 +106,7 @@ func TestMain(m *testing.M) {
 	}
 	apiP2pSvc = p2pSvc
 
-	apiSyncSvc = syncsvc.NewService()
+	apiSyncSvc = syncsvc.NewService(apiP2pSvc)
 	initTorrentService()
 	if torrentInitErr != nil {
 		panic(torrentInitErr)
@@ -369,7 +393,7 @@ func TestStreamTicket_Contract_IssueThenStream(t *testing.T) {
 func TestCreateRoom_Success(t *testing.T) {
 	handler := CreateRoom(apiP2pSvc)
 
-	body := `{"name":"Test Room","password":""}`
+	body := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -387,7 +411,7 @@ func TestCreateRoom_Success(t *testing.T) {
 func TestCreateRoom_WithPassword(t *testing.T) {
 	handler := CreateRoom(apiP2pSvc)
 
-	body := `{"name":"Private Room","password":"secret123"}`
+	body := `{"name":"Private Room","password":"secret123","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -413,12 +437,12 @@ func TestCreateRoom_InvalidJSON(t *testing.T) {
 }
 
 func TestJoinRoom_Success(t *testing.T) {
-	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "")
+	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "", "torrent-test")
 	require.NoError(t, err)
 
 	handler := JoinRoom(apiP2pSvc)
 
-	body := `{"roomId":"` + room.ID + `","password":""}`
+	body := `{"roomId":"` + room.ID + `","password":"","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -435,7 +459,7 @@ func TestJoinRoom_Success(t *testing.T) {
 func TestJoinRoom_NotFound(t *testing.T) {
 	handler := JoinRoom(apiP2pSvc)
 
-	body := `{"roomId":"nonexistent","password":""}`
+	body := `{"roomId":"nonexistent","password":"","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -456,9 +480,9 @@ func TestJoinRoom_InvalidJSON(t *testing.T) {
 }
 
 func TestLeaveRoom_Success(t *testing.T) {
-	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "")
+	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "", "torrent-test")
 	require.NoError(t, err)
-	err = apiP2pSvc.JoinRoom(context.Background(), "test-user-1", room.ID, "")
+	err = apiP2pSvc.JoinRoom(context.Background(), "test-user-1", room.ID, "", "torrent-test")
 	require.NoError(t, err)
 
 	handler := LeaveRoom(apiP2pSvc)
@@ -511,12 +535,33 @@ func TestSignal_InvalidJSON(t *testing.T) {
 // ============ Sync Handler Tests ============
 
 func TestSyncPlay(t *testing.T) {
-	handler := SyncPlay(apiSyncSvc, apiP2pSvc)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", nil)
+	// Create a room via router (goes through TokenMiddleware)
+	createBody := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
 	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-	handler.ServeHTTP(rec, req)
+	var room models.RoomInfo
+	parseJSON(t, rec.Body, &room)
+
+	// Join the room
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Call sync/play via router
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -526,14 +571,41 @@ func TestSyncPlay(t *testing.T) {
 }
 
 func TestSyncPause(t *testing.T) {
-	apiSyncSvc.Play("test-room")
-
-	handler := SyncPause(apiSyncSvc, apiP2pSvc)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/pause", nil)
+	// Create a room via router
+	createBody := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
 	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-	handler.ServeHTTP(rec, req)
+	var room models.RoomInfo
+	parseJSON(t, rec.Body, &room)
+
+	// Join the room
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Start playback
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Call sync/pause via router
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/pause", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -543,14 +615,34 @@ func TestSyncPause(t *testing.T) {
 }
 
 func TestSyncSeek_Success(t *testing.T) {
-	handler := SyncSeek(apiSyncSvc, apiP2pSvc)
-
-	body := `{"position":1.5}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek", bytes.NewBufferString(body))
+	// Create a room via router
+	createBody := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
 	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
 	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-	handler.ServeHTTP(rec, req)
+	var room models.RoomInfo
+	parseJSON(t, rec.Body, &room)
+
+	// Join the room
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Call sync/seek via router
+	body := `{"position":1.5}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -571,6 +663,79 @@ func TestSyncSeek_InvalidJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestSyncHostEnforcement(t *testing.T) {
+	// Create a room as test-client (host)
+	createBody := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var room models.RoomInfo
+	parseJSON(t, rec.Body, &room)
+
+	// Join as host
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Host can play
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Now create a second user and join the room
+	secondAuthSvc, err := auth.NewAuthServiceWithToken(apiAuthSvc.AccessToken())
+	require.NoError(t, err)
+	_ = secondAuthSvc.AccessToken()
+
+	secondJoinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(secondJoinBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.HeaderAccessToken, apiAuthSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, "second-client")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Second client (non-host) tries to play - should be forbidden
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.HeaderAccessToken, apiAuthSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, "second-client")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	// Second client tries to pause - should be forbidden
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/pause", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.HeaderAccessToken, apiAuthSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, "second-client")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	// Second client tries to seek - should be forbidden
+	body := `{"position":1.5}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.HeaderAccessToken, apiAuthSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, "second-client")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
 func TestSyncSeek_InvalidPosition(t *testing.T) {
 	handler := SyncSeek(apiSyncSvc, apiP2pSvc)
 
@@ -583,22 +748,465 @@ func TestSyncSeek_InvalidPosition(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestSyncStatus(t *testing.T) {
-	handler := SyncStatus(apiSyncSvc, apiP2pSvc)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/sync/status", nil)
+// TestSyncBuffering tests the buffering endpoint
+func TestSyncBuffering(t *testing.T) {
+	// Create a room via router
+	createBody := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
 	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-	handler.ServeHTTP(rec, req)
+	var room models.RoomInfo
+	parseJSON(t, rec.Body, &room)
+
+	// Join the room
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Start playback first
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Set buffering to true
+	body := `{"buffering":true}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var status models.SyncStatus
 	parseJSON(t, rec.Body, &status)
-	assert.NotNil(t, status)
+	assert.True(t, status.Buffering)
+
+	// Set buffering to false
+	body = `{"buffering":false}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	parseJSON(t, rec.Body, &status)
+	assert.False(t, status.Buffering)
+}
+
+// TestSyncBuffering_NonHostMember закрепляет решение idea-0018: буферизацию
+// сообщает любой участник комнаты, а не только хост.
+//
+// Проверка на границе: host-чекинг снят, но членство в комнате осталось.
+// Не-буферизующий не-хост обязан иметь право сказать «у меня всё в порядке» —
+// иначе после восстановления его потока комната осталась бы на паузе
+// навсегда, потому что снять паузу он не может.
+func TestSyncBuffering_NonHostMember(t *testing.T) {
+	// Хост создаёт комнату и входит в неё.
+	createBody := `{"name":"Buffering Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var room models.RoomInfo
+	parseJSON(t, rec.Body, &room)
+
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, room.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Не-хост присоединяется к той же комнате.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "buffering-peer")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Не-хост сообщает о своей буферизации — 200, не 403.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering",
+		bytes.NewBufferString(`{"buffering":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "buffering-peer")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code,
+		"не-хост в комнате должен иметь право сообщить о буферизации (idea-0018)")
+
+	var status models.SyncStatus
+	parseJSON(t, rec.Body, &status)
+	assert.True(t, status.Buffering)
+
+	// И снять её тоже — иначе комната залипнет на паузе.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering",
+		bytes.NewBufferString(`{"buffering":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "buffering-peer")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	parseJSON(t, rec.Body, &status)
+	assert.False(t, status.Buffering)
+}
+
+// TestSyncBuffering_NotInRoom: снятие host-чекинга не должно превращать
+// эндпоинт в анонимный. Участник не в комнате получает 400 «Not connected to
+// a room» — проверка членства остаётся в GetRoomInfo до вызова сервиса, и
+// ответ должен быть 400, а не 403.
+func TestSyncBuffering_NotInRoom(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering",
+		bytes.NewBufferString(`{"buffering":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	// Свежий client id, который не создавал и не входил ни в одну комнату.
+	applyAuthHeadersAs(req, "outside-peer")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"участник не в комнате должен получать 400, а не 403")
+
+	var errResp map[string]interface{}
+	parseJSON(t, rec.Body, &errResp)
+	assert.Equal(t, "Not connected to a room", errResp["error"])
+}
+
+// TestSyncStatus_NotInRoom: вызывающий не в комнате получает 400, а не 200 с
+// нулевым статусом (bug-0019).
+//
+// Раньше ошибка GetRoomInfo глушилась, roomID оставался "", и GetStatus("")
+// отдавал валидный на вид IsPlaying:false / Position:0. Клиент после
+// реконнекта (bug-0012) не мог отличить «комнаты нет» от «комната на нуле» —
+// и ставил паузу с прыжком на позицию 0 там, где комната играла с 42-й минуты.
+func TestSyncStatus_NotInRoom(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sync/status", nil)
+	applyAuthHeadersAs(req, "status-outsider")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]interface{}
+	parseJSON(t, rec.Body, &errResp)
+	assert.Equal(t, "Not connected to a room", errResp["error"],
+		"сообщение должно совпадать с остальными sync-хендлерами")
+}
+
+// TestSyncStatus_InRoom: в комнате — 200 с настоящими значениями комнаты.
+// Проверяет, что 400 не превратился в «эндпоинт сломан».
+func TestSyncStatus_InRoom(t *testing.T) {
+	createBody := `{"name":"Status Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created models.RoomInfo
+	parseJSON(t, rec.Body, &created)
+
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, created.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Хост задаёт состояние, которое обязан увидеть статус.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/seek",
+		bytes.NewBufferString(`{"position":1.5}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/sync/status", nil)
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var status models.SyncStatus
+	parseJSON(t, rec.Body, &status)
+	assert.True(t, status.IsPlaying)
+	// 1.5 — внутри MaxPositionJump, поэтому перемотка применяется напрямую
+	// (а не сглаживается, как прыжок за 2 s). Тест про статус, а не про
+	// сглаживание, поэтому позицию выбираем однозначную. Главное — она
+	// ненулевая: именно нули выдавал молчаливый 200 без комнаты.
+	assert.InDelta(t, 1.5, status.Position, 0.01,
+		"статус должен отдавать позицию комнаты, а не нули")
 }
 
 // ============ Router Integration Tests ============
+
+// TestRoomInfo covers GET /api/v1/rooms/info — the endpoint bug-0012 needs so a
+// client can re-learn who the host is and how many peers are in the room after
+// an SSE reconnect.
+//
+// The path deliberately carries no {roomID}: the room comes from the caller's
+// own membership, which is what keeps one client from asking about another's
+// room.
+func TestRoomInfo(t *testing.T) {
+	createBody := `{"name":"Info Room","password":"","torrentId":"torrent-test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(createBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created models.RoomInfo
+	parseJSON(t, rec.Body, &created)
+	require.NotEmpty(t, created.ID)
+
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, created.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// A second peer joins so peerCount is distinguishable from 1.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "info-peer")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The host asks about its own room.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeaders(req)
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var info models.RoomInfo
+	parseJSON(t, rec.Body, &info)
+	assert.Equal(t, created.ID, info.ID)
+	assert.Equal(t, "Info Room", info.Name)
+	assert.Equal(t, "test-client", info.HostUserID, "хост должен быть виден в ответе")
+	assert.Equal(t, 2, info.PeerCount)
+}
+
+// TestRoomInfo_NotInRoom: without a room there is nothing to report, and the
+// client must be able to tell that apart from a real room.
+func TestRoomInfo_NotInRoom(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeadersAs(req, "info-outsider")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]interface{}
+	parseJSON(t, rec.Body, &errResp)
+	assert.Equal(t, "Not connected to a room", errResp["error"])
+}
+
+// TestRoomInfo_CountsHostAndSurvivesLastGuestLeave walks the whole thing through
+// the real router, because the bug was only visible end to end (bug-0021).
+//
+// The host creates the room and never joins — which is exactly what the client
+// does — so it used to sit outside the roster. Two consequences, both fixed
+// here: every count was one short, and the room was deleted the moment the last
+// guest left, out from under a host who was still connected and watching.
+func TestRoomInfo_CountsHostAndSurvivesLastGuestLeave(t *testing.T) {
+	// 1. Host creates the room. It counts as one participant already.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(`{"name":"Counting Room","torrentId":"torrent-test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "e2e-host")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created models.RoomInfo
+	parseJSON(t, rec.Body, &created)
+	assert.Equal(t, 1, created.PeerCount, "the creator is a participant")
+
+	// 2. A guest joins.
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, created.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "e2e-guest")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// 3. Both are counted.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeadersAs(req, "e2e-host")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var info models.RoomInfo
+	parseJSON(t, rec.Body, &info)
+	assert.Equal(t, 2, info.PeerCount, "host + guest")
+	assert.Equal(t, "e2e-host", info.HostUserID)
+
+	// 4. The guest leaves. The room must survive: the host is still in it.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/leave", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "e2e-guest")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// 5. The host is still a member and still counted.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeadersAs(req, "e2e-host")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code,
+		"the room was deleted although the host is still connected")
+
+	parseJSON(t, rec.Body, &info)
+	assert.Equal(t, 1, info.PeerCount, "only the host remains")
+
+	// 6. And the host can still drive playback.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/play", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "e2e-host")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestRoomInfo_RosterAndBuffering covers idea-0017 end to end: the roster in
+// /rooms/info, and the roster naming which peer is buffering.
+//
+// The client that arrives second is the interesting one — it never saw a
+// peer_joined for anyone, so if it can still find the first peer and see that
+// peer buffering, the snapshot really does stand in for the event stream.
+func TestRoomInfo_RosterAndBuffering(t *testing.T) {
+	// First client creates and enters the room.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(`{"name":"Roster Room","torrentId":"torrent-test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "roster-first")
+	rec := httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created models.RoomInfo
+	parseJSON(t, rec.Body, &created)
+
+	// Second client joins.
+	joinBody := fmt.Sprintf(`{"roomId":"%s","password":"","torrentId":"torrent-test"}`, created.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(joinBody))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "roster-second")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The late client's first look: it sees the host, which it never saw join.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeadersAs(req, "roster-second")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var info models.RoomInfo
+	parseJSON(t, rec.Body, &info)
+	require.Len(t, info.Peers, 2)
+	assert.Equal(t, 2, info.PeerCount)
+	assert.Equal(t, info.PeerCount, len(info.Peers),
+		"the count and the roster disagree")
+
+	first, ok := findPeerByUserID(info.Peers, "roster-first")
+	require.True(t, ok, "the late client cannot see the peer that was already there")
+	assert.True(t, first.IsHost, "the host is not marked isHost")
+	assert.False(t, first.Buffering)
+
+	// That first peer now reports buffering.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering",
+		bytes.NewBufferString(`{"buffering":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "roster-first")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The roster must name that peer, not merely say the room is buffering.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeadersAs(req, "roster-second")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	parseJSON(t, rec.Body, &info)
+	require.Len(t, info.Peers, 2)
+
+	first, ok = findPeerByUserID(info.Peers, "roster-first")
+	require.True(t, ok, "the peer that reported buffering vanished from the roster")
+	assert.True(t, first.Buffering, "the roster does not say which peer is buffering")
+
+	second, ok := findPeerByUserID(info.Peers, "roster-second")
+	require.True(t, ok)
+	assert.False(t, second.Buffering, "an innocent peer was marked as buffering")
+
+	// And catching up clears it.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/sync/buffering",
+		bytes.NewBufferString(`{"buffering":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	applyAuthHeadersAs(req, "roster-first")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/rooms/info", nil)
+	applyAuthHeadersAs(req, "roster-second")
+	rec = httptest.NewRecorder()
+	apiRouter.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	parseJSON(t, rec.Body, &info)
+	first, ok = findPeerByUserID(info.Peers, "roster-first")
+	require.True(t, ok)
+	assert.False(t, first.Buffering, "the peer caught up but still shows buffering")
+}
+
+// findPeerByUserID locates a roster entry by its user ID.
+func findPeerByUserID(roster []models.PeerInfo, userID string) (models.PeerInfo, bool) {
+	for _, p := range roster {
+		if p.UserID == userID {
+			return p, true
+		}
+	}
+	return models.PeerInfo{}, false
+}
 
 func TestRouter_HealthEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -879,12 +1487,12 @@ func TestGetFiles_InvalidID(t *testing.T) {
 
 // TestRoomEvents_WithRoomID проверяет SSE endpoint для событий комнаты с параметром roomID в URL
 func TestRoomEvents_WithRoomID(t *testing.T) {
-	roomInfo, err := apiP2pSvc.CreateRoom(context.Background(), "host-user", "test-room", "")
+	roomInfo, err := apiP2pSvc.CreateRoom(context.Background(), "host-user", "test-room", "", "torrent-test")
 	require.NoError(t, err)
 	roomID := roomInfo.ID
 
 	// Join the room to get access to events
-	err = apiP2pSvc.JoinRoom(context.Background(), "test-user", roomID, "")
+	err = apiP2pSvc.JoinRoom(context.Background(), "test-user", roomID, "", "torrent-test")
 	require.NoError(t, err)
 	handler := RoomEvents(apiP2pSvc)
 
@@ -989,10 +1597,10 @@ func TestSecurity_Pagination_MaxOffset(t *testing.T) {
 // mockP2PServiceForRoomEvents is a minimal mock for testing RoomEvents.
 type mockP2PServiceForRoomEvents struct{}
 
-func (m *mockP2PServiceForRoomEvents) CreateRoom(ctx context.Context, userID, name, password string) (*models.RoomInfo, error) {
+func (m *mockP2PServiceForRoomEvents) CreateRoom(ctx context.Context, userID, name, password, torrentID string) (*models.RoomInfo, error) {
 	return nil, nil
 }
-func (m *mockP2PServiceForRoomEvents) JoinRoom(ctx context.Context, userID, roomID, password string) error {
+func (m *mockP2PServiceForRoomEvents) JoinRoom(ctx context.Context, userID, roomID, password, torrentID string) error {
 	return nil
 }
 func (m *mockP2PServiceForRoomEvents) LeaveRoom(ctx context.Context, userID string) error {
@@ -1005,10 +1613,19 @@ func (m *mockP2PServiceForRoomEvents) GetEvents(userID string) chan models.P2PEv
 	return nil
 }
 func (m *mockP2PServiceForRoomEvents) GetRoomInfo(ctx context.Context, userID string) (*models.RoomInfo, error) {
-	return &models.RoomInfo{ID: "0123456789abcdef0123456789abcdef", Name: "test", HostID: "host", PeerCount: 1}, nil
+	return &models.RoomInfo{ID: "0123456789abcdef0123456789abcdef", Name: "test", HostID: "host", HostUserID: "host-user", PeerCount: 1}, nil
 }
-func (m *mockP2PServiceForRoomEvents) BroadcastSync(roomID string, syncData interface{}) {}
-func (m *mockP2PServiceForRoomEvents) Close() error                                      { return nil }
+func (m *mockP2PServiceForRoomEvents) IsHost(ctx context.Context, userID, roomID string) (bool, error) {
+	return userID == "host-user", nil
+}
+func (m *mockP2PServiceForRoomEvents) BroadcastSync(roomID string, event models.SyncEvent) {}
+func (m *mockP2PServiceForRoomEvents) TouchPeer(_ context.Context, _ string) error         { return nil }
+func (m *mockP2PServiceForRoomEvents) TorrentsVisibleTo(_ context.Context, userID string) map[string]bool {
+	return map[string]bool{}
+}
+func (m *mockP2PServiceForRoomEvents) SetPeerBuffering(_ context.Context, _ string, _ bool) {}
+func (m *mockP2PServiceForRoomEvents) BroadcastPeerList(_ string)                           {}
+func (m *mockP2PServiceForRoomEvents) Close() error                                         { return nil }
 
 // TestRoomEvents_NilEventChannel verifies that a nil event channel returns 500
 // instead of the old 503 "not implemented" message.

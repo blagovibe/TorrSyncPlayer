@@ -38,8 +38,8 @@ public:
 
     // ── Room API ──────────────────────────────────────────────────────────
     
-    MOCK_METHOD(void, createRoom, (const QString &name, const QString &password), (override));
-    MOCK_METHOD(void, joinRoom, (const QString &roomId, const QString &password), (override));
+    MOCK_METHOD(void, createRoom, (const QString &name, const QString &password, const QString &torrentId), (override));
+    MOCK_METHOD(void, joinRoom, (const QString &roomId, const QString &password, const QString &torrentId), (override));
     MOCK_METHOD(void, leaveRoom, (), (override));
     MOCK_METHOD(void, sendSignal, (const QJsonObject &signal), (override));
 
@@ -48,6 +48,7 @@ public:
     MOCK_METHOD(void, syncPlay, (), (override));
     MOCK_METHOD(void, syncPause, (), (override));
     MOCK_METHOD(void, syncSeek, (double position), (override));
+    MOCK_METHOD(void, syncBuffering, (bool buffering), (override));
 
     // ── Утилиты ─────────────────────────────────────────────────────────
     
@@ -62,6 +63,7 @@ public:
     MOCK_METHOD(void, setAccessToken, (const QString &token), (override));
     MOCK_METHOD(void, clearAccessToken, (), (override));
     MOCK_METHOD(void, setClientId, (const QString &clientId), (override));
+MOCK_METHOD(QString, clientId, (), (const, override));
     MOCK_METHOD(QString, accessToken, (), (const, override));
     MOCK_METHOD(void, requestStreamTicket, (const QString &torrentId), (override));
     MOCK_METHOD(void, setMaxRetries, (int retries), (override));

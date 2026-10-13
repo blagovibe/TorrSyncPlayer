@@ -22,6 +22,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QStandardItemModel>
+#include <QStringList>
+#include <cmath>
 #include <QHeaderView>
 #include <QToolBar>
 #include <QMenuBar>
@@ -29,6 +31,7 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QApplication>
+#include <QClipboard>
 #include <QThread>
 #include <QTimer>
 #include <QFileDialog>
@@ -128,6 +131,16 @@ void MainWindow::setupUI()
     m_statusLabel = new QLabel(tr("Готово"), this);
     statusBar()->addPermanentWidget(m_statusLabel, 1);
 
+    // Состав комнаты и своё отставание от неё. Оба пусты, пока комнаты нет —
+    // иначе строка состояния забита «0 участников» у того, кто ещё не вошёл.
+    m_lagLabel = new QLabel(this);
+    m_lagLabel->setVisible(false);
+    statusBar()->addPermanentWidget(m_lagLabel);
+
+    m_rosterLabel = new QLabel(this);
+    m_rosterLabel->setVisible(false);
+    statusBar()->addPermanentWidget(m_rosterLabel);
+
     // Меню
     QMenu *fileMenu = menuBar()->addMenu(tr("&Файл"));
     QAction *addTorrentAction = fileMenu->addAction(tr("Добавить торрент..."));
@@ -146,6 +159,11 @@ void MainWindow::setupUI()
     connect(joinRoomAction, &QAction::triggered, this, &MainWindow::onJoinRoom);
     QAction *leaveRoomAction = roomMenu->addAction(tr("Покинуть комнату"));
     connect(leaveRoomAction, &QAction::triggered, this, &MainWindow::onLeaveRoom);
+
+    // Копирование кода приглашения — только хосту и только когда мы в комнате.
+    m_copyInviteAction = roomMenu->addAction(tr("Скопировать код приглашения"));
+    connect(m_copyInviteAction, &QAction::triggered, this, &MainWindow::onCopyInviteCode);
+    m_copyInviteAction->setEnabled(false);
 }
 
 QWidget* MainWindow::createLeftPanel()
@@ -309,6 +327,15 @@ void MainWindow::setupConnections()
     connect(m_roomManager, &RoomManager::peerJoined, this, &MainWindow::onPeerJoined);
     connect(m_roomManager, &RoomManager::peerLeft, this, &MainWindow::onPeerLeft);
     connect(m_roomManager, &RoomManager::error, this, &MainWindow::onNetworkError);
+    // Сверка состояния после (пере)подключения к комнате (bug-0012)
+    connect(m_roomManager, &RoomManager::stateReconciled,
+            this, &MainWindow::onStateReconciled);
+    connect(m_roomManager, &RoomManager::rosterChanged,
+            this, &MainWindow::onRosterChanged);
+    connect(m_roomManager, &RoomManager::rosterUpdated,
+            this, &MainWindow::onRosterUpdated);
+    connect(m_roomManager, &RoomManager::roomTorrentIdentified,
+            this, &MainWindow::onRoomTorrentIdentified);
 
     // NetworkManager
     connect(m_network, &NetworkManager::torrentAdded, m_torrentModel, &TorrentModel::addTorrentFromJson);
@@ -333,6 +360,17 @@ void MainWindow::setupConnections()
     connect(m_bufferPollTimer, &QTimer::timeout, this, [this]() {
         if (m_isPlaying && !m_currentTorrentId.isEmpty()) {
             m_network->getBufferInfo(m_currentTorrentId);
+        }
+    });
+
+    // Отправка позиции воспроизведения на бэкенд для piece-priority буфера.
+    // Без этого буфер застревает на последней ручной перемотке (bug-0028).
+    m_bufferPositionTimer = new QTimer(this);
+    m_bufferPositionTimer->setInterval(500); // 500 мс = 2 раза в секунду
+    connect(m_bufferPositionTimer, &QTimer::timeout, this, [this]() {
+        if (m_isPlaying && !m_isSeeking && !m_currentTorrentId.isEmpty() && m_duration > 0 && m_currentFileSize > 0) {
+            const qint64 bytePos = static_cast<qint64>((m_currentPosition / m_duration) * m_currentFileSize);
+            m_network->setBufferPosition(m_currentTorrentId, bytePos);
         }
     });
 
@@ -363,6 +401,10 @@ void MainWindow::setupConnections()
     connect(m_mpvWidget, &MpvWidget::durationChanged, this, &MainWindow::onDurationChanged);
     connect(m_mpvWidget, &MpvWidget::playbackFinished, this, &MainWindow::onPlaybackFinished);
     connect(m_mpvWidget, &MpvWidget::error, this, &MainWindow::onPlaybackError);
+    // Локальная буферизация → комната: остальные паузуют, пока мы ждём данные
+    connect(m_mpvWidget, &MpvWidget::bufferingStateChanged, this, &MainWindow::onLocalBufferingState);
+    // Буферизация другого пира → наш mpv: держим паузу, пока он не догонит
+    connect(m_roomManager, &RoomManager::bufferingChanged, this, &MainWindow::onPeerBufferingState);
 }
 
 // ── Слоты управления торрентами ─────────────────────────────────────────
@@ -468,6 +510,29 @@ void MainWindow::onFilesReceived(const QString &torrentId, const QJsonArray &fil
     }
 
     updateStatus(tr("Файлов в торренте: %1").arg(files.size()));
+
+    // bug-0048: если мы ждали файлы для торрента комнаты — выбираем первый
+    // видео-файл (автоматически, так как гость не должен вручную выбирать)
+    if (!m_pendingRoomTorrentId.isEmpty() && torrentId == m_pendingRoomTorrentId) {
+        qDebug() << "MainWindow: получены файлы для торрента комнаты, выбираем видео";
+        m_pendingRoomTorrentId.clear();
+        // Ищем первый файл с видео-расширением
+        for (int i = 0; i < files.size(); ++i) {
+            QJsonObject file = files[i].toObject();
+            QString name = file["name"].toString().toLower();
+            if (name.endsWith(".mkv") || name.endsWith(".mp4") || name.endsWith(".avi") ||
+                name.endsWith(".mov") || name.endsWith(".webm") || name.endsWith(".m4v")) {
+                qDebug() << "MainWindow: авто-выбор файла" << i << name;
+                m_torrentManager->selectFile(torrentId, i);
+                return;
+            }
+        }
+        // Если видео не нашли — выбираем первый файл
+        if (files.size() > 0) {
+            qDebug() << "MainWindow: видео не найдено, выбираем первый файл" << 0;
+            m_torrentManager->selectFile(torrentId, 0);
+        }
+    }
 }
 
 // ── Слоты TorrentManager ────────────────────────────────────────────────
@@ -560,31 +625,72 @@ void MainWindow::onStreamTicketReceived(const QString &torrentId, const QString 
     m_pendingStreamTorrentId.clear();
     m_pendingStreamFileIndex = -1;
     m_bufferPollTimer->start();
+    // Позиция должна уходить сразу при старте, иначе первый буфер вычисляется
+    // по позиции 0 до первого seek (bug-0028).
+    m_bufferPositionTimer->start();
 }
 
 // ── Слоты управления комнатами ──────────────────────────────────────────
 
 void MainWindow::onCreateRoom()
 {
+    // Комната привязана к торренту (idea-0046): каждый участник тянет медиа из
+    // роя сам, поэтому комнате нужно сказать, что именно смотрят. Без выбранного
+    // файла привязать не к чему.
+    if (m_currentTorrentId.isEmpty()) {
+        updateStatus(tr("Сначала добавьте торрент и выберите файл — комната привязывается к торренту"));
+        return;
+    }
+
     RoomDialog dialog(RoomDialog::CreateMode, this);
     if (dialog.exec() != QDialog::Accepted) return;
 
-    m_roomManager->createRoom(dialog.roomName(), dialog.password());
+    // Держим пароль: ID комнаты известен только после создания, а код
+    // приглашения собирается уже постфактум. Пустой — значит комната без пароля.
+    m_createdRoomPassword = dialog.password();
+
+    m_roomManager->createRoom(dialog.roomName(), dialog.password(), m_currentTorrentId);
     updateStatus(tr("Создание комнаты..."));
 }
 
 void MainWindow::onJoinRoom()
 {
+    // Тот же infohash обязан быть уже в локальном списке: иначе сервер отклонит
+    // вход, а клиент не сможет объяснить пользователю почему.
+    if (m_currentTorrentId.isEmpty()) {
+        updateStatus(tr("Сначала добавьте тот же торрент, который смотрит комната"));
+        return;
+    }
+
     RoomDialog dialog(RoomDialog::JoinMode, this);
     if (dialog.exec() != QDialog::Accepted) return;
 
-    m_roomManager->joinRoom(dialog.roomId(), dialog.password());
+    m_roomManager->joinRoom(dialog.roomId(), dialog.password(), m_currentTorrentId);
     updateStatus(tr("Присоединение к комнате..."));
 }
 
 void MainWindow::onLeaveRoom()
 {
+    m_createdRoomPassword.clear();
+    if (m_copyInviteAction) {
+        m_copyInviteAction->setEnabled(false);
+    }
     m_roomManager->leaveRoom();
+}
+
+void MainWindow::onCopyInviteCode()
+{
+    const QString roomId = m_roomManager->currentRoomId();
+    if (roomId.isEmpty()) {
+        updateStatus(tr("Нет комнаты — код приглашения собирать не из чего"));
+        return;
+    }
+
+    // Код не защищает: он несёт ровно те данные, которые приглашённому и так
+    // нужно передать, чтобы войти. Поэтому в интерфейсе и не обещаем защиты.
+    const QString code = RoomManager::makeInviteCode(roomId, m_createdRoomPassword);
+    QApplication::clipboard()->setText(code);
+    updateStatus(tr("Код приглашения скопирован: %1").arg(code));
 }
 
 // ── Слоты RoomManager ───────────────────────────────────────────────────
@@ -593,6 +699,9 @@ void MainWindow::onRoomCreated(const QString &roomId)
 {
     updateRoomUI(roomId, true);
     updateStatus(tr("Комната создана: %1").arg(roomId));
+    if (m_copyInviteAction) {
+        m_copyInviteAction->setEnabled(true);
+    }
 }
 
 void MainWindow::onRoomJoined(const QString &roomId)
@@ -604,9 +713,38 @@ void MainWindow::onRoomJoined(const QString &roomId)
 void MainWindow::onRoomLeft()
 {
     clearRoomUI();
+    m_pendingRoomTorrentId.clear();
     updateStatus(tr("Покинули комнату"));
 }
 
+void MainWindow::onRoomTorrentIdentified(const QString &torrentId)
+{
+    // Комната привязана к торренту (idea-0046). Если мы не хост и у нас нет
+    // этого торрента — автоматически добавляем его.
+    if (torrentId.isEmpty()) return;
+
+    // Проверяем, есть ли уже этот торрент
+    if (m_torrentModel->contains(torrentId)) {
+        qDebug() << "MainWindow: торент комнаты уже есть локально" << torrentId;
+        // Если мы не хост, просто выбираем файл (bug-0048: per-peer selectedFiles)
+        if (!m_roomManager->isHost()) {
+            m_torrentManager->setCurrentTorrentId(torrentId);
+            m_torrentManager->getFiles(torrentId);
+        }
+        return;
+    }
+
+    // Торрента нет — добавляем magnet по infohash
+    // (идеально — с трекерами, но пока infohash-only работает с DHT)
+    const QString magnet = QString("magnet:?xt=urn:btih:%1").arg(torrentId);
+    qDebug() << "MainWindow: добавляем торент комнаты" << torrentId;
+    m_network->addTorrent(magnet);
+
+    // Если мы не хост, запомним, что файл нужно выбрать после получения списка
+    if (!m_roomManager->isHost()) {
+        m_pendingRoomTorrentId = torrentId;
+    }
+}
 
 
 void MainWindow::onSyncAction(const QString &action, double position)
@@ -616,19 +754,146 @@ void MainWindow::onSyncAction(const QString &action, double position)
         m_isPlaying = true;
         m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
     m_playPauseButton->setText(tr("Pause"));
+        // Хост запустил комнату — мы тоже должны слать свою позицию,
+        // иначе буферы участников комнаты разъезжаются (bug-0028).
+        if (m_bufferPositionTimer) m_bufferPositionTimer->start();
     } else if (action == "pause") {
         m_mpvWidget->pause();
         m_isPlaying = false;
         m_playPauseButton->setIcon(QIcon(":/icons/play.png"));
     m_playPauseButton->setText(tr("Play"));
+        if (m_bufferPositionTimer) m_bufferPositionTimer->stop();
     } else if (action == "seek") {
         m_mpvWidget->seek(position);
+    }
+}
+
+void MainWindow::onLocalBufferingState(bool buffering)
+{
+    // Наш mpv вошёл/вышел из core-idle. Сообщаем комнате, чтобы остальные
+    // держали паузу, пока данных не хватает нам.
+    if (!m_roomManager->isInRoom()) return;
+    m_roomManager->syncBuffering(buffering);
+}
+
+void MainWindow::onPeerBufferingState(bool buffering)
+{
+    // Буферизация другого пира. Паузу держим для mpv, а не через
+    // syncPause(): это не команда хоста, а состояние комнаты — слать
+    // pause в ответ значило бы записать чужую буферизацию как решение
+    // хоста и разорвать его собственную последовательность событий.
+    if (buffering) {
+        m_mpvWidget->pause();
+        updateStatus(tr("Ожидание: участник буферизует"));
+    } else if (m_isPlaying) {
+        m_mpvWidget->resume();
+        updateStatus(tr("Воспроизведение синхронизировано"));
     }
 }
 
 void MainWindow::onPeerJoined(const QString &peerId)
 {
     updateStatus(tr("Пир присоединился: %1").arg(peerId));
+}
+
+void MainWindow::onStateReconciled(double position, bool isPlaying, bool buffering)
+{
+    // Сверка после реконнекта. Пока поток был рван, комната жила своей
+    // жизнью, и локальный плеер остался в том состоянии, в котором был до
+    // обрыва. Возвращаем его к комнате.
+    if (buffering) {
+        m_mpvWidget->pause();
+        updateStatus(tr("Ожидание: участник буферизует"));
+    } else if (isPlaying) {
+        m_mpvWidget->resume();
+    } else {
+        m_mpvWidget->pause();
+    }
+
+    // Позицию догоняем всегда: пока мы были отключены, комната успела
+    // уехать вперёд, и без перемотки мы бы просто смотрели не то.
+    m_mpvWidget->seek(position);
+
+    m_isPlaying = isPlaying;
+    m_playPauseButton->setIcon(QIcon(isPlaying ? ":/icons/pause.png" : ":/icons/play.png"));
+    m_playPauseButton->setText(isPlaying ? tr("Pause") : tr("Play"));
+
+    updateStatus(tr("Воспроизведение синхронизировано: %1").arg(position, 0, 'f', 1));
+}
+
+void MainWindow::onRosterChanged(int peerCount, const QString &hostUserId, bool isHost)
+{
+    m_roomManager->setHost(isHost);
+    updateStatus(tr("Участников в комнате: %1").arg(peerCount));
+    const QString roomId = m_roomManager->currentRoomId();
+    if (!roomId.isEmpty()) {
+        updateRoomUI(roomId, isHost);
+    }
+    updateLagIndicator();
+    Q_UNUSED(hostUserId)
+}
+
+void MainWindow::onRosterUpdated(const QVector<PeerEntry> &peers)
+{
+    updateRosterLabel();
+    updateLagIndicator();
+    Q_UNUSED(peers)
+}
+
+void MainWindow::updateRosterLabel()
+{
+    const QVector<PeerEntry> peers = m_roomManager->roster();
+    if (peers.isEmpty()) {
+        m_rosterLabel->setVisible(false);
+        return;
+    }
+
+    const QString selfId = m_roomManager->selfUserId();
+    QStringList parts;
+    for (const PeerEntry &peer : peers) {
+        // Сначала имя, если сервер его знает: ID вроде "user-1a2b3c" человеку
+        // ничего не говорит, а имя полезнее ради отладки.
+        const QString name = peer.username.isEmpty() ? peer.userId : peer.username;
+
+        QString text = (peer.userId == selfId) ? tr("%1 (вы)").arg(name) : name;
+        if (peer.isHost) {
+            text += tr(" · хост");
+        }
+        if (peer.buffering) {
+            text += tr(" · буферизует");
+        }
+        parts.append(text);
+    }
+
+    m_rosterLabel->setText(tr("В комнате: %1").arg(parts.join(tr(", "))));
+    m_rosterLabel->setVisible(true);
+}
+
+void MainWindow::updateLagIndicator()
+{
+    const QString roomId = m_roomManager->currentRoomId();
+    if (roomId.isEmpty() || !m_roomManager->serverIsPlaying()) {
+        m_lagLabel->setVisible(false);
+        return;
+    }
+
+    const double lag = m_roomManager->lagSeconds(m_currentPosition);
+
+    // Порог отсекает обычное дрожание: без него надпись мигает постоянно и
+    // перестаёт что-либо сообщать.
+    const double kLagNoticeThreshold = 1.5;
+    if (std::abs(lag) < kLagNoticeThreshold) {
+        m_lagLabel->setVisible(false);
+        return;
+    }
+
+    const int seconds = static_cast<int>(std::abs(lag));
+    if (lag > 0) {
+        m_lagLabel->setText(tr("отстаём на %1 с").arg(seconds));
+    } else {
+        m_lagLabel->setText(tr("опережаем на %1 с").arg(seconds));
+    }
+    m_lagLabel->setVisible(true);
 }
 
 void MainWindow::onPeerLeft(const QString &peerId)
@@ -646,12 +911,14 @@ void MainWindow::onPlayPause()
         m_playPauseButton->setIcon(QIcon(":/icons/play.png"));
     m_playPauseButton->setText(tr("Play"));
         if (m_roomManager->isInRoom()) m_roomManager->syncPause();
+        if (m_bufferPositionTimer) m_bufferPositionTimer->stop();
     } else {
         m_mpvWidget->resume();
         m_isPlaying = true;
         m_playPauseButton->setIcon(QIcon(":/icons/pause.png"));
     m_playPauseButton->setText(tr("Pause"));
         if (m_roomManager->isInRoom()) m_roomManager->syncPlay();
+        if (m_bufferPositionTimer) m_bufferPositionTimer->start();
     }
 }
 
@@ -689,6 +956,7 @@ void MainWindow::onPositionChanged(double position)
         m_seekSlider->setValue(static_cast<int>((position / m_duration) * seekSliderMax));
     }
     updateTimeLabel(position, m_duration);
+    updateLagIndicator();
 }
 
 void MainWindow::onBufferInfoReceived(const QJsonObject &info)
@@ -710,6 +978,7 @@ void MainWindow::onPlaybackFinished()
     m_isPlaying = false;
     m_bufferPollTimer->stop();
     m_streamTicketTimer->stop();
+    if (m_bufferPositionTimer) m_bufferPositionTimer->stop();
     m_streamTicketRefresh = false;
     m_currentTorrentId.clear();
     m_bufferProgress->setValue(0);
@@ -722,6 +991,7 @@ void MainWindow::onPlaybackError(const QString &message)
 {
     m_bufferPollTimer->stop();
     m_streamTicketTimer->stop();
+    if (m_bufferPositionTimer) m_bufferPositionTimer->stop();
 
     // Протухший тикет даёт обрыв на середине фильма. Пробуем ровно один раз
     // взять свежий и продолжить с того же места; повторяем только при первом

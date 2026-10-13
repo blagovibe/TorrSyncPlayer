@@ -7,6 +7,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -66,7 +67,7 @@ func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 				return
 			}
 
-			info, err = torrentSvc.AddMagnet(r.Context(), req.MagnetURI)
+			info, err = torrentSvc.AddMagnet(r.Context(), auth.GetClientID(r), req.MagnetURI)
 		} else {
 			// Validate and decode torrent file
 			if err = validation.ValidateTorrentFile(req.TorrentFile); err != nil {
@@ -80,7 +81,7 @@ func AddTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 				return
 			}
 
-			info, err = torrentSvc.AddTorrent(r.Context(), decoded)
+			info, err = torrentSvc.AddTorrent(r.Context(), auth.GetClientID(r), decoded)
 		}
 
 		if err != nil {
@@ -120,7 +121,7 @@ func RemoveTorrent(torrentSvc internal.TorrentService) http.HandlerFunc {
 		}
 
 		// Use context from request for cancellation support
-		if err := torrentSvc.RemoveTorrent(r.Context(), torrentID); err != nil {
+		if err := torrentSvc.RemoveTorrent(r.Context(), torrentID, auth.GetClientID(r)); err != nil {
 			handleError(w, r, err, "removing torrent")
 			return
 		}
@@ -146,7 +147,7 @@ func ListTorrents(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit, offset := parsePaginationParams(r)
 
-		allTorrents := torrentSvc.ListTorrents(r.Context())
+		allTorrents := torrentSvc.ListTorrents(r.Context(), auth.GetClientID(r))
 		totalCount := len(allTorrents)
 
 		// Apply pagination
@@ -188,7 +189,7 @@ func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 
 		limit, offset := parsePaginationParams(r)
 
-		allFiles, err := torrentSvc.GetFiles(r.Context(), torrentID)
+		allFiles, err := torrentSvc.GetFiles(r.Context(), auth.GetClientID(r), torrentID)
 		if err != nil {
 			handleError(w, r, err, "getting files")
 			return
@@ -204,12 +205,12 @@ func GetFiles(torrentSvc internal.TorrentService) http.HandlerFunc {
 	}
 }
 
-// SelectFile handler for selecting a file for streaming.
+// SelectFile handler for selecting a file for streaming (per-peer, bug-0048).
 // Accepts JSON with the fileIndex field.
-// Sets download priority for the selected file.
+// Sets download priority for the selected file for the calling user.
 //
 // @Summary      Select file for streaming
-// @Description  Selects a torrent file for streaming by index
+// @Description  Selects a torrent file for streaming by index (per-peer)
 // @Tags         torrents
 // @Accept       json
 // @Produce      json
@@ -231,6 +232,13 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
+		// Get caller's userID (X-Client-ID) from context (set by TokenMiddleware)
+		userID := auth.GetClientID(r)
+		if userID == "" {
+			WriteError(w, http.StatusBadRequest, "X-Client-ID header required")
+			return
+		}
+
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
 		var req models.SelectFileRequest
@@ -245,7 +253,7 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		if err := torrentSvc.SelectFile(r.Context(), torrentID, req.FileIndex); err != nil {
+		if err := torrentSvc.SelectFile(r.Context(), torrentID, userID, req.FileIndex); err != nil {
 			handleError(w, r, err, "selecting file")
 			return
 		}
@@ -254,12 +262,13 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 	}
 }
 
-// StreamFile handler for HTTP streaming of a torrent file.
+// StreamFile handler for HTTP streaming of a torrent file (per-peer, bug-0048).
 // Supports Range requests for seeking.
 // Torrent ID is passed in the URL parameter.
+// userID is extracted from the validated stream ticket.
 //
 // @Summary      Stream file
-// @Description  Streams the selected torrent file with Range request support
+// @Description  Streams the selected torrent file with Range request support (per-peer)
 // @Tags         torrents
 // @Produce      octet-stream
 // @Param        id   path      string  true  "Torrent ID"
@@ -284,13 +293,15 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 		// query parameter. libmpv cannot attach JWT/CSRF headers to its own
 		// HTTP fetches, so it appends "?ticket=" obtained from an authenticated
 		// endpoint. The ticket is self-contained and validated without a JWT.
+		// The ticket contains: expiry.userID.torrentID.signature
 		ticket := r.URL.Query().Get("ticket")
-		if _, ok := authSvc.ValidateStreamTicket(ticket, torrentID); !ok {
+		userID, ok := authSvc.ValidateStreamTicket(ticket, torrentID)
+		if !ok {
 			WriteError(w, http.StatusUnauthorized, "invalid or expired stream ticket")
 			return
 		}
 
-		torrentSvc.ServeFile(w, r, torrentID)
+		torrentSvc.ServeFile(w, r, torrentID, userID)
 	}
 }
 
@@ -306,6 +317,7 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 // @Success      200  {object}  models.StreamTicketResponse
 // @Failure      400  {object}  models.ErrorResponse
 // @Failure      401  {object}  models.ErrorResponse
+// @Failure      403  {object}  models.ErrorResponse
 // @Router       /api/v1/torrents/{id}/stream-ticket [post]
 func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +336,17 @@ func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService)
 		if clientID == "" {
 			WriteError(w, http.StatusBadRequest, "missing "+auth.HeaderClientID+" header")
 			return
+		}
+
+		// Room-scoped access (deviation-0039): only participants in the room bound
+		// to this torrent may obtain a stream ticket for it.
+		if ts, ok := torrentSvc.(interface {
+			CanRead(context.Context, string, string) bool
+		}); ok {
+			if !ts.CanRead(r.Context(), clientID, torrentID) {
+				WriteError(w, http.StatusForbidden, "access denied")
+				return
+			}
 		}
 
 		ticket, err := authSvc.GenerateStreamTicket(clientID, torrentID)
@@ -413,7 +436,7 @@ func GetBufferInfo(torrentSvc internal.TorrentService) http.HandlerFunc {
 			return
 		}
 
-		info, err := torrentSvc.GetBufferInfo(r.Context(), torrentID)
+		info, err := torrentSvc.GetBufferInfo(r.Context(), auth.GetClientID(r), torrentID)
 		if err != nil {
 			handleError(w, r, err, "getting buffer info")
 			return

@@ -42,7 +42,11 @@ jobs:
 
       - name: Build backend
         working-directory: ./backend
-        run: go build -ldflags "-s -w" -o build/torrsyncplayer ./cmd/server
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          go build -ldflags "-s -w -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=${VERSION} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=${{ github.sha }} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o build/torrsyncplayer ./cmd/server
 
       - name: Build frontend
         working-directory: frontend
@@ -140,7 +144,12 @@ jobs:
 
       - name: Build backend
         working-directory: ./backend
-        run: go build -ldflags "-s -w -H windowsgui" -o ../frontend/build/embedded/torrsyncplayer.exe ./cmd/server
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          $version = $env:VERSION.TrimStart('v')
+          $ldflags = "-s -w -H windowsgui -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=$version -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=${{ github.sha }} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
+          go build -ldflags $ldflags -o ../frontend/build/embedded/torrsyncplayer.exe ./cmd/server
         shell: pwsh
 
       - name: Compute backend SHA256
@@ -212,7 +221,11 @@ jobs:
 
       - name: Build backend
         working-directory: ./backend
-        run: go build -ldflags "-s -w" -o build/torrsyncplayer ./cmd/server
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          go build -ldflags "-s -w -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=${VERSION} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=${{ github.sha }} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o build/torrsyncplayer ./cmd/server
 
       - name: Build frontend
         working-directory: frontend
@@ -270,12 +283,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           awk -v ver="$VERSION" '
             $0 ~ "## \\[" ver "\\]" { found=1; next }
+            $0 ~ "## \\[v" ver "\\]" { found=1; next }
             found && /^## / { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
             echo "Warning: no release notes found for v${VERSION} in CHANGELOG.md" >&2
-            echo "Release $(VERSION)" > release-notes.md
+            echo "Release ${VERSION}" > release-notes.md
           fi
           echo "Notes:"
           cat release-notes.md
@@ -289,7 +303,7 @@ jobs:
             artifacts/*.dmg
             artifacts/*.zip
             artifacts/SHA256SUMS
-          draft: true
+          draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

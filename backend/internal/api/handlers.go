@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	apperrors "github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
@@ -153,7 +154,11 @@ var sseManager = newSSEConnectionManager(maxSSEConnections)
 //   - events: event channel for subscription
 //   - roomID: room ID for connection limiting (empty string = no limit)
 //   - logPath: path for logging
-func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan models.P2PEvent, roomID string, logPath string, onDisconnect func()) {
+//   - onDisconnect: called when the stream ends, for any reason
+//   - onKeepAlive: called on every ping, to record that this peer is still
+//     connected. The idle pruner reads that record, so without it a peer holding
+//     an open stream is eventually reaped as idle (bug-0021).
+func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan models.P2PEvent, roomID string, logPath string, onDisconnect func(), onKeepAlive func()) {
 	sseManager.Add(1)
 	defer sseManager.Done()
 	if roomID != "" {
@@ -229,6 +234,12 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 				return
 			}
 			flusher.Flush()
+			// The stream is alive, so the peer is alive. Recorded before the next
+			// wait, and never on a path that would let a dead stream keep a stale
+			// claim: every return above skips it.
+			if onKeepAlive != nil {
+				onKeepAlive()
+			}
 
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
@@ -249,6 +260,32 @@ func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan model
 }
 
 // ============ Error Handling ============
+
+// resolveCallerRoom determines which room the caller is currently in.
+//
+// Every room-scoped endpoint needs exactly this and nothing more: the room comes
+// from the caller's own membership, so one client can never read or act on
+// another's room. A caller outside any room gets a 400 with a stable message,
+// identical across all handlers — so a client can branch on the status code
+// alone and never has to match on text.
+//
+// Centralised because the lookup was previously repeated per handler and
+// diverged: the read-only /sync/status swallowed the lookup error and fell
+// through to GetStatus(""), which answers with a zeroed status and 200 —
+// indistinguishable from a real room sitting at position 0 (bug-0019).
+//
+// Returns ok=false when the caller has no room; the caller must then return.
+func resolveCallerRoom(w http.ResponseWriter, r *http.Request, p2pSvc internal.P2PService) (*models.RoomInfo, string, bool) {
+	userID := auth.GetClientID(r)
+
+	roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), userID)
+	if err != nil || roomInfo == nil || roomInfo.ID == "" {
+		logger.Warn("Request: caller is not in a room", "userID", userID, "path", r.URL.Path)
+		WriteError(w, http.StatusBadRequest, "Not connected to a room")
+		return nil, "", false
+	}
+	return roomInfo, userID, true
+}
 
 // handleError maps an error to an HTTP response using structured AppError types.
 // Logs the full error server-side but returns only a safe message to the client.

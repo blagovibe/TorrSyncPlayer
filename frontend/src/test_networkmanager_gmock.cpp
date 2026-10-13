@@ -88,8 +88,8 @@ TEST_F(NetworkManagerGMockTest, InitialRoomState)
 
 TEST_F(NetworkManagerGMockTest, JoinRoomState)
 {
-    EXPECT_CALL(*m_mock, joinRoom(QString("test-room-id"), QString("")));
-    m_mock->joinRoom(QString("test-room-id"), QString(""));
+    EXPECT_CALL(*m_mock, joinRoom(QString("test-room-id"), QString(""), QString("torrent-gmock")));
+    m_mock->joinRoom(QString("test-room-id"), QString(""), QString("torrent-gmock"));
     
     EXPECT_CALL(*m_mock, currentRoomId())
         .WillOnce(Return(QString("test-room-id")));
@@ -102,8 +102,8 @@ TEST_F(NetworkManagerGMockTest, JoinRoomState)
 
 TEST_F(NetworkManagerGMockTest, LeaveRoomState)
 {
-    EXPECT_CALL(*m_mock, joinRoom(QString("test-room-id"), QString("")));
-    m_mock->joinRoom(QString("test-room-id"), QString(""));
+    EXPECT_CALL(*m_mock, joinRoom(QString("test-room-id"), QString(""), QString("torrent-gmock")));
+    m_mock->joinRoom(QString("test-room-id"), QString(""), QString("torrent-gmock"));
     
     EXPECT_CALL(*m_mock, leaveRoom());
     m_mock->leaveRoom();
@@ -307,21 +307,21 @@ TEST_F(NetworkManagerGMockTest, EmptyMagnetUri)
 
 TEST_F(NetworkManagerGMockTest, EmptyRoomName)
 {
-    EXPECT_CALL(*m_mock, createRoom(QString(""), QString("")));
-    m_mock->createRoom(QString(""), QString(""));
+    EXPECT_CALL(*m_mock, createRoom(QString(""), QString(""), QString("torrent-gmock")));
+    m_mock->createRoom(QString(""), QString(""), QString("torrent-gmock"));
     EXPECT_TRUE(m_mock != nullptr);
 }
 
 TEST_F(NetworkManagerGMockTest, SpecialCharactersInRoomName)
 {
-    EXPECT_CALL(*m_mock, createRoom(QString("Test Room 日本語"), QString("")));
-    m_mock->createRoom(QString("Test Room 日本語"), QString(""));
+    EXPECT_CALL(*m_mock, createRoom(QString("Test Room 日本語"), QString(""), QString("torrent-gmock")));
+    m_mock->createRoom(QString("Test Room 日本語"), QString(""), QString("torrent-gmock"));
     
-    EXPECT_CALL(*m_mock, createRoom(QString("Комната тест"), QString("")));
-    m_mock->createRoom(QString("Комната тест"), QString(""));
+    EXPECT_CALL(*m_mock, createRoom(QString("Комната тест"), QString(""), QString("torrent-gmock")));
+    m_mock->createRoom(QString("Комната тест"), QString(""), QString("torrent-gmock"));
     
-    EXPECT_CALL(*m_mock, createRoom(QString("Room with spaces"), QString("")));
-    m_mock->createRoom(QString("Room with spaces"), QString(""));
+    EXPECT_CALL(*m_mock, createRoom(QString("Room with spaces"), QString(""), QString("torrent-gmock")));
+    m_mock->createRoom(QString("Room with spaces"), QString(""), QString("torrent-gmock"));
 }
 
 // ── JSON edge cases ──────────────────────────────────────────────────

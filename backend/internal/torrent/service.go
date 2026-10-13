@@ -8,23 +8,24 @@
 package torrent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
 	"path"
+
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/anacrolix/torrent"
-	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/storage"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
@@ -37,19 +38,259 @@ const (
 	maxTorrents             = constants.MaxTorrents
 	maxStreamFileSize       = constants.MaxStreamFileSize
 	maxTorrentFileSize      = constants.MaxTorrentFileSize
+	// restoreTimeout bounds one registry entry during startup restoration.
+	// The backend blocks until metadata resolves, so a peer that has gone
+	// offline since the last run would otherwise hold startup open; the bound
+	// is longer than magnetMetadataTimeout to leave room for the re-announce
+	// a fresh peer needs.
+	restoreTimeout = constants.MagnetMetadataTimeout * 2
 )
 
 // Service torrent management service.
 // Provides methods for adding, removing and streaming torrents.
 // Thread-safe thanks to sync.RWMutex.
 type Service struct {
-	mu            sync.RWMutex
-	client        *torrent.Client
-	torrents      map[string]*torrent.Torrent
-	selectedFiles map[string]int // torrentID -> fileIndex
-	bufferService *buffer.Service
-	storage       storage.ClientImplCloser // non-nil only for disk-backed storage
-	streamWG      sync.WaitGroup           // tracks active ServeFile streams
+	mu       sync.RWMutex
+	backend  TorrentBackend
+	torrents map[string]TorrentHandle
+	// selectedFiles maps torrentID -> userID -> fileIndex (per-peer selection, bug-0048)
+	selectedFiles map[string]map[string]int
+	// torrentOwners maps torrentID -> the userID that added it (bug-0049).
+	// Removal is refused for anyone else, so a guest sharing the process-wide
+	// access token cannot delete another peer's data.
+	torrentOwners map[string]string
+	// visibility answers whether a peer's room grants it access to a torrent.
+	// nil disables room scoping (single-user setups and tests); see canRead.
+	visibility TorrentVisibility
+	// persistence persists torrent ownership (bug-0051).
+	persistence *persistence.Store
+	// torrentSources remembers how each torrent was added, keyed by torrent
+	// ID. Restoration replays the original source rather than rebuilding the
+	// torrent from a summary of it: the infohash is a hash of the metadata,
+	// so anything reconstructed hashes differently and comes back as a
+	// different torrent (bug-0053).
+	torrentSources map[string]torrentSource
+	bufferService  *buffer.Service
+	storage        storage.ClientImplCloser // non-nil only for disk-backed storage
+	streamWG       sync.WaitGroup           // tracks active ServeFile streams
+}
+
+// TorrentVisibility answers which torrents a peer may read through the room it
+// participates in. Implemented by p2p.Service (bug-0049).
+type TorrentVisibility interface {
+	TorrentsVisibleTo(ctx context.Context, userID string) map[string]bool
+}
+
+// SetVisibility wires the room-scoped access check. Without it the service
+// falls back to owner-only, which is correct for a machine that is not shared.
+func (s *Service) SetVisibility(v TorrentVisibility) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.visibility = v
+}
+
+// SetPersistence wires the torrent ownership persistence (bug-0051) and
+// torrent registry persistence (bug-0038). Both are loaded immediately so a
+// restart restores who added each torrent and re-adds all known torrents.
+func (s *Service) SetPersistence(store *persistence.Store) {
+	s.mu.Lock()
+	s.persistence = store
+	s.mu.Unlock()
+
+	if store == nil {
+		return
+	}
+
+	// Load ownership (bug-0049)
+	ownData, err := store.LoadTorrents()
+	if err != nil {
+		logger.Warn("Torrent: failed to load ownership", "error", err)
+	} else {
+		s.mu.Lock()
+		for tid, uid := range ownData.Owners {
+			s.torrentOwners[tid] = uid
+		}
+		s.mu.Unlock()
+		logger.Info("Torrent: restored ownership from persistence", "count", len(ownData.Owners))
+	}
+
+	// Load torrent registry and re-add torrents (bug-0038)
+	regData, err := store.LoadTorrentRegistry()
+	if err != nil {
+		logger.Warn("Torrent: failed to load torrent registry", "error", err)
+		return
+	}
+
+	if len(regData.Torrents) == 0 {
+		return
+	}
+
+	// Restoration blocks until each backend resolves metadata, so it runs on a
+	// bounded context: a peer that went offline since the last run must not be
+	// able to hold startup open indefinitely.
+	logger.Info("Torrent: restoring torrents from registry", "count", len(regData.Torrents))
+
+	var restored int
+	for _, info := range regData.Torrents {
+		ctx, cancel := context.WithTimeout(context.Background(), restoreTimeout)
+		handle, err := s.readdTorrentFromRegistry(ctx, info)
+		cancel()
+		if err != nil {
+			logger.Warn("Torrent: failed to re-add torrent from registry",
+				"infoHash", info.InfoHash, "error", err)
+			continue
+		}
+
+		// The restored handle must land on the infohash the registry was keyed
+		// by. If it does not, the entry describes a torrent that no longer
+		// exists and restoring it would only create an orphan.
+		tid := handle.ID()
+		if tid != info.InfoHash {
+			logger.Warn("Torrent: registry restore produced a different infohash, dropping entry",
+				"expected", info.InfoHash, "got", tid)
+			s.backend.Drop(tid)
+			continue
+		}
+
+		s.mu.Lock()
+		s.torrents[tid] = handle
+		s.mu.Unlock()
+
+		restored++
+		logger.Info("Torrent: restored from registry", "torrentID", tid, "name", info.Name)
+	}
+
+	logger.Info("Torrent: registry restore complete", "restored", restored, "of", len(regData.Torrents))
+}
+
+// torrentSource is the exact input a torrent was added from. Exactly one of
+// the two fields is set: a magnet carries its identity in the URI, an upload in
+// the bytes. Re-adding from the source reproduces the original infohash by
+// construction, which rebuilding the metadata would not.
+type torrentSource struct {
+	magnetURI string
+	torrent   []byte
+}
+
+// readdTorrentFromRegistry re-adds a persisted torrent from the source it was
+// originally added from.
+//
+// This used to rebuild a .torrent from the stored name, size and file list,
+// with an empty "pieces" field and a hardcoded piece length. That produces a
+// torrent with a *different* infohash, so after a restart the torrent was no
+// longer the one rooms are bound to and the ownership map no longer described
+// it — a silent loss of exactly the guarantees bug-0047 and bug-0049 added
+// (bug-0053).
+func (s *Service) readdTorrentFromRegistry(ctx context.Context, info persistence.TorrentInfo) (TorrentHandle, error) {
+	switch {
+	case info.MagnetURI != "":
+		return s.backend.AddMagnet(ctx, info.MagnetURI)
+	case len(info.TorrentFile) > 0:
+		return s.backend.AddTorrentFile(ctx, bytes.NewReader(info.TorrentFile))
+	default:
+		// A registry written before bug-0053 carries no source. Re-adding it
+		// would mean inventing an identity, and an invented identity is worse
+		// than an absent torrent: it looks restored while being unbound from
+		// every room that referenced it.
+		return nil, errNoRestorableSource
+	}
+}
+
+// errNoRestorableSource marks a registry entry that predates source-based
+// restoration and therefore cannot be re-added.
+var errNoRestorableSource = errors.New(errors.ErrInvalidInput, "registry entry has no restorable source")
+
+// SaveRegistry persists both ownership (bug-0049) and torrent registry (bug-0038) to disk.
+func (s *Service) SaveRegistry() error {
+	if s.persistence == nil {
+		return nil
+	}
+
+	// Ownership (bug-0049)
+	s.mu.RLock()
+	owners := make(map[string]string, len(s.torrentOwners))
+	for tid, uid := range s.torrentOwners {
+		owners[tid] = uid
+	}
+
+	// Torrent registry (bug-0038)
+	torrents := make(map[string]persistence.TorrentInfo, len(s.torrents))
+	for tid, handle := range s.torrents {
+		files := make([]persistence.FileInfo, handle.FileCount())
+		for i := 0; i < handle.FileCount(); i++ {
+			files[i] = persistence.FileInfo{
+				Index: i,
+				Name:  handle.FileName(i),
+				Size:  handle.FileLength(i),
+			}
+		}
+		source := s.torrentSources[tid]
+		torrents[tid] = persistence.TorrentInfo{
+			InfoHash:    tid,
+			MagnetURI:   source.magnetURI,
+			TorrentFile: source.torrent,
+			Name:        handle.Name(),
+			Size:        handle.TotalLength(),
+			FileCount:   handle.FileCount(),
+			Files:       files,
+		}
+	}
+	s.mu.RUnlock()
+
+	// Save ownership
+	ownData := &persistence.TorrentOwnershipData{Owners: owners}
+	if err := s.persistence.SaveTorrents(ownData); err != nil {
+		logger.Warn("Torrent: failed to persist ownership", "error", err)
+		return err
+	}
+
+	// Save registry
+	regData := &persistence.TorrentRegistryData{Torrents: torrents}
+	if err := s.persistence.SaveTorrentRegistry(regData); err != nil {
+		logger.Warn("Torrent: failed to persist torrent registry", "error", err)
+		return err
+	}
+
+	return nil
+}
+
+// canRead reports whether userID may read torrentID.
+//
+// The access token is per-process: "presents the token" cannot distinguish a
+// room guest from the machine's owner. Reading therefore needs one of two
+// provenances — the peer added the torrent itself, or the torrent is bound to
+// the room the peer is currently in (bug-0047).
+//
+// An unowned torrent is readable by anyone. It can only come from persistence
+// written before ownership was tracked, and refusing would make such torrents
+// permanently unreadable — the same trade-off as RemoveTorrent, for the same
+// reason.
+//
+// Both the ownership map and the visibility provider are read WITHOUT s.mu
+// held across the call: the visibility provider takes its own lock, and nesting
+// the two would invite a lock-order deadlock with any path that goes the other
+// way.
+func (s *Service) canRead(ctx context.Context, userID, torrentID string) bool {
+	s.mu.RLock()
+	owner, hasOwner := s.torrentOwners[torrentID]
+	visibility := s.visibility
+	s.mu.RUnlock()
+
+	if !hasOwner {
+		return true
+	}
+	if owner == userID {
+		return true
+	}
+	if visibility == nil {
+		return false
+	}
+	return visibility.TorrentsVisibleTo(ctx, userID)[torrentID]
+}
+
+// CanRead is the public wrapper for canRead (implements TorrentService interface).
+func (s *Service) CanRead(ctx context.Context, userID, torrentID string) bool {
+	return s.canRead(ctx, userID, torrentID)
 }
 
 // StorageType identifies the torrent piece storage backend.
@@ -116,9 +357,11 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 	cfg := torrent.NewDefaultClientConfig()
 
 	svc := &Service{
-		torrents:      make(map[string]*torrent.Torrent),
-		selectedFiles: make(map[string]int),
-		bufferService: bufferService,
+		torrents:       make(map[string]TorrentHandle),
+		selectedFiles:  make(map[string]map[string]int),
+		torrentOwners:  make(map[string]string),
+		torrentSources: make(map[string]torrentSource),
+		bufferService:  bufferService,
 	}
 
 	switch opts.Storage {
@@ -153,16 +396,33 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 		cfg.ListenPort = opts.ListenPort
 	}
 
-	client, err := torrent.NewClient(cfg)
+	backend, err := newLocalBackend(cfg)
 	if err != nil {
 		logger.Error("Torrent: failed to create torrent client", "error", err)
 		return nil, fmt.Errorf("failed to create torrent client: %w", err)
 	}
 
-	svc.client = client
+	svc.backend = backend
 	logger.Info("Torrent: service initialized")
 
 	return svc, nil
+}
+
+// NewServiceWithBackend creates a torrent service on top of a preconfigured
+// backend. It is how remoting mode (idea-0023) swaps the local anacrolix client
+// for a remote htorrent gateway without changing any behaviour above the seam.
+func NewServiceWithBackend(bufferService *buffer.Service, backend TorrentBackend) (*Service, error) {
+	if backend == nil {
+		return nil, errors.New(errors.ErrInvalidInput, "backend is required")
+	}
+	return &Service{
+		backend:        backend,
+		torrents:       make(map[string]TorrentHandle),
+		selectedFiles:  make(map[string]map[string]int),
+		torrentOwners:  make(map[string]string),
+		torrentSources: make(map[string]torrentSource),
+		bufferService:  bufferService,
+	}, nil
 }
 
 // AddMagnet adds a torrent via magnet link.
@@ -170,7 +430,7 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 // Parameter magnetURI - magnet link for the torrent.
 // Waits for metadata reception (timeout via context).
 // Returns torrent information or an error.
-func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.TorrentInfo, error) {
+func (s *Service) AddMagnet(ctx context.Context, userID, magnetURI string) (*models.TorrentInfo, error) {
 	// Validate magnet URI
 	if err := validation.ValidateMagnetURI(magnetURI); err != nil {
 		logger.Warn("Torrent: invalid magnet URI", "error", err)
@@ -191,32 +451,28 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 
 	logger.Info("Torrent: adding torrent", "magnetHash", magnetHash)
 
-	t, err := s.client.AddMagnet(magnetURI)
+	// The backend blocks until metadata arrives or magnetMetadataTimeout
+	// elapses, and drops the torrent itself on failure.
+	handle, err := s.backend.AddMagnet(ctx, magnetURI)
 	if err != nil {
 		logger.Error("Torrent: failed to add torrent", "magnetHash", magnetHash, "error", err)
 		return nil, fmt.Errorf("failed to add torrent: %w", err)
 	}
 
-	// Wait for metadata reception with explicit timeout
-	metadataCtx, cancel := context.WithTimeout(ctx, magnetMetadataTimeout)
-	defer cancel()
-
-	select {
-	case <-t.GotInfo():
-		logger.Debug("Torrent: metadata received", "magnetHash", magnetHash)
-	case <-metadataCtx.Done():
-		t.Drop()
-		logger.Warn("Torrent: timeout waiting for metadata", "magnetHash", magnetHash, "error", metadataCtx.Err())
-		return nil, fmt.Errorf("timeout waiting for metadata: %w", metadataCtx.Err())
-	}
-
-	torrentID := t.InfoHash().HexString()
+	torrentID := handle.ID()
 
 	s.mu.Lock()
-	s.torrents[torrentID] = t
+	s.torrents[torrentID] = handle
+	s.torrentOwners[torrentID] = userID
+	// Remember the magnet so a restart can replay it verbatim (bug-0053).
+	s.torrentSources[torrentID] = torrentSource{magnetURI: magnetURI}
 	s.mu.Unlock()
 
-	info := s.torrentToInfo(t)
+	if err := s.SaveRegistry(); err != nil {
+		logger.Warn("Torrent: failed to persist ownership", "error", err)
+	}
+
+	info := s.torrentToInfo(handle)
 
 	// Validate torrent name
 	if err := validation.ValidateTorrentName(info.Name); err != nil {
@@ -233,7 +489,7 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 		"torrentID", torrentID,
 		"name", info.Name,
 		"size", info.Size,
-		"files", len(t.Files()),
+		"files", handle.FileCount(),
 	)
 
 	return info, nil
@@ -244,7 +500,7 @@ func (s *Service) AddMagnet(ctx context.Context, magnetURI string) (*models.Torr
 // Parameter torrentData - reader containing torrent file content (bencoded .torrent).
 // Waits for metadata reception (timeout via context).
 // Returns torrent information or an error.
-func (s *Service) AddTorrent(ctx context.Context, torrentData io.Reader) (*models.TorrentInfo, error) {
+func (s *Service) AddTorrent(ctx context.Context, userID string, torrentData io.Reader) (*models.TorrentInfo, error) {
 	s.mu.RLock()
 	overLimit := len(s.torrents) >= maxTorrents
 	s.mu.RUnlock()
@@ -255,39 +511,39 @@ func (s *Service) AddTorrent(ctx context.Context, torrentData io.Reader) (*model
 
 	logger.Info("Torrent: adding torrent from file")
 
-	// Parse the torrent file using metainfo.Load
-	mi, err := metainfo.Load(torrentData)
+	// Keep the original bytes so a restart can replay them verbatim: the
+	// infohash is the hash of these bytes' info dict, and nothing shorter
+	// identifies the torrent (bug-0053). The size is bounded because an
+	// uploaded .torrent is metadata, not media.
+	raw, err := io.ReadAll(io.LimitReader(torrentData, maxTorrentFileSize+1))
 	if err != nil {
-		logger.Error("Torrent: failed to parse torrent file", "error", err)
-		return nil, fmt.Errorf("failed to parse torrent file: %w", err)
+		return nil, fmt.Errorf("failed to read torrent file: %w", err)
+	}
+	if int64(len(raw)) > maxTorrentFileSize {
+		return nil, errors.New(errors.ErrInvalidInput, "torrent file too large")
 	}
 
-	t, err := s.client.AddTorrent(mi)
+	// Parsing the bencoded metadata and waiting for it to resolve both belong
+	// to the backend, so a gateway can accept the same call shape.
+	handle, err := s.backend.AddTorrentFile(ctx, bytes.NewReader(raw))
 	if err != nil {
 		logger.Error("Torrent: failed to add torrent from file", "error", err)
 		return nil, fmt.Errorf("failed to add torrent from file: %w", err)
 	}
 
-	// Wait for metadata reception with explicit timeout
-	metadataCtx, cancel := context.WithTimeout(ctx, magnetMetadataTimeout)
-	defer cancel()
-
-	select {
-	case <-t.GotInfo():
-		logger.Debug("Torrent: metadata received from file")
-	case <-metadataCtx.Done():
-		t.Drop()
-		logger.Warn("Torrent: timeout waiting for metadata", "error", metadataCtx.Err())
-		return nil, fmt.Errorf("timeout waiting for metadata: %w", metadataCtx.Err())
-	}
-
-	torrentID := t.InfoHash().HexString()
+	torrentID := handle.ID()
 
 	s.mu.Lock()
-	s.torrents[torrentID] = t
+	s.torrents[torrentID] = handle
+	s.torrentOwners[torrentID] = userID
+	s.torrentSources[torrentID] = torrentSource{torrent: raw}
 	s.mu.Unlock()
 
-	info := s.torrentToInfo(t)
+	if err := s.SaveRegistry(); err != nil {
+		logger.Warn("Torrent: failed to persist ownership", "error", err)
+	}
+
+	info := s.torrentToInfo(handle)
 
 	// Validate torrent name
 	if err := validation.ValidateTorrentName(info.Name); err != nil {
@@ -304,7 +560,7 @@ func (s *Service) AddTorrent(ctx context.Context, torrentData io.Reader) (*model
 		"torrentID", torrentID,
 		"name", info.Name,
 		"size", info.Size,
-		"files", len(t.Files()),
+		"files", handle.FileCount(),
 	)
 
 	return info, nil
@@ -314,25 +570,44 @@ func (s *Service) AddTorrent(ctx context.Context, torrentData io.Reader) (*model
 // Stops the download and removes the torrent from the client.
 // Waits for active ServeFile streams to finish before returning.
 // Returns an error if the torrent is not found.
-func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
+func (s *Service) RemoveTorrent(ctx context.Context, id, userID string) error {
 	// First mark the torrent for removal under lock
 	s.mu.Lock()
-	t, exists := s.torrents[id]
+	handle, exists := s.torrents[id]
 	if !exists {
 		s.mu.Unlock()
 		logger.Warn("Torrent: torrent not found for removal", "torrentID", id)
 		return errors.NotFound("torrent", id)
 	}
 
-	torrentName := ""
-	if t.Info() != nil {
-		torrentName = t.Info().BestName()
+	// Ownership gate (bug-0049): the access token is per-process, so anyone
+	// who reached this server shares its authority. Without this check a guest
+	// could DELETE any torrent of the host — irreversible, silent loss of
+	// someone else's data.
+	//
+	// An unknown owner means the torrent predates this bookkeeping (restored
+	// from persistence). Removal stays permitted there: refusing would leave
+	// such torrents undeletable, which is a worse failure than the risk.
+	owner, hasOwner := s.torrentOwners[id]
+	if hasOwner && owner != userID {
+		s.mu.Unlock()
+		logger.Warn("Torrent: removal refused, not the owner",
+			"torrentID", id, "owner", owner, "requester", userID)
+		return errors.New(errors.ErrForbidden, "only the peer that added a torrent may remove it")
 	}
+
+	torrentName := handle.Name()
 
 	// Remove from maps immediately so new streams can't start
 	delete(s.torrents, id)
 	delete(s.selectedFiles, id)
+	delete(s.torrentOwners, id)
+	delete(s.torrentSources, id)
 	s.mu.Unlock()
+
+	if err := s.SaveRegistry(); err != nil {
+		logger.Warn("Torrent: failed to persist ownership after removal", "error", err)
+	}
 
 	// Wait for any active streams to finish
 	done := make(chan struct{})
@@ -346,7 +621,7 @@ func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
 		logger.Warn("Torrent: timeout waiting for active streams to finish", "torrentID", id)
 	}
 
-	t.Drop()
+	s.backend.Drop(id)
 
 	// Reclaim on-disk piece data for disk-backed storage to avoid leaks.
 	if s.storage != nil {
@@ -366,18 +641,29 @@ func (s *Service) RemoveTorrent(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListTorrents returns a list of all torrents.
-// Returns an array with information about each torrent (ID, name, progress, status).
-func (s *Service) ListTorrents(_ context.Context) []*models.TorrentInfo {
+// ListTorrents returns the torrents userID may read: the ones it added plus
+// those bound to its current room (bug-0049).
+//
+// Filtering happens here rather than in the handler because the ownership map
+// lives on the Service; the handler could not compute "mine" on its own.
+func (s *Service) ListTorrents(ctx context.Context, userID string) []*models.TorrentInfo {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	handles := make(map[string]TorrentHandle, len(s.torrents))
+	for id, t := range s.torrents {
+		handles[id] = t
+	}
+	s.mu.RUnlock()
 
-	result := make([]*models.TorrentInfo, 0, len(s.torrents))
-	for _, t := range s.torrents {
+	result := make([]*models.TorrentInfo, 0, len(handles))
+	for id, t := range handles {
+		if !s.canRead(ctx, userID, id) {
+			continue
+		}
 		result = append(result, s.torrentToInfo(t))
 	}
 
-	logger.Debug("Torrent: retrieved torrent list", "count", len(result))
+	logger.Debug("Torrent: retrieved torrent list",
+		"userID", userID, "total", len(handles), "visible", len(result))
 	return result
 }
 
@@ -385,27 +671,32 @@ func (s *Service) ListTorrents(_ context.Context) []*models.TorrentInfo {
 // Parameter torrentID - torrent identifier.
 // Returns an array of files with indices, names, sizes and paths.
 // Returns an error if the torrent is not found or metadata is not received.
-func (s *Service) GetFiles(ctx context.Context, torrentID string) ([]models.FileInfo, error) {
+func (s *Service) GetFiles(ctx context.Context, userID, torrentID string) ([]models.FileInfo, error) {
+	// Access is checked before the read lock so the visibility provider is not
+	// called while s.mu is held (see canRead).
+	if !s.canRead(ctx, userID, torrentID) {
+		logger.Warn("Torrent: file list refused, peer may not read this torrent",
+			"torrentID", torrentID, "userID", userID)
+		return nil, errors.New(errors.ErrForbidden, "access denied")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	t, exists := s.torrents[torrentID]
+	handle, exists := s.torrents[torrentID]
 	if !exists {
 		logger.Warn("Torrent: torrent not found for getting files", "torrentID", torrentID)
 		return nil, errors.NotFound("torrent", torrentID)
 	}
 
-	if t.Info() == nil {
-		logger.Warn("Torrent: torrent metadata not yet received", "torrentID", torrentID)
-		return nil, errors.New(errors.ErrUnavailable, "torrent metadata not yet received")
-	}
+	total := handle.FileCount()
+	result := make([]models.FileInfo, 0, total)
 
-	files := t.Files()
-	result := make([]models.FileInfo, 0, len(files))
+	for i := 0; i < total; i++ {
+		length := handle.FileLength(i)
 
-	for i, f := range files {
 		// Validate file size
-		if err := validation.ValidateFileSize(f.Length()); err != nil {
+		if err := validation.ValidateFileSize(length); err != nil {
 			logger.Warn("Torrent: invalid file size",
 				"torrentID", torrentID,
 				"fileIndex", i,
@@ -415,8 +706,8 @@ func (s *Service) GetFiles(ctx context.Context, torrentID string) ([]models.File
 
 		result = append(result, models.FileInfo{
 			Index: i,
-			Name:  sanitizeFilename(f.DisplayPath()),
-			Size:  f.Length(),
+			Name:  sanitizeFilename(handle.FileName(i)),
+			Size:  length,
 		})
 	}
 
@@ -424,58 +715,75 @@ func (s *Service) GetFiles(ctx context.Context, torrentID string) ([]models.File
 	return result, nil
 }
 
-// SelectFile selects a file for streaming.
+// SelectFile selects a file for streaming for a specific user (per-peer, bug-0048).
 // Parameter torrentID - torrent identifier.
+// Parameter userID - caller's client ID (X-Client-ID).
 // Parameter fileIndex - file index in the torrent.
-// Sets download priority for the selected file.
+// Sets download priority for the selected file for this user.
 // Returns an error if the torrent is not found or index is invalid.
-func (s *Service) SelectFile(ctx context.Context, torrentID string, fileIndex int) error {
+func (s *Service) SelectFile(ctx context.Context, torrentID, userID string, fileIndex int) error {
+	// Room-scoped read access (bug-0049 / deviation-0039): only participants
+	// in the room bound to this torrent may change its selection.
+	if !s.canRead(ctx, userID, torrentID) {
+		logger.Warn("Torrent: file selection refused, peer may not access this torrent",
+			"torrentID", torrentID, "userID", userID)
+		return errors.New(errors.ErrForbidden, "access denied")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	t, exists := s.torrents[torrentID]
+	handle, exists := s.torrents[torrentID]
 	if !exists {
-		logger.Warn("Torrent: torrent not found for file selection", "torrentID", torrentID, "fileIndex", fileIndex)
+		logger.Warn("Torrent: torrent not found for file selection", "torrentID", torrentID, "fileIndex", fileIndex, "userID", userID)
 		return errors.NotFound("torrent", torrentID)
 	}
 
-	files := t.Files()
+	total := handle.FileCount()
 
 	// Validate file index
-	if err := validation.ValidateFileIndex(fileIndex, len(files)-1); err != nil {
+	if err := validation.ValidateFileIndex(fileIndex, total-1); err != nil {
 		logger.Warn("Torrent: invalid file index",
 			"torrentID", torrentID,
+			"userID", userID,
 			"fileIndex", fileIndex,
-			"totalFiles", len(files),
+			"totalFiles", total,
 			"error", err,
 		)
 		return errors.Wrap(errors.ErrInvalidInput, "invalid file index", err)
 	}
 
-	// Cancel download of all files
-	for _, f := range files {
-		f.SetPriority(torrent.PiecePriorityNone)
+	// Narrow piece priority to the selected file (global per torrent, fine for anacrolix)
+	if err := handle.SelectForStreaming(fileIndex); err != nil {
+		logger.Warn("Torrent: failed to select file", "torrentID", torrentID, "userID", userID, "fileIndex", fileIndex, "error", err)
+		return err
 	}
 
-	// Select the desired file
-	files[fileIndex].SetPriority(torrent.PiecePriorityNormal)
-	s.selectedFiles[torrentID] = fileIndex
+	// Store per-user selection (bug-0048)
+	if s.selectedFiles[torrentID] == nil {
+		s.selectedFiles[torrentID] = make(map[string]int)
+	}
+	s.selectedFiles[torrentID][userID] = fileIndex
 
-	// Register in buffer service
+	// Register in buffer service. Only a backend that owns piece priorities can
+	// be steered; a gateway does its own prioritisation and reports no target.
 	if s.bufferService != nil {
-		s.bufferService.RegisterTorrent(
-			torrentID,
-			files[fileIndex],
-			constants.DefaultBufferPercent,
-			constants.DefaultBufferDuration,
-			constants.DefaultMaxBufferSize,
-		)
+		if file, ok := handle.BufferTarget(fileIndex).(*torrent.File); ok {
+			s.bufferService.RegisterTorrent(
+				torrentID,
+				file,
+				constants.DefaultBufferPercent,
+				constants.DefaultBufferDuration,
+				constants.DefaultMaxBufferSize,
+			)
+		}
 	}
 
 	logger.Info("Torrent: file selected for streaming",
 		"torrentID", torrentID,
+		"userID", userID,
 		"fileIndex", fileIndex,
-		"fileName", files[fileIndex].DisplayPath(),
+		"fileName", handle.FileName(fileIndex),
 	)
 	return nil
 }
@@ -494,89 +802,90 @@ func (s *Service) UpdateBufferPosition(ctx context.Context, torrentID string, po
 // GetBufferInfo returns buffer state information.
 // Parameter torrentID - torrent identifier.
 // Returns buffer information or an error.
-func (s *Service) GetBufferInfo(ctx context.Context, torrentID string) (*models.BufferInfo, error) {
+func (s *Service) GetBufferInfo(ctx context.Context, userID, torrentID string) (*models.BufferInfo, error) {
+	// Same room-scoped rule as every other read (bug-0049): buffer state is
+	// still a statement about someone else's torrent.
+	if !s.canRead(ctx, userID, torrentID) {
+		logger.Warn("Torrent: buffer info refused, peer may not read this torrent",
+			"torrentID", torrentID, "userID", userID)
+		return nil, errors.New(errors.ErrForbidden, "access denied")
+	}
+
 	if s.bufferService == nil {
 		return nil, errors.New(errors.ErrUnavailable, "buffer service not initialized")
 	}
 	return s.bufferService.GetBufferInfo(ctx, torrentID)
 }
 
-// ServeFile handles HTTP streaming of a torrent file.
+// ServeFile handles HTTP streaming of a torrent file for a specific user.
 // Supports Range requests for seeking via http.ServeContent.
 // Automatically determines Content-Type from file extension.
 // Returns 400 if file is not selected, 404 if torrent is not found.
 //
 // Uses streamWG to prevent TOCTOU races where a torrent might be removed
 // between validation and actual streaming. RemoveTorrent waits for active streams.
-func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID string) {
-	s.mu.RLock()
-	t, exists := s.torrents[torrentID]
-	if !exists {
-		s.mu.RUnlock()
-		logger.Warn("Torrent: torrent not found for streaming", "torrentID", torrentID)
+// userID is the caller's client ID (X-Client-ID from request context).
+func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID, userID string) {
+	// Resolve the torrent and its selection under the read lock, and register
+	// the stream in the same critical section. RemoveTorrent takes the write
+	// lock before dropping, so it cannot observe a registered stream and miss
+	// it, nor drop the torrent between validation and reading.
+	// Room-scoped read access (bug-0049). Checked before the read lock so the
+	// visibility provider is not called while s.mu is held.
+	//
+	// The answer is a flat 404, not 403: a guest who is not in the room should
+	// not learn that the torrent exists at all.
+	if !s.canRead(r.Context(), userID, torrentID) {
+		logger.Warn("Torrent: stream refused, peer may not read this torrent",
+			"torrentID", torrentID, "userID", userID)
 		http.Error(w, "Torrent not found", http.StatusNotFound)
 		return
 	}
 
-	fileIndex, hasSelection := s.selectedFiles[torrentID]
-	if !hasSelection {
+	s.mu.RLock()
+	handle, exists := s.torrents[torrentID]
+	if !exists {
 		s.mu.RUnlock()
-		logger.Warn("Torrent: file not selected for streaming", "torrentID", torrentID)
+		logger.Warn("Torrent: torrent not found for streaming", "torrentID", torrentID, "userID", userID)
+		http.Error(w, "Torrent not found", http.StatusNotFound)
+		return
+	}
+
+	userSelection, hasTorrentSelection := s.selectedFiles[torrentID]
+	if !hasTorrentSelection {
+		s.mu.RUnlock()
+		logger.Warn("Torrent: no file selected for streaming", "torrentID", torrentID, "userID", userID)
 		http.Error(w, "File not selected for streaming", http.StatusBadRequest)
 		return
 	}
 
-	// Get file list while lock is active
-	files := t.Files()
-	if fileIndex >= len(files) {
+	fileIndex, hasSelection := userSelection[userID]
+	if !hasSelection {
+		s.mu.RUnlock()
+		logger.Warn("Torrent: file not selected for streaming by this user", "torrentID", torrentID, "userID", userID)
+		http.Error(w, "File not selected for streaming", http.StatusBadRequest)
+		return
+	}
+
+	if fileIndex >= handle.FileCount() {
+		total := handle.FileCount()
 		s.mu.RUnlock()
 		logger.Warn("Torrent: invalid file index during streaming",
 			"torrentID", torrentID,
+			"userID", userID,
 			"fileIndex", fileIndex,
-			"totalFiles", len(files),
+			"totalFiles", total,
 		)
 		http.Error(w, "Invalid file index", http.StatusBadRequest)
 		return
 	}
 
-	file := files[fileIndex]
-
-	if file.Length() > maxStreamFileSize {
-		s.mu.RUnlock()
-		logger.Warn("Torrent: file exceeds maximum streaming size",
-			"torrentID", torrentID,
-			"fileSize", file.Length(),
-			"maxSize", maxStreamFileSize,
-		)
-		http.Error(w, "File too large for streaming", http.StatusBadRequest)
-		return
-	}
-
-	reader := file.NewReader()
 	s.streamWG.Add(1)
 	s.mu.RUnlock()
 
-	closer := &readCloserWithClose{ReadSeekCloser: reader}
-	var streamErr error
-	defer func() {
-		closeErr := closer.Close()
-		s.streamWG.Done()
-		if closeErr != nil && streamErr == nil {
-			logger.Warn("Torrent: error closing stream reader",
-				"torrentID", torrentID, "error", closeErr)
-		}
-	}()
+	defer s.streamWG.Done()
 
-	safeName := sanitizeFilename(file.DisplayPath())
-
-	logger.Info("Torrent: starting stream",
-		"torrentID", torrentID,
-		"fileIndex", fileIndex,
-		"fileName", safeName,
-		"fileSize", file.Length(),
-	)
-
-	http.ServeContent(w, r, safeName, time.Now(), closer)
+	s.backend.ServeStream(w, r, handle, fileIndex)
 }
 
 // Close closes the torrent service with graceful shutdown.
@@ -584,6 +893,15 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID st
 // Uses a context with timeout for waiting on active downloads.
 // After calling Close, the service cannot be used.
 func (s *Service) Close() error {
+	// Flush before taking the lock. SaveRegistry reads the state under
+	// s.mu.RLock, so calling it with s.mu already held deadlocks: RWMutex is
+	// not reentrant and this is the third time this project has tripped over
+	// it (bug-0052). Snapshot-then-save also means the write cannot interleave
+	// with a concurrent add and persist a half-updated map.
+	if err := s.SaveRegistry(); err != nil {
+		logger.Warn("Torrent: failed to persist ownership on close", "error", err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -594,7 +912,7 @@ func (s *Service) Close() error {
 		s.storage = nil
 	}
 
-	if s.client != nil {
+	if s.backend != nil {
 		// Create context with timeout for graceful shutdown
 		ctx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
 		defer cancel()
@@ -610,7 +928,7 @@ func (s *Service) Close() error {
 					logger.Error("Torrent: close goroutine exited with panic", "error", r)
 				}
 			}()
-			s.client.Close()
+			s.backend.Close()
 			close(done)
 		}()
 
@@ -626,26 +944,31 @@ func (s *Service) Close() error {
 	return nil
 }
 
-func (s *Service) torrentToInfo(t *torrent.Torrent) *models.TorrentInfo {
+// torrentToInfo renders a handle for the torrent list. Metadata is always
+// resolved by the time a handle exists, so there is no separate "loading"
+// branch to guard here.
+func (s *Service) torrentToInfo(handle TorrentHandle) *models.TorrentInfo {
+	size := handle.TotalLength()
+
 	info := &models.TorrentInfo{
-		ID:     t.InfoHash().HexString(),
-		Status: "loading",
+		ID:   handle.ID(),
+		Name: handle.Name(),
+		Size: size,
 	}
 
-	if t.Info() != nil {
-		info.Name = t.Info().BestName()
-		info.Size = t.Info().TotalLength()
-		if info.Size == 0 {
-			info.Progress = 0
-		} else {
-			info.Progress = float64(t.BytesCompleted()) / float64(info.Size)
-		}
+	if size == 0 {
+		info.Progress = 0
+	} else {
+		info.Progress = float64(handle.BytesCompleted()) / float64(size)
+	}
 
-		if t.Complete().Bool() {
-			info.Status = "seeding"
-		} else if t.BytesCompleted() > 0 {
-			info.Status = "downloading"
-		}
+	switch {
+	case handle.Complete():
+		info.Status = "seeding"
+	case handle.BytesCompleted() > 0:
+		info.Status = "downloading"
+	default:
+		info.Status = "loading"
 	}
 
 	return info

@@ -441,6 +441,13 @@ func (cri *clientRateLimiter) getLimiter(ip string) *rate.Limiter {
 // the values are never read from a request.
 var globalClientRateLimiter = newClientRateLimiter(resolveAPIRateLimit(), resolveAPIRateBurst())
 
+// ResetGlobalRateLimiter recreates the global rate limiter with current env vars.
+// Call this in tests after setting env vars to pick up the new values.
+func ResetGlobalRateLimiter() {
+	globalClientRateLimiter.Stop()
+	globalClientRateLimiter = newClientRateLimiter(resolveAPIRateLimit(), resolveAPIRateBurst())
+}
+
 // resolveAPIRateLimit returns the per-IP request rate for the protected API
 // group, falling back to the shipped default on anything malformed.
 func resolveAPIRateLimit() rate.Limit {
@@ -450,6 +457,48 @@ func resolveAPIRateLimit() rate.Limit {
 // resolveAPIRateBurst returns the per-IP burst for the protected API group.
 func resolveAPIRateBurst() int {
 	return envInt(constants.EnvAPIRateBurst, constants.APIRateBurst)
+}
+
+// bufferPositionRateLimiter is a per-IP limiter for the playback-position
+// endpoint only. It is separate from globalClientRateLimiter on purpose: the
+// endpoint carries a 2 Hz heartbeat from every playing client, so it needs a
+// budget of its own rather than a share of the 1 req/s control-plane bucket.
+// Keeping it in a separate map also keeps the accounting honest — position
+// reports no longer consume the budget that protects /torrents and /rooms.
+var bufferPositionRateLimiter = newClientRateLimiter(constants.BufferPositionRateLimit, constants.BufferPositionRateBurst)
+
+// resolveBufferPositionRateLimit returns the shipped per-IP rate for the
+// buffer-position endpoint. It takes no environment override, so the value
+// under test is the value that ships.
+func resolveBufferPositionRateLimit() rate.Limit {
+	return rate.Limit(constants.BufferPositionRateLimit)
+}
+
+// resolveBufferPositionRateBurst returns the shipped burst for the same endpoint.
+func resolveBufferPositionRateBurst() int {
+	return constants.BufferPositionRateBurst
+}
+
+// ResetBufferPositionRateLimiter recreates the buffer-position limiter.
+// Tests call it to get a fresh bucket; production never does.
+func ResetBufferPositionRateLimiter() {
+	bufferPositionRateLimiter.Stop()
+	bufferPositionRateLimiter = newClientRateLimiter(resolveBufferPositionRateLimit(), resolveBufferPositionRateBurst())
+}
+
+// BufferPositionRateLimiter is the middleware guarding the playback-position
+// endpoint. It runs BEFORE the token check, so a caller without a valid token
+// cannot spend another client's budget.
+func BufferPositionRateLimiter(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := getClientIP(r)
+		limiter := bufferPositionRateLimiter.getLimiter(ip)
+		if !limiter.Allow() {
+			WriteError(w, http.StatusTooManyRequests, "Too many requests. Please try again later.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RateLimitIsOverridden reports whether the per-IP API limit differs from the
@@ -492,6 +541,7 @@ func envInt(key string, fallback int) int {
 // Call during graceful shutdown.
 func StopGlobalRateLimiters() {
 	globalClientRateLimiter.Stop()
+	bufferPositionRateLimiter.Stop()
 }
 
 // responseWriter wrapper for capturing the response status.

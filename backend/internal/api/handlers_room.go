@@ -24,11 +24,11 @@ import (
 )
 
 // CreateRoom handler for creating a P2P room.
-// Accepts JSON with name and password (optional) fields.
+// Accepts JSON with name, password (optional), and torrentId fields.
 // Returns information about the created room.
 //
 // @Summary      Create room
-// @Description  Creates a new P2P room for playback synchronization
+// @Description  Creates a new P2P room for playback synchronization bound to a torrent
 // @Tags         rooms
 // @Accept       json
 // @Produce      json
@@ -61,10 +61,15 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
+		if req.TorrentID == "" {
+			WriteError(w, http.StatusBadRequest, "torrentId is required")
+			return
+		}
+
 		// Identify the caller for the P2P session
 		userID := auth.GetClientID(r)
 
-		room, err := p2pSvc.CreateRoom(r.Context(), userID, req.Name, req.Password)
+		room, err := p2pSvc.CreateRoom(r.Context(), userID, req.Name, req.Password, req.TorrentID)
 		if err != nil {
 			handleError(w, r, err, "creating room")
 			return
@@ -78,12 +83,12 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 }
 
 // JoinRoom handler for joining a P2P room.
-// Accepts JSON with roomID and password fields.
-// Returns an error if the room is not found or password is wrong.
+// Accepts JSON with roomID, password, and torrentId fields.
+// Returns an error if the room is not found, password is wrong, or torrentId mismatches.
 // Does NOT log the room password.
 //
 // @Summary      Join room
-// @Description  Joins a user to an existing P2P room
+// @Description  Joins a user to an existing P2P room (must match torrentId)
 // @Tags         rooms
 // @Accept       json
 // @Produce      json
@@ -112,11 +117,16 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
+		if req.TorrentID == "" {
+			WriteError(w, http.StatusBadRequest, "torrentId is required")
+			return
+		}
+
 		// Identify the caller for the P2P session
 		userID := auth.GetClientID(r)
 
 		// Do NOT log req.Password - password must not appear in logs
-		if err := p2pSvc.JoinRoom(r.Context(), userID, req.RoomID, req.Password); err != nil {
+		if err := p2pSvc.JoinRoom(r.Context(), userID, req.RoomID, req.Password, req.TorrentID); err != nil {
 			logger.Warn("P2P: failed to join room", "roomID", req.RoomID, "error", err)
 			handleError(w, r, err, "joining room")
 			return
@@ -206,17 +216,41 @@ func Signal(p2pSvc internal.P2PService) http.HandlerFunc {
 	}
 }
 
+// GetRoomInfo handler for reporting the caller's current room.
+// The room is resolved from the caller's own membership, so the path carries
+// no {roomID}: one client can never ask about another client's room.
+// Returns host identity and peer count, which a client needs to rebuild its
+// view of the room after an SSE reconnect (bug-0012).
+//
+// @Summary      Room info
+// @Description  Returns the caller's current room: id, name, host, peer count and the full roster. `peerCount` counts PARTICIPANTS including the host. `peers` is the authoritative roster snapshot and is what lets a client that joined late learn about peers whose `peer_joined` events it never saw; each entry carries `peerID`, `userID`, optional `username`, `isHost` and `buffering`. There is deliberately no per-peer "in sync" flag: the room shares one playback position, so the server cannot know how far any individual peer has drifted. Resolved from the caller's own membership, so a peer outside any room gets 400.
+// @Tags         rooms
+// @Produce      json
+// @Success      200  {object}  models.RoomInfo
+// @Failure      400  {object}  models.ErrorResponse
+// @Router       /api/v1/rooms/info [get]
+func GetRoomInfo(p2pSvc internal.P2PService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		roomInfo, _, ok := resolveCallerRoom(w, r, p2pSvc)
+		if !ok {
+			return
+		}
+
+		WriteJSON(w, http.StatusOK, roomInfo)
+	}
+}
+
 // RoomEvents SSE handler for receiving real-time room events.
 // Uses Server-Sent Events for event delivery.
 // Supports connection timeout, ping/pong and connection limit.
 // Checks user's room membership before subscribing.
 //
 // @Summary      Room events (SSE)
-// @Description  Subscribe to P2P room events in real-time via Server-Sent Events
+// @Description  Subscribe to P2P room events in real-time via Server-Sent Events. Each `data:` frame is a P2PEvent whose `type` selects the payload shape: `peer_joined` is {peerID, userID, isHost, peerCount}; `peer_left` is {peerID, userID, peerCount}; `peer_list` is {peers: [{peerID, userID, username?, isHost, buffering}]} and replaces the whole roster rather than describing one change; `sync` is {action, status, initiator} plus a top-level `position` on seek and a top-level `buffering` on buffering reports; `signal` is an opaque blob relayed verbatim. The two positions on a seek differ on purpose: the top-level `position` is where the host asked to go, `status.position` is where smoothing actually moved the room. `data` appears as an untyped object because the payloads form a union selected by `type`; the shapes are listed here and defined in internal/models/events.go.
 // @Tags         rooms
 // @Produce      text/event-stream
 // @Param        roomID  path  string  true  "Room ID"
-// @Success      200     {string}  stream
+// @Success      200     {object}  models.P2PEvent
 // @Router       /api/v1/rooms/{roomID}/events [get]
 func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -246,10 +280,28 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			return
 		}
 
+		// The stream is now open, which is the only honest evidence that this peer
+		// is present. Record it before waiting, so a peer that subscribes and
+		// then falls silent is still reaped when the timeout passes.
+		if err := p2pSvc.TouchPeer(r.Context(), userID); err != nil {
+			logger.Warn("SSE: keepalive failed on subscribe", "userID", userID, "error", err)
+		}
+
+		keepAlive := func() {
+			// Background context on purpose: by the time a late ping fires during
+			// shutdown the request context is already done, and the heartbeat is
+			// exactly the case where a cancelled context would silently skip it.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := p2pSvc.TouchPeer(ctx, userID); err != nil {
+				logger.Warn("SSE: keepalive failed", "userID", userID, "error", err)
+			}
+		}
+
 		SSEEventHandler(w, r, events, roomID, r.URL.Path, func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = p2pSvc.LeaveRoom(ctx, userID)
-		})
+		}, keepAlive)
 	}
 }

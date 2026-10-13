@@ -49,7 +49,7 @@ const docTemplate = `{
         },
         "/api/v1/rooms": {
             "post": {
-                "description": "Creates a new P2P room for playback synchronization",
+                "description": "Creates a new P2P room for playback synchronization bound to a torrent",
                 "consumes": [
                     "application/json"
                 ],
@@ -87,9 +87,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/rooms/info": {
+            "get": {
+                "description": "Returns the caller's current room: id, name, host, peer count and the full roster. ` + "`" + `peerCount` + "`" + ` counts PARTICIPANTS including the host. ` + "`" + `peers` + "`" + ` is the authoritative roster snapshot and is what lets a client that joined late learn about peers whose ` + "`" + `peer_joined` + "`" + ` events it never saw; each entry carries ` + "`" + `peerID` + "`" + `, ` + "`" + `userID` + "`" + `, optional ` + "`" + `username` + "`" + `, ` + "`" + `isHost` + "`" + ` and ` + "`" + `buffering` + "`" + `. There is deliberately no per-peer \"in sync\" flag: the room shares one playback position, so the server cannot know how far any individual peer has drifted. Resolved from the caller's own membership, so a peer outside any room gets 400.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rooms"
+                ],
+                "summary": "Room info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/rooms/join": {
             "post": {
-                "description": "Joins a user to an existing P2P room",
+                "description": "Joins a user to an existing P2P room (must match torrentId)",
                 "consumes": [
                     "application/json"
                 ],
@@ -195,7 +221,7 @@ const docTemplate = `{
         },
         "/api/v1/rooms/{roomID}/events": {
             "get": {
-                "description": "Subscribe to P2P room events in real-time via Server-Sent Events",
+                "description": "Subscribe to P2P room events in real-time via Server-Sent Events. Each ` + "`" + `data:` + "`" + ` frame is a P2PEvent whose ` + "`" + `type` + "`" + ` selects the payload shape: ` + "`" + `peer_joined` + "`" + ` is {peerID, userID, isHost, peerCount}; ` + "`" + `peer_left` + "`" + ` is {peerID, userID, peerCount}; ` + "`" + `peer_list` + "`" + ` is {peers: [{peerID, userID, username?, isHost, buffering}]} and replaces the whole roster rather than describing one change; ` + "`" + `sync` + "`" + ` is {action, status, initiator} plus a top-level ` + "`" + `position` + "`" + ` on seek and a top-level ` + "`" + `buffering` + "`" + ` on buffering reports; ` + "`" + `signal` + "`" + ` is an opaque blob relayed verbatim. The two positions on a seek differ on purpose: the top-level ` + "`" + `position` + "`" + ` is where the host asked to go, ` + "`" + `status.position` + "`" + ` is where smoothing actually moved the room. ` + "`" + `data` + "`" + ` appears as an untyped object because the payloads form a union selected by ` + "`" + `type` + "`" + `; the shapes are listed here and defined in internal/models/events.go.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -216,7 +242,47 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.P2PEvent"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/buffering": {
+            "post": {
+                "description": "Reports that the calling peer started or stopped buffering, so the room pauses/resumes with it. Any room member may report it; a peer not in a room gets 400.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sync"
+                ],
+                "summary": "Report buffering state",
+                "parameters": [
+                    {
+                        "description": "Buffering state",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -224,7 +290,7 @@ const docTemplate = `{
         },
         "/api/v1/sync/pause": {
             "post": {
-                "description": "Pauses synchronized playback",
+                "description": "Pauses synchronized playback (host only)",
                 "produces": [
                     "application/json"
                 ],
@@ -238,13 +304,25 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
                     }
                 }
             }
         },
         "/api/v1/sync/play": {
             "post": {
-                "description": "Starts synchronized playback",
+                "description": "Starts synchronized playback (host only)",
                 "produces": [
                     "application/json"
                 ],
@@ -258,13 +336,25 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
                     }
                 }
             }
         },
         "/api/v1/sync/seek": {
             "post": {
-                "description": "Performs synchronized seek to the specified position",
+                "description": "Performs synchronized seek to the specified position (host only)",
                 "consumes": [
                     "application/json"
                 ],
@@ -298,13 +388,19 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
                     }
                 }
             }
         },
         "/api/v1/sync/status": {
             "get": {
-                "description": "Returns the current synchronization status",
+                "description": "Returns the current synchronization status of the caller's room. A caller outside any room gets 400.",
                 "produces": [
                     "application/json"
                 ],
@@ -317,6 +413,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
                     }
                 }
@@ -590,7 +692,7 @@ const docTemplate = `{
         },
         "/api/v1/torrents/{id}/select": {
             "post": {
-                "description": "Selects a torrent file for streaming by index",
+                "description": "Selects a torrent file for streaming by index (per-peer)",
                 "consumes": [
                     "application/json"
                 ],
@@ -637,7 +739,7 @@ const docTemplate = `{
         },
         "/api/v1/torrents/{id}/stream": {
             "get": {
-                "description": "Streams the selected torrent file with Range request support",
+                "description": "Streams the selected torrent file with Range request support (per-peer)",
                 "produces": [
                     "application/octet-stream"
                 ],
@@ -713,6 +815,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
                         }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
                     }
                 }
             }
@@ -774,6 +882,14 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.BufferingRequest": {
+            "type": "object",
+            "properties": {
+                "buffering": {
+                    "type": "boolean"
+                }
+            }
+        },
         "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.CreateRoomRequest": {
             "type": "object",
             "properties": {
@@ -781,6 +897,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
+                    "type": "string"
+                },
+                "torrentId": {
+                    "description": "infohash of the torrent to bind this room to",
                     "type": "string"
                 }
             }
@@ -838,6 +958,10 @@ const docTemplate = `{
                 },
                 "roomId": {
                     "type": "string"
+                },
+                "torrentId": {
+                    "description": "must match room's torrent (idea-0046)",
+                    "type": "string"
                 }
             }
         },
@@ -852,11 +976,53 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.P2PEvent": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "seq": {
+                    "description": "Seq is the sequence number of this event within its room.\nClients use it to detect gaps and request replay.",
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.PeerInfo": {
+            "type": "object",
+            "properties": {
+                "buffering": {
+                    "description": "Buffering reports that this peer last said it was out of data. It is\nsticky until the peer says otherwise, so a peer that vanishes without\nsaying is dropped from the roster instead.",
+                    "type": "boolean",
+                    "example": false
+                },
+                "isHost": {
+                    "description": "IsHost marks the room's host, who controls play/pause/seek.",
+                    "type": "boolean",
+                    "example": false
+                },
+                "peerID": {
+                    "description": "PeerID is the session identifier of this participant. It changes on\nreconnect; UserID does not.",
+                    "type": "string",
+                    "example": "peer-abc"
+                },
+                "userID": {
+                    "type": "string",
+                    "example": "user-1"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.RoomInfo": {
             "type": "object",
             "properties": {
                 "hostId": {
-                    "description": "HostID is the host's peer (session) identifier, NOT the host's user ID.\nThe host's user ID is tracked separately server-side (HostUserID in the\np2p service room struct) and is the authoritative key for host checks.",
+                    "type": "string"
+                },
+                "hostUserId": {
                     "type": "string"
                 },
                 "id": {
@@ -866,7 +1032,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "peerCount": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "peers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.PeerInfo"
+                    }
+                },
+                "rosterSeq": {
                     "type": "integer"
+                },
+                "torrentId": {
+                    "description": "infohash of the torrent bound to this room",
+                    "type": "string"
                 }
             }
         },
@@ -931,6 +1111,9 @@ const docTemplate = `{
         "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SyncStatus": {
             "type": "object",
             "properties": {
+                "buffering": {
+                    "type": "boolean"
+                },
                 "duration": {
                     "type": "number"
                 },

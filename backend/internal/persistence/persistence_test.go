@@ -30,155 +30,45 @@ func TestNewStore(t *testing.T) {
 	})
 }
 
-func TestSaveAndLoadUsers(t *testing.T) {
-	t.Run("saves and loads users successfully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		userData := &UserData{
-			Users: map[string]*models.User{
-				"testuser": {
-					ID:           "user-id-123",
-					Username:     "testuser",
-					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash", // #nosec G101
-					CreatedAt:    1234567890,
-				},
-			},
-			UsersByID: map[string]*models.User{
-				"user-id-123": {
-					ID:           "user-id-123",
-					Username:     "testuser",
-					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash", // #nosec G101
-					CreatedAt:    1234567890,
-				},
-			},
-		}
-
-		err = store.SaveUsers(userData)
-		assert.NoError(t, err)
-
-		loaded, err := store.LoadUsers()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Equal(t, userData.Users, loaded.Users)
-		assert.Equal(t, userData.UsersByID, loaded.UsersByID)
-	})
-
-	t.Run("handles non-existent file gracefully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		loaded, err := store.LoadUsers()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Empty(t, loaded.Users)
-		assert.Empty(t, loaded.UsersByID)
-	})
-
-	t.Run("handles corrupted file gracefully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		// Write corrupted JSON
-		err = os.WriteFile(filepath.Join(tmpDir, "users.json"), []byte("invalid json"), 0600)
-		require.NoError(t, err)
-
-		loaded, err := store.LoadUsers()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Empty(t, loaded.Users)
-	})
-
-	t.Run("handles missing version field", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		// Write JSON without version field
-		data := `{"users":{"testuser":{"id":"123","username":"testuser"}}}`
-		err = os.WriteFile(filepath.Join(tmpDir, "users.json"), []byte(data), 0600)
-		require.NoError(t, err)
-
-		loaded, err := store.LoadUsers()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Equal(t, 1, loaded.Version) // Should be set to 1 for legacy files
-	})
-}
-
-func TestSaveAndLoadRevokedTokens(t *testing.T) {
-	t.Run("saves and loads revoked tokens successfully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		tokenData := &TokenRevocationData{
-			RevokedTokens: map[string]int64{
-				"jti-1": 1234567890,
-				"jti-2": 1234567891,
-			},
-		}
-
-		err = store.SaveRevokedTokens(tokenData)
-		assert.NoError(t, err)
-
-		loaded, err := store.LoadRevokedTokens()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Equal(t, tokenData.RevokedTokens, loaded.RevokedTokens)
-	})
-
-	t.Run("handles non-existent file gracefully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		loaded, err := store.LoadRevokedTokens()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Empty(t, loaded.RevokedTokens)
-	})
-
-	t.Run("handles corrupted file gracefully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		// Write corrupted JSON
-		err = os.WriteFile(filepath.Join(tmpDir, "revoked_tokens.json"), []byte("invalid json"), 0600)
-		require.NoError(t, err)
-
-		loaded, err := store.LoadRevokedTokens()
-		assert.NoError(t, err)
-		assert.NotNil(t, loaded)
-		assert.Empty(t, loaded.RevokedTokens)
-	})
-}
-
 func TestAtomicWrites(t *testing.T) {
-	t.Run("temp file created with correct permissions", func(t *testing.T) {
+	// The property under test is the write path itself — write to a temp file,
+	// then rename over the target — not any particular payload. It used to
+	// used to exercise the users store; when the unused account code was
+	// removed (deviation-0008) the check moved to the data that persists.
+	t.Run("temp file is cleaned up after a successful write", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		store, err := NewStore(tmpDir)
 		require.NoError(t, err)
 
-		userData := &UserData{
-			Users: map[string]*models.User{
-				"testuser": {
-					ID:           "user-id-123",
-					Username:     "testuser",
-					PasswordHash: "$2a$12$hashhashhashhashhashhashhashhashhashhash", // #nosec G101
-				},
+		rooms := &RoomsData{
+			Rooms: map[string]*RoomSnapshot{
+				"room-1": {ID: "room-1", Name: "Test Room", HostID: "host-1", CreatedAt: 1},
 			},
 		}
 
-		err = store.SaveUsers(userData)
-		assert.NoError(t, err)
+		err = store.SaveRooms(rooms)
+		require.NoError(t, err)
 
-		// Check that temp file was cleaned up
-		assert.NoFileExists(t, filepath.Join(tmpDir, "users.json.tmp"))
+		assert.NoFileExists(t, filepath.Join(tmpDir, "rooms.json.tmp"),
+			"the temp file must be renamed away, not left behind")
+		assert.FileExists(t, filepath.Join(tmpDir, "rooms.json"))
+	})
+
+	t.Run("target file is not left readable by other users", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store, err := NewStore(tmpDir)
+		require.NoError(t, err)
+
+		// Room metadata includes the room password hash, so the file must not
+		// be world-readable.
+		err = store.SaveRooms(&RoomsData{Rooms: map[string]*RoomSnapshot{
+			"room-1": {ID: "room-1", Name: "Test Room", HostID: "host-1", Password: "hash", CreatedAt: 1},
+		}})
+		require.NoError(t, err)
+
+		info, err := os.Stat(filepath.Join(tmpDir, "rooms.json"))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 	})
 }
 
@@ -333,37 +223,6 @@ func TestSaveAndLoadSync(t *testing.T) {
 }
 
 func TestPersistenceConcurrency(t *testing.T) {
-	t.Run("concurrent save and load users", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		store, err := NewStore(tmpDir)
-		require.NoError(t, err)
-
-		userData := &UserData{
-			Users: map[string]*models.User{
-				"user-1": {ID: "1", Username: "user1", PasswordHash: "hash1", CreatedAt: 1},
-			},
-			UsersByID: map[string]*models.User{
-				"1": {ID: "1", Username: "user1", PasswordHash: "hash1", CreatedAt: 1},
-			},
-		}
-
-		done := make(chan struct{})
-		go func() {
-			for i := 0; i < 50; i++ {
-				_ = store.SaveUsers(userData)
-			}
-			close(done)
-		}()
-
-		for i := 0; i < 50; i++ {
-			_, _ = store.LoadUsers()
-		}
-
-		<-done
-		loaded, err := store.LoadUsers()
-		require.NoError(t, err)
-		assert.Equal(t, 1, len(loaded.Users))
-	})
 
 	t.Run("concurrent save and load rooms", func(t *testing.T) {
 		tmpDir := t.TempDir()

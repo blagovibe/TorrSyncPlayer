@@ -12,6 +12,7 @@
  */
 
 #include <QtTest/QtTest>
+#include <QCoreApplication>
 #include <QSignalSpy>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -56,6 +57,9 @@ private slots:
     // ── QAbstractListModel interface ──────────────────────────────────────
     void testRowCount();
     void testData();
+    void testStatusIdentifierIsKept();
+    void testUnknownStatusPassedThrough();
+    void testTooltipShowsTranslatedStatus();
     void testRoleNames();
     void testHeaderData();
 
@@ -345,11 +349,76 @@ void TestTorrentModel::testData()
     QCOMPARE(m_model->data(index, TorrentModel::IdRole).toString(), QString("data-test"));
     QCOMPARE(m_model->data(index, TorrentModel::NameRole).toString(), QString("Data Test"));
     QCOMPARE(m_model->data(index, TorrentModel::ProgressRole).toDouble(), 0.6);
-    QCOMPARE(m_model->data(index, TorrentModel::StatusRole).toString(), QString("downloading"));
+
+    // StatusRole отдаёт перевод, а не машинный идентификатор: показывать
+    // пользователю «downloading» из API незачем (idea-0025). Идентификатор при
+    // этом остаётся в самой модели — это проверяет testStatusIdentifierIsKept.
+    const QString status = m_model->data(index, TorrentModel::StatusRole).toString();
+    QVERIFY2(status != QString("downloading"),
+             "StatusRole вернул машинный идентификатор вместо перевода");
+    QCOMPARE(status, QCoreApplication::translate("TorrentModel", "Загрузка"));
 
     QString display = m_model->data(index, Qt::DisplayRole).toString();
     QVERIFY(display.contains("Data Test"));
     QVERIFY(display.contains("60"));
+}
+
+// Перевод статуса — только отображение. Машинный идентификатор обязан дойти
+// до toJson() без изменений: отправленная обратно переведённая строка
+// испортила бы состояние торрента на бэкенде.
+void TestTorrentModel::testStatusIdentifierIsKept()
+{
+    TorrentInfo info;
+    info.id = "status-test";
+    info.name = "Status Test";
+    info.status = "seeding";
+    info.size = 1024;
+
+    m_model->addTorrent(info);
+
+    const QModelIndex index = m_model->index(0);
+    QCOMPARE(m_model->torrentAt(0).status, QString("seeding"));
+
+    // Наружу — перевод…
+    QCOMPARE(m_model->data(index, TorrentModel::StatusRole).toString(),
+             QCoreApplication::translate("TorrentModel", "Раздача"));
+
+    // …а в JSON — исходный идентификатор.
+    QCOMPARE(m_model->torrentAt(0).toJson()["status"].toString(), QString("seeding"));
+}
+
+// Статус, которого модель не знает, показывается как пришёл: новое состояние
+// с бэкенда должно быть видно сразу, без правки фронтенда.
+void TestTorrentModel::testUnknownStatusPassedThrough()
+{
+    TorrentInfo info;
+    info.id = "unknown-status";
+    info.name = "Unknown Status";
+    info.status = "checking-peers";
+
+    m_model->addTorrent(info);
+
+    QCOMPARE(m_model->data(m_model->index(0), TorrentModel::StatusRole).toString(),
+             QString("checking-peers"));
+}
+
+// Подсказка тоже пользовательский текст — статус в ней должен быть переведён,
+// а не показан английским идентификатором.
+void TestTorrentModel::testTooltipShowsTranslatedStatus()
+{
+    TorrentInfo info;
+    info.id = "tooltip-test";
+    info.name = "Tooltip Test";
+    info.status = "paused";
+    info.size = 2048;
+
+    m_model->addTorrent(info);
+
+    const QString tip = m_model->data(m_model->index(0), Qt::ToolTipRole).toString();
+    QVERIFY(!tip.isEmpty());
+    QVERIFY2(!tip.contains(QStringLiteral("paused")),
+             "подсказка показывает машинный статус вместо перевода");
+    QVERIFY(tip.contains(QCoreApplication::translate("TorrentModel", "Пауза")));
 }
 
 void TestTorrentModel::testRoleNames()

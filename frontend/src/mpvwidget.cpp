@@ -234,6 +234,11 @@ bool MpvWidget::initializeMpv()
     observe(m_mpv, "duration", MPV_FORMAT_DOUBLE);
     observe(m_mpv, "pause", MPV_FORMAT_FLAG);
     observe(m_mpv, "eof-reached", MPV_FORMAT_FLAG);
+    // core-idle: mpv is idle because there is not enough data yet, which is
+    // exactly what buffering looks like on a torrent stream. Observed so the
+    // room can be told — the other peers pause instead of running on
+    // alone (bug-0011).
+    observe(m_mpv, "core-idle", MPV_FORMAT_FLAG);
 
     if (!m_eventTimer) {
         m_eventTimer = new QTimer(this);
@@ -583,6 +588,23 @@ void MpvWidget::processMpvEvent(mpv_event *event)
                 m_eventBuffer.append(eventData);
             }
         }
+        else if (strcmp(prop->name, "core-idle") == 0 && prop->format == MPV_FORMAT_FLAG) {
+            // core-idle поднимается, когда mpv не может играть: не хватает
+            // данных. Для торрент-потока это и есть буферизация. Состояние
+            // запоминаем и эмитим только на СМЕНЕ значения — mpv держит флаг
+            // поднятым на всё время простоя, и эмитить по каждому тику
+            // события значило бы слать в комнату десятки одинаковых сообщений
+            // в секунду.
+            int *idleData = static_cast<int *>(prop->data);
+            if (idleData == nullptr) break;
+            const bool idle = *idleData != 0;
+            if (idle == m_coreIdle) break;
+            m_coreIdle = idle;
+            MpvEventData eventData;
+            eventData.type = MpvEventData::BufferingStateChanged;
+            eventData.value = idle ? 1.0 : 0.0;
+            m_eventBuffer.append(eventData);
+        }
         break;
     }
 
@@ -674,6 +696,9 @@ void MpvWidget::emitBufferedEvents()
             break;
         case MpvEventData::Ready:
             emit ready();
+            break;
+        case MpvEventData::BufferingStateChanged:
+            emit bufferingStateChanged(event.value != 0.0);
             break;
         }
     }

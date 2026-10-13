@@ -84,8 +84,12 @@ test-frontend-mutation:
 	@echo "C++ mutation testing with Mull - placeholder for future implementation"
 
 # Contract testing
+#
+# -tags contract обязателен: весь пакет internal/contract закрыт этим тегом.
+# Без него go test сообщает "matched no packages", и цель contract-test-backend
+# (а с ней test-all) падает, ничего не проверяя. CI использует тот же тег.
 contract-test-backend:
-	cd backend && go test -v -run TestPactProvider ./internal/contract/...
+	cd backend && go test -v -tags contract -run TestPactProvider ./internal/contract/...
 
 # Frontend Pact consumer tests do not exist yet. The recipe used to build
 # test_networkmanager_contract / test_torrentmanager_contract /

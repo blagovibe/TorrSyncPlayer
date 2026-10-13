@@ -23,6 +23,45 @@ TorrentModel::~TorrentModel()
 
 // ── QAbstractListModel interface ──────────────────────────────────────
 
+/**
+ * @brief Перевести статус торрента на язык интерфейса
+ *
+ * Статус приходит с бэкенда английским идентификатором ("downloading",
+ * "seeding"): это машинное значение в API, а не текст для человека. Показывать
+ * его пользователю как есть нельзя — в другой локали строка «downloading»
+ * осталась бы английской.
+ *
+ * Переводится только отображение. В toJson() уходит исходный идентификатор,
+ * иначе переведённая строка уехала бы обратно в API. Неизвестный статус
+ * показываем как есть, а не заменяем на «неизвестно»: так новое состояние
+ * с бэкенда видно сразу, без правки фронтенда.
+ *
+ * @param status идентификатор статуса от бэкенда
+ * @return локализованный текст
+ */
+static QString localizedStatus(const QString &status)
+{
+    if (status == QLatin1String("downloading")) {
+        return QCoreApplication::translate("TorrentModel", "Загрузка");
+    }
+    if (status == QLatin1String("seeding")) {
+        return QCoreApplication::translate("TorrentModel", "Раздача");
+    }
+    if (status == QLatin1String("paused")) {
+        return QCoreApplication::translate("TorrentModel", "Пауза");
+    }
+    if (status == QLatin1String("loading")) {
+        return QCoreApplication::translate("TorrentModel", "Получение данных");
+    }
+    if (status == QLatin1String("error")) {
+        return QCoreApplication::translate("TorrentModel", "Ошибка");
+    }
+    if (status == QLatin1String("unknown")) {
+        return QCoreApplication::translate("TorrentModel", "Неизвестно");
+    }
+    return status;
+}
+
 int TorrentModel::rowCount(const QModelIndex &parent) const
 {
     // Для списковых моделей родитель всегда недействителен
@@ -52,7 +91,7 @@ QVariant TorrentModel::data(const QModelIndex &index, int role) const
         return torrent.progress;
 
     case StatusRole:
-        return torrent.status;
+        return localizedStatus(torrent.status);
 
     case SizeRole:
         return static_cast<qulonglong>(torrent.size);
@@ -74,11 +113,11 @@ QVariant TorrentModel::data(const QModelIndex &index, int role) const
 
     case Qt::ToolTipRole:
         // Подробная информация при наведении
-        return QString("ID: %1\nИмя: %2\nПрогресс: %3%\nСтатус: %4\nРазмер: %5")
+        return tr("ID: %1\nИмя: %2\nПрогресс: %3%\nСтатус: %4\nРазмер: %5")
             .arg(torrent.id)
             .arg(torrent.name)
             .arg(QLocale::c().toString(torrent.progress * 100, 'f', 1))
-            .arg(torrent.status)
+            .arg(localizedStatus(torrent.status))
             .arg(Utils::formatBytes(torrent.size));
 
     default:

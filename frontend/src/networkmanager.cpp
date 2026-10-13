@@ -278,7 +278,7 @@ void NetworkManager::getBufferInfo(const QString &torrentId)
 
 // ── Room API ──────────────────────────────────────────────────────────
 
-void NetworkManager::createRoom(const QString &name, const QString &password)
+void NetworkManager::createRoom(const QString &name, const QString &password, const QString &torrentId)
 {
     // Валидация имени комнаты
     if (name.isEmpty()) {
@@ -296,6 +296,13 @@ void NetworkManager::createRoom(const QString &name, const QString &password)
         return;
     }
 
+    // Комната привязана к торренту (idea-0046): без него смотреть нечего, и
+    // сервер такой запрос всё равно отвергает — 400 без объяснения.
+    if (torrentId.isEmpty()) {
+        emit error(tr("Нужно выбрать торрент, к которому привязывается комната"));
+        return;
+    }
+
     // Безопасность: блокируем отправку пароля по незащищённому соединению (кроме localhost)
     if (!password.isEmpty() && m_serverUrl.host() != "localhost" && m_serverUrl.host() != "127.0.0.1") {
         if (m_serverUrl.scheme() != "https") {
@@ -306,13 +313,14 @@ void NetworkManager::createRoom(const QString &name, const QString &password)
 
     QJsonObject body;
     body["name"] = name;
+    body["torrentId"] = torrentId;
     if (!password.isEmpty()) {
         body["password"] = password;
     }
     sendWithRetry("POST", "/api/v1/rooms", RequestType::CreateRoom, body);
 }
 
-void NetworkManager::joinRoom(const QString &roomId, const QString &password)
+void NetworkManager::joinRoom(const QString &roomId, const QString &password, const QString &torrentId)
 {
     // Валидация ID комнаты
     if (roomId.isEmpty()) {
@@ -322,6 +330,13 @@ void NetworkManager::joinRoom(const QString &roomId, const QString &password)
 
     if (roomId.length() > APIConstants::MaxRoomIdLength) {
         emit error(tr("ID комнаты слишком длинный"));
+        return;
+    }
+
+    // Сервер сверяет infohash с привязанным к комнате и отказывает при
+    // несовпадении (idea-0046), поэтому пустой здесь — заведомо отказ.
+    if (torrentId.isEmpty()) {
+        emit error(tr("Нужно выбрать тот же торрент, который смотрит комната"));
         return;
     }
 
@@ -341,6 +356,7 @@ void NetworkManager::joinRoom(const QString &roomId, const QString &password)
 
     QJsonObject body;
     body["roomId"] = roomId;
+    body["torrentId"] = torrentId;
     if (!password.isEmpty()) {
         body["password"] = password;
     }
@@ -371,6 +387,9 @@ void NetworkManager::leaveRoom()
     {
         QMutexLocker locker(&m_roomIdMutex);
         m_currentRoomId.clear();
+        // Выход из комнаты — единственное место, где путь переподключения
+        // правда перестаёт быть нужным.
+        m_sseReconnectPath.clear();
     }
     emit roomLeft();
 }
@@ -413,6 +432,13 @@ void NetworkManager::syncSeek(double position)
     QJsonObject body;
     body["position"] = position;
     sendPost("/api/v1/sync/seek", body, RequestType::SyncSeek);
+}
+
+void NetworkManager::syncBuffering(bool buffering)
+{
+    QJsonObject body;
+    body["buffering"] = buffering;
+    sendPost("/api/v1/sync/buffering", body, RequestType::SyncBuffering);
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────
@@ -615,7 +641,24 @@ void NetworkManager::onReplyFinished(QNetworkReply *reply)
     case RequestType::SyncPlay:
     case RequestType::SyncPause:
     case RequestType::SyncSeek:
+    case RequestType::SyncBuffering:
         // No response body of interest; playback state is pushed via SSE.
+        break;
+    case RequestType::SyncStatusGet:
+        // Reconciliation after (re)connect: the room may have moved on while we
+        // were away. Emitted parsed so no consumer has to re-parse.
+        if (doc.isObject()) {
+            emit syncStatusReceived(doc.object());
+        } else {
+            qWarning() << "NetworkManager: /sync/status вернул не объект:" << path;
+        }
+        break;
+    case RequestType::RoomInfoGet:
+        if (doc.isObject()) {
+            emit roomInfoReceived(doc.object());
+        } else {
+            qWarning() << "NetworkManager: /rooms/info вернул не объект:" << path;
+        }
         break;
     case RequestType::Signal:
         qDebug() << "NetworkManager: сигнал отправлен";
@@ -828,6 +871,12 @@ void NetworkManager::setClientId(const QString &clientId)
     m_clientId = clientId;
 }
 
+QString NetworkManager::clientId() const
+{
+    QMutexLocker locker(&m_accessTokenMutex);
+    return m_clientId;
+}
+
 void NetworkManager::applyAuthHeader(QNetworkRequest &request)
 {
     QMutexLocker locker(&m_accessTokenMutex);
@@ -944,8 +993,26 @@ void NetworkManager::connectToSSE(const QString &path)
         m_replyMap[m_sseReply] = RequestType::RoomEvents;
     }
 
+    m_sseStreamOpened.storeRelaxed(0);
+
     connect(m_sseReply, &QNetworkReply::readyRead,
             this, &NetworkManager::onSsEReadyRead);
+    // Единственный честный признак «поток открыт». connectToSSE() лишь
+    // отправил запрос: сервер мог его отклонить (403 — мы больше не участник,
+    // 429 — превышен лимит соединений), и обнулять счётчик попыток здесь
+    // означало сбрасывать backoff ДО того, как стало известно, что попытка
+    // вообще удалась. Из-за этого задержка всегда оставалась базовой, а лимит
+    // попыток не срабатывал никогда.
+    connect(m_sseReply, &QNetworkReply::metaDataChanged,
+            this, &NetworkManager::onSseMetaDataChanged);
+    connect(m_sseReply, &QNetworkReply::readyRead,
+            this, [this, self = QPointer<NetworkManager>(this)]() {
+                if (!self) return;
+                // Первая прочитанная строка означает, что сервер уже отдал
+                // заголовки 200. Страховка на случай, если metaDataChanged не
+                // придёт (например, ответ без заголовков).
+                self->onSseMetaDataChanged();
+            });
     connect(m_sseReply, &QNetworkReply::errorOccurred,
             this, [this, self = QPointer<NetworkManager>(this)](QNetworkReply::NetworkError code) {
                 Q_UNUSED(code)
@@ -974,10 +1041,54 @@ void NetworkManager::connectToSSE(const QString &path)
                 }
             });
 
-    // Сбрасываем счётчик переподключений при успешном подключении
+    qDebug() << "NetworkManager: SSE подключение к" << path;
+}
+
+void NetworkManager::onSseMetaDataChanged()
+{
+    QNetworkReply *reply = m_sseReply;
+    if (!reply) return;
+
+    const QVariant statusAttr = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+    const int statusCode = statusAttr.isValid() ? statusAttr.toInt() : 0;
+
+    if (statusCode != 200) {
+        // Сервер ответил, но поток не открылся. Повторять бессмысленно: при
+        // 403 нас больше нет в комнате, при 429 — лимит соединений исчерпан.
+        qWarning() << "NetworkManager: SSE-сервер ответил статусом" << statusCode
+                   << "— поток событий не открыт";
+        emit error(tr("Не удалось открыть поток событий комнаты (HTTP %1)").arg(statusCode));
+        return;
+    }
+
+    // Ответ 200: соединение действительно установлено. Лишь теперь счётчик
+    // попыток можно честно обнулить — с этого момента backoff снова
+    // начнётся с базовой задержки, как и задумано при успешном соединении.
+    if (m_sseStreamOpened.loadRelaxed()) return;
+    m_sseStreamOpened.storeRelaxed(1);
     m_sseReconnectAttempts.storeRelaxed(0);
 
-    qDebug() << "NetworkManager: SSE подключение к" << path;
+    qDebug() << "NetworkManager: SSE-поток открыт, сверяю состояние комнаты";
+    emit sseStreamOpened();
+
+    // Сверка состояния (bug-0012). Пока поток был рван, комната жила своей
+    // жизнью: позиция сдвинулась, хост поставил паузу, кто-то вошёл. Из
+    // событий, которые придут дальше, это не восстановить — прошедшее
+    // теряется. Поэтому при каждом открытии потока (и первом, и после
+    // реконнекта) забираем актуальное состояние.
+    if (!isInRoom()) return;
+    fetchSyncStatus();
+    fetchRoomInfo();
+}
+
+void NetworkManager::fetchSyncStatus()
+{
+    sendGet("/api/v1/sync/status", RequestType::SyncStatusGet);
+}
+
+void NetworkManager::fetchRoomInfo()
+{
+    sendGet("/api/v1/rooms/info", RequestType::RoomInfoGet);
 }
 
 void NetworkManager::disconnectSSE()
@@ -996,8 +1107,14 @@ void NetworkManager::disconnectSSE()
     // Останавливаем таймер переподключения
     m_sseReconnectTimer->stop();
     m_sseReconnectAttempts.storeRelaxed(0);
-    m_sseReconnectPath.clear();
     m_sseTotalBytesRead = 0;
+    m_sseStreamOpened.storeRelaxed(0);
+    // m_sseReconnectPath здесь НЕ очищается намеренно. Этот метод зовёт и
+    // connectToSSE() — то есть обрыв и немедленная попытка поднять поток
+    // снова. Раньше путь стирался здесь, и первый же обрыв делал reconnect
+    // невозможным: onSSEReconnect() приходил к пустому пути и выходил, так
+    // что «переподключение» не работало никогда. Путь живёт, пока мы в
+    // комнате, и снимается явно при выходе из неё.
 }
 
 QJsonDocument NetworkManager::parseJson(const QByteArray &data)

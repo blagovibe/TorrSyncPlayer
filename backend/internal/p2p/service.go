@@ -17,6 +17,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,12 +48,34 @@ type Peer struct {
 	UserID        string
 	Username      string
 	LastHeartbeat time.Time
+	// JoinedAt tracks when this peer joined the room. Used for deterministic
+	// host transfer: the peer that joined earliest becomes the new host.
+	JoinedAt time.Time
+	// Buffering is what this peer last reported through POST /sync/buffering.
+	// It lives on the peer rather than only on the room's SyncStatus because the
+	// roster has to say WHO is buffering, and the room keeps a single shared
+	// status that cannot answer that (idea-0017).
+	Buffering bool
 }
 
 // Room represents a room for synchronized playback.
 type Room struct {
+	// RosterSeq rises on every change to Peers. Clients compare it to decide
+	// which of two roster snapshots is newer — necessary because /rooms/info and
+	// the peer_list event race by construction (idea-0017).
+	RosterSeq int64
+
+	// SyncSeq is the sequence number for sync events in this room.
+	// Incremented on every sync event emission. Used for replay/ack.
+	SyncSeq int64
+
+	// EventHistory stores recent events for replay (bug-0040).
+	// Keyed by sequence number. Max size limited by EventHistoryMaxSize.
+	EventHistory map[int64]*models.P2PEvent
+
 	ID         string
 	Name       string
+	TorrentID  string // infohash of the torrent bound to this room (idea-0046)
 	HostID     string
 	HostUserID string
 	Password   string
@@ -68,8 +91,15 @@ type Session struct {
 	userID      string
 	currentRoom string
 	peer        *Peer
-	eventChan   chan models.P2PEvent // per-session event channel for SSE
 	mu          sync.RWMutex
+
+	// emitMu serialises sends on eventChan against closing it. A send and a
+	// close of the same channel must never overlap: the panic that results is
+	// recoverable, but the race underneath it is not, and a recover() that
+	// hides it makes the behaviour undefined rather than safe (bug-0058).
+	emitMu    sync.RWMutex
+	emitDone  bool
+	eventChan chan models.P2PEvent // per-session event channel for SSE
 }
 
 // NewSession creates a new user session.
@@ -130,6 +160,50 @@ func (s *Session) GetEventChan() chan models.P2PEvent {
 	return s.eventChan
 }
 
+// sendEvent delivers one event without blocking. It reports false when the
+// event was dropped, either because the session is shutting down or because the
+// consumer is not keeping up.
+//
+// Holding emitMu across the send is what makes this safe: closeEvents takes the
+// same lock for writing, so the two can never overlap on the channel.
+func (s *Session) sendEvent(event models.P2PEvent) bool {
+	if s.eventChan == nil {
+		return false
+	}
+
+	s.emitMu.RLock()
+	defer s.emitMu.RUnlock()
+
+	if s.emitDone {
+		return false
+	}
+
+	select {
+	case s.eventChan <- event:
+		return true
+	default:
+		return false
+	}
+}
+
+// closeEvents closes the event channel exactly once. Idempotent, because the
+// channel is closed both when a session leaves its last room and again if the
+// service shuts down in the same instant.
+func (s *Session) closeEvents() {
+	if s.eventChan == nil {
+		return
+	}
+
+	s.emitMu.Lock()
+	defer s.emitMu.Unlock()
+
+	if s.emitDone {
+		return
+	}
+	s.emitDone = true
+	close(s.eventChan)
+}
+
 // Service manages room and event operations with multi-session support.
 // All real-time delivery is brokered by the server over SSE.
 type Service struct {
@@ -187,7 +261,8 @@ func (s *Service) pruneLoop() {
 
 // pruneIdlePeers removes peers whose last heartbeat is older than
 // PeerIdleTimeout, emitting a peer_left event for each so clients can update
-// their roster. Safe to call concurrently; acquires the lock internally.
+// their roster. Also cleans up expired sessions (bug-0041).
+// Safe to call concurrently; acquires the lock internally.
 func (s *Service) pruneIdlePeers() {
 	if s.closed.Load() {
 		return
@@ -212,6 +287,8 @@ func (s *Service) pruneIdlePeers() {
 	s.mu.RUnlock()
 
 	if len(stale) == 0 {
+		// Still check for expired sessions even if no idle peers
+		s.pruneExpiredSessions()
 		return
 	}
 
@@ -228,16 +305,49 @@ func (s *Service) pruneIdlePeers() {
 		}
 		delete(s.peers, p.peer.ID)
 		delete(room.Peers, p.peer.ID)
+		room.RosterSeq++
 		peerCount := len(room.Peers)
 		s.mu.Unlock()
 
 		metrics.GetInstance().PeerLeft()
-		s.emitEvent(p.roomID, "peer_left", map[string]interface{}{
-			"peerID":    p.peer.ID,
-			"userID":    p.peer.UserID,
-			"peerCount": peerCount,
+		s.emitEvent(p.roomID, models.EventTypePeerLeft, models.PeerLeftEvent{
+			PeerID:    p.peer.ID,
+			UserID:    p.peer.UserID,
+			PeerCount: peerCount,
 		})
 		logger.Info("P2P: pruned idle peer", "roomID", p.roomID, "peerID", p.peer.ID)
+		// The roster changed, so everyone else is holding a stale copy.
+		s.BroadcastPeerList(p.roomID)
+	}
+
+	// Also clean up expired sessions
+	s.pruneExpiredSessions()
+}
+
+// pruneExpiredSessions removes sessions that have been idle for too long
+// (no room, no heartbeat). This prevents unbounded memory growth from
+// abandoned sessions (bug-0041).
+func (s *Service) pruneExpiredSessions() {
+	if s.closed.Load() {
+		return
+	}
+
+	// Sessions without a room and with old heartbeat are candidates for removal
+	cutoff := time.Now().Add(-constants.SessionIdleTimeout)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for userID, session := range s.sessions {
+		if session.CurrentRoom() != "" {
+			continue // still in a room
+		}
+		peer := session.GetPeer()
+		if peer == nil || peer.LastHeartbeat.Before(cutoff) {
+			session.closeEvents()
+			delete(s.sessions, userID)
+			logger.Info("P2P: pruned expired session", "userID", userID)
+		}
 	}
 }
 
@@ -339,6 +449,13 @@ func (s *Service) getOrCreateSession(userID string) *Session {
 		return session
 	}
 
+	// Bug-0041: enforce max sessions limit to prevent unbounded memory growth
+	// from arbitrary X-Client-IDs.
+	if len(s.sessions) >= constants.MaxSessions {
+		// Find and remove the oldest idle session to make room
+		s.removeOldestIdleSession()
+	}
+
 	session := NewSession(userID)
 	s.sessions[userID] = session
 
@@ -358,9 +475,36 @@ func (s *Service) getOrCreateSession(userID string) *Session {
 	return session
 }
 
+// removeOldestIdleSession removes the session with the oldest LastHeartbeat.
+// Caller must hold s.mu.
+func (s *Service) removeOldestIdleSession() {
+	var oldestUserID string
+	var oldestTime time.Time
+	for userID, session := range s.sessions {
+		peer := session.GetPeer()
+		if peer == nil {
+			// Sessions without peers are candidates for removal
+			oldestUserID = userID
+			break
+		}
+		if oldestUserID == "" || peer.LastHeartbeat.Before(oldestTime) {
+			oldestUserID = userID
+			oldestTime = peer.LastHeartbeat
+		}
+	}
+	if oldestUserID != "" {
+		if session, exists := s.sessions[oldestUserID]; exists {
+			session.closeEvents()
+			delete(s.sessions, oldestUserID)
+			logger.Warn("P2P: removed oldest idle session to enforce max sessions limit", "userID", oldestUserID)
+		}
+	}
+}
+
 // CreateRoom creates a new room for the specified user.
 // Now takes userID as parameter to isolate session state.
-func (s *Service) CreateRoom(ctx context.Context, userID, name, password string) (*models.RoomInfo, error) {
+// torrentID is required (idea-0046: each room is bound to a torrent).
+func (s *Service) CreateRoom(ctx context.Context, userID, name, password, torrentID string) (*models.RoomInfo, error) {
 	_ = ctx
 	session := s.getOrCreateSession(userID)
 
@@ -370,6 +514,11 @@ func (s *Service) CreateRoom(ctx context.Context, userID, name, password string)
 	if len(s.rooms) >= maxRooms {
 		logger.Warn("P2P: room limit exceeded", "max", maxRooms)
 		return nil, errors.New(errors.ErrUnavailable, "maximum number of rooms exceeded")
+	}
+
+	if torrentID == "" {
+		logger.Warn("P2P: room creation without torrentID rejected", "userID", userID)
+		return nil, errors.New(errors.ErrInvalidInput, "torrentID is required")
 	}
 
 	roomID, err := utils.GenerateID(peerIDLength)
@@ -388,15 +537,34 @@ func (s *Service) CreateRoom(ctx context.Context, userID, name, password string)
 		passwordHash = string(hash)
 	}
 
+	// ensureSession leaves Peer nil if the ID could not be generated. HostID has
+	// always dereferenced it, so a nil peer was a panic waiting to happen; now
+	// that the peer is also stored in the roster, handle it explicitly.
+	peer := session.GetPeer()
+	if peer == nil {
+		s.mu.Unlock()
+		logger.Error("P2P: cannot create room without a peer", "roomID", roomID, "userID", userID)
+		return nil, fmt.Errorf("cannot create room without a peer")
+	}
+
 	room := &Room{
 		ID:         roomID,
 		Name:       name,
-		HostID:     session.GetPeer().ID,
+		TorrentID:  torrentID,
+		HostID:     peer.ID,
 		HostUserID: userID,
 		Password:   passwordHash,
-		Peers:      make(map[string]*Peer),
-		CreatedAt:  time.Now(),
+		// The host is a participant and belongs in the roster (bug-0021). It
+		// already was one everywhere else: it passes the membership check, it
+		// drives playback, and emitEvent adds it to the recipient list by hand.
+		// Leaving it out of Peers made every count one short and, worse, made a
+		// room look empty the moment the last guest left — which deleted the
+		// room out from under a host who was still connected and watching.
+		Peers:     map[string]*Peer{peer.ID: peer},
+		CreatedAt: time.Now(),
+		RosterSeq: 1,
 	}
+	s.peers[peer.ID] = peer
 
 	s.rooms[roomID] = room
 	session.SetRoom(roomID)
@@ -413,16 +581,20 @@ func (s *Service) CreateRoom(ctx context.Context, userID, name, password string)
 	metrics.GetInstance().RoomCreated()
 
 	return &models.RoomInfo{
-		ID:        room.ID,
-		Name:      room.Name,
-		HostID:    room.HostID,
-		PeerCount: len(room.Peers),
+		ID:         room.ID,
+		Name:       room.Name,
+		TorrentID:  room.TorrentID,
+		HostID:     room.HostID,
+		HostUserID: room.HostUserID,
+		PeerCount:  len(room.Peers),
+		RosterSeq:  room.RosterSeq,
 	}, nil
 }
 
 // JoinRoom joins a room for the specified user.
 // Now takes userID as parameter to isolate session state.
-func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password string) error {
+// torrentID is required and must match the room's torrent (idea-0046).
+func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password, torrentID string) error {
 	_ = ctx
 	session := s.getOrCreateSession(userID)
 
@@ -433,6 +605,13 @@ func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password string)
 		s.mu.Unlock()
 		logger.Warn("P2P: room not found", "roomID", roomID)
 		return errors.NotFound("room", roomID)
+	}
+
+	// Validate torrentID matches (idea-0046)
+	if room.TorrentID != "" && torrentID != room.TorrentID {
+		s.mu.Unlock()
+		logger.Warn("P2P: torrentID mismatch on join", "roomID", roomID, "expected", room.TorrentID, "got", torrentID)
+		return errors.New(errors.ErrInvalidInput, "torrentID does not match room")
 	}
 
 	if room.Password != "" {
@@ -446,10 +625,13 @@ func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password string)
 	session.SetRoom(roomID)
 
 	peer := session.GetPeer()
-	peer.LastHeartbeat = time.Now()
+	now := time.Now()
+	peer.LastHeartbeat = now
+	peer.JoinedAt = now
 
 	room.Peers[peer.ID] = peer
 	s.peers[peer.ID] = peer
+	room.RosterSeq++
 	peerCount := len(room.Peers)
 
 	s.mu.Unlock()
@@ -460,12 +642,17 @@ func (s *Service) JoinRoom(ctx context.Context, userID, roomID, password string)
 	// build a peer roster / "out of sync" indicators).
 	// Emitted after releasing the lock: emitEvent re-acquires the lock and
 	// would deadlock if called while the write lock is held.
-	s.emitEvent(roomID, "peer_joined", map[string]interface{}{
-		"peerID":    peer.ID,
-		"userID":    userID,
-		"isHost":    room.HostUserID == userID,
-		"peerCount": peerCount,
+	s.emitEvent(roomID, models.EventTypePeerJoined, models.PeerJoinedEvent{
+		PeerID:    peer.ID,
+		UserID:    userID,
+		IsHost:    room.HostUserID == userID,
+		PeerCount: peerCount,
 	})
+
+	// A client that joined late never saw the peer_joined events of whoever was
+	// already here, so the incremental events alone leave it permanently out of
+	// date. The snapshot closes that (idea-0017).
+	s.BroadcastPeerList(roomID)
 
 	logger.Info("P2P: joined room",
 		"roomID", roomID,
@@ -506,6 +693,22 @@ func (s *Service) LeaveRoom(ctx context.Context, userID string) error {
 
 	peerCount := len(room.Peers)
 	delete(room.Peers, leftPeerID)
+	room.RosterSeq++
+
+	// Host transfer (bug-0050): if the leaving user was the host, promote
+	// the first remaining peer to host (earliest JoinedAt for determinism).
+	var newHostUserID string
+	if room.HostUserID == userID && len(room.Peers) > 0 {
+		var earliestJoined time.Time
+		for _, p := range room.Peers {
+			if p != nil && (earliestJoined.IsZero() || p.JoinedAt.Before(earliestJoined)) {
+				earliestJoined = p.JoinedAt
+				newHostUserID = p.UserID
+			}
+		}
+		room.HostUserID = newHostUserID
+		logger.Info("P2P: host transferred", "roomID", roomID, "from", userID, "to", newHostUserID)
+	}
 
 	roomDeleted := false
 	if len(room.Peers) == 0 {
@@ -521,15 +724,38 @@ func (s *Service) LeaveRoom(ctx context.Context, userID string) error {
 	} else {
 		// Notify remaining participants that a peer left.
 		// Emitted after releasing the lock (emitEvent re-acquires it).
-		s.emitEvent(roomID, "peer_left", map[string]interface{}{
-			"peerID":    leftPeerID,
-			"userID":    userID,
-			"peerCount": peerCount - 1,
+		s.emitEvent(roomID, models.EventTypePeerLeft, models.PeerLeftEvent{
+			PeerID:    leftPeerID,
+			UserID:    userID,
+			PeerCount: peerCount - 1,
 		})
+
+		// If host changed, broadcast updated peer list so clients learn new host.
+		if newHostUserID != "" {
+			s.BroadcastPeerList(roomID)
+		}
 	}
 
 	metrics.GetInstance().PeerLeft()
 	session.SetRoom("")
+
+	// Bug-0041: clean up session if user has no other rooms.
+	// Currently each user only has one room, so we can remove the session entirely.
+	// This prevents unbounded memory growth from abandoned sessions.
+	s.mu.Lock()
+	if sess, exists := s.sessions[userID]; exists {
+		if sess.CurrentRoom() == "" {
+			sess.closeEvents()
+			delete(s.sessions, userID)
+		}
+	}
+	s.mu.Unlock()
+
+	// Only worth broadcasting if the room still exists: when the last peer left
+	// it was deleted, and there is nobody to tell.
+	if !roomDeleted {
+		s.BroadcastPeerList(roomID)
+	}
 
 	logger.Info("P2P: left room", "roomID", roomID, "peerID", leftPeerID)
 
@@ -595,11 +821,225 @@ func (s *Service) GetRoomInfo(ctx context.Context, userID string) (*models.RoomI
 	}
 
 	return &models.RoomInfo{
-		ID:        room.ID,
-		Name:      room.Name,
-		HostID:    room.HostID,
-		PeerCount: len(room.Peers),
+		ID:         room.ID,
+		Name:       room.Name,
+		TorrentID:  room.TorrentID,
+		HostID:     room.HostID,
+		HostUserID: room.HostUserID,
+		PeerCount:  len(room.Peers),
+		Peers:      buildRoster(room),
+		RosterSeq:  room.RosterSeq,
 	}, nil
+}
+
+// buildRoster renders a room's peers for the wire.
+//
+// The caller must hold at least the read lock: room.Peers is mutated by Join,
+// Leave and idle pruning, and iterating it unlocked risks a fatal concurrent
+// map access.
+//
+// Order is by peer ID. Map iteration order is deliberately not used: it is
+// randomised per run, so an unordered roster would make every peer_list event
+// look different from the last even when nothing changed, and the client would
+// repaint a list that had not moved.
+func buildRoster(room *Room) []models.PeerInfo {
+	peers := make([]models.PeerInfo, 0, len(room.Peers))
+	for _, peer := range room.Peers {
+		peers = append(peers, models.PeerInfo{
+			PeerID:    peer.ID,
+			UserID:    peer.UserID,
+			Username:  peer.Username,
+			IsHost:    peer.UserID == room.HostUserID,
+			Buffering: peer.Buffering,
+		})
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].PeerID < peers[j].PeerID })
+	return peers
+}
+
+// BroadcastPeerList sends the current roster to everyone in the room.
+//
+// It is the second half of idea-0017's delivery: GET /rooms/info carries the
+// roster for a client that just connected, and this carries it for everyone
+// after any change. Both are full snapshots, so a client may receive either one
+// and be correct — and may receive the same information twice without harm.
+func (s *Service) BroadcastPeerList(roomID string) {
+	if s.closed.Load() {
+		return
+	}
+
+	s.mu.RLock()
+	room, exists := s.rooms[roomID]
+	if !exists {
+		s.mu.RUnlock()
+		return
+	}
+	peers := buildRoster(room)
+	seq := room.RosterSeq
+	s.mu.RUnlock()
+
+	s.emitEvent(roomID, models.EventTypePeerList, models.PeerListEvent{Peers: peers, RosterSeq: seq})
+}
+
+// SetPeerBuffering records that a peer reported itself as buffering or caught
+// up, so the roster can name it.
+//
+// A user with no room is a no-op: reporting must not create membership.
+func (s *Service) SetPeerBuffering(_ context.Context, userID string, buffering bool) {
+	session := s.getSession(userID)
+	if session == nil {
+		return
+	}
+	roomID := session.CurrentRoom()
+	if roomID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	room, exists := s.rooms[roomID]
+	if !exists {
+		return
+	}
+
+	// Bug-0042: guard against nil peer (e.g., GenerateID failure).
+	peerObj := session.GetPeer()
+	if peerObj == nil {
+		return
+	}
+	if peer, present := room.Peers[peerObj.ID]; present {
+		if peer.Buffering != buffering {
+			peer.Buffering = buffering
+			room.RosterSeq++
+		}
+	}
+}
+
+// IsHost checks if the given user is the host of the specified room.
+func (s *Service) IsHost(ctx context.Context, userID, roomID string) (bool, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	room, exists := s.rooms[roomID]
+	if !exists {
+		return false, fmt.Errorf("room not found")
+	}
+
+	return room.HostUserID == userID, nil
+}
+
+// roomHasUser reports whether userID is in the room's roster.
+//
+// room.Peers is keyed by peer.ID, which is per-connection: a peer that
+// reconnects gets a new one while keeping its userID. Matching the map key
+// directly would therefore miss live members.
+func roomHasUser(room *Room, userID string) bool {
+	if room.HostUserID == userID {
+		return true
+	}
+	for _, peer := range room.Peers {
+		if peer != nil && peer.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// TorrentsVisibleTo reports which torrents a peer may read: the torrent bound
+// to the room it currently participates in (bug-0049, layer 2).
+//
+// The access token is per-process, so "presents the token" cannot distinguish a
+// room guest from the machine's owner. Without this, GET /torrents handed a
+// guest the host's entire library — names, sizes, progress.
+//
+// Only the CURRENT room counts. A peer belongs to at most one room at a time,
+// so leaving revokes the visibility together with the membership — no separate
+// expiry to get wrong. An unknown peer gets an empty set: absence of a session
+// must never read as permission.
+//
+// The host is included by construction: CreateRoom puts it in room.Peers, so it
+// keeps access to its own room's torrent.
+func (s *Service) TorrentsVisibleTo(ctx context.Context, userID string) map[string]bool {
+	_ = ctx
+
+	if userID == "" {
+		return map[string]bool{}
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	visible := make(map[string]bool)
+
+	session := s.sessions[userID]
+	if session == nil {
+		return visible
+	}
+
+	room := s.rooms[session.CurrentRoom()]
+	if room == nil {
+		return visible
+	}
+
+	// Membership is checked against the roster, not merely the session: a
+	// session can outlive its room (disconnect, reaped peer), and a stale
+	// session must not keep the door open.
+	//
+	// room.Peers is keyed by peer.ID, not userID — a peer reconnects with a
+	// fresh local id — so membership is matched on Peer.UserID.
+	if !roomHasUser(room, userID) {
+		return visible
+	}
+
+	// A room with no bound torrent would otherwise contribute an empty key,
+	// which would then match a caller passing an empty torrentID.
+	if room.TorrentID == "" {
+		return visible
+	}
+
+	visible[room.TorrentID] = true
+	return visible
+}
+
+// TouchPeer records that the user is still connected, by refreshing the
+// heartbeat the idle pruner reads.
+//
+// LastHeartbeat used to be written only by JoinRoom, which made PeerIdleTimeout
+// a measure of "has not joined lately" rather than "is not connected". Every
+// peer — host included — was reaped five minutes in, while its SSE stream was
+// still open for thirty. The host never calls join at all, so putting it in the
+// roster (bug-0021) would have handed it a guaranteed reap.
+//
+// The SSE stream is the honest liveness signal: a peer that is holding a stream
+// open is by definition present. RoomEvents therefore touches on subscribe and
+// on every ping, which keeps the timeout meaningful — a peer whose stream died
+// stops being touched and is reaped as before.
+//
+// A user with no room is a no-op: touching must never confer membership.
+func (s *Service) TouchPeer(ctx context.Context, userID string) error {
+	_ = ctx
+	session := s.getSession(userID)
+	if session == nil {
+		return nil
+	}
+
+	roomID := session.CurrentRoom()
+	if roomID == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.rooms[roomID]; !exists {
+		return nil
+	}
+	if peer := session.GetPeer(); peer != nil {
+		peer.LastHeartbeat = time.Now()
+	}
+	return nil
 }
 
 // getSession returns the session for a user (with lock).
@@ -639,9 +1079,7 @@ func (s *Service) Close() error {
 		// write lock: doing it without the lock let a concurrent JoinRoom
 		// append a session we then missed, leaving its SSE connection open.
 		for _, session := range s.sessions {
-			if session.eventChan != nil {
-				close(session.eventChan)
-			}
+			session.closeEvents()
 		}
 
 		roomCount = len(s.rooms)
@@ -668,17 +1106,25 @@ func (s *Service) Close() error {
 }
 
 // sendToSession delivers an event to a single session's event channel.
-// Returns immediately when the session has no live SSE connection or the
-// channel is full (non-blocking send).
+// Returns immediately when the session has no live SSE connection, the
+// service is closing, or the channel is full (non-blocking send).
 func (s *Service) sendToSession(session *Session, userID string, event models.P2PEvent, eventType string) {
-	if session == nil || session.eventChan == nil {
+	if session == nil {
 		return
 	}
-	select {
-	case session.eventChan <- event:
-	default:
-		metrics.GetInstance().EventChannelFull()
-		logger.Warn("P2P: event channel full for user", "userID", userID, "eventType", eventType)
+	if s.closed.Load() {
+		return
+	}
+
+	// sendEvent takes the session's emit lock, so a concurrent closeEvents
+	// cannot overlap the send. The previous version guarded this with a
+	// recover() instead, which suppressed the panic but left the race in place
+	// (bug-0058).
+	if !session.sendEvent(event) {
+		if !s.closed.Load() {
+			metrics.GetInstance().EventChannelFull()
+			logger.Warn("P2P: event channel full for user", "userID", userID, "eventType", eventType)
+		}
 	}
 }
 
@@ -695,7 +1141,47 @@ func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
 	default:
 	}
 
-	event := models.P2PEvent{Type: eventType, Data: data}
+	// Assign sequence number and store in history for sync events (bug-0040).
+	var seq int64
+	if eventType == models.EventTypeSync {
+		s.mu.Lock()
+		room, exists := s.rooms[roomID]
+		if !exists {
+			s.mu.Unlock()
+			return
+		}
+		room.SyncSeq++
+		seq = room.SyncSeq
+
+		// Initialize event history if needed
+		if room.EventHistory == nil {
+			room.EventHistory = make(map[int64]*models.P2PEvent)
+		}
+		s.mu.Unlock()
+	}
+
+	event := models.P2PEvent{Type: eventType, Data: data, Seq: seq}
+
+	// Store in history for replay (bug-0040)
+	if seq > 0 {
+		s.mu.Lock()
+		room, exists := s.rooms[roomID]
+		if exists {
+			room.EventHistory[seq] = &event
+			// Trim history if too large
+			if len(room.EventHistory) > constants.EventHistoryMaxSize {
+				// Remove oldest entries
+				var oldestSeq int64
+				for s := range room.EventHistory {
+					if oldestSeq == 0 || s < oldestSeq {
+						oldestSeq = s
+					}
+				}
+				delete(room.EventHistory, oldestSeq)
+			}
+		}
+		s.mu.Unlock()
+	}
 
 	// Snapshot the recipients while holding the read lock, then send outside it.
 	//
@@ -736,11 +1222,59 @@ func (s *Service) emitEvent(roomID string, eventType string, data interface{}) {
 		s.sendToSession(session, userID, event, eventType)
 	}
 
-	logger.Debug("P2P: event emitted to room", "roomID", roomID, "eventType", eventType, "peerCount", peerCount)
+	logger.Debug("P2P: event emitted to room", "roomID", roomID, "eventType", eventType, "peerCount", peerCount, "seq", seq)
 }
 
-// BroadcastSync sends a sync event (play/pause/seek) to all participants in a room.
-// Used by SyncService to propagate playback commands across P2P network.
-func (s *Service) BroadcastSync(roomID string, syncData interface{}) {
-	s.emitEvent(roomID, "sync", syncData)
+// BroadcastSync sends a sync event (play/pause/seek/buffering) to all
+// participants in a room.
+//
+// The parameter is a models.SyncEvent rather than interface{}: the four callers
+// in the sync handlers used to build map[string]interface{} literals, and nothing
+// stopped one of them from omitting the "initiator" key or misspelling an action.
+// The broadcast is a relay, so the payload is carried through untouched.
+func (s *Service) BroadcastSync(roomID string, event models.SyncEvent) {
+	s.emitEvent(roomID, models.EventTypeSync, event)
+}
+
+// ReplayEvents returns events from the room's history starting from afterSeq.
+// Used by clients that reconnected or detected a gap in sequence numbers.
+// Returns empty slice if room doesn't exist or afterSeq is beyond history.
+// (bug-0040)
+func (s *Service) ReplayEvents(roomID string, afterSeq int64) []*models.P2PEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	room, exists := s.rooms[roomID]
+	if !exists || room.EventHistory == nil {
+		return nil
+	}
+
+	var result []*models.P2PEvent
+	for seq, event := range room.EventHistory {
+		if seq > afterSeq {
+			result = append(result, event)
+		}
+	}
+	// Sort by sequence number (map iteration is random)
+	for i := 0; i < len(result)-1; i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[i].Seq > result[j].Seq {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+	return result
+}
+
+// GetSyncSeq returns the current sync sequence number for a room.
+// (bug-0040)
+func (s *Service) GetSyncSeq(roomID string) (int64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	room, exists := s.rooms[roomID]
+	if !exists {
+		return 0, false
+	}
+	return room.SyncSeq, true
 }

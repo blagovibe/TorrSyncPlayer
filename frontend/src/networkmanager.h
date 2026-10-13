@@ -49,6 +49,9 @@ enum class RequestType {
     SyncPlay,
     SyncPause,
     SyncSeek,
+    SyncBuffering,
+    SyncStatusGet,
+    RoomInfoGet,
     Login,
     Register,
     Unknown
@@ -156,18 +159,24 @@ public:
     /**
      * @brief Создать новую комнату
      * Отправляет POST запрос на /api/v1/rooms
+     *
      * @param name Имя комнаты
      * @param password Пароль (опционально)
+     * @param torrentId infohash торрента, к которому привязывается комната.
+     *        Обязателен с idea-0046: комната смотрит конкретный торрент, и все
+     *        её участники тянут его из роя каждый со своего бэкенда.
      */
-    void createRoom(const QString &name, const QString &password = "");
-    
+    void createRoom(const QString &name, const QString &password, const QString &torrentId);
+
     /**
      * @brief Присоединиться к комнате
      * Отправляет POST запрос на /api/v1/rooms/join
      * @param roomId ID комнаты
      * @param password Пароль (опционально)
+     * @param torrentId infohash торрента комнаты; сервер отклоняет вход, если он
+     *        не совпадает с привязанным к комнате.
      */
-    void joinRoom(const QString &roomId, const QString &password = "");
+    void joinRoom(const QString &roomId, const QString &password, const QString &torrentId);
     
     /**
      * @brief Покинуть текущую комнату
@@ -202,6 +211,31 @@ public:
      * @param position Позиция в секундах
      */
     void syncSeek(double position);
+
+    /**
+     * @brief Сообщить комнате о начале/окончании буферизации
+     * Отправляет POST запрос на /api/v1/sync/buffering. Вызывается локально,
+     * когда mpv вошёл в core-idle (данных не хватает) или вышел из него —
+     * остальные участники паузят/возобновляют вместе с этим пиром, иначе
+     * «смотреть вместе» рассыпается на рассинхрон.
+     * @param buffering true — началась буферизация, false — закончилась
+     */
+    void syncBuffering(bool buffering);
+
+    /**
+     * @brief Запросить актуальный статус синхронизации
+     * GET /api/v1/sync/status — позиция, play/pause, буферизация.
+     * Вызывается автоматически при каждом открытии SSE-потока.
+     */
+    void fetchSyncStatus();
+
+    /**
+     * @brief Запросить информацию о текущей комнате
+     * GET /api/v1/rooms/info — кто хост и сколько участников. Комната
+     * определяется членством вызывающего, а не параметром пути.
+     * Вызывается автоматически при каждом открытии SSE-потока.
+     */
+    void fetchRoomInfo();
 
     // ── Утилиты ───────────────────────────────────────────────────────
     
@@ -273,6 +307,14 @@ public:
      * @param clientId Уникальный идентификатор этого экземпляра плеера
      */
     void setClientId(const QString &clientId);
+
+    /**
+     * @brief Узнать собственный идентификатор клиента
+     * Нужен, чтобы отличить «я хост» от «хост — кто-то другой»: ответ
+     * /rooms/info приходит с hostUserId хоста, а не с флагом «вы хост».
+     * @return X-Client-ID этого запуска (пустая строка, если не задан)
+     */
+    QString clientId() const;
     
     /**
      * @brief Проверить, подключен ли к комнате
@@ -424,6 +466,32 @@ signals:
      */
     void signalReceived(const QJsonObject &signal);
 
+    /**
+     * @brief Получен актуальный статус синхронизации
+     * Испускается в ответ на GET /api/v1/sync/status. После реконнекта SSE
+     * это единственный способ узнать, где комната находится сейчас: пока
+     * соединение рвалось, позиция и play/pause могли поменяться (bug-0012).
+     * @param status JSON объект SyncStatus
+     */
+    void syncStatusReceived(const QJsonObject &status);
+
+    /**
+     * @brief Получена информация о текущей комнате
+     * Испускается в ответ на GET /api/v1/rooms/info: кто хост и сколько
+     * участников. После реконнекта состав комнаты мог измениться (bug-0012).
+     * @param info JSON объект RoomInfo
+     */
+    void roomInfoReceived(const QJsonObject &info);
+
+    /**
+     * @brief SSE-поток комнаты открыт
+     * Испускается ровно один раз на каждое успешно установленное соединение,
+     * в том числе после реконнекта. Это единственный надёжный признак «мы
+     * снова в комнате»: счётчик попыток и сам факт connectToSSE возникают
+     * ДО того, как сервер принял запрос.
+     */
+    void sseStreamOpened();
+
     // ── Sync signals ──────────────────────────────────────────────────
 
     // ── Error signal ──────────────────────────────────────────────────
@@ -467,6 +535,14 @@ private slots:
      * Читает данные из SSE потока и парсит события
      */
     void onSsEReadyRead();
+
+    /**
+     * @brief Обработка появления HTTP-ответа SSE-потока
+     * Единственный достоверный признак того, что сервер принял поток событий
+     * (заголовки 200 получены). Здесь, а не в connectToSSE(), обнуляется
+     * счётчик попыток переподключения и запускается сверка состояния комнаты.
+     */
+    void onSseMetaDataChanged();
     
     /**
      * @brief Обработка SSL ошибок
@@ -588,6 +664,8 @@ private:
     QAtomicInt m_sseReconnectAttempts{0};   ///< Счётчик попыток SSE переподключения
     QString m_sseReconnectPath;             ///< Путь для SSE переподключения
     qint64 m_sseTotalBytesRead = 0;         ///< Общий объём данных SSE (защита от DoS)
+    QAtomicInt m_sseStreamOpened{0};        ///< 1 — текущий SSE-поток уже открыт (ответ 200 получен);
+                                            ///< гарантирует однократную сверку состояния на соединение
 };
 
 #endif // NETWORKMANAGER_H

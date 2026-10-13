@@ -22,12 +22,20 @@ add_compile_definitions(APP_VERSION="${PROJECT_VERSION_FROM_CI}")
 # ── Опция статической сборки ───────────────────────────────────────────
 option(STATIC_BUILD "Build static executable" OFF)
 
+# ── Опция юнит-тестов ─────────────────────────────────────────────────
+# Объявляется здесь, а не рядом с самими тестами ниже: от неё зависит состав
+# запрошенных компонентов Qt при find_package, и если объявить опцию позже,
+# BUILD_TESTS будет пуст при этой проверке, компонент Test не запросится, а
+# цели тестов всё равно попытаются линковать Qt6::Test — конфигурация упадёт.
+option(BUILD_TESTS "Build unit tests" ON)
+
 # ── Стандарт и автоматизация ──────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
 
 # ── Флаги безопасности (hardening) ────────────────────────────────────
 if(MSVC)
@@ -124,6 +132,7 @@ set(SOURCES
     src/torrentmanager.cpp
     src/systemtray.cpp
     src/utils.cpp
+    src/backendargs.cpp
     resources/resources.qrc
 )
 
@@ -158,6 +167,7 @@ set(HEADERS
     src/torrentmanager.h
     src/systemtray.h
     src/utils.h
+    src/backendargs.h
 )
 
 # ── Sanitizers ───────────────────────────────────────────────────────────
@@ -295,8 +305,8 @@ if(BUILD_GMOCK AND BUILD_TESTS)
 endif()
 
 # ── Unit-тесты ─────────────────────────────────────────────────────────
-option(BUILD_TESTS "Build unit tests" ON)
-
+# Сама опция объявлена выше, до поиска зависимостей: от неё зависит состав
+# компонентов Qt, которые нужны для линковки тестов.
 if(BUILD_TESTS AND NOT STATIC_BUILD)
     enable_testing()
     
@@ -361,6 +371,39 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
 
     add_test(NAME NetworkManagerTest COMMAND test_networkmanager)
 
+    # Тесты для RoomManager (разбор сигналов синхронизации комнаты)
+    set(TEST_ROOM_MANAGER_SOURCES
+        src/test_roommanager.cpp
+        src/roommanager.cpp
+        src/roommanager.h
+        src/networkmanager.cpp
+        src/networkmanager.h
+        src/interfaces/inetworkmanager.h
+    )
+
+    add_executable(test_roommanager ${TEST_ROOM_MANAGER_SOURCES})
+    target_link_libraries(test_roommanager PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+    )
+
+    if(ENABLE_COVERAGE)
+        target_compile_options(test_roommanager PRIVATE --coverage)
+        target_link_options(test_roommanager PRIVATE --coverage)
+    endif()
+
+    set_target_properties(test_roommanager PROPERTIES
+        AUTOMOC ON
+    )
+
+    target_include_directories(test_roommanager PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    add_test(NAME RoomManagerTest COMMAND test_roommanager)
+
     # Тесты для Utils
     set(TEST_UTILS_SOURCES
         src/test_utils.cpp
@@ -389,6 +432,35 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
     )
 
     add_test(NAME UtilsTest COMMAND test_utils)
+
+    # Тесты для аргументов встроенного бэкенда.
+    #
+    # Отдельная единица с отдельным таргетом потому, что main.cpp не собирается
+    # ни в один тестовый таргет: неизвестный флаг, который фронтенд передаёт
+    # Go-бэкенду, завершает бэкенд кодом 2, и без этого таргета об этом не
+    # узнаёт никто. Именно так в релиз уехал удалённый `--jwt-secret`.
+    set(TEST_BACKENDARGS_SOURCES
+        src/test_backendargs.cpp
+        src/backendargs.cpp
+        src/backendargs.h
+    )
+
+    add_executable(test_backendargs ${TEST_BACKENDARGS_SOURCES})
+    target_link_libraries(test_backendargs PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    set_target_properties(test_backendargs PROPERTIES
+        AUTOMOC ON
+    )
+
+    target_include_directories(test_backendargs PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    add_test(NAME BackendArgsTest COMMAND test_backendargs)
 
     # Тесты для MpvWidget (требуют libmpv)
     if(MPV_FOUND)
@@ -558,6 +630,105 @@ if(BUILD_TESTS AND NOT STATIC_BUILD)
         add_test(NAME IntegrationTest COMMAND test_integration)
     endif()
 
+endif()
+
+# ── Интернационализация (i18n) ─────────────────────────────────────────
+# lupdate/lrelease ищем как исполняемые файлы, а не через пакет
+# Qt6LinguistTools. Причины две:
+#   1) пакет подсказывает CMake, где лежать САМИМ инструментам (им нужен
+#      префикс Qt, а не каталог пакета);
+#   2) на машинах, где в путях поиска лежит посторонняя копия Qt,
+#      find_package(Qt6LinguistTools) находит именно её — часто обрезанную.
+# Учитываем и то, что Qt и qt6-tools могут прийти из разных префиксов
+# (Qt из /opt/…, tools из /usr/…), поэтому в подсказках не только префикс
+# найденного Qt6, но и обычные системные пути.
+get_filename_component(QT6_PREFIX "${Qt6Core_DIR}/../../.." ABSOLUTE)
+
+set(TS_TOOL_HINTS
+    "${QT6_PREFIX}/lib/qt6/bin"     # Debian/Ubuntu: qt6-base-dev-tools
+    "${QT6_PREFIX}/bin"             # сборка из исходников, Homebrew
+    "${QT6_PREFIX}/libexec"         # macOS
+    "/usr/lib/qt6/bin"              # Qt из /usr, tools из /usr (часто не в PATH)
+    "/usr/lib/qt6/libexec"
+    "/usr/lib/x86_64-linux-gnu/qt6/bin"
+    "/usr/local/lib/qt6/bin"
+)
+
+find_program(LUPDATE_EXECUTABLE NAMES lupdate HINTS ${TS_TOOL_HINTS})
+find_program(LRELEASE_EXECUTABLE NAMES lrelease HINTS ${TS_TOOL_HINTS})
+
+if(NOT LUPDATE_EXECUTABLE OR NOT LRELEASE_EXECUTABLE)
+    # Переводы нечем ни обновлять, ни собирать. Это не повод ломать сборку:
+    # приложение остаётся полностью рабочим на языке исходников.
+    message(WARNING
+        "lupdate/lrelease не найдены — переводы собираться не будут. "
+        "Установите qt6-tools (qt6-tools-dev / qt6-linguist).")
+    set(TS_ENABLED OFF)
+else()
+    set(TS_ENABLED ON)
+    message(STATUS "lupdate: ${LUPDATE_EXECUTABLE}")
+    message(STATUS "lrelease: ${LRELEASE_EXECUTABLE}")
+endif()
+
+# Список языков: ru (базовый) + en (для тех, кому он удобнее).
+# Новый язык — дописать код в список и создать пустой <код>.ts.
+set(TS_LANGUAGES ru en)
+
+if(TS_ENABLED)
+    # Исходники для lupdate: код приложения. Тесты и моки исключены — их
+    # строки никто не переводит, а в .ts они только шумят.
+    file(GLOB_RECURSE I18N_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
+    )
+    list(FILTER I18N_SOURCES EXCLUDE REGEX "/mocks/")
+    list(FILTER I18N_SOURCES EXCLUDE REGEX "/test_[^/]*\\.(cpp|h)$")
+
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/translations)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/translations)
+
+    set(QM_FILES "")
+    set(TS_UPDATE_TARGETS "")
+    set(TS_RELEASE_TARGETS "")
+    foreach(lang ${TS_LANGUAGES})
+        set(ts_file "${CMAKE_CURRENT_SOURCE_DIR}/translations/${lang}.ts")
+        set(qm_file "${CMAKE_CURRENT_BINARY_DIR}/translations/${lang}.qm")
+        list(APPEND QM_FILES ${qm_file})
+
+        # update_translations — пересканировать исходники в .ts.
+        # Вызывается вручную: .ts должен попадать в коммит уже обновлённым,
+        # но генерировать его на каждой сборке значило бы молча переписывать
+        # файл под ногами у того, кто переводит.
+        add_custom_target(update_ts_${lang}
+            COMMAND ${LUPDATE_EXECUTABLE}
+                ${I18N_SOURCES}
+                -ts ${ts_file}
+                -no-obsolete
+            COMMENT "Обновление translations/${lang}.ts из исходников"
+            VERBATIM
+        )
+
+        # release_translations — .ts → .qm, обычная часть сборки.
+        add_custom_command(
+            OUTPUT ${qm_file}
+            COMMAND ${LRELEASE_EXECUTABLE} ${ts_file} -qm ${qm_file}
+            DEPENDS ${ts_file}
+            COMMENT "Сборка translations/${lang}.qm"
+            VERBATIM
+        )
+        add_custom_target(release_ts_${lang} ALL DEPENDS ${qm_file})
+
+        list(APPEND TS_UPDATE_TARGETS update_ts_${lang})
+        list(APPEND TS_RELEASE_TARGETS release_ts_${lang})
+    endforeach()
+
+    # Агрегирующие цели: без явных DEPENDS они были бы пустыми и
+    # `ninja update_translations` радостно отвечал бы «no work to do».
+    add_custom_target(update_translations DEPENDS ${TS_UPDATE_TARGETS})
+    add_custom_target(release_translations DEPENDS ${TS_RELEASE_TARGETS})
+    add_dependencies(${PROJECT_NAME} release_translations)
+
+    install(FILES ${QM_FILES} DESTINATION share/${PROJECT_NAME}/translations)
 endif()
 
 # ── Информация о сборке ───────────────────────────────────────────────
