@@ -881,6 +881,29 @@ func (s *Service) BroadcastPeerList(roomID string) {
 	s.emitEvent(roomID, models.EventTypePeerList, models.PeerListEvent{Peers: peers, RosterSeq: seq})
 }
 
+// BroadcastTorrent hands the room's torrent to its members.
+//
+// Every participant pulls the media from the swarm themselves, so a guest that
+// knows only the room's infohash has nothing to download. This travels the room
+// rather than sitting behind a fetchable endpoint: only members of this room
+// learn what the room is watching.
+//
+// It is emitted on room creation and on every join, because a peer that
+// reconnects must learn the torrent again — the room outlives any single
+// connection.
+func (s *Service) BroadcastTorrent(roomID, infoHash, magnetURI, name string, selectedFile int) {
+	if s.closed.Load() {
+		return
+	}
+
+	s.emitEvent(roomID, models.EventTypeTorrent, models.TorrentEvent{
+		InfoHash:     infoHash,
+		MagnetURI:    magnetURI,
+		Name:         name,
+		SelectedFile: selectedFile,
+	})
+}
+
 // SetPeerBuffering records that a peer reported itself as buffering or caught
 // up, so the roster can name it.
 //

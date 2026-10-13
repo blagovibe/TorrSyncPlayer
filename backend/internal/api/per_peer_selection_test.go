@@ -54,6 +54,36 @@ type recordingTorrentService struct {
 
 	selections []selection // по порядку вызовов SelectFile
 	served     []string    // userID в порядке вызовов ServeFile
+
+	// Что сервер расскажет о комнатном торренте. Задаётся тестами, которые
+	// проверяют передачу magnet участникам комнаты; по умолчанию торрента
+	// нет, и раздача молча не происходит.
+	magnet    string
+	magnetErr error
+	name      string
+	selected  int
+}
+
+func newRecordingTorrentService() *recordingTorrentService {
+	return &recordingTorrentService{}
+}
+
+func (s *recordingTorrentService) MagnetFor(context.Context, string, string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.magnet, s.magnetErr
+}
+
+func (s *recordingTorrentService) SelectedFileFor(context.Context, string, string) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.selected, true
+}
+
+func (s *recordingTorrentService) TorrentName(context.Context, string, string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.name
 }
 
 type selection struct {

@@ -359,6 +359,8 @@ void MainWindow::setupConnections()
             this, &MainWindow::onRosterUpdated);
     connect(m_roomManager, &RoomManager::roomTorrentIdentified,
             this, &MainWindow::onRoomTorrentIdentified);
+    connect(m_roomManager, &RoomManager::roomTorrentShared,
+            this, &MainWindow::onRoomTorrentShared);
 
     // NetworkManager
     connect(m_network, &NetworkManager::torrentAdded, m_torrentModel, &TorrentModel::addTorrentFromJson);
@@ -539,6 +541,19 @@ void MainWindow::onFilesReceived(const QString &torrentId, const QJsonArray &fil
     if (!m_pendingRoomTorrentId.isEmpty() && torrentId == m_pendingRoomTorrentId) {
         qDebug() << "MainWindow: получены файлы для торрента комнаты, выбираем видео";
         m_pendingRoomTorrentId.clear();
+    m_pendingRoomFileIndex = -1;
+
+        // Хост сказал, какой файл играет. Встаём на тот же: выбор
+        // пер-пирский (bug-0048), и без этого комната смотрит разные части
+        // одного релиза. Индекс -1 означает, что хост ещё ничего не выбрал —
+        // тогда падаем назад на поиск видео.
+        if (m_pendingRoomFileIndex >= 0 && m_pendingRoomFileIndex < files.size()) {
+            m_pendingRoomFileIndex = -1;
+            m_torrentManager->selectFile(torrentId, m_pendingRoomFileIndex);
+            return;
+        }
+        m_pendingRoomFileIndex = -1;
+
         // Ищем первый файл с видео-расширением
         for (int i = 0; i < files.size(); ++i) {
             QJsonObject file = files[i].toObject();
@@ -757,10 +772,12 @@ void MainWindow::onRoomTorrentIdentified(const QString &torrentId)
         return;
     }
 
-    // Торрента нет — добавляем magnet по infohash
-    // (идеально — с трекерами, но пока infohash-only работает с DHT)
+    // Торрента нет. Magnet собирается из одного infohash и несёт ни одного
+    // трекера, поэтому работает только через DHT и теряет раздающих. Настоящий
+    // magnet приходит событием roomTorrentShared; этот путь остаётся запасным,
+    // на случай если событие ещё не дошло (например, при гонке входа).
     const QString magnet = QString("magnet:?xt=urn:btih:%1").arg(torrentId);
-    qDebug() << "MainWindow: добавляем торент комнаты" << torrentId;
+    qDebug() << "MainWindow: добавляем торент комнаты по infohash" << torrentId;
     m_network->addTorrent(magnet);
 
     // Если мы не хост, запомним, что файл нужно выбрать после получения списка
@@ -769,6 +786,35 @@ void MainWindow::onRoomTorrentIdentified(const QString &torrentId)
     }
 }
 
+
+void MainWindow::onRoomTorrentShared(const QString &infoHash, const QString &magnetUri,
+                                     const QString &name, int selectedFile)
+{
+    // Гость получил от комнаты настоящий magnet и добавляет его в СВОЙ
+    // бэкенд: каждый участник тянет данные из роя сам, и медиа не проходит
+    // через сервер хоста.
+    if (magnetUri.isEmpty() || infoHash.isEmpty()) return;
+
+    m_pendingRoomFileIndex = selectedFile;
+
+    if (m_torrentModel->contains(infoHash)) {
+        // Уже есть — просто встаём на тот же файл, что и хост. Выбор
+        // пер-пирский (bug-0048), поэтому без этого комната смотрела бы разные
+        // части одного релиза.
+        if (selectedFile >= 0 && !m_roomManager->isHost()) {
+            m_torrentManager->setCurrentTorrentId(infoHash);
+            m_torrentManager->selectFile(infoHash, selectedFile);
+        }
+        return;
+    }
+
+    qDebug() << "MainWindow: комната поделилась торрентом" << name << infoHash;
+    m_network->addTorrent(magnetUri);
+
+    if (!m_roomManager->isHost()) {
+        m_pendingRoomTorrentId = infoHash;
+    }
+}
 
 void MainWindow::onSyncAction(const QString &action, double position)
 {

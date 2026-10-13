@@ -29,7 +29,35 @@ const (
 	// authoritative snapshot that closes that gap, and it is the one a client
 	// should trust over any bookkeeping it does itself.
 	EventTypePeerList = "peer_list"
+	// EventTypeTorrent carries the room's torrent to its members.
+	//
+	// Every participant downloads the media from the swarm into their own
+	// backend, so a guest that knows only the room's infohash has nothing to
+	// download: the infohash identifies a torrent, it does not carry one. This
+	// event is how the guest learns what to add. It travels the room rather
+	// than sitting behind a fetchable endpoint, so only members of that room
+	// learn it.
+	EventTypeTorrent = "torrent"
 )
+
+// TorrentEvent is the payload of an EventTypeTorrent event.
+type TorrentEvent struct {
+	// InfoHash is the room's bound torrent, the identity the guest's own
+	// backend will produce when it adds MagnetURI.
+	InfoHash string `json:"infoHash" example:"3b2b1a9c0d1e2f3a4b5c6d7e8f901234567890ab"`
+	// MagnetURI is what the guest adds to its own backend. It comes from the
+	// torrent's original source, so the guest's copy is the same torrent and
+	// not a lookalike (bug-0053).
+	MagnetURI string `json:"magnetUri" example:"magnet:?xt=urn:btih:3b2b1a9c"`
+	// Name is for the user's benefit — recognising the film matters more than
+	// a hash when the client announces "adding a torrent to your backend".
+	Name string `json:"name" example:"Big Buck Bunny"`
+	// SelectedFile is the index the host is playing. It is here because file
+	// selection is per-peer (bug-0048): the server knows which file the host
+	// chose, and without saying so a guest would pick its own and the room
+	// would be watching different parts of the same release.
+	SelectedFile int `json:"selectedFile" example:"0"`
+}
 
 // Sync actions carried in SyncEvent.Action.
 //

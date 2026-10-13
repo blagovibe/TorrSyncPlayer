@@ -391,7 +391,7 @@ func TestStreamTicket_Contract_IssueThenStream(t *testing.T) {
 // ============ P2P Handler Tests ============
 
 func TestCreateRoom_Success(t *testing.T) {
-	handler := CreateRoom(apiP2pSvc)
+	handler := CreateRoom(apiP2pSvc, apiTorrentSvc)
 
 	body := `{"name":"Test Room","password":"","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(body))
@@ -409,7 +409,7 @@ func TestCreateRoom_Success(t *testing.T) {
 }
 
 func TestCreateRoom_WithPassword(t *testing.T) {
-	handler := CreateRoom(apiP2pSvc)
+	handler := CreateRoom(apiP2pSvc, apiTorrentSvc)
 
 	body := `{"name":"Private Room","password":"secret123","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString(body))
@@ -426,7 +426,7 @@ func TestCreateRoom_WithPassword(t *testing.T) {
 }
 
 func TestCreateRoom_InvalidJSON(t *testing.T) {
-	handler := CreateRoom(apiP2pSvc)
+	handler := CreateRoom(apiP2pSvc, apiTorrentSvc)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", bytes.NewBufferString("invalid"))
 	req.Header.Set("Content-Type", "application/json")
@@ -440,7 +440,7 @@ func TestJoinRoom_Success(t *testing.T) {
 	room, err := apiP2pSvc.CreateRoom(context.Background(), "test-user-1", "Test Room", "", "torrent-test")
 	require.NoError(t, err)
 
-	handler := JoinRoom(apiP2pSvc)
+	handler := JoinRoom(apiP2pSvc, apiTorrentSvc)
 
 	body := `{"roomId":"` + room.ID + `","password":"","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(body))
@@ -457,7 +457,7 @@ func TestJoinRoom_Success(t *testing.T) {
 }
 
 func TestJoinRoom_NotFound(t *testing.T) {
-	handler := JoinRoom(apiP2pSvc)
+	handler := JoinRoom(apiP2pSvc, apiTorrentSvc)
 
 	body := `{"roomId":"nonexistent","password":"","torrentId":"torrent-test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString(body))
@@ -469,7 +469,7 @@ func TestJoinRoom_NotFound(t *testing.T) {
 }
 
 func TestJoinRoom_InvalidJSON(t *testing.T) {
-	handler := JoinRoom(apiP2pSvc)
+	handler := JoinRoom(apiP2pSvc, apiTorrentSvc)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms/join", bytes.NewBufferString("invalid"))
 	req.Header.Set("Content-Type", "application/json")
@@ -1625,6 +1625,7 @@ func (m *mockP2PServiceForRoomEvents) TorrentsVisibleTo(_ context.Context, userI
 }
 func (m *mockP2PServiceForRoomEvents) SetPeerBuffering(_ context.Context, _ string, _ bool) {}
 func (m *mockP2PServiceForRoomEvents) BroadcastPeerList(_ string)                           {}
+func (m *mockP2PServiceForRoomEvents) BroadcastTorrent(_, _, _, _ string, _ int)            {}
 func (m *mockP2PServiceForRoomEvents) Close() error                                         { return nil }
 
 // TestRoomEvents_NilEventChannel verifies that a nil event channel returns 500

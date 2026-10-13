@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
@@ -291,6 +292,81 @@ func (s *Service) canRead(ctx context.Context, userID, torrentID string) bool {
 // CanRead is the public wrapper for canRead (implements TorrentService interface).
 func (s *Service) CanRead(ctx context.Context, userID, torrentID string) bool {
 	return s.canRead(ctx, userID, torrentID)
+}
+
+// MagnetFor returns a magnet URI the caller can add to its own backend.
+//
+// Every participant pulls the media from the swarm itself, so a guest that knows
+// only a room's infohash has nothing to download — the infohash identifies a
+// torrent without carrying one. This is how the torrent leaves.
+//
+// The magnet is produced from the source the torrent was added from, not
+// rebuilt from its metadata: for a .torrent upload the magnet is derived from
+// the real info dict, which is what makes the guest's copy the *same* torrent
+// (bug-0053).
+func (s *Service) MagnetFor(_ context.Context, userID, torrentID string) (string, error) {
+	if !s.canRead(context.Background(), userID, torrentID) {
+		return "", errors.New(errors.ErrForbidden, "access denied")
+	}
+
+	s.mu.RLock()
+	source, exists := s.torrentSources[torrentID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return "", errors.New(errors.ErrNotFound, "torrent not found")
+	}
+
+	switch {
+	case source.magnetURI != "":
+		return source.magnetURI, nil
+	case len(source.torrent) > 0:
+		mi, err := metainfo.Load(bytes.NewReader(source.torrent))
+		if err != nil {
+			return "", fmt.Errorf("failed to read stored torrent: %w", err)
+		}
+		info, err := mi.UnmarshalInfo()
+		if err != nil {
+			return "", fmt.Errorf("failed to read torrent info: %w", err)
+		}
+		// The hash is left to the MetaInfo: it derives the magnet from the very
+		// info dict the hash was computed over, so there is no way for the two
+		// to disagree.
+		magnet := mi.Magnet(nil, &info)
+		return magnet.String(), nil
+	default:
+		// Added before sources were recorded, or restored from a registry
+		// written before bug-0053. An invented identity would be worse than an
+		// honest refusal.
+		return "", errors.New(errors.ErrNotFound, "torrent has no restorable source")
+	}
+}
+
+// SelectedFileFor reports which file userID is playing from torrentID, and
+// whether that peer chose one at all.
+//
+// It travels in the room's torrent event because file selection is per-peer
+// (bug-0048): the server knows the host's choice, and without saying so a guest
+// picks its own and the room ends up watching different parts of one release.
+func (s *Service) SelectedFileFor(_ context.Context, torrentID, userID string) (int, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	index, ok := s.selectedFiles[torrentID][userID]
+	return index, ok
+}
+
+// TorrentName is a small convenience for the room event, which shows people a
+// title rather than a hash.
+func (s *Service) TorrentName(_ context.Context, _ string, torrentID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	handle, ok := s.torrents[torrentID]
+	if !ok {
+		return ""
+	}
+	return handle.Name()
 }
 
 // StorageType identifies the torrent piece storage backend.

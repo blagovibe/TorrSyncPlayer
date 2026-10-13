@@ -79,6 +79,14 @@ private slots:
     void test_inviteCodeRoundTrip();
     void test_parseInviteCodeToleratesNullOutputs();
 
+    // ── Раздача торрента комнатой ─────────────────────────────────────
+    // Каждый участник тянет медиа из роя сам, поэтому комната обязана сказать
+    // гостю, ЧТО качать. Одного infohash из /rooms/info для этого
+    // недостаточно: он опознаёт торрент, но не несёт его.
+    void test_torrentEventCarriesTheRealMagnet();
+    void test_torrentEventReportsTheHostsSelectedFile();
+    void test_torrentEventWithoutMagnetIsIgnored();
+
     /// Гонка: /rooms/info отвечает снимком на момент запроса, а peer_list
     /// может прийти раньше этого ответа. Старый ответ не должен стирать пира.
     void staleRoomInfoSnapshotDoesNotEraseNewerPeerList();
@@ -838,6 +846,65 @@ void TestRoomManager::test_parseInviteCodeToleratesNullOutputs()
     // Вызывающий может интересоваться только ID; указатели должны быть необязательными.
     QVERIFY(RoomManager::parseInviteCode(
         QStringLiteral("0123456789abcdef0123456789abcdef:pw"), nullptr, nullptr));
+}
+
+void TestRoomManager::test_torrentEventCarriesTheRealMagnet()
+{
+    QSignalSpy spy(m_room, &RoomManager::roomTorrentShared);
+
+    QJsonObject event;
+    event[QStringLiteral("type")] = QStringLiteral("torrent");
+    QJsonObject data;
+    data[QStringLiteral("infoHash")] = QStringLiteral("3b2b1a9c0d1e");
+    data[QStringLiteral("magnetUri")] =
+        QStringLiteral("magnet:?xt=urn:btih:3b2b1a9c0d1e&tr=udp%3A%2F%2Ftracker.example%3A6969");
+    data[QStringLiteral("name")] = QStringLiteral("Big Buck Bunny");
+    data[QStringLiteral("selectedFile")] = 2;
+    event[QStringLiteral("data")] = data;
+
+    m_room->onRoomEvent(event);
+
+    QCOMPARE(spy.count(), 1);
+    const QString magnet = spy.at(0).at(1).toString();
+    QVERIFY2(magnet.contains(QStringLiteral("tr=")),
+             "гость получил magnet без трекера: он найдёт торрент только через DHT");
+    QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("3b2b1a9c0d1e"));
+}
+
+void TestRoomManager::test_torrentEventReportsTheHostsSelectedFile()
+{
+    QSignalSpy spy(m_room, &RoomManager::roomTorrentShared);
+
+    QJsonObject event;
+    event[QStringLiteral("type")] = QStringLiteral("torrent");
+    QJsonObject data;
+    data[QStringLiteral("infoHash")] = QStringLiteral("3b2b1a9c0d1e");
+    data[QStringLiteral("magnetUri")] = QStringLiteral("magnet:?xt=urn:btih:3b2b1a9c0d1e");
+    data[QStringLiteral("selectedFile")] = 5;
+    event[QStringLiteral("data")] = data;
+
+    m_room->onRoomEvent(event);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(3).toInt(), 5);
+}
+
+void TestRoomManager::test_torrentEventWithoutMagnetIsIgnored()
+{
+    // Событие без magnet бесполезно: гостю нечего добавлять. Молчаливый
+    // вызов с пустым magnet уводил бы в бесконечный цикл неудачных
+    // добавлений, поэтому событие отбрасывается целиком.
+    QSignalSpy spy(m_room, &RoomManager::roomTorrentShared);
+
+    QJsonObject event;
+    event[QStringLiteral("type")] = QStringLiteral("torrent");
+    QJsonObject data;
+    data[QStringLiteral("infoHash")] = QStringLiteral("3b2b1a9c0d1e");
+    event[QStringLiteral("data")] = data;
+
+    m_room->onRoomEvent(event);
+
+    QCOMPARE(spy.count(), 0);
 }
 
 QTEST_MAIN(TestRoomManager)

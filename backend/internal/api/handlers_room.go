@@ -36,7 +36,7 @@ import (
 // @Success      201      {object}  models.RoomInfo
 // @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms [post]
-func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
+func CreateRoom(p2pSvc internal.P2PService, torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
@@ -78,6 +78,8 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 		// NOTE: RoomCreated metric is incremented inside the p2p service
 		// (internal/p2p/service.go) which is the single source of truth for
 		// room creation, so it is NOT incremented here to avoid double-counting.
+		shareRoomTorrent(p2pSvc, torrentSvc, r, userID, room.ID, req.TorrentID)
+
 		WriteJSON(w, http.StatusCreated, room)
 	}
 }
@@ -96,7 +98,7 @@ func CreateRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 // @Success      200      {object}  models.JoinRoomResponse
 // @Failure      400      {object}  models.ErrorResponse
 // @Router       /api/v1/rooms/join [post]
-func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
+func JoinRoom(p2pSvc internal.P2PService, torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, validation.MaxRequestSize)
 
@@ -131,6 +133,10 @@ func JoinRoom(p2pSvc internal.P2PService) http.HandlerFunc {
 			handleError(w, r, err, "joining room")
 			return
 		}
+
+		// Emitted after the join so the newcomer receives it: the SSE stream is
+		// opened by the client once the join is confirmed.
+		shareRoomTorrent(p2pSvc, torrentSvc, r, userID, req.RoomID, req.TorrentID)
 
 		WriteJSON(w, http.StatusOK, models.JoinRoomResponse{
 			Message: "Joined the room",
@@ -304,4 +310,37 @@ func RoomEvents(p2pSvc internal.P2PService) http.HandlerFunc {
 			_ = p2pSvc.LeaveRoom(ctx, userID)
 		}, keepAlive)
 	}
+}
+
+// shareRoomTorrent hands the room's torrent to its members.
+//
+// Every participant pulls the media from the swarm themselves, so a guest that
+// knows only the room's infohash has nothing to download — an infohash
+// identifies a torrent without carrying one. Without this the room is a chat
+// with a video file only on the host's disk.
+//
+// Best effort by design: a room that exists but whose torrent cannot be
+// described is still usable for playback of what the host already has, so a
+// failure here is logged and never turned into a failed join. Failing the
+// request would mean a torrent the server cannot re-describe silently locks
+// people out of a room they were allowed into.
+func shareRoomTorrent(p2pSvc internal.P2PService, torrentSvc internal.TorrentService,
+	r *http.Request, userID, roomID, torrentID string) {
+	if torrentSvc == nil || roomID == "" || torrentID == "" {
+		return
+	}
+
+	magnet, err := torrentSvc.MagnetFor(r.Context(), userID, torrentID)
+	if err != nil {
+		logger.Warn("room: cannot share the torrent with the room",
+			"roomID", roomID, "torrentID", torrentID, "error", err)
+		return
+	}
+
+	// The host's chosen file travels too: selection is per-peer (bug-0048), so
+	// without it a guest would pick its own and the room would watch different
+	// parts of one release.
+	selected, _ := torrentSvc.SelectedFileFor(r.Context(), torrentID, userID)
+
+	p2pSvc.BroadcastTorrent(roomID, torrentID, magnet, torrentSvc.TorrentName(r.Context(), userID, torrentID), selected)
 }

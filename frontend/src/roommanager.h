@@ -329,6 +329,23 @@ signals:
     void roomTorrentIdentified(const QString &torrentId);
 
     /**
+     * @brief Комната поделилась торрентом, который в ней смотрят
+     *
+     * Отдельный сигнал от roomTorrentIdentified: тот несёт только infohash,
+     * а он лишь опознаёт торрент, не содержа его. Каждый участник тянет
+     * данные из роя сам, поэтому гостю нужен сам magnet, чтобы добавить его в
+     * свой бэкенд. Собранный из infohash magnet без трекеров работает только
+     * через DHT и теряет раздающих — здесь приходит настоящий.
+     *
+     * @param infoHash infohash торрента комнаты
+     * @param magnetUri magnet, который можно добавить в свой бэкенд
+     * @param name название для показа пользователю
+     * @param selectedFile индекс файла, выбранный хостом
+     */
+    void roomTorrentShared(const QString &infoHash, const QString &magnetUri,
+                           const QString &name, int selectedFile);
+
+    /**
      * @brief Пир присоединился к комнате
      * @param peerId ID пира
      */

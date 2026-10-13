@@ -423,6 +423,53 @@ no torrent, so it has nothing to download. The room carries a `torrentId` and
 the guest's own backend is empty. That is the remaining half of
 deviation-0055.
 
+### The room tells its members what it is watching — the slice closes
+
+The other half of deviation-0055, done right after. A guest that knows only a
+room's infohash has nothing to download: an infohash identifies a torrent
+without carrying one. So the room now shares it.
+
+A `torrent` event joins the room's event stream next to the roster, carrying the
+infohash, the **real** magnet, the name, and the file the host is playing. It is
+emitted when a room is created and on every join, because a peer that reconnects
+must learn it again — the room outlives any single connection. It travels the
+room rather than sitting behind a fetchable endpoint, so only members of that
+room learn what it is watching.
+
+The magnet comes from the source the torrent was added from
+(`Service.MagnetFor`); for a `.torrent` upload it is derived from the real info
+dict. That matters: a magnet rebuilt from metadata names a *different* torrent,
+the same trap as bug-0053.
+
+`TorrentEvent.SelectedFile` exists because file selection is per-peer (bug-0048).
+Without it a guest picks its own file and the room ends up watching two different
+parts of one release — everyone connected to the same instant of two different
+films. The guest is told the host's choice instead.
+
+Frontend: `RoomManager` turns the event into `roomTorrentShared`, and
+`MainWindow` adds that magnet to **its own** backend. The older path, which
+assembled `magnet:?xt=urn:btih:<infohash>` from the room info response, stays
+only as a fallback: it carries no tracker at all, so it can find the torrent
+through DHT alone and loses seeders.
+
+Sharing the torrent is best effort and never fails a join. A room that exists
+but whose torrent cannot be described is still usable for what the host already
+has, so a failure here is logged, not turned into a rejected join — refusing
+would lock people out of a room they were allowed into.
+
+Verified against two live backends on one machine: the host adds a torrent, picks
+a file, creates a room and opens its event stream; a guest joins carrying no
+torrent of its own; the stream delivers the room's magnet with the host's
+selection; and the guest, adding that magnet to its own backend, arrives at the
+**same infohash**. That identity match is what keeps rooms bound to their torrent
+across the restart path. Backend `go test -race ./...` green across 18 packages;
+frontend built, `ctest` 7/7 with three new tests.
+
+**Срез работает.** Хост добавил торрент, гость получил magnet, гость тянет из
+роя сам, оба под одним infohash. Дальше по плану владельца: транспорт
+(`idea-0064`), затем перенос фронтенда на Go (`idea-0063`), затем дистрибуция
+(`idea-0026`).
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

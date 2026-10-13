@@ -377,6 +377,8 @@ private slots:
      * @param torrentId infohash торрента, к которому привязана комната
      */
     void onRoomTorrentIdentified(const QString &torrentId);
+    void onRoomTorrentShared(const QString &infoHash, const QString &magnetUri,
+                             const QString &name, int selectedFile);
 
     /**
      * @brief Пересобрать строку состава комнаты
@@ -537,6 +539,7 @@ private:
 
     // ── Авто-добавление торрента комнаты (bug-0048) ────────────────────
     QString m_pendingRoomTorrentId;      ///< torrentId комнаты, который нужно добавить/выбрать
+    int m_pendingRoomFileIndex = -1;     ///< Файл, выбранный хостом; -1 — хост ещё не выбрал
 };
 
 #endif // MAINWINDOW_H

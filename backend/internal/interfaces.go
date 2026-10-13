@@ -24,6 +24,20 @@ type TorrentService interface {
 	GetFiles(ctx context.Context, userID, torrentID string) ([]models.FileInfo, error)
 	// CanRead reports whether userID may read torrentID (bug-0049 / deviation-0039).
 	CanRead(ctx context.Context, userID, torrentID string) bool
+
+	// MagnetFor returns a magnet URI that identifies torrentID, so a peer that
+	// knows only an infohash can still add the torrent to its own backend.
+	// Every participant pulls the media from the swarm themselves, and the
+	// infohash identifies a torrent without carrying one.
+	MagnetFor(ctx context.Context, userID, torrentID string) (string, error)
+
+	// SelectedFileFor reports which file userID plays from torrentID, and
+	// whether that peer chose one. Selection is per-peer (bug-0048), so the
+	// host's choice has to travel in the room's torrent event explicitly.
+	SelectedFileFor(ctx context.Context, torrentID, userID string) (int, bool)
+
+	// TorrentName is the display name of a torrent, for the room event.
+	TorrentName(ctx context.Context, userID, torrentID string) string
 	// SelectFile selects a file for streaming for a specific user (per-peer).
 	// userID is the caller's client ID (X-Client-ID header).
 	SelectFile(ctx context.Context, torrentID, userID string, fileIndex int) error
@@ -57,6 +71,10 @@ type P2PService interface {
 	SetPeerBuffering(ctx context.Context, userID string, buffering bool)
 	// BroadcastPeerList sends the room's current roster to everyone in it.
 	BroadcastPeerList(roomID string)
+
+	// BroadcastTorrent hands the room's torrent to its members, so a guest that
+	// knows only an infohash still has something to add to its own backend.
+	BroadcastTorrent(roomID, infoHash, magnetURI, name string, selectedFile int)
 	Close() error
 }
 

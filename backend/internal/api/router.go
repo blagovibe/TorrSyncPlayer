@@ -103,8 +103,8 @@ func NewRouter(config RouterConfig) http.Handler {
 
 			// P2P endpoints
 			r.Route("/rooms", func(r chi.Router) {
-				r.Post("/", CreateRoom(config.P2pSvc))
-				r.Post("/join", JoinRoom(config.P2pSvc))
+				r.Post("/", CreateRoom(config.P2pSvc, config.TorrentSvc))
+				r.Post("/join", JoinRoom(config.P2pSvc, config.TorrentSvc))
 				r.Post("/leave", LeaveRoom(config.P2pSvc))
 				r.Post("/signal", Signal(config.P2pSvc))
 				// /info resolves the caller's own room from membership instead of a

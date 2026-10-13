@@ -188,6 +188,24 @@ void RoomManager::onRoomEvent(const QJsonObject &event)
         return;
     }
 
+    if (type == "torrent") {
+        // Комната сообщает, что она смотрит. Гость получает magnet и добавляет
+        // его в СВОЙ бэкенд — медиа идёт из роя на каждого, а не с сервера
+        // хоста. Без этого события у гостя нечего качать: infohash в /rooms/info
+        // опознаёт торрент, но не несёт его.
+        const QJsonObject data = event["data"].toObject();
+        const QString infoHash = data.value(QStringLiteral("infoHash")).toString();
+        const QString magnetUri = data.value(QStringLiteral("magnetUri")).toString();
+        if (infoHash.isEmpty() || magnetUri.isEmpty()) {
+            qWarning() << "RoomManager: событие torrent без infoHash/magnetUri, data:" << data;
+            return;
+        }
+        emit roomTorrentShared(infoHash, magnetUri,
+                               data.value(QStringLiteral("name")).toString(),
+                               data.value(QStringLiteral("selectedFile")).toInt());
+        return;
+    }
+
     if (type == "peer_joined" || type == "peer_left") {
         // Полезная нагрузка лежит вложенно в "data", а идентификатор пира
         // называется "peerID". Раньше читался event["peerId"] — путь и
