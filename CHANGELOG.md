@@ -514,6 +514,46 @@ Still not verified, and it is the one that matters: **nobody has yet watched a
 film with two real machines.** The slice is confirmed at the protocol level and
 the app now starts, but the end-to-end experience is unproven.
 
+### The Go frontend starts, and it is the first step of the port
+
+Order changed with the owner's decision. Using weron means the client must be Go:
+weron is a pure Go library with no cgo and no C ABI anywhere in its tree, so a
+Qt client cannot reach it at all. Doing the transport first would have meant
+writing the WebRTC layer in C++ around libdatachannel **and** reimplementing
+weron's signaler protocol — as much work as is being removed, in another
+language. So the frontend moves first and the transport follows, which is also
+Multiplex's order.
+
+Chosen toolkit: **Fyne**. One language, one build, no web stack — which is the
+complaint that started this. The cost is accepted: Fyne has no video widget, so
+mpv gets embedded through its C API, and the look is not native. Wails was the
+alternative and would have been the better *player* (the platform's webview
+renders text well and `<video>` solves playback outright) but it swaps C++ for
+HTML/JS, leaving the two-toolchain problem in place.
+
+Built alongside the Qt client, not over it. The Qt application is the only one
+that has ever worked, and removing it before the replacement does would leave
+nothing to run.
+
+Three packages, all testable without a GUI:
+
+- `internal/backend` — the backend's lifecycle: the flag list mirrored from
+  `parseFlags`, token minting, free-port picking, and the executable search. It
+  exists as a unit because all of this used to live in `main.cpp`, in no test
+  target, and that blind spot has already cost a release twice.
+- `internal/api` — the two-plane client. Requests are addressed by plane
+  rather than by URL, so "which server did this go to" is a type-level
+  decision instead of a thing every call site can get wrong. Seven tests hold
+  the routing, the per-plane tokens and the stream URL; both test servers answer
+  identically on purpose, since otherwise a regression would pass for the wrong
+  reason.
+- `internal/ui` — the window: torrent list, magnet field, status line.
+
+Verified by running it, not by tests alone: the application starts its backend
+on a free port (`40313`) with a token it generated, waits until the backend
+answers `/api/v1/version` before showing the window, and a magnet added through
+its data plane comes back in the torrent list it polls every two seconds.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`
