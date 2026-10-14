@@ -86,6 +86,12 @@ func (c *Client) DataToken() string { return c.dataToken }
 // ControlURL is the base URL of the server hosting the room.
 func (c *Client) ControlURL() string { return c.controlBaseURL }
 
+// ControlToken is the token for the room's server.
+//
+// Exposed because the room's event stream needs it: that stream is opened
+// directly, not through this client, so it cannot attach the token itself.
+func (c *Client) ControlToken() string { return c.controlToken }
+
 // StreamURL builds the media URL.
 //
 // It is built from the data plane and nowhere else: a guest that assembled it

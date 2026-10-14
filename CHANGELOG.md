@@ -606,6 +606,45 @@ The ticket machinery itself is still there. `deviation-0029` is still
 `accepted` — closing it is the owner's call, and it should happen only after the
 header path has been in use for a while.
 
+### Rooms in the Go frontend: the event stream, the roster, and following the host
+
+`internal/room` is the control-plane half of a viewing room. Two things in it
+are worth more than their line count suggests.
+
+**The stream reconnects by itself.** A dropped connection is ordinary — proxies
+drop idle ones and laptops sleep — and a client that needs a human to click
+"reconnect" sits silently out of sync with the room. The wait doubles from
+200 ms to a 5 s ceiling so a room server that is down is not hammered. A
+refusal, though, is final: reconnecting to a room this client is not in only
+produces more refusals, so a 403 ends the loop instead of spinning. The two are
+told apart by `IsNotInRoom`.
+
+**The roster is versioned.** Membership arrives from two directions that race:
+the answer to `/rooms/info`, a snapshot taken when the server served it, and
+`peer_list` events, which arrive as they happen. A guest who joined after the
+GET went out can be delivered by the event stream *before* the GET's answer
+lands, and applying the older snapshot afterwards would delete them. `rosterSeq`
+is what makes a stale snapshot discardable. Snapshots replace rather than merge,
+so the same list applied twice changes nothing — which is what lets a
+`peer_list` arriving on top of a reconnect be applied without doubling anyone
+up. Nine tests hold that behaviour, including the case where a guest is wiped
+out by a late answer.
+
+Wired into the window: join, subscribe, and three reactions — a roster snapshot
+updates the room line, a `torrent` event is adopted into **this** client's
+backend, and a `sync` event moves mpv. On a seek it follows `status.position`,
+not the requested position: the server smooths jumps, so the two differ on
+purpose and only the first says where the room actually is.
+
+One behaviour worth recording because it bit the manual check: `/rooms/events`
+answers 403 unless the client has already joined. Subscribe-after-join is
+therefore the only order that works, and it is what the client does.
+
+Verified against two live backends: a guest joins the host's room on the control
+plane, subscribes, a third participant arrives, and the stream carries both the
+updated roster and the room's torrent event with the host's selected file —
+byte-for-byte the shape the Go parser was written against.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

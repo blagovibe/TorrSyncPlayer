@@ -11,10 +11,12 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/room"
 )
 
 // Torrent is one row of the list, as the data plane reports it.
@@ -52,14 +55,28 @@ type window struct {
 	current  *Torrent
 	files    []fileEntry
 	mpv      *player.Player
+
+	// pendingRoomFile is the file the host is playing, remembered until the
+	// file list arrives. Selection is per-peer, so without it a guest would
+	// pick its own and the room would watch two parts of one release.
+	// -1 means the host has not chosen one.
+	pendingRoomFile int
+
+	// Room state. The roster is kept in the room package because its version
+	// rules are subtle; here it is only read.
+	roster    room.Roster
+	stream    *room.Client
+	roomID    string
+	roomLabel *widget.Label
 }
 
 // NewWindow builds the main window around a client.
 func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
 	w := &window{
-		client:   client,
-		clientID: clientID,
-		status:   widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
+		client:          client,
+		clientID:        clientID,
+		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
+		pendingRoomFile: -1,
 	}
 
 	w.entry = widget.NewEntry()
@@ -125,14 +142,179 @@ func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
 		w.playFile(f)
 	}
 
-	content := container.NewBorder(
-		toolbar, w.status, nil, nil,
-		container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList)),
-	)
-
 	go w.poll()
 
-	return container.NewStack(content)
+	// The room line sits above the lists: who is watching with you is a
+	// one-line answer that belongs where it is always visible.
+	w.roomLabel = widget.NewLabel("")
+
+	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
+	body := container.NewBorder(
+		toolbar, w.status, nil, nil,
+		container.NewVBox(w.roomLabel, lists),
+	)
+
+	return container.NewStack(body)
+}
+
+// ── room ───────────────────────────────────────────────────────────────────
+
+// joinRoom enters a room on the control plane.
+//
+// The room is bound to a torrent and the server refuses a mismatch, so this
+// cannot succeed without one. That is deliberate: a room with nothing to watch
+// is a room with nothing to do.
+func (w *window) joinRoom(roomID, password string) {
+	if roomID == "" {
+		w.setStatus("A room id is required")
+		return
+	}
+
+	w.mu.RLock()
+	torrentID := ""
+	if w.current != nil {
+		torrentID = w.current.ID
+	}
+	w.mu.RUnlock()
+
+	if torrentID == "" {
+		w.setStatus("Pick a torrent first: the room is bound to one")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		var joined struct {
+			RoomID string `json:"id"`
+		}
+		body := map[string]string{"roomId": roomID, "password": password, "torrentId": torrentID}
+		if err := w.client.Post(ctx, api.Control, "/api/v1/rooms/join", body, &joined); err != nil {
+			w.setStatus("Could not join: " + err.Error())
+			return
+		}
+
+		w.mu.Lock()
+		w.roomID = roomID
+		w.mu.Unlock()
+
+		w.subscribe(roomID)
+		w.setStatus("Joined the room")
+	}()
+}
+
+func (w *window) subscribe(roomID string) {
+	stream := room.New(room.Options{
+		BaseURL:  w.client.ControlURL(),
+		Token:    w.client.ControlToken(),
+		ClientID: w.clientID,
+	}, w.onRoomEvent)
+
+	w.mu.Lock()
+	w.stream = stream
+	w.mu.Unlock()
+
+	stream.Subscribe(context.Background(), roomID)
+}
+
+// onRoomEvent is where the room stream lands.
+//
+// The torrent event is the important one: it is how a guest learns what to
+// download, because it pulls the media from the swarm itself.
+func (w *window) onRoomEvent(e room.Event) {
+	switch e.Type {
+	case room.EventPeerList:
+		list, seq, err := room.DecodePeerList(e.Data)
+		if err != nil {
+			return
+		}
+		if w.roster.Apply(list, seq) {
+			w.showRoster()
+		}
+
+	case room.EventTorrent:
+		var ev room.TorrentEvent
+		if err := json.Unmarshal(e.Data, &ev); err != nil || ev.MagnetURI == "" {
+			return
+		}
+		w.adoptRoomTorrent(ev)
+
+	case room.EventSync:
+		var ev room.SyncEvent
+		if err := json.Unmarshal(e.Data, &ev); err != nil {
+			return
+		}
+		w.applySync(ev)
+	}
+}
+
+func (w *window) showRoster() {
+	names := make([]string, 0, w.roster.Count())
+	for _, peer := range w.roster.Peers() {
+		label := peer.UserID
+		if peer.IsHost {
+			label += " (host)"
+		}
+		if peer.Buffering {
+			label += " — buffering"
+		}
+		names = append(names, label)
+	}
+	w.roomLabel.SetText("In the room: " + strings.Join(names, ", "))
+}
+
+// adoptRoomTorrent adds the room's torrent to THIS client's backend.
+func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
+	if w.roster.Count() > 0 {
+		if _, isHost := w.roster.FindHost(); isHost {
+			for _, peer := range w.roster.Peers() {
+				if peer.IsHost && peer.UserID == w.clientID {
+					return // the host already has it
+				}
+			}
+		}
+	}
+
+	w.mu.RLock()
+	have := w.current != nil && w.current.ID == ev.InfoHash
+	w.mu.RUnlock()
+	if have {
+		return
+	}
+
+	w.pendingRoomFile = ev.SelectedFile
+	w.entry.SetText(ev.MagnetURI)
+	w.setStatus("The room is watching " + ev.Name + " — adding it to your backend")
+	w.addTorrent()
+}
+
+func (w *window) applySync(ev room.SyncEvent) {
+	w.mu.RLock()
+	mpv := w.mpv
+	w.mu.RUnlock()
+	if mpv == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		switch ev.Action {
+		case "play":
+			_ = mpv.Resume(ctx)
+		case "pause":
+			_ = mpv.Pause(ctx)
+		case "seek":
+			// The room smoothed the jump, so it is status.position that says
+			// where everyone actually is — not the position asked for.
+			position := ev.Position
+			if ev.Status != nil && ev.Status.Position != 0 {
+				position = ev.Status.Position
+			}
+			_ = mpv.Seek(ctx, position)
+		}
+	}()
 }
 
 func (w *window) item(id widget.ListItemID) *Torrent {
