@@ -68,6 +68,45 @@ func startFakeMPV(t *testing.T, reply map[string]any) *fakeMPV {
 	return f
 }
 
+// startFakeMPVWithEvents runs a fake that speaks first: event lines, then the
+// reply. That is the order a real mpv produces when the file is still loading
+// while a query is already in flight.
+func startFakeMPVWithEvents(t *testing.T, events []string, reply map[string]any) *fakeMPV {
+	t.Helper()
+
+	f := &fakeMPV{
+		path:     filepath.Join(t.TempDir(), "mpv.sock"),
+		reply:    reply,
+		requests: make(chan map[string]any, 8),
+	}
+
+	listener, err := net.Listen("unix", f.path)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer func() { _ = conn.Close() }()
+				encoder := json.NewEncoder(conn)
+				for _, event := range events {
+					if _, err := conn.Write([]byte(event + "\n")); err != nil {
+						return
+					}
+				}
+				_ = encoder.Encode(reply)
+			}(conn)
+		}
+	}()
+	return f
+}
+
 // serve answers every request with the same reply, one line per request, the way
 // mpv does. The commands are recorded so a test can assert what was asked.
 func (f *fakeMPV) serve(conn net.Conn) {
@@ -264,6 +303,13 @@ func TestRealMpvListsAndSwitchesTracks(t *testing.T) {
 		t.Fatalf("mpv refused the file: %v", err)
 	}
 
+	// The file has to be in before its tracks can be asked about, and those are
+	// two different failures with two different causes: a file mpv never opened
+	// reports no tracks forever, which looks exactly like "still loading".
+	// Naming which one happened is the difference between a diagnosis and a
+	// fifteen-second silence.
+	waitForLoaded(t, ctx, p, media)
+
 	// mpv parses the tracks a moment after the file opens, and "a moment" is not
 	// a number anyone should guess at in a test.
 	audio := waitForTracks(t, ctx, p, TrackAudio, 2)
@@ -298,6 +344,26 @@ func TestRealMpvListsAndSwitchesTracks(t *testing.T) {
 	// which is the worst kind of test failure because it teaches everyone to
 	// re-run rather than to look.
 	waitFor(t, 15*time.Second, func() bool { return mpvTrackSelected(ctx, t, p, TrackSub, subs[0].ID) })
+}
+
+// waitForLoaded blocks until mpv admits the file is in its playlist.
+func waitForLoaded(t *testing.T, ctx context.Context, p *Player, media string) {
+	t.Helper()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var reply struct {
+			Error string `json:"error"`
+			Data  int    `json:"data"`
+		}
+		if err := p.request(ctx, []any{"get_property", "playlist-count"}, &reply); err == nil && reply.Data >= 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mpv never opened %s: it is not in the playlist", media)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // waitForTracks blocks until mpv reports at least want tracks of a kind.
@@ -382,5 +448,32 @@ func writeSubtitle(t *testing.T, path string) {
 	const srt = "1\n00:00:00,000 --> 00:00:01,000\nhello\n\n"
 	if err := os.WriteFile(path, []byte(srt), 0o600); err != nil {
 		t.Fatalf("write the subtitle: %v", err)
+	}
+}
+
+// An event line is not a reply, but it decodes like one.
+//
+// mpv broadcasts async events to every connected IPC client, and a request that
+// reads a single line can catch an event instead of its own answer. Decoded into
+// the reply shape that is Error="" with no data — indistinguishable from "the
+// file is still loading". A track query in that moment reports no tracks; worse,
+// a position query in that moment reports position 0 with no error, and the
+// buffer reporter hands the room "the start of the film".
+func TestAnEventLineIsNotMistakenForAReply(t *testing.T) {
+	fake := startFakeMPVWithEvents(t,
+		[]string{`{"event":"tracks-changed"}`},
+		map[string]any{
+			"error": "success",
+			"data": []any{
+				map[string]any{"id": 1, "type": "audio", "lang": "jpn"},
+			},
+		})
+
+	tracks, err := playerOn(fake.path).Tracks(context.Background(), TrackAudio)
+	if err != nil {
+		t.Fatalf("listing the tracks past an event line: %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].Lang != "jpn" {
+		t.Fatalf("the event line ate the reply: got %+v", tracks)
 	}
 }

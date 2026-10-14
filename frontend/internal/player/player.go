@@ -157,6 +157,12 @@ func (p *Player) Close() {
 	})
 }
 
+// maxSkippedEvents bounds how many async event lines one request steps over
+// before it stops and says so. Event traffic is finite — a file start produces
+// a handful — so a longer stream means something else is wrong, and spinning
+// until the context deadline would turn that into a slow silence.
+const maxSkippedEvents = 32
+
 // command sends a batch and ignores the reply, for fire-and-forget control.
 func (p *Player) command(ctx context.Context, commands [][]any) error {
 	conn, err := dial(p.sock)
@@ -179,6 +185,16 @@ func (p *Player) command(ctx context.Context, commands [][]any) error {
 }
 
 // request sends one command and reads its reply.
+//
+// Replies are matched by shape, not by order: mpv broadcasts async events to
+// every connected IPC client, and a single blind read can catch an event line
+// instead of the answer. Decoded into a reply shape that event is Error="" with
+// no data — indistinguishable from "the file is still loading". A track query in
+// that moment reports no tracks; worse, a position query in that moment reports
+// position 0 with no error, and the buffer reporter hands the room "the start of
+// the film". So event lines are skipped: a command reply always carries
+// request_id (zero when the command did not set one), and an async event never
+// does.
 func (p *Player) request(ctx context.Context, command []any, out any) error {
 	conn, err := dial(p.sock)
 	if err != nil {
@@ -195,14 +211,28 @@ func (p *Player) request(ctx context.Context, command []any, out any) error {
 	}
 
 	reader := bufio.NewReader(conn)
-	line, err := reader.ReadBytes('\n')
-	if err != nil {
-		return fmt.Errorf("player: read: %w", err)
+	for skipped := 0; ; skipped++ {
+		if skipped >= maxSkippedEvents {
+			return fmt.Errorf("player: too many event lines before the reply")
+		}
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return fmt.Errorf("player: read: %w", err)
+		}
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(line, &envelope); err != nil {
+			return fmt.Errorf("player: decode: %w", err)
+		}
+		if _, isEvent := envelope["event"]; isEvent {
+			if _, hasID := envelope["request_id"]; !hasID {
+				continue
+			}
+		}
+		if err := json.Unmarshal(line, out); err != nil {
+			return fmt.Errorf("player: decode: %w", err)
+		}
+		return nil
 	}
-	if err := json.Unmarshal(line, out); err != nil {
-		return fmt.Errorf("player: decode: %w", err)
-	}
-	return nil
 }
 
 // Args builds an mpv command line. Exposed for tests: what mpv is told matters

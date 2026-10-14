@@ -1902,3 +1902,31 @@ ffmpeg next to mpv, not to teach the gate to tolerate a skip.
 Windows and macOS are now green end to end — the chocolatey PATH search and the
 ad-hoc-signed DMG both confirmed by real runners. Linux is the one still open,
 and only because of the AppImage path above.
+
+### The player was reading other people's mail
+
+`Player.request` sent one command over a fresh IPC connection and decoded the
+first line that came back. But mpv broadcasts async events to every connected
+client, and the first line after a command can be an event — `start-file`,
+`tracks-changed` — rather than the answer. Decoded into a reply shape that event
+is `Error=""` with no data, which is indistinguishable from "nothing there yet".
+
+Two symptoms, one cause. In the test, a track query made while the file was still
+opening reported "no tracks" — the CI run of `TestRealMpvListsAndSwitchesTracks`
+saw fifteen seconds of exactly that against mpv 0.34.1 and failed the whole
+frontend job. In the product, worse: a position query on the same hot path
+reported position **0 with no error**, and the buffer reporter handed the room
+"the start of the film" — every time a poll landed on an event, which is exactly
+when the room is most active.
+
+`request` now reads until the reply: lines carrying an `event` without a
+`request_id` are stepped over (a command reply always has one, zero when the
+command did not set it; an async event never does), bounded at 32 — event
+traffic is finite, a file start produces a handful, so a longer stream means
+something else is wrong and spinning until the context deadline would turn that
+into a slow silence.
+
+The track test also stopped conflating two failures. "The file never opened" and
+"the file has no such tracks" used to look identical — both were an empty list —
+so `waitForLoaded` now waits for the playlist to admit the file first and fails
+naming the file when it does not. Whatever fails next will say which one it is.
