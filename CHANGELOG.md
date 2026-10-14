@@ -1833,3 +1833,34 @@ been run by a tag. That is the owner's action, not the agent's.
 4. No database integration
 5. Buffer Service lacks unit tests
 6. Frontend MainWindow/MpvWidget do not have unit tests
+
+### The release workflow's first real run, and what only a run could show
+
+The workflow has now been executed — by the tag `v1.2.0-rc.1` — and it failed,
+which is the whole reason the card for it stayed open. Reading a pipeline finds what
+a reader knows to look for; running it finds the rest. Two defects were of exactly
+that kind, and neither was visible from the file.
+
+**linuxdeploy wanted a number, not a word.** `--verbosity error` was rejected with
+`Argument 'verbosity' received invalid value type 'error'`, followed by the entire
+help text. The verbosity is 0=debug, 1=info, 2=warning, 3=error — a number, as the
+tool's own usage says. The step died before a single library was bundled.
+
+**Windows had no mpv on PATH, and what it did have was a stub.** The chocolatey
+package installs mpv without adding it to PATH, so `Get-Command mpv` in the
+assemble step reported "the term 'mpv' is not recognized" — immediately after a
+successful install. Worse than the failure is what *would* have happened next: the
+one thing that does resolve on PATH is `mpv.com` in the package's tools directory, a
+launcher stub with no libraries beside it, so the mpv directory is now chosen by what
+it holds — the directory whose side has the most DLLs — rather than by what PATH
+happens to answer. Copying the stub would have shipped a launcher with no player in
+it, and the archive check, which looks for `mpv.exe`, would have passed anyway.
+
+The macOS job passed in full — including the ad-hoc signing and the DMG content
+check — so three of the four jobs' worth of untested commands are now confirmed by a
+real runner.
+
+The release itself is a draft pre-release, which is what a tag with a suffix means
+here: the artifacts are built and attached, but nobody can see them until somebody
+looks. That is the state this workflow should have been run in from the beginning,
+and the reason the tag is `v1.2.0-rc.1` rather than `v1.2.0`.

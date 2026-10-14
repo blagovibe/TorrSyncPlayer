@@ -104,12 +104,17 @@ jobs:
 
           # TorrSyncPlayer (Fyne, cgo) and mpv are both deployed: mpv is shipped
           # inside the image, so its codec libraries have to travel with it.
+          #
+          # verbosity is a number, not a word: 0=debug, 1=info, 2=warning,
+          # 3=error. Passing `error` here made the argument parser reject it and
+          # print the whole help text — which is how the first real run of this
+          # workflow failed, and why it was worth running it on a tag first.
           ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir dist/AppDir \
             -e dist/TorrSyncPlayer \
             -e dist/AppDir/usr/bin/mpv \
             --output appimage \
-            --verbosity error
+            --verbosity 3
 
           test -f dist/TorrSyncPlayer-x86_64.AppImage \
             || test -f dist/TorrSyncPlayer.AppImage \
@@ -155,12 +160,19 @@ jobs:
 
       # mpv is shipped beside the application rather than installed on the
       # machine: the point of the zip is that unzipping it is the installation.
+      #
+      # Nothing here may depend on PATH. The chocolatey package installs mpv
+      # without adding it to PATH, and the only thing that resolves on PATH right
+      # after an install is `mpv.com` in the package's tools directory — a
+      # launcher stub with no DLLs beside it. That is how the first real run of
+      # this workflow failed: the install step succeeded by finding the stub,
+      # and the assemble step found nothing at all.
       - name: Install mpv
         shell: pwsh
         run: |
           choco install mpv -y --no-progress
-          $mpv = (Get-Command mpv -ErrorAction Stop).Source
-          Write-Host "mpv: $mpv"
+          $stub = Get-Command mpv -ErrorAction SilentlyContinue
+          if ($stub) { Write-Host "on PATH: $($stub.Source) (a stub, not what we ship)" }
 
       - name: Build the application and the backend
         working-directory: frontend
@@ -176,22 +188,29 @@ jobs:
 
           Copy-Item dist/TorrSyncPlayer.exe,dist/torrsyncplayer.exe $bundle
 
-          # mpv and everything it needs: the Windows build keeps its libraries
-          # next to the executable, so the whole folder travels.
-          #
-          # The DLL count is checked, and that is not paranoia: `Get-Command mpv`
-          # resolves whatever comes first on PATH, and on a chocolatey machine
-          # that is the shim in ProgramData\chocolatey\bin, a directory holding
-          # one .exe and nothing else. Copying it would ship a launcher without
-          # a player, and the check below — which looks for mpv.exe — would pass.
-          $mpvDir = Split-Path (Get-Command mpv -ErrorAction Stop).Source
-          $mpvFiles = Get-ChildItem $mpvDir -File |
-            Where-Object { $_.Extension -in '.exe','.dll','.txt','.json','.conf' }
-          if (@($mpvFiles | Where-Object { $_.Extension -eq '.dll' }).Count -eq 0) {
-            Write-Error "no DLLs next to mpv in $mpvDir — that is a shim, not the installation"
+          # mpv is chosen by what the directory holds, not by what PATH says:
+          # the directory with the player in it has the DLLs beside it, and the
+          # stub's directory has none. `mpv.exe` is the real executable; `mpv.com`
+          # is a shim that would ship a launcher without a player.
+          $roots = 'C:\ProgramData\chocolatey\lib', "$env:ProgramFiles", "${env:ProgramFiles(x86)}"
+          $mpvDir = $null
+          $best = 0
+          foreach ($root in $roots) {
+            Get-ChildItem -Path $root -Filter mpv.exe -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              $dir = Split-Path $_.FullName
+              $dlls = @(Get-ChildItem -Path $dir -Filter *.dll -File -ErrorAction SilentlyContinue).Count
+              if ($dlls -gt $best) { $best = $dlls; $mpvDir = $dir }
+            }
+          }
+          if (-not $mpvDir) {
+            Write-Error "mpv was installed but no directory holding mpv.exe with its DLLs was found under: $roots"
             exit 1
           }
-          $mpvFiles | Copy-Item -Destination $bundle
+          Write-Host "mpv: $mpvDir ($best DLLs beside it)"
+
+          Get-ChildItem $mpvDir -File |
+            Where-Object { $_.Extension -in '.exe','.dll','.txt','.json','.conf' } |
+            Copy-Item -Destination $bundle
 
           Set-Content -Path "$bundle/READ ME FIRST.txt" -Encoding utf8 -Value @'
           TorrSyncPlayer
