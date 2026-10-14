@@ -175,7 +175,7 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 	// A password field, not a plain entry: an invitation screen is exactly where
 	// a password gets typed in public.
 	w.roomPassword = widget.NewPasswordEntry()
-	w.roomPassword.SetPlaceHolder(w.tr("field.password"))
+	w.roomPassword.SetPlaceHolder(w.tr("field.roomPassword"))
 
 	w.inviteEntry = widget.NewEntry()
 	w.inviteEntry.SetPlaceHolder(w.tr("field.invite"))

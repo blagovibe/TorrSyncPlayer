@@ -41,11 +41,11 @@ func write(out string, size int) error {
 		return err
 	}
 	if dir := filepath.Dir(out); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
 	}
-	if err := os.WriteFile(out, png, 0o644); err != nil {
+	if err := os.WriteFile(out, png, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", out, err)
 	}
 	return nil

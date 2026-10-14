@@ -65,6 +65,10 @@ func Start(ctx context.Context, opts Options, headers []string) (*Player, error)
 		return nil, errors.New("player: no IPC socket path given")
 	}
 
+	// #nosec G204 -- the binary comes from the player settings, chosen by the
+	// person running the app; the socket path and headers are this process's
+	// own values, and the extra args are the documented way to pass a custom
+	// mpv (opts.Binary itself is that setting, not an argument).
 	cmd := exec.Command(binary, Args(opts.SocketPath, headers, opts.ExtraArgs...)...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard

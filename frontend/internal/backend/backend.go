@@ -67,7 +67,11 @@ func GenerateToken() (string, error) {
 // A fixed port is what a backend used to take: a second instance on the same
 // machine failed to bind and then quietly talked to somebody else's server.
 func PickFreePort() (int, error) {
-	listener, err := net.Listen("tcp", ":0")
+	// 127.0.0.1, not ":0": a free port is wanted, not a listener on every
+	// interface. gosec G102 is right about the original — ":0" really does
+	// bind all of them, and this port travels in a URL to mpv on the same
+	// machine, so it should never have been reachable from outside it.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, fmt.Errorf("pick a free port: %w", err)
 	}
@@ -176,6 +180,10 @@ type Process struct {
 
 // Start launches the backend and returns the running process.
 func Start(path string, port int, token string) (*Process, error) {
+	// #nosec G204 -- path is a binary this process resolved from its own
+	// installation (CandidatePaths beside the client, or a built backend), not
+	// user input; the args are flags built here from an int and the token this
+	// process itself generated.
 	cmd := exec.Command(path, Args(port, token)...)
 
 	// The backend's own output is the only place the reason for a failure will

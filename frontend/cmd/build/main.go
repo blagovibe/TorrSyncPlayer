@@ -48,7 +48,7 @@ func main() {
 type builder func(dir, output string, pkg []string) error
 
 func build(out string, goBuild builder) error {
-	if err := os.MkdirAll(out, 0o755); err != nil {
+	if err := os.MkdirAll(out, 0o750); err != nil {
 		return err
 	}
 
@@ -86,6 +86,8 @@ func build(out string, goBuild builder) error {
 
 func goBuild(dir, output string, pkg []string) error {
 	args := append([]string{"build", "-o", output}, pkg...)
+	// #nosec G204 -- argv is built here from an output path this tool owns and
+	// package paths fixed in the source; it shell-executes nothing.
 	cmd := exec.Command("go", args...)
 	cmd.Dir = dir
 	cmd.Stderr = os.Stderr
