@@ -74,9 +74,13 @@ func (c *collector) waitFor(t *testing.T, eventType string) Event {
 }
 
 func TestStreamDeliversTheEventTypeAndPayload(t *testing.T) {
+	// The real wire shape: the SSE data carries the whole P2PEvent, and the
+	// payload sits inside its `data` field. Feeding the payload directly would
+	// let a parser bug survive every unit test and only surface end to end.
 	server := sseServer(t,
 		"event: connected\ndata: {\"status\":\"ok\"}\n\n",
-		"event: peer_list\ndata: {\"peers\":[{\"peerID\":\"a\",\"userID\":\"host\",\"isHost\":true}],\"rosterSeq\":1}\n\n",
+		"event: peer_list\ndata: {\"type\":\"peer_list\",\"data\":{"+
+			"\"peers\":[{\"peerID\":\"a\",\"userID\":\"host\",\"isHost\":true}],\"rosterSeq\":1}}\n\n",
 	)
 
 	got := &collector{}
@@ -110,7 +114,9 @@ func TestStreamDeliversTheEventTypeAndPayload(t *testing.T) {
 func TestStreamDecodesTheRoomTorrent(t *testing.T) {
 	// The frame that makes a guest able to download anything at all.
 	server := sseServer(t,
-		"event: torrent\ndata: {\"infoHash\":\"abc\",\"magnetUri\":\"magnet:?xt=urn:btih:abc\",\"name\":\"Film\",\"selectedFile\":2}\n\n",
+		"event: torrent\ndata: {\"type\":\"torrent\",\"data\":{"+
+			"\"infoHash\":\"abc\",\"magnetUri\":\"magnet:?xt=urn:btih:abc\","+
+			"\"name\":\"Film\",\"selectedFile\":2}}\n\n",
 	)
 
 	got := &collector{}
@@ -132,8 +138,11 @@ func TestStreamDecodesTheRoomTorrent(t *testing.T) {
 
 func TestStreamDecodesSyncCommands(t *testing.T) {
 	server := sseServer(t,
-		"event: sync\ndata: {\"action\":\"seek\",\"initiator\":\"host\",\"position\":42.5,\"status\":{\"isPlaying\":true,\"position\":43,\"duration\":100}}\n\n",
-		"event: sync\ndata: {\"action\":\"buffering\",\"initiator\":\"guest\"}\n\n",
+		"event: sync\ndata: {\"type\":\"sync\",\"data\":{"+
+			"\"action\":\"seek\",\"initiator\":\"host\",\"position\":42.5,"+
+			"\"status\":{\"isPlaying\":true,\"position\":43,\"duration\":100}}}\n\n",
+		"event: sync\ndata: {\"type\":\"sync\",\"data\":{"+
+			"\"action\":\"buffering\",\"initiator\":\"guest\"}}\n\n",
 	)
 
 	got := &collector{}
@@ -164,7 +173,7 @@ func TestStreamIgnoresPingAndComments(t *testing.T) {
 	server := sseServer(t,
 		": keepalive comment\n\n",
 		"event: ping\ndata: {}\n\n",
-		"event: peer_left\ndata: {\"peerID\":\"x\"}\n\n",
+		"event: peer_left\ndata: {\"type\":\"peer_left\",\"data\":{\"peerID\":\"x\"}}\n\n",
 	)
 
 	got := &collector{}

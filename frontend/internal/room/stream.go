@@ -271,7 +271,7 @@ func (c *Client) readFrames(body io.Reader) error {
 			data.Reset()
 			return
 		}
-		c.emit(Event{Type: eventType, Data: json.RawMessage(data.String())})
+		c.emit(Event{Type: eventType, Data: unwrapPayload(eventType, data.String())})
 		eventType = ""
 		data.Reset()
 		hasData = false
@@ -342,4 +342,27 @@ func quote(s string) []byte {
 		return []byte(`""`)
 	}
 	return encoded
+}
+
+// unwrapPayload extracts the payload from a room frame.
+//
+// The server sends the whole P2PEvent as the SSE data: {"type":"torrent",
+// "data":{...}}. Everything downstream wants the inner object, because that is
+// what the payload type describes — and handing it the envelope means every
+// field reads as empty, which looks exactly like a room that sent nothing.
+//
+// `connected` and `ping` are not enveloped, so the unwrapping is conditional
+// rather than assumed.
+func unwrapPayload(eventType, raw string) json.RawMessage {
+	var envelope struct {
+		Type string          `json:"type"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		return json.RawMessage(raw)
+	}
+	if envelope.Type == "" || len(envelope.Data) == 0 {
+		return json.RawMessage(raw)
+	}
+	return envelope.Data
 }

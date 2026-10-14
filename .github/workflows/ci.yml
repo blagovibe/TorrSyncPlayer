@@ -133,6 +133,17 @@ jobs:
           CGO_ENABLED: '1'
         run: go build ./...
 
+      # The scenario tests start the real backend binary and drive the real
+      # client against it. They are the gate for retiring the Qt client, and
+      # they need the backend module to build — which is why they run here and
+      # not as part of the backend job.
+      - name: Run the end-to-end scenario tests
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: go test -v -timeout 10m ./internal/integration/...
+
   test-backend:
     name: Test Backend
     needs: lint-backend

@@ -758,6 +758,54 @@ Still missing from the Go client: the system tray, and a few settings the Qt
 client had (window geometry, default volume). Those are conveniences rather than
 behaviour, and are the last of the parity work.
 
+### The scenario runs end to end — and it caught a real bug in our own parser
+
+Five integration tests start the actual backend binary and drive the actual
+client against it. No stubs, no display: what is under test is `api`, `room` and
+`player` running headless, because the claim being checked is about behaviour
+rather than appearance.
+
+**And it immediately found a defect that no unit test could.** The room stream
+sends the whole `P2PEvent` as the SSE data — `{"type":"torrent","data":{…}}` —
+while the Go client was treating that whole envelope as the payload. Every field
+therefore read as empty, which looks precisely like a room that sent nothing.
+
+The reason the unit tests missed it is the interesting part: they had been fed
+the payload directly, because that is what the parser was written against and
+nothing contradicted it. The tests and the implementation agreed with each other
+and both disagreed with the server. Only a test that starts the real binary can
+catch that class of mistake — and it is the same shape of failure as everything
+else this project has been bitten by: two things agreeing because nobody checked
+them against reality.
+
+The unit tests now use the real wire shape, and the envelope is unwrapped in one
+place with a comment saying why.
+
+The five scenarios:
+
+- a host adds a torrent, picks a file, creates a room; a guest joins over the
+  control plane; the room tells the guest what it is watching; the magnet names
+  the host's infohash and carries the host's selection
+- a guest that joins with the wrong infohash is turned away, so the binding
+  means something
+- the host drives playback and a guest's attempt is **refused** — while the
+  guest's buffering report is **accepted**, and the room's status shows it
+- two independent backends given the same torrent agree on its infohash, which
+  is the property every room binding and every restart rests on
+- the data plane is not the host's server, and the two planes carry different
+  tokens
+
+One thing the scenario deliberately does **not** do: add the room's magnet to
+the guest's backend. Adding a magnet means joining the swarm and waiting for
+metadata, and this torrent exists nowhere but in the test, so that wait would
+hang rather than fail. What the client owns is that it hands the backend the
+magnet the room gave it; the identity that magnet resolves to is covered by the
+fourth scenario instead, and was verified live against a real torrent earlier.
+
+Verified: 96 tests green, `gofmt` and `go vet` clean, `GOOS=windows` compiles
+every package. CI runs the scenario tests as their own step, because they need
+the backend module to build and so cannot live in the backend job.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`
