@@ -94,6 +94,14 @@ type window struct {
 	roomIDField  *widget.Entry
 	roomPassword *widget.Entry
 	createRoom   *widget.Button
+
+	// Track choosers. mpv knows every voice and every subtitle track in the
+	// file; until this existed a person who needed the dub had no way to reach
+	// it from the application (idea-0080).
+	audioSelect *widget.Select
+	subSelect   *widget.Select
+	audioTracks []player.Track
+	subTracks   []player.Track
 }
 
 // NewWindow builds the main window around a client.
@@ -174,6 +182,14 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 		w.playFile(f)
 	}
 
+	// The choosers start hidden: most films have one voice, and a row of
+	// empty selectors teaches a person that the app has nothing to offer.
+	w.audioSelect = widget.NewSelect(nil, nil)
+	w.audioSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackAudio, choice) }
+	w.subSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackSub, choice) }
+	w.audioSelect.Hide()
+	w.subSelect.Hide()
+
 	go w.poll()
 
 	// The room line sits above the lists: who is watching with you is a
@@ -212,10 +228,15 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 		),
 	)
 
+	tracks := container.NewHBox(
+		widget.NewLabel(w.tr("track.audio")), w.audioSelect,
+		widget.NewLabel(w.tr("track.sub")), w.subSelect,
+	)
+
 	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
 	body := container.NewBorder(
 		toolbar, w.status, nil, nil,
-		container.NewVBox(w.roomLabel, roomPanel, lists),
+		container.NewVBox(w.roomLabel, roomPanel, tracks, lists),
 	)
 
 	w.buffer = room.NewBufferReporter(room.ReporterOptions{
@@ -575,7 +596,80 @@ func (w *window) playFile(f fileEntry) {
 			return
 		}
 		w.setStatus(w.trf("status.playing", f.Name))
+
+		// The tracks exist as soon as mpv has read the file's header, which is
+		// not a number anyone should guess at in code. Poll for them and stop at
+		// the first answer, or at the deadline: a film with one voice is the
+		// common case, and it has nothing to offer anyway.
+		go w.loadTracks(p)
 	}()
+}
+
+// loadTracks fills the choosers from what mpv knows about the file it just
+// opened.
+//
+// Polling rather than waiting on an event, because mpv's IPC has no "tracks are
+// ready" notification worth wiring up and playback is already running when this
+// matters. The polling stops early: the first answer is the answer.
+func (w *window) loadTracks(p *player.Player) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		audio, audioErr := p.Tracks(ctx, player.TrackAudio)
+		subs, subErr := p.Tracks(ctx, player.TrackSub)
+
+		// Either a real list or nothing at all — "mpv does not know yet" is
+		// reported as an error, so an empty list is a film with no such tracks.
+		if audioErr == nil && subErr == nil {
+			w.mu.Lock()
+			w.audioTracks, w.subTracks = audio, subs
+			w.mu.Unlock()
+			w.showTracks()
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// showTracks puts the choosers on screen when there is anything to choose.
+func (w *window) showTracks() {
+	w.mu.RLock()
+	audio, subs := w.audioTracks, w.subTracks
+	w.mu.RUnlock()
+
+	if !showTrackChooser(player.TrackAudio, audio) && !showTrackChooser(player.TrackSub, subs) {
+		return
+	}
+
+	onMain(func() {
+		// Setting the row the track is already on would fire OnChanged and send
+		// mpv the choice it just made. The handler is detached for the duration,
+		// so opening the chooser costs no round trip.
+		w.audioSelect.OnChanged = nil
+		w.audioSelect.Options = optionLabels(player.TrackAudio, audio, "")
+		w.audioSelect.SetSelected(w.selectedTrackLabel(player.TrackAudio))
+		w.audioSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackAudio, choice) }
+
+		w.subSelect.OnChanged = nil
+		w.subSelect.Options = optionLabels(player.TrackSub, subs, w.tr("track.off"))
+		w.subSelect.SetSelected(w.selectedTrackLabel(player.TrackSub))
+		w.subSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackSub, choice) }
+
+		if showTrackChooser(player.TrackAudio, audio) {
+			w.audioSelect.Show()
+			w.audioSelect.Refresh()
+		} else {
+			w.audioSelect.Hide()
+		}
+		if showTrackChooser(player.TrackSub, subs) {
+			w.subSelect.Show()
+			w.subSelect.Refresh()
+		} else {
+			w.subSelect.Hide()
+		}
+	})
 }
 
 // startPlayer launches mpv once and reuses it for the rest of the run.
