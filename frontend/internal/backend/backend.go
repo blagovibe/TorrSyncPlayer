@@ -18,12 +18,15 @@ package backend
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // KnownFlags mirrors parseFlags in backend/cmd/server/main.go.
@@ -150,13 +153,100 @@ func UnknownFlag(args []string) (string, bool) {
 	return "", true
 }
 
+// Process is the backend the application started, and the only thing allowed to
+// wait on it.
+//
+// Three separate things want to know when the backend ends: the startup check,
+// which must not sit out a full timeout waiting for a process that has already
+// died; the window, which must quit rather than show a list that will never
+// update; and the shutdown, which must wait for a clean exit before insisting.
+// exec.Cmd.Wait may only be called once, and calling it twice is an error
+// rather than a second answer, so one goroutine waits and everybody reads the
+// result.
+type Process struct {
+	cmd *exec.Cmd
+
+	// exited is closed once the backend has ended.
+	exited chan struct{}
+
+	// exitErr is the result of that wait. Read it only after <exited, which is
+	// what makes it safe: the close happens after the write.
+	exitErr error
+}
+
 // Start launches the backend and returns the running process.
-func Start(path string, port int, token string) (*exec.Cmd, error) {
+func Start(path string, port int, token string) (*Process, error) {
 	cmd := exec.Command(path, Args(port, token)...)
+
+	// The backend's own output is the only place the reason for a failure will
+	// ever appear — a port clash, a bad flag, a storage directory that is not
+	// writable — so it goes to this process's stderr rather than to a buffer
+	// nobody reads.
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start backend %s: %w", path, err)
 	}
-	return cmd, nil
+
+	process := &Process{cmd: cmd, exited: make(chan struct{})}
+	go func() {
+		process.exitErr = cmd.Wait()
+		close(process.exited)
+	}()
+	return process, nil
+}
+
+// Exited is closed when the backend has ended, however it ended.
+func (p *Process) Exited() <-chan struct{} { return p.exited }
+
+// ExitError is how the backend ended. Only meaningful once Exited is closed.
+func (p *Process) ExitError() error { return p.exitErr }
+
+// Running reports whether the backend is still alive.
+func (p *Process) Running() bool {
+	if p == nil || p.cmd.Process == nil {
+		return false
+	}
+	select {
+	case <-p.exited:
+		return false
+	default:
+		return true
+	}
+}
+
+// Stop asks the backend to finish, then insists.
+//
+// It sends SIGTERM rather than killing outright because the backend flushes
+// torrent ownership on the way out, and a plain kill loses it.
+func (p *Process) Stop() {
+	if !p.Running() {
+		return
+	}
+
+	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+
+	select {
+	case <-p.exited:
+	case <-time.After(5 * time.Second):
+		// It did not go on its own. Insist.
+		_ = p.cmd.Process.Kill()
+		<-p.exited
+	}
+}
+
+// DescribeExit turns a backend's death into something worth reading.
+//
+// The exit status alone says almost nothing, and the reason is already in the
+// output above it, so the message points there instead of restating a number.
+func DescribeExit(err error) string {
+	if err == nil {
+		return "the backend stopped"
+	}
+
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return fmt.Sprintf("the backend stopped with %s — its own output above says why", exit)
+	}
+	return fmt.Sprintf("the backend stopped: %v", err)
 }

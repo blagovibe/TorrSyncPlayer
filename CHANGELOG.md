@@ -806,6 +806,66 @@ Verified: 96 tests green, `gofmt` and `go vet` clean, `GOOS=windows` compiles
 every package. CI runs the scenario tests as their own step, because they need
 the backend module to build and so cannot live in the backend job.
 
+### The tray, and three defects that only running it could find
+
+The system tray is in. It is best effort everywhere: a desktop that refuses tray
+icons and a headless session both leave the application running with its window,
+which is what it did before. The icon is drawn in code rather than shipped, because
+a tray with no icon is refused outright by some desktops — a cosmetic detail that
+would otherwise become a failure to start.
+
+Closing the window hides it while the tray exists, and ends the application when
+it does not. That is a **close intercept**, not an after-close hook: Fyne's
+`SetOnClosed` runs once the window is already gone, so hiding it there undoes a
+completed close, and calling `Close` from inside it re-enters the code that is
+running. The decision itself is a function, because the behaviour it governs
+cannot be tested through the window — Fyne's test driver closes unconditionally
+and never consults the intercept, so a test that called `Close` would pass
+whatever it answered.
+
+Running the built application — the first time the Go client has been run as a
+program rather than as tests — found three defects, none of which any test was
+looking for:
+
+- **Widgets were being touched off Fyne's main thread.** The status line, the
+  roster, both lists and the magnet entry are all written from goroutines: a poll
+  ticker, an HTTP call, the room's SSE stream. The live run printed Fyne's warning
+  on every tick. It now goes through one `onMain`, and the run is silent.
+- **A dead backend was reported as a timeout.** With a port already in use the
+  backend exited immediately and the application sat for the full ten seconds and
+  then blamed the network, while the actual reason sat in its own output,
+  unmentioned. Startup now watches the process as well as the clock: the same
+  failure is reported in **0 seconds**, as *"the backend stopped with exit status
+  1 — its own output above says why"*.
+- **The process was being waited for twice.** `run` and `stopBackend` each called
+  `Wait` on the same command, and a second `Wait` is an error rather than a second
+  answer. One goroutine waits now, in `backend.Process`, and the startup check,
+  the window and the shutdown all read that one result.
+
+And a correction to what this file claimed two entries ago: the Qt client had
+**no** window-geometry or default-volume setting. It persisted exactly one thing,
+`ui/language`, and it hardcoded `resize(1200, 700)`. The "remaining parity gap"
+was recorded from memory and checked against nothing — the same failure as
+before, in the documentation this time. Parity was in fact already complete once
+the tray landed.
+
+Which left one real gap, found while looking for it: `Settings.PlayerBinary` was
+written, read back and never used. A person who pointed it at an mpv under `/opt`
+got *"no such file"* and a setting that looked like it worked. It now reaches the
+launcher, and the control socket path moved onto the window so it is per process —
+two instances sharing one socket would drive each other's player, silently, with
+every command succeeding.
+
+Also: `--no-tray` was declared and ignored. A flag that does nothing is worse than
+a missing one, because the person reading `--help` believes it did something.
+
+Verified: 103 tests green, `gofmt` and `go vet` clean. `GOOS=windows` compiles
+every `internal/` package; the **whole binary** does not cross-compile from Linux,
+because Fyne's driver needs cgo and a native GL toolchain — the same blocker as
+before, and now stated precisely rather than as "every package". Live run: the
+application starts its backend, answers `/api/v1/version` 200 with its token and
+401 without, polls the list every two seconds, and logs no errors.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

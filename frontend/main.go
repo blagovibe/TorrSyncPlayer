@@ -13,10 +13,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -102,7 +102,7 @@ func run(opts runOptions) error {
 	if err != nil {
 		return err
 	}
-	defer stopBackend(child)
+	defer child.Stop()
 
 	dataURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
@@ -116,7 +116,7 @@ func run(opts runOptions) error {
 	client := api.New(dataURL, token, controlURL, controlToken)
 	client.SetClientID(clientID)
 
-	if err := waitForBackend(client, 10*time.Second); err != nil {
+	if err := waitForBackend(client, child, 10*time.Second); err != nil {
 		return err
 	}
 
@@ -143,11 +143,30 @@ func run(opts runOptions) error {
 	window.SetContent(ui.NewWindow(client, clientID, store))
 	window.Resize(fyne.NewSize(1100, 700))
 
+	// Closing the window hides it while the tray is there: the backend is a
+	// child process, so downloads continue whether or not anyone is looking.
+	// Without a tray there would be no way back to the window, so closing it
+	// really does end the application.
+	//
+	// --no-tray is honoured rather than merely accepted: a flag that does
+	// nothing is worse than a missing one, because the person reading --help
+	// believes it did something.
+	var tray *ui.Tray
+	if !opts.NoTray {
+		tray = ui.NewTray(settings.Language,
+			func() { window.Show(); window.RequestFocus() },
+			a.Quit)
+		defer tray.Shutdown()
+	}
+	ui.CloseToTray(window, tray)
+
 	go func() {
 		// Quit when the backend dies on its own: a window whose backend is
 		// gone shows a list that will never update and reports errors nobody
-		// can act on.
-		_ = child.Wait()
+		// can act on. The reason goes out with it, because the window closing
+		// on its own explains nothing.
+		<-child.Exited()
+		fmt.Fprintln(os.Stderr, backend.DescribeExit(child.ExitError()))
 		a.Quit()
 	}()
 
@@ -159,7 +178,14 @@ func run(opts runOptions) error {
 //
 // The port is free at the moment it is picked but the child still has to bind
 // it; polling is simpler and no worse than a readiness pipe here.
-func waitForBackend(client *api.Client, timeout time.Duration) error {
+// waitForBackend polls until the backend answers.
+//
+// It watches the process as well as the clock, because a backend that died on
+// startup cannot become ready and waiting out the full timeout turns a precise
+// failure into ten seconds of silence followed by the wrong explanation. That is
+// not hypothetical: a port already in use produced exactly that, and the only
+// clue to the real cause was a line of output nobody was reading yet.
+func waitForBackend(client *api.Client, child *backend.Process, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -175,33 +201,10 @@ func waitForBackend(client *api.Client, timeout time.Duration) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("backend did not become ready in %s: %w", timeout, lastErr)
+		case <-child.Exited():
+			return errors.New(backend.DescribeExit(child.ExitError()))
 		case <-time.After(100 * time.Millisecond):
 		}
-	}
-}
-
-// stopBackend asks the child to finish, then insists.
-//
-// The backend flushes torrent ownership on the way out, so a plain Kill would
-// lose it — and the server hangs on shutdown if it is killed mid-flush, which
-// is a defect of its own rather than something to paper over here.
-func stopBackend(child *exec.Cmd) {
-	if child.Process == nil {
-		return
-	}
-
-	_ = child.Process.Signal(syscall.SIGTERM)
-
-	done := make(chan struct{})
-	go func() {
-		_ = child.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = child.Process.Kill()
 	}
 }
 

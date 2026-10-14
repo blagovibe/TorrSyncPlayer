@@ -54,6 +54,11 @@ type window struct {
 	entry     *widget.Entry
 	addButton *widget.Button
 
+	// socketPath is where mpv's control socket goes. Per process, so two
+	// instances on one machine — which the project's own tests do — cannot
+	// end up talking to each other's player.
+	socketPath string
+
 	mu       sync.RWMutex
 	torrents []Torrent
 	current  *Torrent
@@ -86,6 +91,7 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 		client:          client,
 		clientID:        clientID,
 		store:           store,
+		socketPath:      filepath.Join(os.TempDir(), fmt.Sprintf("torrsync-%d.sock", os.Getpid())),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		pendingRoomFile: -1,
 	}
@@ -379,7 +385,9 @@ func (w *window) onRoomEvent(e room.Event) {
 }
 
 func (w *window) showRoster() {
-	w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(w.roster.Peers()), ", ")))
+	onMain(func() {
+		w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(w.roster.Peers()), ", ")))
+	})
 }
 
 // adoptRoomTorrent adds the room's torrent to THIS client's backend.
@@ -404,7 +412,7 @@ func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
 	}
 
 	w.pendingRoomFile = ev.SelectedFile
-	w.entry.SetText(ev.MagnetURI)
+	onMain(func() { w.entry.SetText(ev.MagnetURI) })
 	w.setStatus("The room is watching " + ev.Name + " — adding it to your backend")
 	w.addTorrent()
 }
@@ -481,7 +489,7 @@ func (w *window) presentFiles(t *Torrent, files []fileEntry) {
 	w.files = files
 	w.mu.Unlock()
 
-	w.fileList.Refresh()
+	onMain(w.fileList.Refresh)
 	w.setStatus(w.tr("status.choose"))
 }
 
@@ -523,6 +531,23 @@ func (w *window) playFile(f fileEntry) {
 }
 
 // startPlayer launches mpv once and reuses it for the rest of the run.
+// mpvOptions is how this window asks for a player.
+//
+// Separate from startPlayer so the settings-to-launcher wiring can be checked
+// without launching mpv. That wiring is exactly what went missing once: the
+// configured binary sat in the settings file, was written and read back
+// faithfully, and no code ever asked for it — so a person who set it got
+// "no such file" and a setting that looked like it worked.
+func (w *window) mpvOptions() player.Options {
+	return player.Options{
+		// The configured mpv, if there is one. A person whose mpv is not on
+		// PATH — a flatpak, a bundle, a build under /opt — would otherwise get
+		// "no such file" and no way to say which binary to use.
+		Binary:     w.settings.PlayerBinary,
+		SocketPath: w.socketPath,
+	}
+}
+
 func (w *window) startPlayer() (*player.Player, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -536,9 +561,7 @@ func (w *window) startPlayer() (*player.Player, error) {
 		return nil, err
 	}
 
-	mpv, err := player.Start(context.Background(), player.Options{
-		SocketPath: filepath.Join(os.TempDir(), fmt.Sprintf("torrsync-%d.sock", os.Getpid())),
-	}, []string{header})
+	mpv, err := player.Start(context.Background(), w.mpvOptions(), []string{header})
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +608,7 @@ func (w *window) addTorrent() {
 			w.setStatus(w.trf("status.couldNot", err.Error()))
 			return
 		}
-		w.entry.SetText("")
+		onMain(func() { w.entry.SetText("") })
 		w.setStatus(w.trf("status.added", out.Name))
 		w.refresh()
 	}()
@@ -618,12 +641,23 @@ func (w *window) refresh() {
 	w.torrents = out.Torrents
 	w.mu.Unlock()
 
-	w.list.Refresh()
+	onMain(w.list.Refresh)
 	w.setStatus(w.trf("status.torrents", strconv.Itoa(len(out.Torrents))))
 }
 
+// onMain hands a widget change to Fyne's main thread.
+//
+// Fyne's widgets belong to the thread that runs the event loop, and almost
+// everything here arrives from somewhere else: a poll ticker, an HTTP call, the
+// room's SSE stream. Touching a widget from those goroutines is a data race
+// that Fyne warns about and then, in the next major release, refuses outright.
+// The test driver runs these inline, so tests see the change immediately.
+func onMain(fn func()) {
+	fyne.Do(fn)
+}
+
 func (w *window) setStatus(text string) {
-	w.status.SetText(text)
+	onMain(func() { w.status.SetText(text) })
 }
 
 // The icons are Fyne's own. Shipping a parallel set would be a second thing to
