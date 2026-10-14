@@ -6,12 +6,17 @@ on:
       - 'v*'
 
 env:
-  QT_VERSION: '6.8.3'
   GO_VERSION: '1.26.6'
+
+# Every step here fails the job. A release workflow that swallows errors does
+# not publish a broken application — it publishes nothing and reports success,
+# which is the failure mode this file was rewritten to end (bug-0070): the
+# previous version was entirely Qt, so every job died on `cmake` and `make
+# release` had been tagging into a red pipeline for a whole session.
 
 jobs:
   build-linux:
-    name: Build (Linux)
+    name: Build (Linux, AppImage)
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -22,96 +27,114 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: backend/go.sum
+          cache-dependency-path: frontend/go.sum
 
-      - name: Install dependencies
+      # Fyne builds through cgo and needs GL/X11 headers; mpv is shipped inside
+      # the image, so it is installed here to be packaged from.
+      - name: Install build and packaging dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential cmake ninja-build pkg-config \
-            libmpv-dev libgl1-mesa-dev libgl1-mesa-glx \
-            libxkbcommon-dev libxcb-cursor0 libfuse2
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1 \
+            mpv desktop-file-utils file fuse3
 
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'linux'
-          target: 'desktop'
-          arch: 'linux_gcc_64'
-          cache: true
-
-      - name: Build backend
-        working-directory: ./backend
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          VERSION="${VERSION#v}"
-          go build -ldflags "-s -w -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=${VERSION} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=${{ github.sha }} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o build/torrsyncplayer ./cmd/server
-
-      - name: Build frontend
+      - name: Build the application and the backend
         working-directory: frontend
+        env:
+          CGO_ENABLED: '1'
+        run: go run ./cmd/build -out ../dist
+
+      # The mark is drawn in code (internal/ui.IconPNG) and rendered here, so
+      # the icon in the package cannot drift from the icon in the tray.
+      - name: Render the icon
+        working-directory: frontend
+        run: go run ./cmd/icon -size 256 -out ../dist/torrsyncplayer.png
+
+      - name: Assemble the AppDir
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          cmake --build build
+          set -eu
+          APPDIR="dist/AppDir"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-      - name: Create AppImage
-        run: |
-          cd frontend/build
-          LINUXDEPLOY_VERSION="1-alpha-20240828-1"
-          BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
-          PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous"
+          cp dist/TorrSyncPlayer dist/torrsyncplayer "$APPDIR/usr/bin/"
+          cp "$(command -v mpv)" "$APPDIR/usr/bin/mpv"
+          cp dist/torrsyncplayer.png "$APPDIR/torrsyncplayer.png"
+          cp dist/torrsyncplayer.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png"
 
-          wget "${BASE_URL}/linuxdeploy-x86_64.AppImage" || { echo "Failed to download linuxdeploy"; exit 1; }
-          chmod +x linuxdeploy-x86_64.AppImage
-
-          # Download and make plugin executable
-          wget "${PLUGIN_URL}/linuxdeploy-plugin-qt-x86_64.AppImage" || { echo "Failed to download linuxdeploy-plugin-qt"; exit 1; }
-          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
-
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          cp TorrSyncPlayer AppDir/usr/bin/
-          cp ../../backend/build/torrsyncplayer AppDir/usr/bin/
-          chmod +x AppDir/usr/bin/torrsyncplayer AppDir/usr/bin/TorrSyncPlayer
-          cp ../resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png 2>/dev/null || true
-          cat > AppDir/usr/share/applications/torrsyncplayer.desktop << 'EOF'
+          cat > "$APPDIR/torrsyncplayer.desktop" <<'EOF'
           [Desktop Entry]
           Name=TorrSyncPlayer
+          Comment=Torrent player with synchronised watch parties
           Exec=TorrSyncPlayer
           Icon=torrsyncplayer
           Type=Application
-          Categories=AudioVideo;
+          Categories=AudioVideo;Player;Network;
           EOF
-          export QMAKE=$(which qmake6 || which qmake)
-          export LDAI_OUTPUT=TorrSyncPlayer
-          export QT_QPA_PLATFORM=offscreen
-          echo "=== Running linuxdeploy ==="
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run -e AppDir/usr/bin/TorrSyncPlayer --appdir AppDir --plugin qt --output appimage 2>&1 || { echo "linuxdeploy failed with exit code $?"; ls -la; exit 1; }
-          echo "=== Checking for AppImage ==="
-          # appimagetool creates file without .AppImage extension by default
-          # Need to add extension and make it executable
-          if [ -f TorrSyncPlayer-x86_64.AppImage ]; then
-              mv TorrSyncPlayer-x86_64.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
-          elif [ -f "TorrSyncPlayer" ] && [ ! -f TorrSyncPlayer-x86_64.AppImage ]; then
-              # Rename to proper AppImage name (appimagetool creates file without extension)
-              mv TorrSyncPlayer ../../TorrSyncPlayer-linux-x64.AppImage
-          elif [ -f TorrSyncPlayer.AppImage ]; then
-              mv TorrSyncPlayer.AppImage ../../TorrSyncPlayer-linux-x64.AppImage
-          else
-              echo "AppImage not found, listing all files:"; ls -la
-              exit 1
-          fi
 
-      - name: Upload AppImage
+          # A .desktop file that does not validate is a menu entry that does not
+          # appear, and that failure looks like "the application has no icon".
+          desktop-file-validate "$APPDIR/torrsyncplayer.desktop"
+
+          # AppRun is what makes the image runnable without installation: it
+          # points the loader at the libraries linuxdeploy put in usr/lib.
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          export PATH="${HERE}/usr/bin:${PATH}"
+          exec "${HERE}/usr/bin/TorrSyncPlayer" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+      # linuxdeploy copies each executable's shared libraries and wires up the
+      # runtime hooks. No plugin is used: there is no Qt here any more, and the
+      # Qt plugin was the reason every job in this file used to fail.
+      - name: Deploy the libraries and build the AppImage
+        run: |
+          set -eu
+          BASE_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
+          wget -q "${BASE_URL}/linuxdeploy-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          # TorrSyncPlayer (Fyne, cgo) and mpv are both deployed: mpv is shipped
+          # inside the image, so its codec libraries have to travel with it.
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --appdir dist/AppDir \
+            -e TorrSyncPlayer \
+            -e mpv \
+            --output appimage \
+            --verbosity error
+
+          test -f dist/TorrSyncPlayer-x86_64.AppImage \
+            || test -f dist/TorrSyncPlayer.AppImage \
+            || { echo "no AppImage was produced"; ls -la dist; exit 1; }
+
+      # The image existing is not the same as the image containing anything.
+      # Extracting it and looking is the cheapest check that catches an empty
+      # or malformed package before a person downloads it.
+      - name: Check the image actually contains the application
+        run: |
+          set -eu
+          APPIMAGE=$(ls dist/*.AppImage | head -1)
+          rm -rf /tmp/squashfs-root
+          ( cd /tmp && "$OLDPWD/$APPIMAGE" --appimage-extract >/dev/null )
+          for f in TorrSyncPlayer torrsyncplayer mpv AppRun torrsyncplayer.desktop; do
+            test -e "/tmp/squashfs-root/usr/bin/$f" || test -e "/tmp/squashfs-root/$f" || {
+              echo "the image is missing $f"; ls -la /tmp/squashfs-root /tmp/squashfs-root/usr/bin; exit 1; }
+          done
+          test -s /tmp/squashfs-root/usr/lib || {
+            echo "the image carries no libraries; it would only run on this runner"; exit 1; }
+          du -sh /tmp/squashfs-root
+
+      - name: Upload the AppImage
         uses: actions/upload-artifact@v7
         with:
           name: release-linux-x64
-          path: TorrSyncPlayer-linux-x64.AppImage
+          path: dist/*.AppImage
           retention-days: 7
 
   build-windows:
-    name: Build (Windows)
+    name: Build (Windows, zip)
     runs-on: windows-latest
     permissions:
       contents: read
@@ -122,78 +145,72 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: backend/go.sum
+          cache-dependency-path: frontend/go.sum
 
-      - name: Install Qt6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          addTools: true
-          additionalLibraries: 'openssl'
-          cache: true
-          setup-python: false
-
-      - uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Create embedded directory
-        run: New-Item -ItemType Directory -Force -Path frontend/build/embedded
+      # mpv is shipped beside the application rather than installed on the
+      # machine: the point of the zip is that unzipping it is the installation.
+      - name: Install mpv
         shell: pwsh
-
-      - name: Build backend
-        working-directory: ./backend
-        env:
-          VERSION: ${{ github.ref_name }}
         run: |
-          $version = $env:VERSION.TrimStart('v')
-          $ldflags = "-s -w -H windowsgui -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=$version -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=${{ github.sha }} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
-          go build -ldflags $ldflags -o ../frontend/build/embedded/torrsyncplayer.exe ./cmd/server
-        shell: pwsh
+          choco install mpv -y --no-progress
+          $mpv = (Get-Command mpv -ErrorAction Stop).Source
+          Write-Host "mpv: $mpv"
 
-      - name: Compute backend SHA256
-        run: |
-          $hash = (Get-FileHash -Algorithm SHA256 frontend/build/embedded/torrsyncplayer.exe).Hash.ToLower()
-          echo "EMBEDDED_HASH=$hash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "Backend SHA256: $hash"
-        shell: pwsh
-
-      - name: Build frontend (with embedded backend)
+      - name: Build the application and the backend
         working-directory: frontend
-        run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF `
-            -DEMBED_BACKEND=ON -DEMBED_BACKEND_PATH="${{ github.workspace }}/frontend/build/embedded/torrsyncplayer.exe" `
-            -DEMBED_BACKEND_SHA256="$env:EMBEDDED_HASH"
-          cmake --build build
         shell: pwsh
-        env:
-          # Frontend connects to localhost via HTTP (safe for embedded server)
-          # Backend runs locally without external network exposure
-          SERVER_SCHEME: "http"
+        run: go run ./cmd/build -out ../dist
 
-      - name: Deploy Qt runtime and package
-        working-directory: frontend/build
-        run: |
-          # Deploy with all required dependencies including SSL
-          windeployqt --release --no-translations TorrSyncPlayer.exe 2>&1
-          Remove-Item -Recurse -Force translations -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force qml -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force scintilla -ErrorAction SilentlyContinue
-          Remove-Item -Force *.pdb -ErrorAction SilentlyContinue
-          cd ..
-          Compress-Archive -Path build/TorrSyncPlayer.exe,build/*.dll,build/platforms,build/styles,build/imageformats,build/iconengines -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
+      - name: Assemble the release folder
         shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'bundle'
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
 
-      - name: Upload Windows artifact
+          Copy-Item dist/TorrSyncPlayer.exe,dist/torrsyncplayer.exe $bundle
+
+          # mpv and everything it needs: the Windows build keeps its libraries
+          # next to the executable, so the whole folder travels.
+          $mpvDir = Split-Path (Get-Command mpv -ErrorAction Stop).Source
+          Get-ChildItem $mpvDir -File |
+            Where-Object { $_.Extension -in '.exe','.dll','.txt','.json','.conf' } |
+            Copy-Item -Destination $bundle
+
+          Set-Content -Path "$bundle/READ ME FIRST.txt" -Encoding utf8 -Value @'
+          TorrSyncPlayer
+          ==============
+
+          Unzip anywhere and run TorrSyncPlayer.exe.
+
+          The application starts its own backend on a free port and needs no
+          installation, no service and no account. mpv ships beside it, so
+          nothing has to be installed for playback either.
+          '@
+
+          Compress-Archive -Path "$bundle/*" -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
+
+      - name: Check the archive contains the application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $entries = (Expand-Archive TorrSyncPlayer-windows-x64.zip -DestinationPath /tmp/unpacked -PassThru).FullName
+          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer.exe','mpv.exe') {
+            if (-not ($entries | Where-Object { $_ -like "*$f" })) {
+              Write-Error "the archive is missing $f"; $entries; exit 1
+            }
+          }
+          Write-Host "archive entries: $($entries.Count)"
+
+      - name: Upload the Windows artifact
         uses: actions/upload-artifact@v7
         with:
           name: release-windows-x64
-          path: frontend/TorrSyncPlayer-windows-x64.zip
+          path: TorrSyncPlayer-windows-x64.zip
           retention-days: 7
 
   build-macos:
-    name: Build (macOS)
+    name: Build (macOS, DMG)
     runs-on: macos-14
     permissions:
       contents: read
@@ -204,50 +221,76 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: backend/go.sum
+          cache-dependency-path: frontend/go.sum
 
-      - name: Install dependencies
-        run: |
-          brew install cmake ninja pkg-config
-          brew install mpv 2>/dev/null || echo "mpv install failed — building without mpv support"
+      - name: Install mpv
+        run: brew install mpv
 
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          cache: true
-
-      - name: Build backend
-        working-directory: ./backend
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          VERSION="${VERSION#v}"
-          go build -ldflags "-s -w -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Version=${VERSION} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.Commit=${{ github.sha }} -X github.com/blagovibe/TorrSyncPlayer/backend/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o build/torrsyncplayer ./cmd/server
-
-      - name: Build frontend
+      - name: Build the application and the backend
         working-directory: frontend
-        run: |
-          brew uninstall --ignore-dependencies mpv 2>/dev/null || true
-          export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:${PKG_CONFIG_PATH}"
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_DISABLE_FIND_PACKAGE_MPV=ON
-          cmake --build build
+        env:
+          CGO_ENABLED: '1'
+        run: go run ./cmd/build -out ../dist
 
-      - name: Create .app bundle and DMG
-        run: |
-          cd frontend/build
-          VERSION=${GITHUB_REF_NAME#v}
-          mkdir -p TorrSyncPlayer.app/Contents/MacOS
-          mkdir -p TorrSyncPlayer.app/Contents/Resources
-          cp TorrSyncPlayer TorrSyncPlayer.app/Contents/MacOS/
-          cp ../../backend/build/torrsyncplayer TorrSyncPlayer.app/Contents/MacOS/
-          cp ../resources/icons/app-icon.png TorrSyncPlayer.app/Contents/Resources/ 2>/dev/null || true
-          ${QT_ROOT_DIR}/bin/macdeployqt TorrSyncPlayer.app -dmg
-          mv TorrSyncPlayer.dmg ../../TorrSyncPlayer-macos-arm64.dmg
+      - name: Render the icon
+        working-directory: frontend
+        run: go run ./cmd/icon -size 256 -out ../dist/torrsyncplayer.png
 
-      - name: Upload macOS artifact
+      - name: Assemble the .app bundle
+        run: |
+          set -eu
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP="dist/TorrSyncPlayer.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+          cp dist/TorrSyncPlayer dist/torrsyncplayer "$APP/Contents/MacOS/"
+          # Homebrew's mpv is a symlink into the Cellar; the real file is what
+          # has to travel, or the bundle points at a prefix the user does not have.
+          cp -L "$(command -v mpv)" "$APP/Contents/MacOS/mpv"
+          cp dist/torrsyncplayer.png "$APP/Contents/Resources/torrsyncplayer.png"
+
+          cat > "$APP/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>TorrSyncPlayer</string>
+            <key>CFBundleDisplayName</key><string>TorrSyncPlayer</string>
+            <key>CFBundleIdentifier</key><string>com.blagovibe.torrsyncplayer</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleExecutable</key><string>TorrSyncPlayer</string>
+            <key>CFBundleIconFile</key><string>torrsyncplayer.png</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+
+      # An unsigned app is quarantined by Gatekeeper on first launch. Saying so
+      # in the release notes is better than a user meeting a blank refusal.
+      - name: Sign the bundle ad-hoc
+        run: codesign --force --deep --sign - dist/TorrSyncPlayer.app
+
+      - name: Build the DMG
+        run: |
+          set -eu
+          hdiutil create -volname "TorrSyncPlayer" -srcfolder dist/TorrSyncPlayer.app \
+            -ov -format UDZO TorrSyncPlayer-macos-arm64.dmg
+          test -s TorrSyncPlayer-macos-arm64.dmg
+
+      - name: Check the image actually contains the application
+        run: |
+          set -eu
+          hdiutil attach TorrSyncPlayer-macos-arm64.dmg -nobrowse -mountpoint /tmp/torrsync-dmg
+          for f in TorrSyncPlayer torrsyncplayer mpv; do
+            test -x "/tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/MacOS/$f" || {
+              echo "the image is missing $f"; ls -la /tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/MacOS; exit 1; }
+          done
+          hdiutil detach /tmp/torrsync-dmg
+
+      - name: Upload the macOS artifact
         uses: actions/upload-artifact@v7
         with:
           name: release-macos-arm64

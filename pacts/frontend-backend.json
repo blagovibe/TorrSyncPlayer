@@ -241,7 +241,8 @@
           "X-Client-ID": "pact-frontend"
         },
         "body": {
-          "name": "Pact Room"
+          "name": "Pact Room",
+          "torrentId": "0000000000000000000000000000000000000001"
         }
       },
       "response": {

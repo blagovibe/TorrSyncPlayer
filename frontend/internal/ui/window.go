@@ -83,6 +83,7 @@ type window struct {
 	inviteEntry  *widget.Entry
 	roomIDField  *widget.Entry
 	roomPassword *widget.Entry
+	createRoom   *widget.Button
 }
 
 // NewWindow builds the main window around a client.
@@ -179,11 +180,20 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 	w.inviteEntry = widget.NewEntry()
 	w.inviteEntry.SetPlaceHolder(w.tr("field.invite"))
 
+	// Opening a room sits next to joining one: they are the same two actions on
+	// the same panel, and before this button existed the panel could do only
+	// half of them. It starts disabled and wakes up when a torrent is picked —
+	// a room is bound to one, and a button that could only fail is worse than a
+	// grey one.
+	w.createRoom = widget.NewButtonWithIcon(w.tr("action.createRoom"), theme.ContentAddIcon(), w.onCreatePressed)
+	w.createRoom.Disable()
+
 	roomPanel := container.NewVBox(
 		container.NewHBox(
 			w.roomIDField,
 			w.roomPassword,
 			widget.NewButtonWithIcon(w.tr("action.join"), theme.MediaRecordIcon(), w.onJoinPressed),
+			w.createRoom,
 		),
 		container.NewHBox(
 			w.inviteEntry,
@@ -490,6 +500,7 @@ func (w *window) presentFiles(t *Torrent, files []fileEntry) {
 	w.files = files
 	w.mu.Unlock()
 
+	w.syncCreateRoom()
 	onMain(w.fileList.Refresh)
 	w.setStatus(w.tr("status.choose"))
 }

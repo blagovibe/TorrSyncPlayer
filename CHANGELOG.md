@@ -9,6 +9,201 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A room can be opened from the application.** `Session.Create` existed, was
+  bound to a torrent and covered by tests — and nothing in the interface ever
+  called it. The window could join a room but not open one, and since a room id
+  comes from the server, there was nothing to join either: the whole "watch
+  together" half of the product was unreachable from the app while README said
+  the host creates a room (deviation-0068). "Open a room" now sits next to
+  "Join", takes its name from the torrent that is already selected and its
+  password from the field the join form already has, and drops the invitation
+  code straight into the field the copy button reads — so the next thing a host
+  does is one click, not a menu. The button starts greyed out and wakes up
+  when a torrent is picked, because a room is bound to one and a button that
+  can only fail is worse than a disabled one.
+- The room name is **derived, not passed through**. The server accepts letters,
+  digits, spaces, hyphens and underscores up to 50 characters, while real
+  torrent names are "Movie.2024.1080p.BluRay.x264-GROUP.mkv" and "[SubsPlease]
+  Show - 01" — so sending the name unchanged is a 400 after the person has
+  already chosen a torrent and a password. `roomNameFor` strips what the rule
+  does not allow, collapses whitespace, cuts to the limit, and falls back to a
+  translated default when nothing usable survives. Without this the button
+  would have failed on roughly half of all torrents.
+- New catalogue keys in both languages: `action.createRoom`, `status.created`,
+  `room.defaultName`.
+
+### Fixed
+
+- The release workflow built the removed Qt application. Every job installed
+  Qt6, libmpv and cmake and configured a directory with no `CMakeLists.txt`, so
+  `make release` had been tagging into a red pipeline and producing no
+  artifacts at all (bug-0070). It is rewritten for the Go/Fyne pair: an AppImage
+  on Linux with `mpv` **inside** it, a zip on Windows carrying `mpv.exe` and its
+  DLLs, and an ad-hoc-signed `.app` in a DMG on macOS — the three formats
+  decided by the owner, with no auto-update in this pass.
+- **Every artifact is now checked for content after it is built.** The AppImage
+  is extracted and searched for the client, the backend, mpv, `AppRun` and a
+  non-empty `usr/lib`; the zip is unpacked and searched for both `.exe` files
+  and `mpv.exe`; the DMG is mounted and `Contents/MacOS` is listed. An artifact
+  that builds and is empty is now red instead of green — the previous file
+  would have published it.
+- `codeql.yml` ran a `['go', 'cpp']` matrix whose C++ leg installed Qt6, libmpv
+  and cmake and built a directory with no `CMakeLists.txt`, so that job had
+  been failing rather than analysing anything. It is one `go` leg now. The
+  frontend turns out to have been outside CodeQL's scope entirely: roughly six
+  thousand lines of client code that nothing was analysing, now built and
+  analysed alongside the backend.
+- `security.yml`'s `cpp-security` job ran `cppcheck` over a directory that no
+  longer exists and `scan-build` with cmake, both ending in `|| echo` — gates
+  that could not go red. Replaced by `gosec` over both modules. That job is
+  deliberately blocking: its first run may be red, which is the gate working,
+  and the findings get fixed rather than silenced.
+- The application icon is drawn in code and now available at any size:
+  `internal/ui.IconPNG`, with `frontend/cmd/icon` rendering it to a file at
+  packaging time. The Qt icon resources were deleted with the client, and
+  without this an AppDir and a `.desktop` entry would have shipped without one.
+  Drawing it from the same code the tray uses means the icon in the package and
+  the icon in the tray cannot drift apart — and `TestTheIconIsNotBlank` exists
+  because bug-0034 shipped sixteen PNGs that decoded from nothing.
+- **Removing a torrent with `--disk-storage` did not remove its data.**
+  `FileStorage.RemoveTorrent` removed `<dataDir>/<infohash>`, a directory
+  anacrolix never creates — it lays a torrent down as
+  `<dataDir>/<Info.BestName()>`. `os.RemoveAll` on a missing path returns nil,
+  so the removal reported success and the gigabytes stayed: the API answered
+  200, the torrent left the list, and the user was told it was gone (bug-0077).
+  It takes the name now. The sentinel name `metainfo.NoName` — a torrent whose
+  files sit directly in the data directory, mixed with everyone else's — removes
+  nothing, because there is nothing there that can be removed safely.
+- The build system still spoke Qt. Twelve `make` recipes — `frontend`,
+  `build`, `test-frontend`, `test-frontend-asan`, `test-frontend-tsan`,
+  `test-frontend-coverage`, `test-frontend-gmock`, `test-frontend-fuzz`,
+  `test-frontend-mutation`, `test-all`, `test-ci`, `test-full`,
+  `integration-test`, `e2e-test` — ran `cmake` in a directory that has had no
+  `CMakeLists.txt` since idea-0067, so the documented entry points for building
+  and testing the project had been failing for a whole session without anyone
+  noticing (bug-0069). They are rewritten against Go: `make frontend` runs the
+  documented pair build, `test-frontend` runs `go test` with
+  `FYNE_DRIVER=offscreen` and `CGO_ENABLED=1` (mandatory — without the
+  offscreen driver the tests *wait* for a window rather than failing, so there
+  would be no green run and no red one either), `test-frontend-race` matches
+  CI, and `integration-test` runs both ends of the seam: the backend's real
+  router, and the real backend binary driven by the real client. The
+  asan/tsan/gmock/fuzz/mutation recipes are gone rather than kept as
+  placeholders — none of those targets exist. `e2e-test` is gone too: after the
+  Qt removal the scenario tests *are* the end-to-end test, and a second name for
+  one thing invites one of the two to rot.
+- `contract-test-backend` assumed CI had already downloaded the pact FFI, which
+  made `make test-all` red on a green tree for a reason that had nothing to do
+  with the code. It now fetches the library itself on linux/amd64 and says
+  plainly what to do elsewhere (bug-0069).
+- The last traces of the deleted client are gone: `frontend/.clang-tidy`,
+  `scripts/fill_translations.py` (it filled `translations/*.ts`, which no longer
+  exist — catalogues are maintained by hand in `internal/catalog`), and
+  `tests/e2e/playwright`, whose spec asserted a login form with username and
+  password fields this project has never had and, by design, will never have
+  (bug-0069). `.gitignore` lost its Qt block and gained `frontend/dist/` and
+  `backend/.pact-ffi/`.
+- `go run ./cmd/build` put the two binaries in two different directories
+  whenever `-out` was relative — which is the invocation `DEV.md#Сборка`
+  documents first. `go build -o dist/x` resolves its `-o` against *its own*
+  module directory, and the two builds run from different modules (`.` and
+  `../backend`), so the client landed in `frontend/dist/` and the backend in
+  `backend/dist/`. The client looks for its backend beside itself, so the pair
+  this produces does not start. Output paths are made absolute before they are
+  handed to `go build`, while what the script prints is still what the caller
+  asked for (bug-0074). `frontend/cmd/build` had **no tests at all** and CI
+  only ever ran `go build ./...` on it, so nothing saw this — and a live run
+  with an absolute `-out` masked it. The invariant is now pinned by tests, with
+  the builder injected so proving it does not compile two binaries.
+- The pact provider test had not compiled since `e2fb119`: it called
+  `sync.NewService()` while the constructor has required a `HostChecker` since
+  that commit. The whole package is behind the `contract` build tag, so
+  `go build`, `go test`, `go vet` and `golangci-lint` all skipped it and only
+  the Pact job compiled it — meaning **that CI job has been red, not green,
+  since `e2fb119`**, while the changelog entry for the commit claimed
+  everything was verified (bug-0075).
+- The contract was then wrong in substance, which the compile error had been
+  hiding. `POST /rooms` requires `torrentId` since bug-0047 and the recorded
+  interaction had no such field, and the "user is in a room" provider states
+  were no-ops — a promise the provider never kept. They were written when the
+  sync handlers did not ask who was calling; they do now, resolving the
+  caller's room first and answering 400 without one, so three interactions
+  failed on the very state they claimed to be in. The room states now create a
+  real room through `p2pSvc.CreateRoom` for the client id the interactions
+  present, if it has none. Eleven interactions verify against the real router.
+- `lint-backend` now runs `go vet -tags contract ./...`. Without it, the next
+  changed constructor in the contract package breaks the same way, with nothing
+  but one distant job to notice.
+
+Fresh reconciliation: the zone was empty (the last commit touched this file and
+the tree was clean), so everything was checked rather than just the delta. Six
+findings went to the board as cards: `deviation-0068` (no way to create a room
+from the UI), `bug-0070` (the release workflow still builds the removed Qt
+app), `idea-0071` (the core promise has never been checked against a real
+swarm), `idea-0072` (the frontend is never compiled on macOS or Windows),
+`idea-0073` (nine English messages bypass the catalogue), `idea-0076` (the pact
+is now a hand-edited fixture). Verified: `make test-all` passes end to end on a
+green tree — 20 backend packages, 9 frontend packages, 11 pact interactions
+against the real router, 10 backend e2e tests, 5 scenario tests driving the real
+client against the real backend binary; `gofmt` and `go vet` clean; `make build`
+puts the pair in `frontend/dist/` and the built client starts its own backend.
+Reconciliation found 6 findings; the three bugs it uncovered are fixed and their
+cards removed (bug-0069, bug-0074, bug-0075).
+
+Second step of the same session: `deviation-0068` resolved — the room can be
+created, in `frontend/internal/ui/createroom.go` with the three decisions
+(`canCreateRoom`, `roomNameFor`, `invitationFor`) extracted so they can be
+tested without a widget. What this still does **not** cover is the click
+itself: the Fyne test driver does not deliver window events, so the path from
+the button to the session is unexercised end to end, and a live run can only
+show that the built application starts. Verified: 9 frontend packages green,
+`gofmt` and `go vet` clean, built client starts its backend with no errors in
+the log.
+
+Third step, `bug-0070`: release, CodeQL and security workflows rewritten for Go
+and Fyne; all four workflow files parse; the icon renders as a real 256×256 PNG,
+checked visually as well as by test; `make test-all` green. **Not verified: the
+workflows themselves.** No step of a release pipeline can run on a machine with
+no runner, no linuxdeploy and no appimagetool, so "rewritten" here means exactly
+that — the first execution is the next tag push, and the card stays
+`in_progress` until an artifact has actually been produced and run.
+
+Fourth step, `idea-0071`: **a real-swarm scenario is written and does not pass
+yet**, so the goal's first sentence is still unproven. The scaffolding is in
+`backend/internal/torrent/real_swarm_test.go` and `loopback_tracker_test.go` —
+two real anacrolix clients, a real .torrent, a real announce URL, and
+assertions that read piece priorities and stream a byte range the way the media
+endpoint does. What it established along the way, none of which the next session
+should have to rediscover:
+
+- **There is no tracker in the library.** `AnnounceTracker` is an interface with
+  no implementation anywhere in the module, so a minimal in-memory one was
+  written. It works: both clients register.
+- **The `nodes` list in a .torrent is a trap.** It looks like the cheap way to
+  avoid a tracker, but the library passes it to `AddDhtNodes`, and with
+  `NoDHT: true` there is no DHT server to pass it to, so the address is dropped
+  without a word. The first version of the test did exactly this and produced
+  zero pieces in sixty seconds while looking healthy.
+- **File storage is flat**: `<dataDir>/<Info.BestName()>`, with no infohash
+  directory. The wrong layout says `file has unexpected size ... size=60`,
+  which reads as "there is no data". Note that our own `FileStorage.RemoveTorrent`
+  deletes `baseDir/<infohash>` — that contradicts what anacrolix actually does,
+  and is a separate finding.
+- **This machine cannot hash file-backed pieces.** The default backend
+  memory-maps and fails with `mapping file: no such device`; with
+  `TORRENT_STORAGE_DEFAULT_FILE_IO=classic` it needs SEEK_DATA and fails with
+  `seeking to start of extent: invalid argument`, on tmpfs and on btrfs alike.
+  A probe (`requireFileBackedPieces`) skips the test where the machine cannot,
+  with the reason in the skip message rather than a green run that means nothing.
+
+What remains unexplained, and is the whole point of the exercise: once the
+layout is right the **seeder holds all 8 MiB, the tracker lists both peers, and
+not one byte is exchanged in thirty seconds**. That is the transfer itself, not
+storage and not discovery. The test reports this as a skip with the numbers in
+the message. Verified: `make test-all` green, 29 packages.
+
+### Added
+
 - Room ↔ Torrent binding (bug-0047, first step of idea-0046). Each room is now
   bound to a specific torrent infohash at creation time (`POST /rooms` requires
   `torrentId`; `POST /rooms/join` requires the same `torrentId` and the server

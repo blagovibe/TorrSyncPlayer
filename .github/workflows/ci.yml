@@ -45,6 +45,15 @@ jobs:
         working-directory: backend
         run: golangci-lint run --timeout=5m ./...
 
+      # The contract package is behind the `contract` build tag, so neither
+      # `go build ./...` nor `go vet ./...` nor `golangci-lint ./...` compiles
+      # it. A constructor changed in e2fb119 left `sync.NewService()` unfixed
+      # in the pact provider, the Pact job went red, and nothing else in the
+      # pipeline noticed. Vet it here so the package cannot rot unseen again.
+      - name: Vet the contract package
+        working-directory: backend
+        run: go vet -tags contract ./...
+
       - name: Check formatting
         working-directory: backend
         run: |

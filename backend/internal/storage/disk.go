@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // ClientImplCloser is re-exported from the underlying anacrolix storage so
@@ -36,13 +39,23 @@ func NewFileStorage(baseDir string) *FileStorage {
 	}
 }
 
-// RemoveTorrent deletes the on-disk piece directory for the given torrent
-// info-hash, reclaiming space left behind after the torrent is dropped from
-// the client. It is a no-op if the directory does not exist.
-func (f *FileStorage) RemoveTorrent(infoHash string) error {
-	dir := filepath.Join(f.baseDir, infoHash)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+// RemoveTorrent deletes the on-disk data of the torrent with the given name.
+//
+// The name, not the infohash, and that distinction is the whole point. anacrolix
+// lays a torrent down as <baseDir>/<Info.BestName()>/<File.BestPath()...> — flat,
+// with no directory per infohash — so removing baseDir/<infohash> removed a path
+// that is never created. os.RemoveAll on a missing path returns nil, so the
+// removal reported success and the data stayed: the API answered 200, the
+// torrent left the list, and the gigabytes remained on disk.
+//
+// The sentinel name means the torrent claims no directory of its own: anacrolix
+// writes its files straight into the base directory, where they sit mixed with
+// every other torrent's. Nothing here can be removed without taking those too,
+// so nothing is.
+func (f *FileStorage) RemoveTorrent(name string) error {
+	if name == "" || name == metainfo.NoName {
+		logger.Warn("Storage: torrent has no directory of its own, nothing to remove", "name", name)
 		return nil
 	}
-	return os.RemoveAll(dir)
+	return os.RemoveAll(filepath.Join(f.baseDir, name))
 }

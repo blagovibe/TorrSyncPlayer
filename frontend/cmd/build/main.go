@@ -32,19 +32,39 @@ func main() {
 	out := flag.String("out", "dist", "directory to put the runnable pair in")
 	flag.Parse()
 
-	if err := build(*out); err != nil {
+	if err := build(*out, goBuild); err != nil {
 		fmt.Fprintln(os.Stderr, "build:", err)
 		os.Exit(1)
 	}
 }
 
-func build(out string) error {
+// builder compiles one binary: in dir, from pkg (nil meaning the package in
+// dir), writing it to output.
+//
+// It is a parameter because the two builds run from different module
+// directories, and that is exactly where a relative output path stops meaning
+// what it looks like it means. Injecting it keeps that testable without
+// compiling anything twice per run.
+type builder func(dir, output string, pkg []string) error
+
+func build(out string, goBuild builder) error {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
 
+	// Every path handed to `go build` has to be absolute. The two builds run
+	// from different module directories — "." for the client, "../backend" for
+	// the server — and `go build -o dist/x` resolves that against its own
+	// module directory, not against the caller's. With a relative `out` that
+	// silently put the backend in backend/dist while the client went to
+	// frontend/dist, and the client looks for the backend beside itself.
+	absOut, err := filepath.Abs(out)
+	if err != nil {
+		return err
+	}
+
 	// The application.
-	app := filepath.Join(out, appName())
+	app := filepath.Join(absOut, appName())
 	if err := goBuild(".", app, nil); err != nil {
 		return fmt.Errorf("client: %w", err)
 	}
@@ -52,12 +72,15 @@ func build(out string) error {
 	// The backend, under the name the client looks for. On Windows the two
 	// differ by more than case — client.exe beside server.exe — which is why
 	// this is a decision and not a constant.
-	backendPath := filepath.Join(out, backendName())
+	backendPath := filepath.Join(absOut, backendName())
 	if err := goBuild("../backend", backendPath, []string{"./cmd/server"}); err != nil {
 		return fmt.Errorf("backend: %w", err)
 	}
 
-	fmt.Printf("%s\n%s\n", app, backendPath)
+	// Printed the way the caller asked for them rather than as absolute paths:
+	// what is on disk and what was requested are the same files, and the
+	// request is what the caller recognises.
+	fmt.Printf("%s\n%s\n", filepath.Join(out, appName()), filepath.Join(out, backendName()))
 	return nil
 }
 

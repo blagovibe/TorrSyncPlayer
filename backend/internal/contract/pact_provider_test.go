@@ -6,7 +6,9 @@
 package contract
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -65,6 +67,19 @@ func materialisePact(t *testing.T, token string) string {
 	return out
 }
 
+// The client id the recorded interactions present, and therefore the user the
+// room provider states have to set up. There are no accounts by design, so the
+// caller's identity is this header.
+const pactUserID = "pact-frontend"
+
+// pactTorrentID is a syntactically valid infohash for a torrent nobody has.
+//
+// A room is bound to a torrent and the binding is required, but p2p does not
+// look the torrent up — the service that owns the torrent is a different one —
+// and this contract is about the shape of the answer, not about downloading
+// anything.
+const pactTorrentID = "0000000000000000000000000000000000000001"
+
 // noopStateHandler does nothing: the backend manages its own per-request state,
 // so no pact provider state needs setup. Signature per pact-go v2
 // models.StateHandler.
@@ -72,8 +87,36 @@ func noopStateHandler(bool, models.ProviderState) (models.ProviderStateResponse,
 	return nil, nil
 }
 
+// inARoom establishes the precondition its name promises.
+//
+// It used to be a no-op, and that was true when it was written: the sync
+// handlers did not ask who was calling. They do now — every sync endpoint
+// resolves the caller's room first and answers 400 without one — so a no-op
+// turned "user is in a room" into a promise the provider never kept, and the
+// verification failed on the very state it claimed to be in.
+func inARoom(p2pSvc *p2p.Service) func(bool, models.ProviderState) (models.ProviderStateResponse, error) {
+	return func(bool, models.ProviderState) (models.ProviderStateResponse, error) {
+		ctx := context.Background()
+
+		// The verifier replays every interaction back to back, and the
+		// room-creation interaction already puts this client in a room.
+		// Creating another would leave the later sync interactions checking a
+		// room the caller is not in.
+		if _, err := p2pSvc.GetRoomInfo(ctx, pactUserID); err == nil {
+			return nil, nil
+		}
+
+		// CreateRoom makes the caller the host and puts them in the roster,
+		// which is what both room states describe.
+		if _, err := p2pSvc.CreateRoom(ctx, pactUserID, "Pact Room", "", pactTorrentID); err != nil {
+			return nil, fmt.Errorf("provider state: put %q in a room: %w", pactUserID, err)
+		}
+		return nil, nil
+	}
+}
+
 // stateHandlers maps every provider state named in the pact file.
-func stateHandlers() models.StateHandlers {
+func stateHandlers(p2pSvc *p2p.Service) models.StateHandlers {
 	states := []string{
 		"server is running",
 		"torrent exists",
@@ -87,6 +130,8 @@ func stateHandlers() models.StateHandlers {
 	for _, state := range states {
 		handlers[state] = noopStateHandler
 	}
+	handlers["user is in a room"] = inARoom(p2pSvc)
+	handlers["user is in a room and is host"] = inARoom(p2pSvc)
 	return handlers
 }
 
@@ -123,7 +168,14 @@ func TestPactProvider(t *testing.T) {
 	}
 	defer p2pSvc.Close()
 
-	syncSvc := sync.NewService()
+	// The p2p service is the host checker the sync service asks: only the host
+	// may drive playback. Production wires it the same way (cmd/server/main.go).
+	//
+	// This file is behind the `contract` build tag, which is why a changed
+	// constructor here stayed invisible: plain `go test ./...` and `go vet`
+	// never compile it, and only the pact job did — which means that job has
+	// been red, not green, since the checker was introduced (e2fb119).
+	syncSvc := sync.NewService(p2pSvc)
 	defer syncSvc.Close()
 
 	router := api.NewRouter(api.RouterConfig{
@@ -163,7 +215,7 @@ func TestPactProvider(t *testing.T) {
 		PublishVerificationResults: false, // set to true to publish to a Pact Broker
 		BrokerURL:                  os.Getenv("PACT_BROKER_URL"),
 		BrokerToken:                os.Getenv("PACT_BROKER_TOKEN"),
-		StateHandlers:              stateHandlers(),
+		StateHandlers:              stateHandlers(p2pSvc),
 		RequestTimeout:             60 * time.Second,
 	}
 

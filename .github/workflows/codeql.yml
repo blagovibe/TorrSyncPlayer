@@ -19,30 +19,37 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        language: ['go', 'cpp']
 
+    # One language, not two. The 'cpp' leg built the frontend with CMake, Qt6
+    # and libmpv — none of which exist since the Qt client was removed
+    # (bug-0070), so that leg had been failing rather than analysing anything.
+    # What it used to miss is picked up below: the frontend is Go, and it was
+    # never in scope for CodeQL at all, which is about six thousand lines of
+    # client code analysed by nothing.
     steps:
       - uses: actions/checkout@v7
 
       - uses: github/codeql-action/init@v4
         with:
-          languages: ${{ matrix.language }}
+          languages: go
 
-      - name: Build Go
-        if: matrix.language == 'go'
+      - name: Build Go (backend)
         working-directory: backend
         run: go build ./...
 
-      - name: Build C++
-        if: matrix.language == 'cpp'
+      # The client builds through cgo and needs GL/X11 headers. Without them the
+      # step fails with what looks like a project fault rather than a missing
+      # package.
+      - name: Build Go (frontend)
         working-directory: frontend
+        env:
+          CGO_ENABLED: '1'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qt6-base-dev qt6-svg-dev libmpv-dev libgl1-mesa-dev cmake g++
-          cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=OFF
-          cmake --build build
+          sudo apt-get install -y --no-install-recommends -qq \
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1
+          go build ./...
 
       - uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:go"

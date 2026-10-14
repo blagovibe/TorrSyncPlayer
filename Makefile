@@ -1,22 +1,33 @@
 # Root Makefile for TorrSyncPlayer
+#
+# Both halves are Go now: the backend and the Fyne client. There is no CMake in
+# this project any more, and a recipe that still calls it can only fail — the
+# Qt client it was written for is gone (idea-0067, bug-0069).
 
 .PHONY: all backend frontend test clean build release \
     test-backend test-backend-race test-backend-coverage test-backend-fuzz test-backend-mutation \
-    test-frontend test-frontend-asan test-frontend-tsan test-frontend-coverage \
-    test-frontend-gmock test-frontend-fuzz test-frontend-mutation \
-    contract-test contract-test-backend contract-test-frontend \
-    integration-test e2e-test \
+    test-frontend test-frontend-race test-frontend-coverage \
+    contract-test contract-test-backend contract-test-frontend pact-ffi \
+    integration-test \
     load-test chaos-test \
     test-all test-ci test-full
+
+# The frontend needs cgo and a GL toolchain, and its tests need a driver that
+# does not require a display. Without FYNE_DRIVER=offscreen the tests wait for a
+# window instead of failing, so there would be no green run — and no red one
+# either. CGO_ENABLED=1 matches CI.
+FYNE_ENV = FYNE_DRIVER=offscreen CGO_ENABLED=1
 
 all: backend
 
 backend:
 	$(MAKE) -C backend build
 
+# The client and the backend are a pair that cannot be separated at run time:
+# every participant runs its own backend, and the client looks for it beside
+# itself (internal/backend.FindBackend). This target builds the pair.
 frontend:
-	mkdir -p frontend/build
-	cd frontend/build && cmake .. -DCMAKE_BUILD_TYPE=Release && $(MAKE) -C frontend/build
+	cd frontend && go run ./cmd/build
 
 # Backend test targets
 test-backend:
@@ -39,98 +50,83 @@ test-backend-contract:
 
 # Frontend test targets
 test-frontend:
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) && \
-	ctest --output-on-failure
+	cd frontend && $(FYNE_ENV) go test ./...
 
-test-frontend-asan:
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_asan && \
-	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest -R "ASan" --output-on-failure
-
-test-frontend-tsan:
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_tsan && \
-	TSAN_OPTIONS=halt_on_error=1 ctest -R "TSan" --output-on-failure
+test-frontend-race:
+	cd frontend && $(FYNE_ENV) go test -race ./...
 
 test-frontend-coverage:
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) && \
-	ctest --output-on-failure && \
-	lcov --capture --directory . --output-file coverage.info && \
-	lcov --remove coverage.info '/usr/*' '*/tests/*' '*/mocks/*' --output-file coverage.clean.info && \
-	genhtml coverage.clean.info --output-directory coverage_html
+	cd frontend && $(FYNE_ENV) go test -coverprofile=coverage.out -covermode=atomic ./...
+	cd frontend && go tool cover -func=coverage.out | tail -1
 
-test-frontend-gmock:
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DBUILD_GMOCK=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_networkmanager_gmock test_torrentmanager_gmock test_roommanager_gmock && \
-	ctest -R "GMock" --output-on-failure
-
-# NOTE: there are no C++ fuzz targets. frontend/CMakeLists.txt defines no
-# fuzz_<name> target and frontend/tests/fuzz/ does not exist, so this recipe
-# never built or ran a fuzzer — every command was absorbed by `|| true`
-# (which also masked the cmake and make failures). Go fuzzing is real and runs
-# via `make test-backend-fuzz`; keep the name in sync with backend/internal/validation.
-test-frontend-fuzz:
-	@echo "C++ fuzzing - placeholder: no fuzz targets are defined in frontend/CMakeLists.txt"
-	@echo "Run Go fuzzing instead: make test-backend-fuzz"
-
-test-frontend-mutation:
-	@echo "C++ mutation testing with Mull - placeholder for future implementation"
+# No frontend fuzz or mutation targets exist, and none are declared. The
+# recipes that used to be here were C++ ones for targets that did not exist —
+# every command was absorbed by `|| true`, which is why the gap stayed hidden.
+# Go fuzzing is real and runs via `make test-backend-fuzz`; keep the list there
+# in step with backend/internal/validation.
 
 # Contract testing
 #
 # -tags contract обязателен: весь пакет internal/contract закрыт этим тегом.
 # Без него go test сообщает "matched no packages", и цель contract-test-backend
 # (а с ней test-all) падает, ничего не проверяя. CI использует тот же тег.
-contract-test-backend:
-	cd backend && go test -v -tags contract -run TestPactProvider ./internal/contract/...
+#
+# The pact FFI is a native library, and the recipe used to assume CI had already
+# fetched it. Locally that meant `make test-all` — the documented whole — was
+# red on a green tree for a reason that had nothing to do with the code. On
+# linux/amd64 the library is fetched here; elsewhere set PACT_FFI_DIR to a
+# directory that already holds it.
+PACT_FFI_VERSION ?= v0.4.28
+PACT_FFI_DIR ?= $(CURDIR)/backend/.pact-ffi
 
-# Frontend Pact consumer tests do not exist yet. The recipe used to build
-# test_networkmanager_contract / test_torrentmanager_contract /
-# test_roommanager_contract, none of which are declared in frontend/CMakeLists.txt,
-# and swallowed the failure with `|| true`. Removing the `|| true` alone would
-# have turned this into a target that can only ever fail, which is worse than
-# one that cannot: a developer running `make test-all` would hit a red build
-# with no way to fix it. Until the targets are declared, the step is absent
-# rather than fake. The backend side of that contract (pact provider) is
-# implemented and runs in CI. See DEV.md, "Соглашения по тестам".
+pact-ffi:
+	@if [ -f "$(PACT_FFI_DIR)/libpact_ffi.so" ]; then exit 0; fi
+	@if [ -f "$(PACT_FFI_DIR)/libpact_ffi.dylib" ]; then exit 0; fi
+	@if [ -f "$(PACT_FFI_DIR)/pact_ffi.dll" ]; then exit 0; fi
+	@mkdir -p "$(PACT_FFI_DIR)"
+	@case "$$(uname -s)/$$(uname -m)" in \
+	  Linux/x86_64) \
+	    echo "Fetching pact FFI $(PACT_FFI_VERSION)..."; \
+	    curl -sSL -o "$(PACT_FFI_DIR)/libpact_ffi.so.gz" \
+	      "https://github.com/pact-foundation/pact-reference/releases/download/libpact_ffi-$(PACT_FFI_VERSION)/libpact_ffi-linux-x86_64.so.gz" \
+	      && gunzip -c "$(PACT_FFI_DIR)/libpact_ffi.so.gz" > "$(PACT_FFI_DIR)/libpact_ffi.so" \
+	      && rm -f "$(PACT_FFI_DIR)/libpact_ffi.so.gz" \
+	      || { echo "Could not download the pact FFI library"; exit 1; };; \
+	  *) \
+	    echo "No prebuilt pact FFI for this platform. Put the library in" >&2; \
+	    echo "$(PACT_FFI_DIR) and re-run, or point PACT_FFI_DIR at it." >&2; \
+	    exit 1;; \
+	esac
+
+contract-test-backend: pact-ffi
+	cd backend && \
+	PACT_FFI_DIR="$(PACT_FFI_DIR)" \
+	CGO_LDFLAGS="-L$(PACT_FFI_DIR) -lpact_ffi" \
+	LD_LIBRARY_PATH="$(PACT_FFI_DIR)" \
+	DYLD_LIBRARY_PATH="$(PACT_FFI_DIR)" \
+	go test -v -tags contract -run TestPactProvider ./internal/contract/...
+
+# The Pact consumer for the client does not exist, and this is not a dead
+# recipe pretending otherwise: the contract is verified from the provider side,
+# and the client's conformance to it is what the scenario tests check — by
+# running the real backend binary and driving the real client against it. See
+# DEV.md, "Соглашения по тестам".
 contract-test-frontend:
-	@echo "SKIPPED: frontend contract tests are not implemented (no CMake targets)"
+	@echo "SKIPPED: no Pact consumer on the client; the scenario tests cover conformance"
 
 contract-test: contract-test-backend contract-test-frontend
 
 # Integration tests
+#
+# Two ends of the same seam. The backend runs its HTTP router for real
+# (TestE2E); the frontend starts the real backend binary and drives the real
+# client against it. Module tests cannot stand in for either: they feed the
+# parser the shape the parser expects, so code and test can agree with each
+# other and both disagree with the server — which is exactly how the P2PEvent
+# envelope bug survived.
 integration-test:
-	@echo "Running integration tests..."
-	@echo "Backend integration coverage is provided by the e2e suite (real router)."
-	cd backend && go test -v ./internal/api/... -run TestE2E
-	@echo "Frontend integration tests require running backend"
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_integration && \
-	ctest -R "Integration" --output-on-failure
-
-# End-to-end tests
-e2e-test:
-	@echo "Running E2E tests..."
-	@echo "1. Starting backend..."
-	cd backend && make build && \
-	./build/torrsyncplayer --port 8889 --auto-tls & \
-	sleep 5 && \
-	curl -k -s https://localhost:8889/health
-	@echo "2. Running Qt headless E2E tests..."
-	cd frontend && mkdir -p build && cd build && \
-	cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && \
-	make -j$(nproc) test_e2e && \
-	QT_QPA_PLATFORM=offscreen ctest -R "E2E" --output-on-failure
-	@echo "3. Running Playwright E2E tests..."
-	cd tests/e2e/playwright && npm ci && npx playwright test
+	$(MAKE) -C backend test-integration
+	cd frontend && $(FYNE_ENV) go test -timeout 10m ./internal/integration/...
 
 # Load/performance tests
 load-test:
@@ -152,19 +148,19 @@ chaos-test:
 test-all: test-backend test-frontend contract-test integration-test
 	@echo "All tests completed!"
 
-test-ci: test-backend-race test-frontend-gmock contract-test
+test-ci: test-backend-race test-frontend-race contract-test
 	@echo "CI test suite completed!"
 
 test-full: test-backend test-backend-race test-backend-coverage test-backend-fuzz \
-           test-frontend test-frontend-asan test-frontend-tsan test-frontend-coverage test-frontend-gmock \
-           contract-test integration-test e2e-test
+           test-frontend test-frontend-race test-frontend-coverage \
+           contract-test integration-test
 	@echo "Full test suite completed!"
 
 build: backend frontend
 
 clean:
 	$(MAKE) -C backend clean
-	rm -rf frontend/build frontend/build-fuzz
+	rm -rf frontend/dist frontend/coverage.out frontend/mutation.log
 
 ## release: Create and publish a release
 # Usage: make release VERSION=v1.0.0

@@ -41,20 +41,12 @@ go.work
 backend/coverage
 backend/coverage.html
 
-# Qt
-frontend/build/
-frontend/build-clang-tidy/
-frontend/cmake-build-*/
-moc_*
-ui_*
-*.qmlc
-*.jsc
-build-*/
-*.o
-*.so
-*.dylib
-*.a
-*.lib
+# The pact FFI library the contract tests link against. CI downloads it per
+# run; `make contract-test-backend` downloads it here. Not source.
+backend/.pact-ffi/
+
+# The Go frontend: the runnable pair `go run ./cmd/build` assembles.
+frontend/dist/
 
 # Editor
 *~

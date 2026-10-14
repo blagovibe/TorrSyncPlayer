@@ -5,11 +5,6 @@
 package ui
 
 import (
-	"bytes"
-	"image"
-	"image/color"
-	"image/png"
-	"math"
 	"sync"
 
 	"fyne.io/fyne/v2"
@@ -135,56 +130,17 @@ func hideOnClose(trayRunning bool) bool {
 // cosmetic detail into a failed start. Drawing it in code keeps the binary free
 // of an asset that has to be regenerated for every density a platform asks for,
 // and there is only one icon to draw: the application's own mark — a disc with
-// a play triangle on it.
+// a play triangle on it. See icon.go, which draws the same mark at any size
+// because packaging needs it as a file too.
 //
 // Encoded once: the icon never changes, and re-encoding it per call is waste.
-var trayIcon = sync.OnceValue(drawTrayIcon)
-
-func drawTrayIcon() []byte {
-	const size = 32
-
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	disc := color.NRGBA{R: 0x1f, G: 0x6f, B: 0xeb, A: 0xff}
-	triangle := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
-
-	centre, radius := float64(size)/2, float64(size)/2-1
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
-			dx, dy := float64(x)+0.5-centre, float64(y)+0.5-centre
-			dist := math.Sqrt(dx*dx + dy*dy)
-
-			// A one-pixel feather on the edge, because a hard-edged circle
-			// at 32 pixels reads as a jagged blob in a tray strip.
-			alpha := clamp01(radius - dist + 0.5)
-			if alpha == 0 {
-				continue
-			}
-
-			pixel := color.NRGBA{
-				R: uint8(float64(disc.R) * alpha),
-				G: uint8(float64(disc.G) * alpha),
-				B: uint8(float64(disc.B) * alpha),
-				A: uint8(255 * alpha),
-			}
-
-			// The play triangle: points right, centred a touch low so it looks
-			// centred against the disc rather than merely being centred.
-			if insideTriangle(float64(x), float64(y),
-				centre-4, centre-6,
-				centre-4, centre+6,
-				centre+7, centre) {
-				pixel = triangle
-			}
-			img.SetNRGBA(x, y, pixel)
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+var trayIcon = sync.OnceValue(func() []byte {
+	icon, err := IconPNG(trayIconSize)
+	if err != nil {
 		return nil
 	}
-	return buf.Bytes()
-}
+	return icon
+})
 
 func clamp01(v float64) float64 {
 	if v < 0 {

@@ -71,23 +71,45 @@ jobs:
           head: ""
           extra_args: "--only-verified"
 
-  # C++ security analysis (clang-static-analyzer alternative)
-  cpp-security:
-    name: C++ Security Analysis
+  # Static security analysis
+  #
+  # This used to be cppcheck and scan-build over frontend/src/, a directory that
+  # has not existed since the Qt client was removed, with `|| echo` swallowing
+  # whatever either tool had to say about it (bug-0070). A gate that cannot fail
+  # is not a gate, so both tools are gone and the role is taken by gosec, which
+  # analyses Go — including the frontend, which nothing was analysing before.
+  #
+  # This job is deliberately blocking. gosec exits non-zero when it finds
+  # something, so the first run may well be red: that is the gate working, not a
+  # regression, and the findings get fixed rather than silenced.
+  go-security:
+    name: Go Security Analysis
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run cppcheck
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.6'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec (backend)
+        working-directory: backend
+        run: |
+          "$(go env GOPATH)/bin/gosec" -quiet -fmt=github ./...
+
+      # cgo again: without the GL/X11 headers the client cannot be built, and
+      # skipping it would quietly return to analysing half the project.
+      - name: Run gosec (frontend)
+        working-directory: frontend
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cppcheck
-          cppcheck --enable=warning,performance,portability,style --suppress=missingIncludeSystem frontend/src/ || echo "cppcheck found issues (non-blocking)"
-
-      - name: Clang-static-analyzer (optional)
-        run: |
-          if command -v scan-build &> /dev/null; then
-            scan-build --status-bugs cmake -B build -DCMAKE_BUILD_TYPE=Debug frontend/ || echo "scan-build not available"
-          else
-            echo "clang-static-analyzer not available, skipping"
-          fi
+          sudo apt-get install -y --no-install-recommends -qq \
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1
+          CGO_ENABLED=1 "$(go env GOPATH)/bin/gosec" -quiet -fmt=github ./...

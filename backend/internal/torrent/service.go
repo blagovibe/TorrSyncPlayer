@@ -707,10 +707,12 @@ func (s *Service) RemoveTorrent(ctx context.Context, id, userID string) error {
 
 	s.backend.Drop(id)
 
-	// Reclaim on-disk piece data for disk-backed storage to avoid leaks.
+	// Reclaim on-disk piece data for disk-backed storage to avoid leaks. The name,
+	// not the id: anacrolix writes <dataDir>/<Info.BestName()>, so removing
+	// <dataDir>/<id> removed nothing and said so (bug-0077).
 	if s.storage != nil {
 		if fs, ok := s.storage.(*storage.FileStorage); ok {
-			if err := fs.RemoveTorrent(id); err != nil {
+			if err := fs.RemoveTorrent(torrentName); err != nil {
 				logger.Warn("Torrent: failed to remove disk storage for torrent", "torrentID", id, "error", err)
 			}
 		}
