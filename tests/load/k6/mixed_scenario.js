@@ -113,6 +113,10 @@ const roomByVU = [];
 const BASE_URL = __ENV.BASE_URL || 'https://localhost:8889';
 const ACCESS_TOKEN = __ENV.ACCESS_TOKEN;
 
+// Rooms must be bound to a torrent. Load testing cannot seed a swarm, so use
+// an ID that describes nothing: sharing warns, creation still returns 201.
+const LOAD_TEST_TORRENT_ID = '0000000000000000000000000000000000000000';
+
 function jsonHeaders() {
   return {
     'Content-Type': 'application/json',
@@ -171,7 +175,7 @@ function userJourney(token, vu) {
     group('Create Room', () => {
       const res = http.post(
         `${BASE_URL}/api/v1/rooms`,
-        JSON.stringify({ name: `LoadTest Room ${vu}` }),
+        JSON.stringify({ name: `LoadTest Room ${vu}`, torrentId: LOAD_TEST_TORRENT_ID }),
         { headers, timeout: '30s' }
       );
       roomCreateDuration.add(res.timings.duration);
@@ -269,7 +273,7 @@ export function teardown(data) {
 
   const created = http.post(
     `${BASE_URL}/api/v1/rooms`,
-    JSON.stringify({ name: 'LoadTest Teardown Room' }),
+    JSON.stringify({ name: 'LoadTest Teardown Room', torrentId: LOAD_TEST_TORRENT_ID }),
     { headers, timeout: '30s' }
   );
   check(created, { 'teardown create room 201': (r) => r.status === 201 });
