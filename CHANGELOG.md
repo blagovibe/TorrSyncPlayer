@@ -1678,67 +1678,53 @@ header-based since idea-0066. What changed is that it is now the *only* client,
 so the assumption can no longer survive by living in `frontend/src/` alongside
 a working one.
 
-### The film's other voices are finally reachable
+### The release workflow, read line by line before the first tag
 
-A film rarely arrives with one voice. mpv has always known every audio and
-subtitle track in the file, and until now the application asked for none of it: a
-person watching a foreign film with a muxed Russian dub had no way to reach the
-dub from here, and no way to reach subtitles either. mpv could switch; nothing in
-this project ever told it to (idea-0080).
+The release pipeline was rewritten for the Go/Fyne pair and has never been run —
+which the card for it says out loud, and which is the only honest state: every
+command in it had been checked by CI except the ones only this file contains. So
+it was read the way the rest of the project is read, and three defects fell out,
+none of which a tag would have shown cheaply.
 
-The player layer gained the two commands it was missing. `Tracks` asks mpv once —
-`get_property track-list` — and filters, because mpv answers with everything
-mixed together: video tracks, chapters and audio in one array, and a chooser that
-handed that to a person would offer a video track as a language. `SelectTrack`
-sends `set_property audio`/`sub`, not `aid`/`sid`: those are readable aliases that
-look settable and silently do nothing, which is the worst kind of non-feature —
-nothing fails and nothing changes. Its reply is read rather than ignored, because
-a track switch is the one command whose failure a person can only discover by
-noticing the film did not change.
+**linuxdeploy was given names instead of paths.** `-e TorrSyncPlayer -e mpv` — from
+the working directory, where neither exists: the binaries are in `dist/`. The
+tool's own source settles it: for every `-e` it calls `fs::exists` and returns 1
+otherwise, so the job would have died on "No such file or directory" before a
+single library was bundled. Now `-e dist/TorrSyncPlayer -e dist/AppDir/usr/bin/mpv`.
+This was not cosmetic: the client is a cgo/Fyne binary and needs twenty-five
+shared libraries, so an image built without a working `-e` would have run on the
+runner and nowhere else.
 
-`Track.Label()` is how a track is named, and it is a function rather than a format
-string in the caller because every combination occurs in real files: a remux with
-a title and no language, a rip with a language and no title, and a track that is
-only a number. Concatenating whatever happens to be there produces `" ( )"` for
-the third kind, which is what a person would see exactly when the useful half is
-missing.
+**The release notes for a new tag were empty.** The extraction looks for
+`## [<version>]`, and this changelog has only `[Unreleased]` — so for the first
+tag it produced zero bytes and fell back to a one-line `Release ${VERSION}`,
+throwing away ~126 KB of everything written since v1.1.5. The convention this
+journal follows is that `[Unreleased]` holds exactly what is about to ship, so
+that is what it now takes, with a header saying where the notes came from.
 
-The window gained two choosers, above the lists, hidden until there is something
-to choose. The decisions behind them are separated from the widgets because they
-are the kind that fails silently otherwise: the rows carry the label *and* mpv's
-id as a pair, because deriving one from the other by position breaks the moment
-either is sorted or filtered; subtitles get an off switch in front, because mpv
-spells "no subtitles" as track zero and a file that came with subtitles nobody
-asked for cannot otherwise be silenced; one voice is most films and gets no
-chooser at all, while a single subtitle track does get one, because "off" is
-already a decision; and the chooser opens on the track mpv says is playing rather
-than on the first row, or it tells the person the film came with the wrong dub.
-Every new string goes through the catalogue in both languages.
+**And the extraction matched prose.** The pattern was an unanchored substring
+match, so a line of *prose* that quotes a heading hijacked it — and this journal
+quotes its own headings constantly, including the entry about this very step. For
+`v1.1.5` the notes started in the middle of somebody's paragraph (108 KB of the
+wrong content); anchored at the start of the line they are the section's 35 lines.
 
-The tracks are loaded after playback starts and polled until the first answer,
-because mpv indexes a file's streams as it reads them and no code should guess
-that moment. Selecting sends the id behind the label the person read and reports
-mpv's refusal if there is one, naming the row.
+Windows got a guard rather than a guess. `Get-Command mpv` resolves whatever comes
+first on PATH, and on a chocolatey machine that is the shim in
+`ProgramData\chocolatey\bin`, a directory holding one `.exe` and nothing else.
+Copying it would ship a launcher without a player, and the archive check — which
+looks for `mpv.exe` — would have passed. The job now fails when no DLL sits next
+to mpv, because that is the difference between a bundle and a stub.
 
-Checked two ways, because the protocol is exactly what two pieces of code agree
-on while both being wrong. Against a fake mpv — a JSON IPC server on a socket that
-answers one canned reply — the wire shape, the filtering, the naming, the zero for
-"off", and "property not found" arriving as an error rather than as an empty list.
-And against the real binary, with ffmpeg building a small mkv carrying two audio
-tracks and a subtitle: `TestRealMpvListsAndSwitchesTracks` switches both and
-watches mpv confirm it. That test found the one thing worth knowing about this
-feature: mpv applies a subtitle switch asynchronously, so the wait is fifteen
-seconds rather than the five that failed roughly one run in fifteen — and a test
-that fails one time in fifteen teaches everyone to re-run it rather than to look.
+Checked and *not* defects, so they are not "fixed": `upload-artifact@v7`,
+`download-artifact@v8` and `action-gh-release@v3` all exist (verified against the
+GitHub releases API, not assumed — CI still pins `upload-artifact@v4`, which also
+works); all fifteen shell steps parse under `bash -n`; all four workflows parse as
+YAML. And the parts a runner would have done were done here: the pair builds, the
+icon renders, `desktop-file-validate` accepts the entry, `AppRun` parses.
 
-Board: `idea-0080` carried out for what the owner chose first — audio and subtitle
-tracks inside the container. The card stays on the board, narrowed to what is left
-and back to `raw`, because the rest is a decision rather than work: a subtitle that
-is a file in the torrent needs either disk storage (idea-0081) or a subtitle
-endpoint, and nothing has been decided.
+What is still missing is the one thing that closes the card: the workflow has not
+been run by a tag. That is the owner's action, not the agent's.
 
-Verified: 515 tests green in both modules, `internal/ui`, `internal/player` and
-`internal/api` also under `-race`; `gofmt`, `go vet` and `go build` clean.
 
 ## [v1.1.5] - 2026-07-12
 

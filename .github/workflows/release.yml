@@ -89,6 +89,12 @@ jobs:
       # linuxdeploy copies each executable's shared libraries and wires up the
       # runtime hooks. No plugin is used: there is no Qt here any more, and the
       # Qt plugin was the reason every job in this file used to fail.
+      #
+      # The paths are paths, not names: linuxdeploy checks `fs::exists` on every
+      # -e argument and exits 1 otherwise, and `TorrSyncPlayer`/`mpv` are not in
+      # the working directory — the binaries sit in dist/ (both of them: mpv was
+      # copied into the AppDir above). A bare name made this step fail with
+      # "No such file or directory" before a single library was bundled.
       - name: Deploy the libraries and build the AppImage
         run: |
           set -eu
@@ -100,8 +106,8 @@ jobs:
           # inside the image, so its codec libraries have to travel with it.
           ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir dist/AppDir \
-            -e TorrSyncPlayer \
-            -e mpv \
+            -e dist/TorrSyncPlayer \
+            -e dist/AppDir/usr/bin/mpv \
             --output appimage \
             --verbosity error
 
@@ -172,10 +178,20 @@ jobs:
 
           # mpv and everything it needs: the Windows build keeps its libraries
           # next to the executable, so the whole folder travels.
+          #
+          # The DLL count is checked, and that is not paranoia: `Get-Command mpv`
+          # resolves whatever comes first on PATH, and on a chocolatey machine
+          # that is the shim in ProgramData\chocolatey\bin, a directory holding
+          # one .exe and nothing else. Copying it would ship a launcher without
+          # a player, and the check below — which looks for mpv.exe — would pass.
           $mpvDir = Split-Path (Get-Command mpv -ErrorAction Stop).Source
-          Get-ChildItem $mpvDir -File |
-            Where-Object { $_.Extension -in '.exe','.dll','.txt','.json','.conf' } |
-            Copy-Item -Destination $bundle
+          $mpvFiles = Get-ChildItem $mpvDir -File |
+            Where-Object { $_.Extension -in '.exe','.dll','.txt','.json','.conf' }
+          if (@($mpvFiles | Where-Object { $_.Extension -eq '.dll' }).Count -eq 0) {
+            Write-Error "no DLLs next to mpv in $mpvDir — that is a shim, not the installation"
+            exit 1
+          }
+          $mpvFiles | Copy-Item -Destination $bundle
 
           Set-Content -Path "$bundle/READ ME FIRST.txt" -Encoding utf8 -Value @'
           TorrSyncPlayer
@@ -323,17 +339,44 @@ jobs:
 
       - name: Extract release notes from CHANGELOG.md
         run: |
+          set -eu
           VERSION="${GITHUB_REF_NAME#v}"
-          awk -v ver="$VERSION" '
-            $0 ~ "## \\[" ver "\\]" { found=1; next }
-            $0 ~ "## \\[v" ver "\\]" { found=1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
+
+          # One awk, one job: print the section for a version. `found && /^## /`
+          # is what stops it at the next heading — without that it would print
+          # the whole file after the first match.
+          #
+          # Every pattern is anchored at the start of the line. Unanchored, a
+          # prose line that merely quotes a heading — and this journal quotes its
+          # own headings constantly, including the one about this very step —
+          # would start the extraction mid-sentence and publish the middle of
+          # somebody's paragraph as the release notes.
+          section() {
+            awk -v ver="$1" '
+              $0 ~ "^## \\[" ver "\\]" { found=1; next }
+              $0 ~ "^## \\[v" ver "\\]" { found=1; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md
+          }
+
+          section "$VERSION" > release-notes.md || true
+
+          # A tag has no section of its own until somebody writes one, and the
+          # convention this file follows (Keep a Changelog) is that [Unreleased]
+          # holds exactly what is about to ship. Publishing the fallback note
+          # instead would throw away every line of the release, which is the
+          # whole reason the notes exist.
           if [ ! -s release-notes.md ]; then
-            echo "Warning: no release notes found for v${VERSION} in CHANGELOG.md" >&2
-            echo "Release ${VERSION}" > release-notes.md
+            echo "No [${VERSION}] section in CHANGELOG.md, using [Unreleased]" >&2
+            {
+              echo "Release ${VERSION} — notes below are the [Unreleased] section:"
+              echo "the changelog has no [${VERSION}] section for this tag."
+              echo
+              section "Unreleased"
+            } > release-notes.md
           fi
+
           echo "Notes:"
           cat release-notes.md
 
@@ -346,7 +389,13 @@ jobs:
             artifacts/*.dmg
             artifacts/*.zip
             artifacts/SHA256SUMS
-          draft: false
-          prerelease: false
+          # A tag carrying a suffix (v1.2.0-rc.1) is not a finished release, and
+          # two things follow from that. It is marked as a pre-release, and it is
+          # left as a draft: the artifacts are built and attached, but nobody can
+          # see them until somebody looks at them and publishes. Publishing an rc
+          # as a full release would tell the world it is stable, which is the one
+          # thing an rc is not.
+          draft: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
