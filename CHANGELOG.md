@@ -228,6 +228,24 @@ the message. Verified: `make test-all` green, 29 packages.
   attempts on a server that was answering every list request correctly.
 - `codeql.yml` analysed the runner's preinstalled Go instead of the pinned one,
   so what CodeQL compiled could differ from what the pipeline builds and gates.
+- **`PickFreePort` listened on `:0`, which really does bind every interface.**
+  The port it hands out travels in a URL given to mpv on the same machine, so
+  it should never have been reachable from outside it — and the comment beside
+  the function claimed exactly that while the code did the opposite. It binds
+  `127.0.0.1:0` now. This is gosec G102, and it only surfaced because the
+  Security workflow finally ran over the frontend.
+- That first frontend `gosec` run also found two `0o755` directories and a
+  `0o644` file in the packaging tools, three subprocess launches it could not
+  see were safe, and a G101 on the catalogues — gosec matches any map key
+  containing "password" that holds a string value, and a UI catalogue is
+  nothing but string values keyed by name. Renaming the key to
+  `field.roomPassword` did not help, because "Password" is still the match;
+  the suppression went on the declaration with the reason, rather than the key
+  being made vague enough to slip past the heuristic.
+- The Security workflow had no `workflow_dispatch`, so a weekly-only gate
+  could not be re-run after fixing anything: the finding is fixed, the path
+  triggers do not change, and the only way to learn it is green is to wait
+  until Monday. It is runnable on demand now.
 
 ### Added
 
