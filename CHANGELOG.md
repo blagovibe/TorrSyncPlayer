@@ -1678,6 +1678,37 @@ header-based since idea-0066. What changed is that it is now the *only* client,
 so the assumption can no longer survive by living in `frontend/src/` alongside
 a working one.
 
+### The goal stops describing machinery that no longer exists
+The concept still told the reader two things that stopped being true when the Qt
+client and the bearer ticket went away, and both were telling in the wrong
+direction: they *understated* what the project does.
+
+`/stream` was documented as the one exception — "the token is not checked", with
+access granted by a short-lived signed `?ticket=` that could be handed to anyone.
+That has not been the case since mpv turned out to be able to send headers
+(`--http-header-fields`): the media endpoint is an ordinary authenticated route,
+and a room-scoped `CanRead` check sits in front of it, so somebody holding the
+process token but not sitting in the room gets a 403. The paragraph is replaced by
+what is actually true. It is worth saying which way this error pointed: the goal
+described a hole that had been closed, so anyone reading the goal believed the
+contents of a torrent were reachable by anyone with a ticket. Principle 9 exists
+so that the goal describes the target state rather than the current code; here the
+target state was better than the description.
+
+The "what is included" list said "video playback via libmpv in a Qt window". The
+frontend is Go/Fyne and the video plays in an `mpv` process the application talks
+to over a JSON socket — one binary, three platforms, no ABI to break (idea-0067).
+The list now says that.
+
+Audit after the goal edit, by cards whose `refs` point at the two changed
+sections: `deviation-0039` and `deviation-0061` (both point at "Доступ без лишних
+хлопот") were read and found unaffected — neither is about the stream endpoint's
+authentication, and neither's compromise changes; `bug-0070` (points at "Границы
+проекта") was read and found unaffected too, since the release job packs mpv as an
+external process already. Their statuses are unchanged, and the reasoning is
+recorded in their discussions. **Board: `idea-0079` accepted and carried out, card
+removed** — its history is here.
+
 Board: `idea-0066` (steps 1-3 done), `deviation-0029` (resolved: tickets
 removed), `idea-0067` (accepted and carried out) -- removed from the board; their
 history is here. `idea-0063` stays open: the scenario passes and the client
