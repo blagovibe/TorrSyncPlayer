@@ -67,13 +67,6 @@ func applyAuthHeaders(req *http.Request) {
 	req.Header.Set(auth.HeaderClientID, "test-client")
 }
 
-// applyAuthContext sets the client ID in the request context as TokenMiddleware would.
-func applyAuthContext(req *http.Request) {
-	const clientIDKey = "torrsyncplayer.clientID"
-	ctx := context.WithValue(req.Context(), clientIDKey, "test-client")
-	*req = *req.WithContext(ctx)
-}
-
 // applyAuthHeadersAs attaches auth headers for a specific client id. Needed for
 // multi-peer tests: the shared access token is per-process, so peers differ only
 // by X-Client-ID — which is exactly what the host model and the room
@@ -86,8 +79,12 @@ func applyAuthHeadersAs(req *http.Request, clientID string) {
 // TestMain создаёт общие сервисы для всех API-тестов
 func TestMain(m *testing.M) {
 	// Increase rate limits for tests to avoid 429 errors
-	os.Setenv(constants.EnvAPIRateLimit, "100")
-	os.Setenv(constants.EnvAPIRateBurst, "1000")
+	if err := os.Setenv(constants.EnvAPIRateLimit, "100"); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv(constants.EnvAPIRateBurst, "1000"); err != nil {
+		panic(err)
+	}
 
 	// Инициализируем логгер до создания сервисов
 	logger.Init("error", "text")

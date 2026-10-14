@@ -28,11 +28,11 @@ func TestRemovingATorrentDeletesWhatAnacrolixWrote(t *testing.T) {
 
 	// How anacrolix lays a torrent down: <base>/<info name>/<file path>.
 	filmDir := filepath.Join(base, "film.mkv")
-	if err := os.MkdirAll(filepath.Join(filmDir, "extras"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(filmDir, "extras"), 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	for _, name := range []string{"film.mkv", "extras/subtitles.srt"} {
-		if err := os.WriteFile(filepath.Join(filmDir, filepath.FromSlash(name)), []byte("data"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(filmDir, filepath.FromSlash(name)), []byte("data"), 0o600); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
@@ -40,10 +40,10 @@ func TestRemovingATorrentDeletesWhatAnacrolixWrote(t *testing.T) {
 	// A second torrent that must survive: removing one torrent is not a licence
 	// to empty the storage.
 	other := filepath.Join(base, "other.release")
-	if err := os.MkdirAll(other, 0o755); err != nil {
+	if err := os.MkdirAll(other, 0o750); err != nil {
 		t.Fatalf("mkdir other: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(other, "other.mkv"), []byte("data"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(other, "other.mkv"), []byte("data"), 0o600); err != nil {
 		t.Fatalf("write other: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestRemovingATorrentThatIsNotThereSucceeds(t *testing.T) {
 // other torrents with it.
 func TestRemovingATorrentWithNoNameDoesNotEmptyTheStorage(t *testing.T) {
 	base := t.TempDir()
-	if err := os.WriteFile(filepath.Join(base, "loose.mkv"), []byte("data"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(base, "loose.mkv"), []byte("data"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 

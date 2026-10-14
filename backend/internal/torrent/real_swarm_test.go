@@ -64,10 +64,10 @@ func TestAPartialTorrentIsPlayableAndWhatIsPlayingIsFetchedFirst(t *testing.T) {
 	// The seeder is a real service on real disk, holding the complete payload,
 	// exactly like a participant who already has the film.
 	seedDir := filepath.Join(t.TempDir(), "seed")
-	if err := os.MkdirAll(seedDir, 0o755); err != nil {
+	if err := os.MkdirAll(seedDir, 0o750); err != nil {
 		t.Fatalf("seed dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(seedDir, info.Name), payload, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(seedDir, info.Name), payload, 0o600); err != nil {
 		t.Fatalf("seed file: %v", err)
 	}
 
@@ -81,14 +81,14 @@ func TestAPartialTorrentIsPlayableAndWhatIsPlayingIsFetchedFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeder: %v", err)
 	}
-	defer seeding.Close()
+	defer func() { _ = seeding.Close() }()
 
 	if _, err := seeding.AddTorrent(ctx, "seeder", bytes.NewReader(info.Raw)); err != nil {
 		t.Fatalf("seeder did not take the torrent: %v", err)
 	}
 
 	leecher := newSwarmPeer(t, rate.NewLimiter(rate.Limit(leecherRate), leecherRate))
-	defer leecher.Close()
+	defer func() { _ = leecher.Close() }()
 
 	got, err := leecher.AddTorrent(ctx, "leecher", bytes.NewReader(info.Raw))
 	if err != nil {
@@ -197,7 +197,7 @@ func buildSwarmTorrent(t *testing.T, payload []byte, announce string) swarmTorre
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "film.mkv")
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		t.Fatalf("payload: %v", err)
 	}
 
@@ -287,10 +287,10 @@ func requireFileBackedPieces(t *testing.T) {
 	payload := testPayload(probe)
 	info := buildSwarmTorrent(t, payload, startLoopbackTracker(t))
 
-	if err := os.MkdirAll(base, 0o755); err != nil {
+	if err := os.MkdirAll(base, 0o750); err != nil {
 		t.Fatalf("probe dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(base, info.Name), payload, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(base, info.Name), payload, 0o600); err != nil {
 		t.Fatalf("probe file: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func requireFileBackedPieces(t *testing.T) {
 	if err != nil {
 		t.Skipf("this machine cannot run a local torrent client at all: %v", err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	got, err := svc.AddTorrent(context.Background(), "probe", bytes.NewReader(info.Raw))
 	if err != nil {

@@ -13,9 +13,10 @@ import (
 
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
 )
 
 // bug-0053: restoring a torrent after a restart must reproduce the *same*

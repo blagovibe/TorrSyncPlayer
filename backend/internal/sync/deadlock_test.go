@@ -53,8 +53,8 @@ func TestSyncWriteOpsWithPersistenceDoNotDeadlock(t *testing.T) {
 			room := "room-" + strconv.Itoa(i)
 			ctx := context.Background()
 			userID := "user-" + strconv.Itoa(i)
-			svc.Play(ctx, room, userID)
-			svc.Pause(ctx, room, userID)
+			_, _ = svc.Play(ctx, room, userID)
+			_, _ = svc.Pause(ctx, room, userID)
 			if _, err := svc.Seek(ctx, room, userID, float64(i)); err != nil {
 				t.Errorf("Seek: %v", err)
 			}

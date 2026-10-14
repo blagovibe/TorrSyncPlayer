@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // stubBackend is a TorrentBackend with no torrent machinery behind it. It lets
@@ -336,7 +335,7 @@ func TestServiceOverBackend_TorrentInfoShape(t *testing.T) {
 	info, err := svc.AddMagnet(context.Background(), "peer-a", testMagnet)
 	require.NoError(t, err)
 
-	var typed *models.TorrentInfo = info
+	var typed = info
 	require.NotNil(t, typed)
 	assert.Equal(t, "abc123", typed.ID)
 	assert.Equal(t, int64(3000), typed.Size)

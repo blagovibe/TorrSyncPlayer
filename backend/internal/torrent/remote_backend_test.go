@@ -157,8 +157,6 @@ func newGatewayBackendForTest(t *testing.T, g *fakeGateway) *remoteBackend {
 	return backend.(*remoteBackend)
 }
 
-func sampleFilesRemoved() {}
-
 func TestGatewayBackend_AddMagnet(t *testing.T) {
 	g := &fakeGateway{
 		name:        "Big Buck Bunny",

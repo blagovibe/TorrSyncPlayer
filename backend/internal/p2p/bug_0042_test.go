@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // bug-0042: SetPeerBuffering nil deref + emitEvent race on closed channel.
@@ -83,7 +84,7 @@ func TestEmitEvent_NoPanicOnConcurrentClose(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Close the service while emits are in flight
-	svc.Close()
+	_ = svc.Close()
 
 	// Wait for all goroutines to finish (with timeout)
 	done := make(chan struct{})

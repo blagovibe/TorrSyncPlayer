@@ -10,11 +10,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 )
 
 // /stream used to be reachable by anyone holding a signed ticket in the URL,
@@ -138,14 +139,10 @@ type servedTorrent struct {
 	body     string
 	servedAs string
 	denied   bool
-	readable bool
 }
 
 func (s *servedTorrent) CanRead(_ context.Context, _ string, _ string) bool {
-	if s.denied {
-		return false
-	}
-	return true
+	return !s.denied
 }
 
 func (s *servedTorrent) ServeFile(w http.ResponseWriter, _ *http.Request, _ string, userID string) {

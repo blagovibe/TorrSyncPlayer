@@ -8,9 +8,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // bug-0040: Events dropped silently — sequence numbers, ack, and replay.

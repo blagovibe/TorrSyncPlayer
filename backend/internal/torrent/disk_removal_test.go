@@ -29,13 +29,13 @@ func TestRemovingADiskBackedTorrentFreesItsData(t *testing.T) {
 	info := buildSwarmTorrent(t, payload, startLoopbackTracker(t))
 
 	base := filepath.Join(t.TempDir(), "data")
-	if err := os.MkdirAll(base, 0o755); err != nil {
+	if err := os.MkdirAll(base, 0o750); err != nil {
 		t.Fatalf("data dir: %v", err)
 	}
 
 	// anacrolix lays a torrent down as <dataDir>/<Info.BestName()>.
 	onDisk := filepath.Join(base, info.Name)
-	if err := os.WriteFile(onDisk, payload, 0o644); err != nil {
+	if err := os.WriteFile(onDisk, payload, 0o600); err != nil {
 		t.Fatalf("seed file: %v", err)
 	}
 
@@ -45,7 +45,7 @@ func TestRemovingADiskBackedTorrentFreesItsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service: %v", err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	got, err := svc.AddTorrent(ctx, "owner", bytes.NewReader(info.Raw))
 	if err != nil {

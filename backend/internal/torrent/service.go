@@ -325,14 +325,16 @@ func (s *Service) MagnetFor(_ context.Context, userID, torrentID string) (string
 		if err != nil {
 			return "", fmt.Errorf("failed to read stored torrent: %w", err)
 		}
-		info, err := mi.UnmarshalInfo()
-		if err != nil {
+		if _, err := mi.UnmarshalInfo(); err != nil {
 			return "", fmt.Errorf("failed to read torrent info: %w", err)
 		}
 		// The hash is left to the MetaInfo: it derives the magnet from the very
 		// info dict the hash was computed over, so there is no way for the two
 		// to disagree.
-		magnet := mi.Magnet(nil, &info)
+		magnet, err := mi.MagnetV2()
+		if err != nil {
+			return "", fmt.Errorf("failed to derive magnet: %w", err)
+		}
 		return magnet.String(), nil
 	default:
 		// Added before sources were recorded, or restored from a registry

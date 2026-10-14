@@ -15,9 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 )
 
 // The room has to tell its members what it is watching.
@@ -146,6 +147,7 @@ func hostRoomWithStream(t *testing.T, server *httptest.Server) (string, <-chan r
 	resp, err := server.Client().Do(req.WithContext(ctx))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+	t.Cleanup(func() { _ = resp.Body.Close() })
 
 	frames := make(chan roomFrame, 64)
 	go func() {

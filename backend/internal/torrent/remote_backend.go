@@ -193,7 +193,7 @@ func (b *remoteBackend) getJSON(ctx context.Context, rawURL string, out interfac
 	if err != nil {
 		return errors.Wrap(errors.ErrUnavailable, "gateway unreachable", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		// The gateway panics on bad input and may write a non-JSON body, so
@@ -225,11 +225,14 @@ func (b *remoteBackend) AddTorrentFile(ctx context.Context, r io.Reader) (Torren
 	if err != nil {
 		return nil, errors.Wrap(errors.ErrInvalidInput, "parse torrent file", err)
 	}
-	infoBytes, err := mi.UnmarshalInfo()
-	if err != nil {
+	if _, err := mi.UnmarshalInfo(); err != nil {
 		return nil, errors.Wrap(errors.ErrInvalidInput, "unmarshal torrent info", err)
 	}
-	return b.AddMagnet(ctx, mi.Magnet(nil, &infoBytes).String())
+	magnet, err := mi.MagnetV2()
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrInvalidInput, "failed to derive magnet", err)
+	}
+	return b.AddMagnet(ctx, magnet.String())
 }
 
 func (b *remoteBackend) fetchInfo(ctx context.Context, magnetURI string) (*gatewayInfo, error) {
@@ -318,7 +321,7 @@ func (b *remoteBackend) ServeStream(w http.ResponseWriter, r *http.Request, hand
 		http.Error(w, "Gateway stream failed", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Mirror the gateway's status (notably 206 for a partial response) and
 	// headers so the player's range handling sees exactly what the gateway

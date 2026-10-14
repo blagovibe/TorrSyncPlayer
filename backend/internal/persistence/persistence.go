@@ -92,6 +92,7 @@ func (s *Store) LoadRooms() (*RoomsData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, "rooms.json")
+	// #nosec G304 -- path is under the configured data directory
 	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -152,6 +153,7 @@ func (s *Store) LoadSync() (*SyncData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, "sync.json")
+	// #nosec G304 -- path is under the configured data directory
 	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -212,6 +214,7 @@ func (s *Store) LoadTorrents() (*TorrentOwnershipData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, "torrents.json")
+	// #nosec G304 -- path is under the configured data directory
 	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -311,6 +314,7 @@ func (s *Store) LoadTorrentRegistry() (*TorrentRegistryData, error) {
 	defer s.mu.RUnlock()
 
 	path := filepath.Join(s.dir, "torrents_registry.json")
+	// #nosec G304 -- path is under the configured data directory
 	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
 	if err != nil {
 		if os.IsNotExist(err) {

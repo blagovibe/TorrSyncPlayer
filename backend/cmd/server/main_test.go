@@ -72,6 +72,7 @@ func TestParseFlagsToken(t *testing.T) {
 // TestParseFlagsRejectsUnknownFlag keeps a typo from silently starting a server
 // with defaults nobody asked for.
 func TestParseFlagsRejectsUnknownFlag(t *testing.T) {
+	//nolint:misspell // the misspelling is the point of the test
 	if _, err := parseFlags(newTestFlagSet(), []string{"--addres", "127.0.0.1:1"}); err == nil {
 		t.Fatal("parseFlags accepted an unknown flag, want error")
 	}
