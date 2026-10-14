@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.26.6'
+  GO_VERSION: '1.27.1'
 
 jobs:
   lint-backend:
@@ -108,6 +108,12 @@ jobs:
 
       # The driver must be offscreen: without a display the tests hang waiting
       # for a window rather than failing.
+      # The player tests drive a real mpv over its IPC socket. Without it they
+      # fail (or skip, depending on the test), and the claims they check go
+      # unverified — install it before running the suite, not after it.
+      - name: Install mpv
+        run: sudo apt-get install -y --no-install-recommends mpv
+
       - name: Run tests
         working-directory: frontend
         env:
@@ -118,12 +124,6 @@ jobs:
       - name: Report coverage
         working-directory: frontend
         run: go tool cover -func=coverage.out | tail -1
-
-      # The player tests drive a real mpv over its IPC socket. Without it they
-      # skip, and a skip is silent — the claims they check would go unverified
-      # on every single run.
-      - name: Install mpv
-        run: sudo apt-get install -y --no-install-recommends mpv
 
       - name: Re-run player tests without skipping
         working-directory: frontend
