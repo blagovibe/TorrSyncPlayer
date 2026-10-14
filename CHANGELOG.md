@@ -1398,6 +1398,59 @@ The Go fuzzing job now fails for a real reason, previously hidden by `|| true`:
 `usernameRegex` but accepted by the length check path the test exercises. A genuine gap in the fuzzer's
 expectations, not in the validator.
 
+### The Qt client is gone, and the ticket machinery went with it
+
+The only frontend the project has is the Go one. Qt/C++ -- `frontend/src/`,
+`CMakeLists.txt`, `Makefile`, `build.sh`, `build.bat`, `build.ps1`,
+`build_macos.sh`, translations and resources -- has been deleted. CI has no Qt
+job, no sanitizer job, no dead fuzz or contract steps left. Building is now
+`cd frontend && go run ./cmd/build`, which puts the client and the backend side
+by side, because that is what the application needs at run time: every
+participant starts their own backend, and the client finds it next to itself.
+
+While deleting, three claims the docs and the board were making turned out false,
+which is the actual news of this entry:
+
+1. **The Qt client had no window geometry or default-volume setting.** It
+   persisted exactly one thing (`ui/language`) and hardcoded `resize(1200, 700)`.
+   The "remaining parity gap" from two entries ago was recorded from memory and
+   checked against nothing -- the same mistake as the parser bug, but in the
+   documentation.
+2. **The sanitizer job was C++ only.** ASan/TSan/UBSan have no equivalent in
+   Go. What Go does have, and what already caught a defect in this project, is
+   `-race`, now the one sanitizer step.
+3. **The `--no-tray` flag was declared and ignored.** It now does what it says.
+
+A **second correction, about a security claim.** deviation-0029 survived because
+the docs and the ticket code said `mpv` could not send HTTP headers -- which is
+what forced a bearer value into the URL. It can: `--http-header-fields`. The
+second remaining path that kept the ticket alive was the room-scoped read check,
+which used to live only in the stream-ticket handler. That check moved into
+`StreamFile` **before** the ticket handler was deleted, so the restriction
+survived the cleanup instead of vanishing with it. `/stream` now authenticates
+exactly like every other endpoint -- the header, then `CanRead` -- and the
+five-minute HMAC ticket, its constant, its swagger definition and its tests are
+gone. The endpoint may still accept a ticket if someone sends one; it no longer
+helps.
+
+The client-side story did not change much, because the Go client was already
+header-based since idea-0066. What changed is that it is now the *only* client,
+so the assumption can no longer survive by living in `frontend/src/` alongside
+a working one.
+
+Board: `idea-0066` (steps 1-3 done), `deviation-0029` (resolved: tickets
+removed), `idea-0067` (accepted and carried out) -- removed from the board; their
+history is here. `idea-0063` stays open: the scenario passes and the client
+ships, but Windows and macOS builds are still only provable with their own
+toolchains. `idea-0064` -- WebRTC via weron -- now has its blocking premise gone;
+it is the next thing to decide.
+
+Verified: 103 frontend tests and 17 backend packages green under `-race`,
+`gofmt` and `go vet` clean. `GOOS=windows` builds every `internal/` package;
+the full binary builds on the target platform (`go run ./cmd/build`). Live run:
+client starts its backend, `/api/v1/version` is 200 with the token and 401
+without, the list polls every two seconds, nothing in the log but INFO.
+
 ## [v1.1.5] - 2026-07-12
 
 ### Added

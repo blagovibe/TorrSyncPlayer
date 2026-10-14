@@ -63,22 +63,18 @@ When reporting a vulnerability, please include:
   use `--data-dir` with `--disk-storage` to persist them to disk. There is no
   user storage at all — auth is one token per process.
 - SSE endpoint doesn't scale to many concurrent connections - use for small groups
-- **A stream ticket is a transferable bearer credential.** `StreamTicket` mints
-  `expiry.userID.torrentID.HMAC` valid for 5 minutes. `StreamFile` validates the
-  signature, the expiry and the torrent id, then discards the user id — nothing
-  binds the ticket to the client that requested it. Anyone who obtains a ticket
-  can use it for that torrent until it expires, and the ticket carries the client
-  id in clear text. Tickets do not reach the application log, but they travel in
-  a URL, so reverse proxies, browser history and any URL logging in front of the
-  server are the places to look. The five-minute window bounds this; it does not
-  remove it.
+- **`/stream` no longer takes a URL ticket.** The endpoint accepts the ordinary
+  `X-Access-Token` header, which `mpv` sends because it can be told to
+  (`--http-header-fields`). A room-scoped `CanRead` check precedes serving, so
+  holding the process token is necessary but not sufficient — a non-participant
+  is rejected. The bearer-in-the-URL deviation (deviation-0029) is closed.
 - **`/metrics`, `/health`, `/api/v1/version` and `/swagger/*` are reachable
   without the access token**, each behind its own rate limit. The metrics
   endpoint exposes room counts, peer counts and request rates; it is meant
   for monitoring tools that cannot carry the token. Do not publish it
   without putting an authenticating proxy in front of it.
 - **A room id and a magnet hash are not secrets**, and are not treated as such.
-  They are identifiers, logged and embedded in tickets by design.
+  They are identifiers, logged by design.
 
 ## What the Server Sees
 

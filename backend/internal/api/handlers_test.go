@@ -312,80 +312,14 @@ func TestStreamFile_TicketAuth(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 
-	// Valid ticket → authorized (stream itself may 404 if torrent not present,
-	// but it must not be rejected for auth reasons).
-	ticket, err := apiAuthSvc.GenerateStreamTicket("user-1", torrentID)
-	require.NoError(t, err)
+	// Даже валидно выглядящий тикет в URL больше не авторизует: тикета нет,
+	// и это именно то, чего мы добились — передаваемый bearer в адресной строке.
 	req = httptest.NewRequest(http.MethodGet,
-		"/torrents/"+torrentID+"/stream?ticket="+ticket, nil)
-	rec = httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	assert.NotEqual(t, http.StatusUnauthorized, rec.Code)
-
-	// Tampered ticket → unauthorized.
-	req = httptest.NewRequest(http.MethodGet,
-		"/torrents/"+torrentID+"/stream?ticket="+ticket+"x", nil)
+		"/torrents/"+torrentID+"/stream?ticket=anything", nil)
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-}
 
-func TestStreamTicket_IssueAndVerify(t *testing.T) {
-	const torrentID = "0123456789abcdef0123456789abcdef01234567"
-	ticket, err := apiAuthSvc.GenerateStreamTicket("user-1", torrentID)
-	require.NoError(t, err)
-
-	userID, ok := apiAuthSvc.ValidateStreamTicket(ticket, torrentID)
-	assert.True(t, ok)
-	assert.Equal(t, "user-1", userID)
-
-	// Wrong torrent → rejected.
-	_, ok = apiAuthSvc.ValidateStreamTicket(ticket, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
-	assert.False(t, ok)
-
-	// Empty ticket → rejected.
-	_, ok = apiAuthSvc.ValidateStreamTicket("", torrentID)
-	assert.False(t, ok)
-}
-
-func TestStreamTicket_Contract_IssueThenStream(t *testing.T) {
-	const torrentID = "0123456789abcdef0123456789abcdef01234567"
-
-	// 1. Issue a stream ticket via the authenticated endpoint.
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/torrents/"+torrentID+"/stream-ticket", nil)
-	applyAuthHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	apiRouter.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code, "issue ticket must return 200")
-
-	var ticketResp models.StreamTicketResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ticketResp))
-	assert.NotEmpty(t, ticketResp.Ticket)
-	assert.Equal(t, torrentID, ticketResp.TorrentID)
-
-	// 2. Use the ticket to access the public stream endpoint.
-	streamURL := "/api/v1/torrents/" + torrentID + "/stream?ticket=" + ticketResp.Ticket
-	req = httptest.NewRequest(http.MethodGet, streamURL, nil)
-	rec = httptest.NewRecorder()
-	apiRouter.ServeHTTP(rec, req)
-	assert.NotEqual(t, http.StatusUnauthorized, rec.Code, "valid ticket must not return 401")
-
-	// 3. Tampered ticket must be rejected.
-	req = httptest.NewRequest(http.MethodGet, streamURL+"x", nil)
-	rec = httptest.NewRecorder()
-	apiRouter.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-
-	// 4. Ticket for wrong torrent must be rejected.
-	wrongTicket, err := apiAuthSvc.GenerateStreamTicket("user-1", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
-	require.NoError(t, err)
-	req = httptest.NewRequest(http.MethodGet,
-		"/api/v1/torrents/"+torrentID+"/stream?ticket="+wrongTicket, nil)
-	rec = httptest.NewRecorder()
-	apiRouter.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 // ============ P2P Handler Tests ============

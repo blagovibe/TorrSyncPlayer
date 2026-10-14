@@ -13,10 +13,10 @@
 //     application.
 //   - mpv accepts custom HTTP headers on the command line
 //     (--http-header-fields), so the media endpoint is authenticated with the
-//     ordinary access token instead of a bearer ticket smuggled into the URL.
+//     ordinary access token instead of a bearer value in the URL.
 //
-// The last one matters most: it is what makes the ticket machinery of
-// deviation-0029 removable (idea-0066).
+// Четвёртое — теперь главное: оно то, что позволило убрать билеты из /stream
+// целиком (idea-0066, шаг 3: удалили билетную механику, закрыт deviation-0029).
 package player
 
 import (
@@ -55,7 +55,7 @@ type Options struct {
 // Headers is passed through --http-header-fields, one "Name: value" per entry.
 // mpv sends them on every request it makes for the stream, which is what lets
 // the media endpoint be a protected route instead of a public one with a
-// signed ticket in the URL.
+// held-over credential in the URL.
 func Start(ctx context.Context, opts Options, headers []string) (*Player, error) {
 	binary := opts.Binary
 	if binary == "" {

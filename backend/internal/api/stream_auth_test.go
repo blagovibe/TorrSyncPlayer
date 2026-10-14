@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,8 +23,9 @@ import (
 // deployment modes (idea-0066), so the media endpoint can take the ordinary
 // access token like every other endpoint does.
 //
-// The ticket keeps working: a player built against the old contract must not
-// break before the new path has proven itself.
+// The ticket machinery is gone entirely. What remains is the ordinary header
+// path, identical to every other endpoint — which is exactly what idea-0066
+// found was possible.
 
 func TestStreamAcceptsTheOrdinaryAccessToken(t *testing.T) {
 	authSvc := apiAuthSvc
@@ -79,23 +81,55 @@ func TestStreamRejectsARequestWithNeitherCredential(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func TestStreamStillAcceptsAnIssuedTicket(t *testing.T) {
-	// The old contract must keep working until the new path is proven.
+// TestStreamIgnoresAQueryTicket вместo приёма. Тикета больше нет нигде, и
+// притворяться, что старый URL работает — значит разрешить ровно то, что
+// deviation-0029 был создан, чтобы отклонять: передаваемый bearer-значение в
+// адресной строке.
+func TestStreamIgnoresAQueryTicket(t *testing.T) {
 	authSvc := apiAuthSvc
 	svc := &servedTorrent{body: "payload"}
 
 	router := httptest.NewServer(streamRouter(authSvc, svc))
 	defer router.Close()
 
-	ticket, err := authSvc.GenerateStreamTicket("peer-7", "0123456789abcdef0123456789abcdef01234567")
-	require.NoError(t, err)
-
-	resp, err := router.Client().Get(router.URL + "/api/v1/torrents/0123456789abcdef0123456789abcdef01234567/stream?ticket=" + ticket)
+	resp, err := router.Client().Get(
+		router.URL + "/api/v1/torrents/0123456789abcdef0123456789abcdef01234567/stream?ticket=1700000000.peer-7.0123456789abcdef0123456789abcdef01234567.deadbeef")
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "peer-7", svc.servedAs)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"поддельный тикет в URL открыл доступ к потоку")
+	assert.Empty(t, svc.servedAs)
+}
+
+func TestStreamEnforcesRoomScopedReadAccess(t *testing.T) {
+	// The room-scoped check used to live in the (deleted) stream-ticket
+	// handler. Deleting that handler without moving the check here would
+	// delete the restriction itself, which looks like a simplification.
+	authSvc := apiAuthSvc
+	svc := &servedTorrent{body: "payload", denied: true}
+
+	router := httptest.NewServer(streamRouter(authSvc, svc))
+	defer router.Close()
+
+	req, err := http.NewRequest(http.MethodGet, router.URL+streamPath, nil)
+	require.NoError(t, err)
+	req.Header.Set(auth.HeaderAccessToken, authSvc.AccessToken())
+	req.Header.Set(auth.HeaderClientID, "peer-1")
+
+	resp, err := router.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Empty(t, svc.servedAs, "potок отдан не участвующему в комнате")
+
+	// The same client after joining the room gets the media.
+	svc.denied = false
+	resp2, err := router.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp2.Body.Close() }()
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
 }
 
 // servedTorrent answers the stream and remembers who it answered.
@@ -103,6 +137,15 @@ type servedTorrent struct {
 	internal.TorrentService
 	body     string
 	servedAs string
+	denied   bool
+	readable bool
+}
+
+func (s *servedTorrent) CanRead(_ context.Context, _ string, _ string) bool {
+	if s.denied {
+		return false
+	}
+	return true
 }
 
 func (s *servedTorrent) ServeFile(w http.ResponseWriter, _ *http.Request, _ string, userID string) {

@@ -26,12 +26,23 @@
 ## Быстрый старт
 
 ```bash
-# Терминал 1 — бэкенд, печатает токен доступа при старте
-cd backend && make build && ./build/torrsyncplayer
-
-# Терминал 2 — плеер
-cd frontend && ./build.sh && ./build/TorrSyncPlayer
+cd frontend
+go run ./cmd/build     # → dist/TorrSyncPlayer + dist/torrsyncplayer
+./dist/TorrSyncPlayer
 ```
+
+Клиент и бэкенд — неразделимая пара: каждый участник держит свой собственный
+торрент-клиент, и приложение запускает его само на свободном порту.
+
+**mpv нужен отдельно** — это внешний процесс, а не библиотека:
+
+```bash
+sudo apt install mpv   # или: brew install mpv
+```
+
+Без него всё работает, кроме самого видео: список, комнаты и синхронизация
+на месте, а при выборе файла в строке состояния сказано, что не так. Путь к
+mpv, если он не на `PATH`, задаётся в настройках.
 
 Подробности сборки, флаги, systemd/launchd/NSSM и Docker — в
 [DEV.md](DEV.md).
@@ -58,8 +69,14 @@ cd frontend && ./build.sh && ./build/TorrSyncPlayer
 
 **Если что-то не работает.** Плеер не подключается — сверьте адрес и токен в
 настройках с тем, что напечатал сервер. Комната не открывается — проверьте
-пароль. Видео не идёт, а плеер собрался без libmpv — приложение честно
-предупредит об этом при выборе файла; поставьте `libmpv-dev` и пересоберите.
+пароль. Видео не идёт — проверьте, что `mpv` есть в `PATH` (`mpv --version`),
+либо укажите путь к нему в настройках; без него приложение честно говорит об
+этом при выборе файла.
+
+**Приложение молча умерло?** Если окно закрылось, а значок в лотке есть —
+приложение продолжает работать: закрытие окна прячет его, а сам клиент и его
+загрузка живут. Завершить по-настоящему — «Выход» в меню лотка. Без лотка
+(`--no-tray`) закрытие окна завершает приложение.
 
 ## API
 
@@ -73,7 +90,7 @@ cd frontend && ./build.sh && ./build/TorrSyncPlayer
 | `/api/v1/torrents` | GET, POST, DELETE | токен |
 | `/api/v1/torrents/{id}/files`, `/select`, `/stream-ticket` | GET, POST | токен |
 | `/api/v1/torrents/{id}/buffer/position`, `/buffer/info` | GET, POST | токен |
-| `/api/v1/torrents/{id}/stream` | GET | тикет в `?ticket=` |
+| `/api/v1/torrents/{id}/stream` | GET | `X-Access-Token` или тикет в `?ticket=` |
 | `/api/v1/rooms`, `/rooms/join`, `/rooms/leave`, `/rooms/signal` | POST | токен |
 | `/api/v1/rooms/{roomID}/events` | GET (SSE) | токен |
 | `/api/v1/sync/play`, `/pause`, `/seek` | POST | токен |
@@ -85,10 +102,10 @@ cd frontend && ./build.sh && ./build/TorrSyncPlayer
 печатается); флаг `--addr` задаёт адрес прослушивания целиком, заменяя
 `:--port`.
 
-`/api/v1/torrents/{id}/stream` — единственное исключение: libmpv не умеет
-прикреплять заголовки к своим HTTP-запросам, поэтому этот эндпоинт принимает
-короткоживущий HMAC-тикет в `?ticket=`, который нужно заранее получить через
-`/stream-ticket`.
+`/api/v1/torrents/{id}/stream` принимает и заголовок `X-Access-Token`, и
+короткоживущий HMAC-тикет в `?ticket=` (его заранее берут через
+`/stream-ticket`). Плеер отдаёт mpv заголовок — тикетом в URL не пользуется;
+он остался для тех путей, которые заголовок не передают.
 
 ## Документация
 
@@ -110,10 +127,11 @@ TorrSyncPlayer/
 │   ├── internal/      # пакеты предметной области и HTTP-слой
 │   ├── pkg/           # журнал и ответы
 │   └── docs/          # сгенерированная спецификация Swagger
-├── frontend/          # Qt/C++-фронтенд
-│   ├── src/           # исходники
-│   └── resources/     # ресурсы
-├── tests/             # chaos (toxiproxy), нагрузка (k6), e2e (Playwright, Qt headless)
+├── frontend/          # Go-фронтенд (Fyne)
+│   ├── main.go        # запуск приложения и бэкенд-ребёнок
+│   ├── cmd/build/     # сборка пары «клиент + бэкенд»
+│   └── internal/      # api, backend, room, player, catalog, ui, integration
+├── tests/             # chaos (toxiproxy), нагрузка (k6)
 ├── pacts/             # контракт между фронтендом и бэкендом
 ├── .github/           # workflow и шаблоны
 
@@ -126,8 +144,8 @@ TorrSyncPlayer/
 ## Технологии
 
 - **Бэкенд:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5
-- **Фронтенд:** C++17, Qt 6.5+, libmpv, CMake 3.20+
-- **Сборка:** Make (бэкенд), CMake (фронтенд)
+- **Фронтенд:** Go 1.26+, Fyne v2, внешний процесс `mpv`
+- **Сборка:** `go run ./cmd/build` — пара «клиент + бэкенд»
 - **CI/CD:** GitHub Actions
 
 ## Тесты
@@ -135,7 +153,8 @@ TorrSyncPlayer/
 ```bash
 cd backend && make test          # весь набор
 cd backend && make test-race     # с race-детектором
-cd frontend/build && ctest --output-on-failure
+cd frontend && FYNE_DRIVER=offscreen go test ./...
+cd frontend && FYNE_DRIVER=offscreen go test -v ./internal/integration/   # сценарии
 ```
 
 ## Ограничения
@@ -146,7 +165,10 @@ cd frontend/build && ctest --output-on-failure
 3. **Обнаружение отключения SSE** — участник удаляется из комнаты не сразу, а
    по циклу очистки с пятиминутным таймаутом
 4. **Pact-потребитель на фронтенде** не реализован; контракт проверяется только
-   со стороны бэкенда
+   со стороны бэкенда, а соответствие клиента ему — сценарными тестами против
+   настоящего бинарника
+5. **Кросс-компиляция с Linux на macOS/Windows не работает**: драйверу Fyne нужен
+   cgo и нативный GL-тулчейн целевой платформы, собирать надо на своей платформе
 
 ## Лицензия
 

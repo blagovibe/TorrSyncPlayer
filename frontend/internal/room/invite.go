@@ -22,7 +22,8 @@ const roomIDLength = 32
 // The access token is deliberately NOT in the code. A host already has it, but
 // it is a credential for the whole server rather than for one room — putting it
 // in an invitation would raise a guest from "join this room" to "control this
-// server", which is exactly the privilege the ticket in the URL cannot grant.
+// server". The media endpoint is authenticated the same way by now, so an
+// invite no longer has to carry any URL credential at all.
 type InviteCode struct {
 	RoomID   string
 	Password string

@@ -128,13 +128,6 @@ type JoinRoomResponse struct {
 	RoomID  string `json:"id"`
 }
 
-// StreamTicketResponse carries a signed, short-lived ticket used to authorize
-// the public /stream endpoint without a JWT (see auth.GenerateStreamTicket).
-type StreamTicketResponse struct {
-	Ticket    string `json:"ticket"`
-	TorrentID string `json:"torrentId"`
-}
-
 // ============ Pagination Models ============
 
 // PaginationParams pagination parameters from request

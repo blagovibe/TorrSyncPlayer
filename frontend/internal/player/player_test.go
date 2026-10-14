@@ -15,9 +15,8 @@ import (
 
 func TestArgsTellMpvToSendTheHeader(t *testing.T) {
 	// The whole point of running mpv as a process: it accepts custom headers,
-	// so the media endpoint can be a protected route instead of a public one
-	// with a bearer ticket in the URL. Without this flag the whole arrangement
-	// collapses back into deviation-0029.
+	// so the media endpoint is an ordinary protected route. Without this flag
+	// no one can play anything, because /stream requires the header.
 	args := Args("/tmp/mpv.sock", []string{"X-Access-Token: abc"}, "--volume=50")
 
 	joined := strings.Join(args, " ")

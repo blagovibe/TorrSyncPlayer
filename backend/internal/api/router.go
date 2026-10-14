@@ -57,9 +57,11 @@ func NewRouter(config RouterConfig) http.Handler {
 	// the access token for monitoring tools)
 	r.With(NewRateLimiter(rate.Limit(constants.MetricsRateLimit), constants.MetricsRateBurst)).Get(APIPathMetrics, MetricsHandler())
 
-	// Public stream endpoint — authenticated via a signed stream ticket
-	// (query param "?ticket=") rather than the access-token header, because media
-	// players (libmpv) cannot attach headers to their own HTTP fetches.
+	// Media endpoint — outside the protected group so that it keeps its own
+	// rate limit (a stream is a long request; 1 req/s would starve it), but
+	// authenticated exactly like everything else: the access-token header,
+	// which mpv sends because it can be told to (idea-0066). It also checks
+	// room-scoped read access, so holding the token is not enough.
 	r.With(NewRateLimiter(rate.Limit(constants.StreamRateLimit), constants.StreamRateBurst)).Get("/api/v1/torrents/{id}/stream", StreamFile(config.TorrentSvc, config.AuthService))
 
 	// Playback-position telemetry — its own budget, outside the protected
@@ -90,10 +92,9 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Delete("/{id}", RemoveTorrent(config.TorrentSvc))
 				r.Get("/{id}/files", GetFiles(config.TorrentSvc))
 				r.Post("/{id}/select", SelectFile(config.TorrentSvc))
-				// NOTE: /{id}/stream is served publicly (outside this group) and
-				// authenticated via a signed stream ticket, because libmpv cannot
-				// attach the access-token header to its own HTTP fetches.
-				r.Post("/{id}/stream-ticket", StreamTicket(config.TorrentSvc, config.AuthService))
+				// NOTE: /{id}/stream is served outside this group, with its own
+				// rate limit; it authenticates with the access-token header, which
+				// the media player sends on its own fetches.
 				// NOTE: /{id}/buffer/position is registered ABOVE, outside this
 				// group. It is a 2 Hz heartbeat from every playing client and
 				// cannot share this group's 1 req/s budget; see the route above

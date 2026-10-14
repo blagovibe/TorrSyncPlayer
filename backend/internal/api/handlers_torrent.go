@@ -265,7 +265,7 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 // StreamFile handler for HTTP streaming of a torrent file (per-peer, bug-0048).
 // Supports Range requests for seeking.
 // Torrent ID is passed in the URL parameter.
-// userID is extracted from the validated stream ticket.
+// userID comes from the client header, which the access token authenticates.
 //
 // @Summary      Stream file
 // @Description  Streams the selected torrent file with Range request support (per-peer)
@@ -289,32 +289,14 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 			return
 		}
 
-		// Two ways in.
-		//
-		// A ticket, when present, decides everything: it names the peer
-		// unambiguously, and a header alongside it must not override that. The
-		// ticket is expiry.userID.torrentID.signature — self-contained, and
-		// validated without any other state.
-		//
-		// Without a ticket, the ordinary access-token header is accepted, like
-		// every other endpoint. This exists because mpv CAN send custom
-		// headers: as a process via --http-header-fields, and through libmpv
-		// via mpv_set_option_string before mpv_initialize. The project long
-		// assumed it could not, and that assumption is what forced the ticket
-		// to be the only way in (idea-0066).
-		if ticket := r.URL.Query().Get("ticket"); ticket != "" {
-			userID, ok := authSvc.ValidateStreamTicket(ticket, torrentID)
-			if !ok {
-				WriteError(w, http.StatusUnauthorized, "invalid or expired stream ticket")
-				return
-			}
-			torrentSvc.ServeFile(w, r, torrentID, userID)
-			return
-		}
-
+		// One way in, and it is the ordinary one: the access-token header,
+		// like every other endpoint. mpv sends it because it can be told to
+		// (--http-header-fields); the project long assumed it could not, and
+		// that assumption is what forced a bearer value into the URL
+		// (idea-0066).
 		token := r.Header.Get(auth.HeaderAccessToken)
 		if token == "" {
-			WriteError(w, http.StatusUnauthorized, "missing access token or stream ticket")
+			WriteError(w, http.StatusUnauthorized, "missing access token")
 			return
 		}
 
@@ -324,61 +306,24 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 			return
 		}
 
-		torrentSvc.ServeFile(w, r, torrentID, userID)
-	}
-}
-
-// StreamTicket issues a short-lived, HMAC-signed stream ticket that the media
-// player (libmpv) appends as a "?ticket=" query parameter to the public /stream
-// URL, since it cannot attach JWT/CSRF headers to its own HTTP fetches.
-//
-// @Summary      Issue stream ticket
-// @Description  Returns a signed ticket authorizing streaming of the given torrent
-// @Tags         torrents
-// @Produce      json
-// @Param        id   path      string  true  "Torrent ID"
-// @Success      200  {object}  models.StreamTicketResponse
-// @Failure      400  {object}  models.ErrorResponse
-// @Failure      401  {object}  models.ErrorResponse
-// @Failure      403  {object}  models.ErrorResponse
-// @Router       /api/v1/torrents/{id}/stream-ticket [post]
-func StreamTicket(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		torrentID := chi.URLParam(r, "id")
-		if torrentID == "" {
-			WriteError(w, http.StatusBadRequest, "Torrent ID is required")
-			return
-		}
-
-		if err := validation.ValidateTorrentID(torrentID); err != nil {
-			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
-			return
-		}
-
-		clientID := auth.GetClientID(r)
-		if clientID == "" {
-			WriteError(w, http.StatusBadRequest, "missing "+auth.HeaderClientID+" header")
-			return
-		}
-
-		// Room-scoped access (deviation-0039): only participants in the room bound
-		// to this torrent may obtain a stream ticket for it.
-		if ts, ok := torrentSvc.(interface {
+		// Room-scoped read access (bug-0049 / deviation-0039).
+		//
+		// This check used to live in the stream-ticket handler, and deleting
+		// that handler without moving it here would have quietly removed the
+		// only thing stopping a non-participant from streaming a torrent it
+		// has the token for — a regression that looks like a simplification.
+		//
+		// The token is per process and shared with exactly the people invited
+		// to watch, so without this anyone holding it could read anything the
+		// host is downloading.
+		if canRead, ok := torrentSvc.(interface {
 			CanRead(context.Context, string, string) bool
-		}); ok {
-			if !ts.CanRead(r.Context(), clientID, torrentID) {
-				WriteError(w, http.StatusForbidden, "access denied")
-				return
-			}
-		}
-
-		ticket, err := authSvc.GenerateStreamTicket(clientID, torrentID)
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "failed to issue stream ticket")
+		}); ok && !canRead.CanRead(r.Context(), userID, torrentID) {
+			WriteError(w, http.StatusForbidden, "access denied")
 			return
 		}
 
-		WriteJSON(w, http.StatusOK, models.StreamTicketResponse{Ticket: ticket, TorrentID: torrentID})
+		torrentSvc.ServeFile(w, r, torrentID, userID)
 	}
 }
 

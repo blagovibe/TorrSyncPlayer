@@ -221,72 +221,9 @@ jobs:
         working-directory: backend
         run: make build
 
-  frontend:
-    name: Frontend Build & Test
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Qt6 dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov
-
-      - name: Configure CMake (with tests and coverage)
-        working-directory: frontend
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
-
-      - name: Build
-        working-directory: frontend/build
-        run: make -j$(nproc) 2>&1 || make 2>&1
-
-      - name: Run clang-tidy
-        working-directory: frontend
-        run: |
-          if [ -d "build" ]; then
-            run-clang-tidy -p build -j$(nproc) -quiet 2>&1 | tee clang-tidy.log
-            if grep -q "^.*: warning:" clang-tidy.log; then
-              echo "clang-tidy warnings found"
-              exit 1
-            fi
-          else
-            echo "Build directory not found, skipping clang-tidy"
-            exit 0
-          fi
-
-      - name: Run unit tests (Qt Test)
-        working-directory: frontend/build
-        run: ctest --output-on-failure -V 2>&1
-
-      - name: Run gmock tests
-        if: always()
-        working-directory: frontend/build
-        run: ctest -R "GMockTest" --output-on-failure -V 2>&1
-
-      - name: Generate frontend coverage
-        working-directory: frontend/build
-        run: |
-          lcov --capture --directory . --output-file coverage.info --no-external
-          lcov --ignore-errors unused --remove coverage.info '/usr/*' '*/tests/*' '*/mocks/*' '*/interfaces/*' --output-file coverage.clean.info
-          lcov --list coverage.clean.info
-          genhtml coverage.clean.info --output-directory coverage_html
-
-      - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@v7
-        with:
-          directory: frontend/build
-          files: coverage.clean.info
-          flags: frontend
-          fail_ci_if_error: false
-
   security-scan:
     name: OWASP ZAP Security Scan
-    needs: [test-backend, frontend]
+    needs: [test-backend]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
 
@@ -325,61 +262,10 @@ jobs:
           ZAP_OVERRIDEDOCKERNETWORK: 'host'
 
   # ── Sanitizer tests ──────────────────────────────────────────────────
-  sanitizer-tests:
-    name: Sanitizer Tests (ASan/TSan/UBSan)
-    needs: [test-backend, frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Qt6 dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov
-
-      - name: Configure CMake with sanitizers
-        working-directory: frontend
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DBUILD_TESTS=ON -DENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
-
-      # These steps gate the build again. They used to carry
-      # `continue-on-error: true`, which meant ASan/TSan/UBSan could report
-      # nothing but never fail a single build: the only tool able to catch a
-      # race or a use-after-free in the threaded Qt code was disabled by the
-      # job that exists to run it.
-      #
-      # There is no retry wrapper here on purpose. A retry would hide the very
-      # signal this job exists to produce: a race that reproduces once in
-      # twenty runs is still a race, and ASan/TSan are the only checks in this
-      # workflow that can see one.
-      - name: Build with sanitizers
-        working-directory: frontend/build
-        run: make -j$(nproc)
-
-      - name: Run AddressSanitizer tests
-        working-directory: frontend/build
-        run: |
-          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ctest -R "ASan" --output-on-failure -V
-
-      - name: Run ThreadSanitizer tests
-        working-directory: frontend/build
-        run: |
-          TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 ctest -R "TSan" --output-on-failure -V
-
-      - name: Run UBSan tests
-        working-directory: frontend/build
-        run: |
-          ctest -R "UBSan" --no-tests=error --output-on-failure -V 2>&1
-
   # ── Fuzzing tests ────────────────────────────────────────────────────
   fuzz-tests:
     name: Fuzzing Tests
-    needs: [test-backend, frontend]
+    needs: [test-backend]
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -432,7 +318,7 @@ jobs:
   # ── Mutation testing ─────────────────────────────────────────────────
   mutation-tests:
     name: Mutation Testing
-    needs: [test-backend, frontend]
+    needs: [test-backend]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -490,7 +376,7 @@ jobs:
   # ── Contract testing ──────────────────────────────────────────────────
   contract-test-backend:
     name: Contract Test (Backend Provider)
-    needs: [test-backend, frontend]
+    needs: [test-backend]
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -552,72 +438,11 @@ jobs:
   # failure — a broken playback path, a dead SSE feed — reported as a green
   # build. Expect this job to go red on the first run and stay red until the
   # failures it surfaces are actually fixed.
-  e2e-tests:
-    name: End-to-End Tests
-    needs: [build-backend, frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Build backend
-        working-directory: backend
-        run: make build
-
-      - name: Start backend server
-        working-directory: backend
-        run: |
-          ./build/torrsyncplayer --port 8889 --auto-tls &
-          sleep 5
-          curl -k -s https://localhost:8889/health
-
-      - name: Install Qt6 dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            qt6-base-dev qt6-multimedia-dev qt6-svg-dev libgl1-mesa-dev \
-            libmpv-dev cmake g++ lcov
-
-      - name: Configure CMake for E2E
-        working-directory: frontend
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DBUILD_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
-
-      - name: Build integration tests
-        working-directory: frontend/build
-        run: make -j$(nproc) test_integration 2>&1
-
-      - name: Run Qt headless integration tests
-        working-directory: frontend/build
-        # The ctest target is registered as "IntegrationTest" in
-        # frontend/CMakeLists.txt (add_test(NAME IntegrationTest ...)). The
-        # filter used to be "E2E", which matched no test at all: --no-tests=error
-        # turned that into a red step, and before that `|| true` made it green
-        # while nothing ran. Keep the name in sync with CMakeLists.txt.
-        run: |
-          QT_QPA_PLATFORM=offscreen ctest -R "IntegrationTest" --no-tests=error --output-on-failure -V 2>&1
-
-      # No Playwright step. tests/e2e/playwright/tests/app.spec.ts drives a web
-      # UI — it navigates to https://localhost:8889 and looks for
-      # input[name="username"], a .main-window container and a <video> element.
-      # TorrSyncPlayer ships no web frontend: the client is a Qt/C++ desktop app
-      # and the Go backend serves JSON only (its root route returns
-      # {"error":"Route not found"}). The suite could therefore never pass; under
-      # `|| true` it was a green step that asserted nothing. The run also failed
-      # before reaching any test, because webServer had no ignoreHTTPSErrors and
-      # the backend runs with --auto-tls.
-      #
-      # Keep tests/e2e/playwright/ in the tree for when a web UI exists; re-add
-      # the step with webServer.ignoreHTTPSErrors: true and baseURL set to https.
-
+  # The e2e-tests job is gone. Its only steps were the Qt CMake build and
+  # ctest; with those removed it started the backend, curled /health and
+  # asserted nothing about the client — a green job that could not fail. The
+  # end-to-end coverage it stood for now lives in test-frontend-go, which starts
+  # the real backend binary and drives the real client against it.
   # ── Performance/Load tests ────────────────────────────────────────────
   load-tests:
     name: Load Tests (k6)

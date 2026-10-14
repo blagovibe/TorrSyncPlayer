@@ -452,8 +452,9 @@ func (w *window) item(id widget.ListItemID) *Torrent {
 // play starts the torrent in mpv.
 //
 // mpv runs as its own process and gets the access token as an HTTP header, so
-// the media endpoint is a protected route and no ticket travels in the URL
-// (idea-0066). It gets the file list first: which file to play is the user's
+// the media endpoint is an ordinary authenticated route, like every other one.
+// (idea-0066: mpv sends X-Access-Token.) It gets the file list first: which
+// file to play is the user's
 // choice, and a torrent is routinely a season of episodes rather than a film.
 func (w *window) play(t *Torrent) {
 	if t == nil {

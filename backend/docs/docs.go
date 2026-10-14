@@ -778,53 +778,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/torrents/{id}/stream-ticket": {
-            "post": {
-                "description": "Returns a signed ticket authorizing streaming of the given torrent",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "torrents"
-                ],
-                "summary": "Issue stream ticket",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Torrent ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        }
     },
     "definitions": {
         "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AddTorrentRequest": {
@@ -1089,12 +1042,6 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse": {
-            "type": "object",
-            "properties": {
-                "ticket": {
-                    "type": "string"
-                },
                 "torrentId": {
                     "type": "string"
                 }

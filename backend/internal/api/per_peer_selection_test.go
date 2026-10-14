@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"sync"
 	"testing"
 
@@ -153,7 +152,6 @@ func perPeerRouter(svc internal.TorrentService) http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(apiAuthSvc.TokenMiddleware)
 		r.Post("/torrents/{id}/select", SelectFile(svc))
-		r.Post("/torrents/{id}/stream-ticket", StreamTicket(svc, apiAuthSvc))
 		r.Delete("/torrents/{id}", RemoveTorrent(svc))
 	})
 	r.Get("/torrents/{id}/stream", StreamFile(svc, apiAuthSvc))
@@ -176,21 +174,6 @@ func postSelectAs(t *testing.T, r http.Handler, torrentID, clientID string, file
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
-}
-
-func ticketAs(t *testing.T, r http.Handler, torrentID, clientID string) string {
-	t.Helper()
-
-	req := httptest.NewRequest(http.MethodPost, "/torrents/"+torrentID+"/stream-ticket", nil)
-	applyAuthHeadersAs(req, clientID)
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code, "тикет должен выдаваться: %s", rec.Body.String())
-
-	var resp models.StreamTicketResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	return resp.Ticket
 }
 
 // Выбор обязан нести идентичность пира: без неё он не к кому привязать, и
@@ -221,18 +204,15 @@ func TestSelectFile_PassesClientIDThrough(t *testing.T) {
 		"второй выбор не должен затирать первый: это разные пиры")
 }
 
-// Главный стык. Идентичность в /stream берётся из тикета, поэтому подмена
-// X-Client-ID не должна переадресовать выбор.
-func TestStreamFile_UsesTicketIdentityNotHeader(t *testing.T) {
+// Идентичность в /stream берётся из заголовка, как на всех прочих эндпоинтах.
+// Никакого посредника больше нет, и это не regressed-сценарий "тикет важнее
+// заголовка" — тот тест имел бы смысл только при тикетах.
+func TestStreamFile_UsesHeaderClientID(t *testing.T) {
 	svc := &recordingTorrentService{}
 	r := perPeerRouter(svc)
 
-	ticketA := ticketAs(t, r, peerTestTorrentID, "peer-a")
-
-	// Тот же тикет, но заголовок заявляет другого пира.
-	req := httptest.NewRequest(http.MethodGet,
-		"/torrents/"+peerTestTorrentID+"/stream?ticket="+url.QueryEscape(ticketA), nil)
-	applyAuthHeadersAs(req, "peer-b")
+	req := httptest.NewRequest(http.MethodGet, "/torrents/"+peerTestTorrentID+"/stream", nil)
+	applyAuthHeadersAs(req, "peer-a")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -240,7 +220,7 @@ func TestStreamFile_UsesTicketIdentityNotHeader(t *testing.T) {
 	_, served := svc.snapshot()
 	require.Len(t, served, 1)
 	assert.Equal(t, "peer-a", served[0],
-		"тикет однозначно называет пира; заголовок не должен переопределять его")
+		"potок должен достаться пиру из заголовка, не last caller'у")
 }
 
 // denyingTorrentService implements TorrentService but denies CanRead for all peers.
@@ -261,21 +241,6 @@ func (s *denyingTorrentService) SelectFile(ctx context.Context, torrentID, userI
 	return s.recordingTorrentService.SelectFile(ctx, torrentID, userID, fileIndex)
 }
 
-// StreamTicket также ограничен room-scoped доступом (deviation-0039):
-// пир вне комнаты не может получить тикет для чужого торрента.
-func TestStreamTicket_RefusesPeerOutsideRoom(t *testing.T) {
-	svc := &denyingTorrentService{recordingTorrentService: &recordingTorrentService{}}
-
-	r := perPeerRouter(svc)
-
-	req := httptest.NewRequest(http.MethodPost, "/torrents/"+peerTestTorrentID+"/stream-ticket", nil)
-	applyAuthHeadersAs(req, "peer-a")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusForbidden, rec.Code, "тикет не должен выдаваться пиру вне комнаты")
-}
-
 // SelectFile также ограничен room-scoped доступом (deviation-0039):
 // пир вне комнаты не может выбрать файл чужого торрента.
 func TestSelectFile_RefusesPeerOutsideRoom(t *testing.T) {
@@ -294,9 +259,8 @@ func TestStreamFile_ServesTheSamePeerThatSelected(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, postSelectAs(t, r, peerTestTorrentID, "peer-a", 1, true).Code)
 
-	ticketA := ticketAs(t, r, peerTestTorrentID, "peer-a")
-	req := httptest.NewRequest(http.MethodGet,
-		"/torrents/"+peerTestTorrentID+"/stream?ticket="+url.QueryEscape(ticketA), nil)
+	req := httptest.NewRequest(http.MethodGet, "/torrents/"+peerTestTorrentID+"/stream", nil)
+	applyAuthHeadersAs(req, "peer-a")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
