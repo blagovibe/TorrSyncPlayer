@@ -9,6 +9,10 @@ env:
 on:
   schedule:
     - cron: '0 2 * * 1'  # Weekly Monday 2 AM UTC
+  # A weekly-only gate cannot be checked after fixing anything: the finding was
+  # fixed, the paths trigger did not change, and the only way to know it is green
+  # is to wait until Monday. workflow_dispatch makes it verifiable on demand.
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
