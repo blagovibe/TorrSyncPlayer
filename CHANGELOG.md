@@ -701,6 +701,63 @@ Still missing from the Go client: system tray, settings persistence and the ru/e
 catalogs (Fyne has no `lupdate`, so the catalogues are maintained by hand). Qt
 remains untouched and remains the only client that does everything.
 
+### CI finally runs the Go frontend — and the window gets tests
+
+**The gap that mattered most in this whole port.** Every `go test` in the
+pipeline had `working-directory: backend`. The Go frontend's tests — 91 of them,
+including the ones that drive a real mpv — had never been executed once, on any
+run, by anything. That is not a missing nicety; it is precisely the blind spot
+that let `--jwt-secret` reach a Windows release through a fully green pipeline,
+and `main.cpp` sitting in no test target is the same shape of mistake in a
+different language.
+
+A `Test Frontend (Go)` job now builds and runs the module on its own, with the
+GUI dependencies installed and `FYNE_DRIVER=offscreen` — without that the tests
+hang waiting for a window rather than failing. It installs mpv and then re-runs
+the player tests with an explicit check that nothing was skipped: those tests
+skip silently when mpv is absent, and a silent skip means the claims they check
+go unverified on every run while the job stays green.
+
+**The window had 525 lines and no tests at all** — including the decisions that
+matter: which position to follow after a seek, whether to re-add the room's
+torrent, when a join is allowed. Those are now plain functions with tests, and
+the widgets call them rather than reimplementing them:
+
+- a seek follows `status.position`, not the requested position. The server
+  smooths jumps, so the two differ on purpose, and following the requested one
+  puts the client seconds ahead of everyone else — silently, because the number
+  looks plausible. A room that has not moved reports zero, and zero is not a
+  place to go.
+- the host is not offered its own film back when a newcomer joins. The room
+  broadcasts its torrent on every join; re-adding would start a fresh download
+  of something already playing.
+- a torrent with no magnet is not adopted. An infohash identifies a torrent
+  without carrying one, and adding by hash alone builds a magnet with no
+  trackers: it resolves over DHT and loses every seeder.
+
+**Settings** are the few choices that should survive a restart, and the file is
+never allowed to stop the application: missing, unreadable and damaged are all
+normal states, and a half-written file is exactly the state the loader has to
+recover from — so writes go through a temporary file and a rename, and a damaged
+file is repaired on the next save rather than appended to.
+
+**Translations.** Fyne has no `lupdate`, so the catalogue is maintained by hand,
+which is only safe if something checks it. A test fails when a catalogue drifts
+from the source list — in either direction. The missing case is the obvious one;
+the *extra* case matters more: a key that no longer exists in the source is never
+displayed, and it hides the fact that something was renamed, because the
+translation keeps looking finished while nothing uses it. An empty entry counts
+as missing on purpose, since it renders as the source language and would
+otherwise report finished work that is not.
+
+Verified: 91 tests green, `gofmt` clean, `go vet` clean, `GOOS=windows` compiles
+every package of the module, and the application still starts its backend and
+waits for readiness. Qt remains untouched.
+
+Still missing from the Go client: the system tray, and a few settings the Qt
+client had (window geometry, default volume). Those are conveniences rather than
+behaviour, and are the last of the parity work.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

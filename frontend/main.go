@@ -121,14 +121,26 @@ func run(opts runOptions) error {
 	}
 
 	a := app.NewWithID("com.blagovibe.torrsyncplayer")
-	if opts.DarkTheme {
+	a.Settings().SetTheme(theme.LightTheme())
+
+	// Settings are read before the window is built: the language is applied to
+	// the texts as they are created, and setting it afterwards would leave half
+	// the interface in the previous language.
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		configDir = os.TempDir()
+	}
+	store := ui.NewSettingsStore(ui.DefaultPath(configDir))
+	settings := store.Load()
+	if opts.Language != "" {
+		settings.Language = opts.Language
+	}
+	if opts.DarkTheme || settings.DarkTheme {
 		a.Settings().SetTheme(theme.DarkTheme())
-	} else {
-		a.Settings().SetTheme(theme.LightTheme())
 	}
 
 	window := a.NewWindow("TorrSyncPlayer")
-	window.SetContent(ui.NewWindow(client, clientID))
+	window.SetContent(ui.NewWindow(client, clientID, store))
 	window.Resize(fyne.NewSize(1100, 700))
 
 	go func() {

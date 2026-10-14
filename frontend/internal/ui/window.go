@@ -26,6 +26,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/room"
 )
@@ -43,10 +44,13 @@ type Torrent struct {
 type window struct {
 	client   *api.Client
 	clientID string
+	settings Settings
+	store    *SettingsStore
 
 	list      *widget.List
 	fileList  *widget.List
 	status    *widget.Label
+	language  string
 	entry     *widget.Entry
 	addButton *widget.Button
 
@@ -77,19 +81,24 @@ type window struct {
 }
 
 // NewWindow builds the main window around a client.
-func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
+func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.CanvasObject {
 	w := &window{
 		client:          client,
 		clientID:        clientID,
+		store:           store,
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		pendingRoomFile: -1,
 	}
+	if store != nil {
+		w.settings = store.Load()
+	}
+	w.language = w.settings.Language
 
 	w.entry = widget.NewEntry()
 	w.entry.SetPlaceHolder("magnet:?xt=urn:btih:…")
 	w.entry.OnSubmitted = func(string) { w.addTorrent() }
 
-	w.addButton = widget.NewButtonWithIcon("Add", theme.ContentAddIcon(), w.addTorrent)
+	w.addButton = widget.NewButtonWithIcon(w.tr("action.add"), theme.ContentAddIcon(), w.addTorrent)
 	w.addButton.Importance = widget.HighImportance
 
 	w.list = widget.NewList(
@@ -116,7 +125,7 @@ func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
 	toolbar := container.NewHBox(
 		w.entry,
 		w.addButton,
-		widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), w.refresh),
+		widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
 	)
 
 	// The file list sits next to the torrent list: picking a torrent answers
@@ -155,25 +164,25 @@ func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
 	w.roomLabel = widget.NewLabel("")
 
 	w.roomIDField = widget.NewEntry()
-	w.roomIDField.SetPlaceHolder("room id")
+	w.roomIDField.SetPlaceHolder(w.tr("field.roomID"))
 	// A password field, not a plain entry: an invitation screen is exactly where
 	// a password gets typed in public.
 	w.roomPassword = widget.NewPasswordEntry()
-	w.roomPassword.SetPlaceHolder("password (optional)")
+	w.roomPassword.SetPlaceHolder(w.tr("field.password"))
 
 	w.inviteEntry = widget.NewEntry()
-	w.inviteEntry.SetPlaceHolder("paste the invitation code")
+	w.inviteEntry.SetPlaceHolder(w.tr("field.invite"))
 
 	roomPanel := container.NewVBox(
 		container.NewHBox(
 			w.roomIDField,
 			w.roomPassword,
-			widget.NewButtonWithIcon("Join", theme.MediaRecordIcon(), w.onJoinPressed),
+			widget.NewButtonWithIcon(w.tr("action.join"), theme.MediaRecordIcon(), w.onJoinPressed),
 		),
 		container.NewHBox(
 			w.inviteEntry,
-			widget.NewButtonWithIcon("Paste code", theme.ContentPasteIcon(), w.onPasteCodePressed),
-			widget.NewButtonWithIcon("Copy code", theme.ContentCopyIcon(), w.onCopyCodePressed),
+			widget.NewButtonWithIcon(w.tr("action.paste"), theme.ContentPasteIcon(), w.onPasteCodePressed),
+			widget.NewButtonWithIcon(w.tr("action.copy"), theme.ContentCopyIcon(), w.onCopyCodePressed),
 		),
 	)
 
@@ -209,14 +218,14 @@ func (w *window) onPasteCodePressed() {
 	}
 	w.roomIDField.SetText(code.RoomID)
 	w.roomPassword.SetText(code.Password)
-	w.setStatus("Invitation code read — press Join")
+	w.setStatus(w.tr("status.codeRead"))
 }
 
 // onCopyCodePressed fills the field with this room's invitation code.
 func (w *window) onCopyCodePressed() {
 	id := w.currentRoom()
 	if id == "" {
-		w.setStatus("You are not in a room yet")
+		w.setStatus(w.tr("status.notIn"))
 		return
 	}
 	w.inviteEntry.SetText(room.InviteCode{
@@ -252,8 +261,13 @@ func (w *window) joinRoom(roomID, password string) {
 	}
 	w.mu.RUnlock()
 
-	if torrentID == "" {
-		w.setStatus("Pick a torrent first: the room is bound to one")
+	if !canJoinRoom(torrentID, roomID) {
+		// A room is bound to a torrent and the server refuses a mismatch.
+		if torrentID == "" {
+			w.setStatus(w.tr("status.pick"))
+		} else {
+			w.setStatus(w.tr("status.badRoom"))
+		}
 		return
 	}
 
@@ -273,7 +287,7 @@ func (w *window) joinRoom(roomID, password string) {
 		w.mu.Unlock()
 
 		w.subscribe(roomID)
-		w.setStatus("Joined the room")
+		w.setStatus(w.tr("status.joined"))
 	}()
 }
 
@@ -365,36 +379,27 @@ func (w *window) onRoomEvent(e room.Event) {
 }
 
 func (w *window) showRoster() {
-	names := make([]string, 0, w.roster.Count())
-	for _, peer := range w.roster.Peers() {
-		label := peer.UserID
-		if peer.IsHost {
-			label += " (host)"
-		}
-		if peer.Buffering {
-			label += " — buffering"
-		}
-		names = append(names, label)
-	}
-	w.roomLabel.SetText("In the room: " + strings.Join(names, ", "))
+	w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(w.roster.Peers()), ", ")))
 }
 
 // adoptRoomTorrent adds the room's torrent to THIS client's backend.
 func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
-	if w.roster.Count() > 0 {
-		if _, isHost := w.roster.FindHost(); isHost {
-			for _, peer := range w.roster.Peers() {
-				if peer.IsHost && peer.UserID == w.clientID {
-					return // the host already has it
-				}
-			}
-		}
-	}
-
 	w.mu.RLock()
 	have := w.current != nil && w.current.ID == ev.InfoHash
 	w.mu.RUnlock()
 	if have {
+		return
+	}
+
+	hostPeer := ""
+	if _, isHost := w.roster.FindHost(); isHost {
+		for _, peer := range w.roster.Peers() {
+			if peer.IsHost {
+				hostPeer = peer.UserID
+			}
+		}
+	}
+	if !shouldAdoptRoomTorrent(ev, w.clientID, hostPeer) {
 		return
 	}
 
@@ -421,13 +426,7 @@ func (w *window) applySync(ev room.SyncEvent) {
 		case "pause":
 			_ = mpv.Pause(ctx)
 		case "seek":
-			// The room smoothed the jump, so it is status.position that says
-			// where everyone actually is — not the position asked for.
-			position := ev.Position
-			if ev.Status != nil && ev.Status.Position != 0 {
-				position = ev.Status.Position
-			}
-			_ = mpv.Seek(ctx, position)
+			_ = mpv.Seek(ctx, positionFor(ev))
 		}
 	}()
 }
@@ -483,7 +482,7 @@ func (w *window) presentFiles(t *Torrent, files []fileEntry) {
 	w.mu.Unlock()
 
 	w.fileList.Refresh()
-	w.setStatus("Choose a file to play")
+	w.setStatus(w.tr("status.choose"))
 }
 
 // playFile selects the file on the data plane and hands the stream to mpv.
@@ -519,7 +518,7 @@ func (w *window) playFile(f fileEntry) {
 			w.setStatus("Could not play: " + err.Error())
 			return
 		}
-		w.setStatus("Playing: " + f.Name)
+		w.setStatus(w.trf("status.playing", f.Name))
 	}()
 }
 
@@ -571,7 +570,7 @@ func humanSize(n int64) string {
 func (w *window) addTorrent() {
 	magnet := w.entry.Text
 	if magnet == "" {
-		w.setStatus("Nothing to add")
+		w.setStatus(w.tr("status.nothing"))
 		return
 	}
 
@@ -583,11 +582,11 @@ func (w *window) addTorrent() {
 		var out Torrent
 		body := map[string]string{"magnetUri": magnet}
 		if err := w.client.Post(ctx, api.Data, "/api/v1/torrents", body, &out); err != nil {
-			w.setStatus("Could not add: " + err.Error())
+			w.setStatus(w.trf("status.couldNot", err.Error()))
 			return
 		}
 		w.entry.SetText("")
-		w.setStatus("Added: " + out.Name)
+		w.setStatus(w.trf("status.added", out.Name))
 		w.refresh()
 	}()
 }
@@ -611,7 +610,7 @@ func (w *window) refresh() {
 		Torrents []Torrent `json:"torrents"`
 	}
 	if err := w.client.Get(ctx, api.Data, "/api/v1/torrents", &out); err != nil {
-		w.setStatus("Backend unreachable: " + err.Error())
+		w.setStatus(w.trf("status.unreach", err.Error()))
 		return
 	}
 
@@ -620,21 +619,92 @@ func (w *window) refresh() {
 	w.mu.Unlock()
 
 	w.list.Refresh()
-	w.setStatus(plural(len(out.Torrents), "torrent", "torrents"))
+	w.setStatus(w.trf("status.torrents", strconv.Itoa(len(out.Torrents))))
 }
 
 func (w *window) setStatus(text string) {
 	w.status.SetText(text)
 }
 
-// plural avoids "1 torrents", which is the kind of small wrongness that makes
-// an interface feel unfinished.
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
-	}
-	return strconv.Itoa(n) + " " + many
-}
-
 // The icons are Fyne's own. Shipping a parallel set would be a second thing to
 // translate and keep in step, for no gain.
+
+// ── decisions, separated from the widgets that show them ──────────────────
+//
+// These are the choices the window makes about the room. They are plain
+// functions so they can be tested without a display: a room event that is never
+// applied looks exactly like a room where nothing happened, and that is not a
+// failure anything else in the suite would notice.
+
+// describeRoster renders the membership line.
+func describeRoster(peers []room.Peer) []string {
+	labels := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		label := peer.UserID
+		if peer.IsHost {
+			// The host is an ordinary row with a flag. Saying so is what lets a
+			// person understand who is driving playback.
+			label += " (host)"
+		}
+		if peer.Buffering {
+			// The room has one shared playback state, so the roster is the only
+			// place that can say WHICH peer is stalled.
+			label += " — buffering"
+		}
+		labels = append(labels, label)
+	}
+	return labels
+}
+
+// positionFor is where a client should actually go after a seek.
+//
+// The server smooths a jump, so the position asked for and the position the
+// room moved to differ on purpose. Following the requested one puts this client
+// seconds ahead of everyone else, silently, because the number looks plausible.
+// A room that has not moved yet reports zero, and zero is not a place to go.
+func positionFor(ev room.SyncEvent) float64 {
+	if ev.Status != nil && ev.Status.Position > 0 {
+		return ev.Status.Position
+	}
+	return ev.Position
+}
+
+// shouldAdoptRoomTorrent decides whether to add the room's torrent to this
+// client's backend.
+//
+// The room broadcasts its torrent on every join, so the host is offered its own
+// film back each time. The host already has it and re-adding would start a fresh
+// download of something it is playing.
+func shouldAdoptRoomTorrent(ev room.TorrentEvent, thisPeer, hostPeer string) bool {
+	if ev.MagnetURI == "" || ev.InfoHash == "" {
+		// An infohash identifies a torrent without carrying one. Adding by hash
+		// alone builds a magnet with no trackers: it resolves over DHT and
+		// loses every seeder.
+		return false
+	}
+	return thisPeer != hostPeer
+}
+
+// canJoinRoom refuses a join with no torrent to watch.
+func canJoinRoom(torrentID, roomID string) bool {
+	if torrentID == "" {
+		return false
+	}
+	return room.ValidateRoomID(roomID) == nil
+}
+
+// tr renders a catalogue string in the window's language.
+//
+// The source language is English, so the source string is the identity: a
+// missing translation falls back to readable text rather than to a key.
+func (w *window) tr(key string) string {
+	return catalog.Lookup(w.language, key)
+}
+
+// trf renders a catalogue string with one substitution.
+//
+// The verbs are part of the translation, not an afterthought: "%d torrents" and
+// "торрентов: %d" are not the same sentence rearranged.
+func (w *window) trf(key, arg string) string {
+	return fmt.Sprintf(w.tr(key), arg)
+}

@@ -74,6 +74,65 @@ jobs:
           path: .
           base: ""
 
+  test-frontend-go:
+    name: Test Frontend (Go)
+    needs: lint-backend
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: frontend/go.sum
+
+      # Fyne needs OpenGL and X11 headers to build. Without them the job fails
+      # with an error that looks like a project problem rather than a missing
+      # package.
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1
+
+      # The driver must be offscreen: without a display the tests hang waiting
+      # for a window rather than failing.
+      - name: Run tests
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Report coverage
+        working-directory: frontend
+        run: go tool cover -func=coverage.out | tail -1
+
+      # The player tests drive a real mpv over its IPC socket. Without it they
+      # skip, and a skip is silent — the claims they check would go unverified
+      # on every single run.
+      - name: Install mpv
+        run: sudo apt-get install -y --no-install-recommends mpv
+
+      - name: Re-run player tests without skipping
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: |
+          if go test -run 'TestRealMpv' -v ./internal/player/... | grep -q SKIP; then
+            echo "mpv tests were skipped: mpv is missing or not working here"
+            exit 1
+          fi
+
+      - name: Build the application
+        working-directory: frontend
+        env:
+          CGO_ENABLED: '1'
+        run: go build ./...
+
   test-backend:
     name: Test Backend
     needs: lint-backend
