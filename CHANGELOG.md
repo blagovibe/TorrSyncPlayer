@@ -645,6 +645,62 @@ plane, subscribes, a third participant arrives, and the stream carries both the
 updated roster and the room's torrent event with the host's selected file —
 byte-for-byte the shape the Go parser was written against.
 
+### Control commands, the invitation code, and the buffer window
+
+The rest of what a room needs from the client. 38 tests in `internal/room` now.
+
+**Commands.** Create, join, leave, play, pause, seek, and a buffering report —
+all on the control plane. A few behaviours that are easy to get wrong and are
+therefore pinned:
+
+- A room cannot be created or joined without a torrent. The server would refuse
+  it; catching it in the client keeps the message clear instead of returning a
+  400 from a stranger's server.
+- A failed join leaves the session *outside* the room. Otherwise the client
+  believes it is in a room and waits for events that will never come.
+- Leaving clears the session even when the server refuses. The server prunes
+  idle peers on its own, so the worst case is a ghost in the roster; a client
+  that still believes it is inside is worse.
+
+**The invitation code** is `ID:password`, split on the *first* colon — a room id
+is hex and has none, a password may contain any. Splitting on the last colon, or
+on all of them, cuts the password in the wrong place. A code with no colon is
+read as an id with an empty password rather than refused: someone pasting only
+the id has made a typo, and the server is what judges passwords. The id is
+checked against the server's rule before anything is sent, which is not security
+— the server checks again — but it turns a typo into an immediate message
+instead of a round trip to a stranger's server. The token is deliberately not in
+the code, as before: it is a credential for the whole server, not for one room.
+
+**The buffer window is the point of the whole prioritiser**, and it was the last
+missing piece. Twice a second the player is asked where it is, and that position
+in seconds is converted to a byte offset for the local backend, which steers
+which pieces to fetch next. Without it the download window drifts behind the
+film and the only signal is the seek a person just made.
+
+The conversion refuses to guess. Until the selected file's size and duration are
+known it reports nothing: a wrong byte offset aims the prioritiser at the wrong
+part of the file, which is worse than no signal at all. Six tests hold that,
+including the recovery from a failed reading — a player that cannot be asked
+must not stop the ticker, because the next reading 500 ms later is the one that
+matters.
+
+Wired into the window: join fields, a password entry rather than a plain one
+(an invitation screen is exactly where a password gets typed in public), and
+paste/copy for the invitation code.
+
+Verified against live servers. The Go application starts its backend on a free
+port and waits for readiness (`200` on `/api/v1/version`). Then, against a real
+host and a real guest backend: the guest joins, the host's `play` is accepted
+(`isPlaying: true`), the **guest's `play` is refused** with `Access denied`, and
+the **guest's buffering report is accepted** — after which `/sync/status` shows
+`buffering: true`. That is the whole model the goal describes: one participant
+drives playback, and anyone may say they are stalled.
+
+Still missing from the Go client: system tray, settings persistence and the ru/en
+catalogs (Fyne has no `lupdate`, so the catalogues are maintained by hand). Qt
+remains untouched and remains the only client that does everything.
+
 ### Fixed
 
 - The frontend could not be configured for a test build at all. `option(BUILD_TESTS)`

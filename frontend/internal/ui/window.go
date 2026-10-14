@@ -62,12 +62,18 @@ type window struct {
 	// -1 means the host has not chosen one.
 	pendingRoomFile int
 
-	// Room state. The roster is kept in the room package because its version
-	// rules are subtle; here it is only read.
+	// Room state. The roster and the session live in the room package because
+	// their rules are subtle; here they are only driven.
 	roster    room.Roster
 	stream    *room.Client
-	roomID    string
+	session   *room.Session
+	room      string
 	roomLabel *widget.Label
+	buffer    *room.BufferReporter
+
+	inviteEntry  *widget.Entry
+	roomIDField  *widget.Entry
+	roomPassword *widget.Entry
 }
 
 // NewWindow builds the main window around a client.
@@ -148,13 +154,82 @@ func NewWindow(client *api.Client, clientID string) fyne.CanvasObject {
 	// one-line answer that belongs where it is always visible.
 	w.roomLabel = widget.NewLabel("")
 
+	w.roomIDField = widget.NewEntry()
+	w.roomIDField.SetPlaceHolder("room id")
+	// A password field, not a plain entry: an invitation screen is exactly where
+	// a password gets typed in public.
+	w.roomPassword = widget.NewPasswordEntry()
+	w.roomPassword.SetPlaceHolder("password (optional)")
+
+	w.inviteEntry = widget.NewEntry()
+	w.inviteEntry.SetPlaceHolder("paste the invitation code")
+
+	roomPanel := container.NewVBox(
+		container.NewHBox(
+			w.roomIDField,
+			w.roomPassword,
+			widget.NewButtonWithIcon("Join", theme.MediaRecordIcon(), w.onJoinPressed),
+		),
+		container.NewHBox(
+			w.inviteEntry,
+			widget.NewButtonWithIcon("Paste code", theme.ContentPasteIcon(), w.onPasteCodePressed),
+			widget.NewButtonWithIcon("Copy code", theme.ContentCopyIcon(), w.onCopyCodePressed),
+		),
+	)
+
 	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
 	body := container.NewBorder(
 		toolbar, w.status, nil, nil,
-		container.NewVBox(w.roomLabel, lists),
+		container.NewVBox(w.roomLabel, roomPanel, lists),
 	)
 
+	w.buffer = room.NewBufferReporter(room.ReporterOptions{
+		Report: func(ctx context.Context, torrentID string, offset int64) error {
+			var out struct{}
+			return w.client.Post(ctx, api.Data,
+				fmt.Sprintf("/api/v1/torrents/%s/buffer/position", torrentID),
+				map[string]int64{"position": offset}, &out)
+		},
+	})
+
 	return container.NewStack(body)
+}
+
+// onJoinPressed joins the room named in the fields.
+func (w *window) onJoinPressed() {
+	w.joinRoom(w.roomIDField.Text, w.roomPassword.Text)
+}
+
+// onPasteCodePressed fills the fields from a pasted invitation code.
+func (w *window) onPasteCodePressed() {
+	code, err := room.ParseInviteCode(w.inviteEntry.Text)
+	if err != nil {
+		w.setStatus(err.Error())
+		return
+	}
+	w.roomIDField.SetText(code.RoomID)
+	w.roomPassword.SetText(code.Password)
+	w.setStatus("Invitation code read — press Join")
+}
+
+// onCopyCodePressed fills the field with this room's invitation code.
+func (w *window) onCopyCodePressed() {
+	id := w.currentRoom()
+	if id == "" {
+		w.setStatus("You are not in a room yet")
+		return
+	}
+	w.inviteEntry.SetText(room.InviteCode{
+		RoomID:   id,
+		Password: w.roomPassword.Text,
+	}.Encode())
+}
+
+// currentRoom is the room this client is in, or an empty string.
+func (w *window) currentRoom() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.room
 }
 
 // ── room ───────────────────────────────────────────────────────────────────
@@ -186,22 +261,62 @@ func (w *window) joinRoom(roomID, password string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		var joined struct {
-			RoomID string `json:"id"`
-		}
-		body := map[string]string{"roomId": roomID, "password": password, "torrentId": torrentID}
-		if err := w.client.Post(ctx, api.Control, "/api/v1/rooms/join", body, &joined); err != nil {
+		session := room.NewSession(nil, w.client.ControlURL(), w.client.ControlToken(), w.clientID)
+		if err := session.Join(ctx, roomID, password, torrentID); err != nil {
 			w.setStatus("Could not join: " + err.Error())
 			return
 		}
 
 		w.mu.Lock()
-		w.roomID = roomID
+		w.room = roomID
+		w.session = session
 		w.mu.Unlock()
 
 		w.subscribe(roomID)
 		w.setStatus("Joined the room")
 	}()
+}
+
+// tellRoom sends a playback command to the room.
+//
+// Only the host's commands change anything — the server refuses the rest — but
+// every participant sends, so that "I pressed play" and "the room is playing"
+// do not become different beliefs.
+func (w *window) tellRoom(send func(ctx context.Context, s *room.Session) error) {
+	w.mu.RLock()
+	session := w.session
+	w.mu.RUnlock()
+	if session == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := send(ctx, session); err != nil {
+			w.setStatus("The room refused: " + err.Error())
+		}
+	}()
+}
+
+// playRoom asks the room to start.
+func (w *window) playRoom() {
+	w.tellRoom(func(ctx context.Context, s *room.Session) error { return s.Play(ctx) })
+}
+
+// pauseRoom asks the room to stop.
+func (w *window) pauseRoom() {
+	w.tellRoom(func(ctx context.Context, s *room.Session) error { return s.Pause(ctx) })
+}
+
+// reportBuffering tells the room this peer stalled, or caught up.
+//
+// Any peer may, not only the host: otherwise a participant whose stream
+// recovered could not say so and the room would stay paused for everyone.
+func (w *window) reportBuffering(buffering bool) {
+	w.tellRoom(func(ctx context.Context, s *room.Session) error {
+		return s.ReportBuffering(ctx, buffering)
+	})
 }
 
 func (w *window) subscribe(roomID string) {
