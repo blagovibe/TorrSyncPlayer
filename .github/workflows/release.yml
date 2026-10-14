@@ -116,9 +116,15 @@ jobs:
             --output appimage \
             --verbosity 3
 
-          test -f dist/TorrSyncPlayer-x86_64.AppImage \
-            || test -f dist/TorrSyncPlayer.AppImage \
-            || { echo "no AppImage was produced"; ls -la dist; exit 1; }
+          # The image lands in the working directory, not in dist/: linuxdeploy
+          # never learns where the AppDir came from, so it writes its output to
+          # the current one. The second real run proved it — the build printed
+          # "Success", the squashfs was 110 MB, and the check below found nothing
+          # because it looked in dist/. Moved next to the rest of the build, or
+          # the upload step takes dist/*.AppImage and ships an empty artifact.
+          mv TorrSyncPlayer*.AppImage dist/TorrSyncPlayer-x86_64.AppImage
+          test -s dist/TorrSyncPlayer-x86_64.AppImage \
+            || { echo "no AppImage was produced"; ls -la; ls -la dist; exit 1; }
 
       # The image existing is not the same as the image containing anything.
       # Extracting it and looking is the cheapest check that catches an empty

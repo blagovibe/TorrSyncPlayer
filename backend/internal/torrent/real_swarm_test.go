@@ -168,8 +168,21 @@ func TestAPartialTorrentIsPlayableAndWhatIsPlayingIsFetchedFirst(t *testing.T) {
 
 	// And the consequence: the beginning of the file streams, byte for byte,
 	// while most of the file is missing.
-	head := swarmPieceLength * wantPieces
-	served := serveRange(t, leecher, got.ID, "leecher", 0, int64(head)-1)
+	//
+	// Streamed is the *re-checked* prefix, not the twelve hoped for above.
+	// Completion is a bitmap that a failed hash check clears — the piece is
+	// un-marked and re-requested, and with the seeder gone nobody answers that
+	// request. So "complete a minute ago" is not a fact about now, and the
+	// range is measured at stream time. That is what the CI run of this test
+	// taught: the prefix was complete when counted, the seeder left, and the
+	// reader then waited ten minutes on a byte inside it, because one piece had
+	// been un-marked in between while the request carried no deadline.
+	stable := completePrefix(file)
+	if stable == 0 {
+		t.Fatalf("nothing of the file is complete at stream time, though %d pieces were", wantPieces)
+	}
+	head := int64(stable) * swarmPieceLength
+	served := serveRange(t, leecher, got.ID, "leecher", 0, head-1)
 	if !bytes.Equal(served, payload[:head]) {
 		t.Fatalf("the first %d bytes streamed back do not match what was seeded", head)
 	}
@@ -504,23 +517,49 @@ func leecherProgress(t *testing.T, svc *Service, torrentID string) float64 {
 
 // serveRange asks the service for a byte range, exactly as the media endpoint
 // does, and returns what came back.
+//
+// It is bounded, because the reader underneath blocks without a deadline when a
+// byte never arrives: the request carries no context deadline, and anacrolix
+// waits on data rather than failing. An unbounded serve turns one missing byte
+// into the whole suite hanging until go test's own timeout kills it — ten
+// minutes of CI that say nothing. A timeout here fails the test with the state
+// attached, which is a diagnosis rather than a silence.
 func serveRange(t *testing.T, svc *Service, torrentID, userID string, from, to int64) []byte {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/torrents/%s/stream", torrentID), nil)
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", from, to))
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, torrentID, userID)
-
-	if rec.Code != http.StatusOK && rec.Code != http.StatusPartialContent {
-		t.Fatalf("stream answered %d: %s", rec.Code, rec.Body.String())
+	type outcome struct {
+		code int
+		body []byte
 	}
-	body, err := io.ReadAll(rec.Body)
-	if err != nil {
-		t.Fatalf("read streamed body: %v", err)
+	done := make(chan outcome, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/torrents/%s/stream", torrentID), nil)
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", from, to))
+		rec := httptest.NewRecorder()
+
+		svc.ServeFile(rec, req, torrentID, userID)
+
+		body, err := io.ReadAll(rec.Body)
+		if err != nil {
+			t.Errorf("read streamed body: %v", err)
+			return
+		}
+		if rec.Code != http.StatusOK && rec.Code != http.StatusPartialContent {
+			t.Errorf("stream answered %d: %s", rec.Code, body)
+			return
+		}
+		done <- outcome{code: rec.Code, body: body}
+	}()
+
+	select {
+	case out := <-done:
+		return out.body
+	case <-time.After(2 * time.Minute):
+		t.Fatalf("streaming bytes %d-%d never finished: the reader is waiting on data "+
+			"that is not arriving (complete prefix at stream time: %d pieces)",
+			from, to, completePrefix(swarmFile(t, svc, torrentID)))
+		return nil
 	}
-	return body
 }
 
 // testPayload is deterministic so a mismatch is never "different random bytes".

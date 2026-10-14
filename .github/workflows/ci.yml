@@ -111,8 +111,13 @@ jobs:
       # The player tests drive a real mpv over its IPC socket. Without it they
       # fail (or skip, depending on the test), and the claims they check go
       # unverified — install it before running the suite, not after it.
+      #
+      # ffmpeg builds the multi-track fixture one of those tests plays: two
+      # audio tracks and a subtitle muxed into a small mkv from synthetic
+      # sources. Without it that test skips, and the no-skip gate below fails —
+      # which is the gate working, not the test.
       - name: Install mpv
-        run: sudo apt-get install -y --no-install-recommends mpv
+        run: sudo apt-get install -y --no-install-recommends mpv ffmpeg
 
       - name: Run tests
         working-directory: frontend

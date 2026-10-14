@@ -1864,3 +1864,41 @@ The release itself is a draft pre-release, which is what a tag with a suffix mea
 here: the artifacts are built and attached, but nobody can see them until somebody
 looks. That is the state this workflow should have been run in from the beginning,
 and the reason the tag is `v1.2.0-rc.1` rather than `v1.2.0`.
+
+### The second rc run, and the two failures only a runner could produce
+
+Tag `v1.2.0-rc.2` fixed the two defects the first run found, and the runners
+found two more — one in CI, one in the pipeline. Neither was visible from the
+file, and both are now fixed rather than worked around.
+
+**The AppImage was built and then declared missing.** linuxdeploy printed
+"Success" and a 110 MB squashfs, and the step's own check reported "no AppImage
+was produced" — because the image lands in the *working directory*, not in
+`dist/`. linuxdeploy never learns where the AppDir came from; it writes its
+output next to where it was invoked. The image was sitting in the repository
+root while `dist/*.AppImage` matched nothing, which would also have made the
+upload step ship an empty artifact. Now the image is moved into `dist/` by
+name, and the check looks at what is actually there.
+
+**The swarm test hung CI for ten minutes.** `TestBackend` died on go test's own
+timeout with `TestAPartialTorrentIsPlayable` stuck in `reader.waitAvailable` —
+inside the range the test streams, on a byte of a piece that had been counted
+complete minutes earlier. The mechanism is in the library, not in the project:
+completion is a bitmap that a failed hash check clears, the piece is un-marked
+and re-requested, and with the seeder removed nobody answers that request. What
+the test did wrong was stream "what was complete when counted" with a request
+that carries no deadline — one un-marked piece turns the whole suite into a
+ten-minute silence. Two guards now: the streamed range is measured at stream
+time, re-checking the complete prefix right before serving, and the serve itself
+is bounded — on a timeout the test fails with the prefix state attached, which
+is a diagnosis rather than a hang.
+
+**The frontend gate caught a missing tool, which is the gate working.** The
+"no SKIP" re-run of the real-mpv player tests failed because the multi-track
+fixture needs ffmpeg to build it, and the runner has mpv but no ffmpeg. The
+claim behind that gate is that every check stays verified; the fix is to install
+ffmpeg next to mpv, not to teach the gate to tolerate a skip.
+
+Windows and macOS are now green end to end — the chocolatey PATH search and the
+ad-hoc-signed DMG both confirmed by real runners. Linux is the one still open,
+and only because of the AppImage path above.
