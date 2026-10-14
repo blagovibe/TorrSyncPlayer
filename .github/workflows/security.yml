@@ -111,5 +111,5 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends -qq \
-            libgl1-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libfontconfig1
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev
           CGO_ENABLED=1 "$(go env GOPATH)/bin/gosec" -quiet -fmt=github ./...

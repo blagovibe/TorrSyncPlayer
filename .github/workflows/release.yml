@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libfontconfig1 \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev \
             mpv desktop-file-utils file fuse3
 
       - name: Build the application and the backend

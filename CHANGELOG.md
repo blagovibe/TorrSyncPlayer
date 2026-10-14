@@ -202,6 +202,33 @@ not one byte is exchanged in thirty seconds**. That is the transfer itself, not
 storage and not discovery. The test reports this as a skip with the numbers in
 the message. Verified: `make test-all` green, 29 packages.
 
+- The first real push since the Qt client was removed proved that the rewritten
+  pipeline had never actually run. What came back: **32 golangci-lint findings**
+  across the backend (bug-0069), an updated `golang.org/x/net` that the pinned
+  `golangci-lint v2.12.2` could not parse, a Swagger spec still describing the
+  deleted stream-ticket endpoint, and a `gosec` run that surfaced two extra
+  findings the linter had not. The deprecated `mi.Magnet` helper is gone in
+  favour of `MagnetV2`; unchecked `os.Setenv`, `svc.Close`, `resp.Body.Close`,
+  `Play` and `Pause` results are handled; the SSE test now closes its response
+  body through `t.Cleanup` instead of a `defer` that fired when the helper
+  returned and closed the stream before the guest could ever join.
+- **The Fyne client could not be built on an Ubuntu 24.04 runner at all.** glfw
+  builds through cgo and wants Wayland headers: every workflow assumed GL, X11
+  and KGL were enough, and all four of them failed on
+  `wayland-client-core.h: No such file or directory` the first time the frontend
+  was actually compiled by CI. `libwayland-dev` is now installed everywhere the
+  client is built.
+- Go 1.27.1 leaves twelve `net/http`, `crypto/tls` and stdlib vulnerabilities
+  reachable through `http.Client`, so `govulncheck` failed the backend test job
+  on a toolchain that was current the day it was pinned. All are fixed in
+  1.27.2, which every workflow now pins.
+- The load-test journey created rooms without a `torrentId`, which the API has
+  required since rooms were bound to torrents. Every create answered 400 and
+  every sync check behind it failed — `create room 201` at 0% out of 3689
+  attempts on a server that was answering every list request correctly.
+- `codeql.yml` analysed the runner's preinstalled Go instead of the pinned one,
+  so what CodeQL compiled could differ from what the pipeline builds and gates.
+
 ### Added
 
 - Room ↔ Torrent binding (bug-0047, first step of idea-0046). Each room is now
