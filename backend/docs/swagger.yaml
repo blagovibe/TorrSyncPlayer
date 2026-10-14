@@ -184,13 +184,6 @@ definitions:
           type: integer
         type: array
     type: object
-  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse:
-    properties:
-      ticket:
-        type: string
-      torrentId:
-        type: string
-    type: object
   github_com_blagovibe_TorrSyncPlayer_backend_internal_models.SuccessResponse:
     properties:
       message:
@@ -769,37 +762,6 @@ paths:
           schema:
             $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: Stream file
-      tags:
-      - torrents
-  /api/v1/torrents/{id}/stream-ticket:
-    post:
-      description: Returns a signed ticket authorizing streaming of the given torrent
-      parameters:
-      - description: Torrent ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.StreamTicketResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
-      summary: Issue stream ticket
       tags:
       - torrents
 securityDefinitions:

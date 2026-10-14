@@ -777,7 +777,7 @@ const docTemplate = `{
                     }
                 }
             }
-        },
+        }
     },
     "definitions": {
         "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.AddTorrentRequest": {
@@ -1039,11 +1039,6 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
-                }
-            }
-        },
-                "torrentId": {
-                    "type": "string"
                 }
             }
         },
