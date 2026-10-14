@@ -47,9 +47,22 @@ func buildTorrentFile(t *testing.T, name string, length int64) []byte {
 	return bencode(t, map[string]interface{}{"info": info})
 }
 
+// bencode encodes a value for the API and for the .torrent this package builds.
 func bencode(t *testing.T, value interface{}) []byte {
 	t.Helper()
 
+	encoded := bencodeValue(value)
+	if encoded == nil {
+		t.Fatalf("bencode does not handle %T", value)
+	}
+	return encoded
+}
+
+// bencodeValue is the encoder itself, without a test to fail in: the loopback
+// tracker answers from a plain HTTP handler and has no *testing.T to reach for.
+// A type it does not know becomes nil rather than a half-encoded dictionary,
+// because a truncated torrent would fail somewhere far from here.
+func bencodeValue(value interface{}) []byte {
 	switch v := value.(type) {
 	case string:
 		return []byte(encodeString(v))
@@ -69,11 +82,14 @@ func bencode(t *testing.T, value interface{}) []byte {
 
 		out := "d"
 		for _, key := range keys {
-			out += encodeString(key) + string(bencode(t, v[key]))
+			encoded := bencodeValue(v[key])
+			if encoded == nil {
+				return nil
+			}
+			out += encodeString(key) + string(encoded)
 		}
 		return []byte(out + "e")
 	default:
-		t.Fatalf("bencode does not handle %T", value)
 		return nil
 	}
 }

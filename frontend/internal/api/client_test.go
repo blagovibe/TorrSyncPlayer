@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -175,4 +176,26 @@ func TestTrailingSlashInBaseURLDoesNotDoubleUp(t *testing.T) {
 	require.NoError(t, c.Get(context.Background(), Data, "/api/v1/torrents", &out))
 
 	assert.Equal(t, "/api/v1/torrents", seen)
+}
+
+// A call the window has already given two minutes must not be cut off by a
+// blanket cap inside the client.
+//
+// The backend answers "add this magnet" only once the swarm has delivered the
+// metadata, and it allows 60 seconds for that
+// (backend/internal/constants/constants.go, MagnetMetadataTimeout). The client
+// used to cap every request at 30 seconds, which silently overrode the caller's
+// context: a guest joining a room on a slow swarm got "context deadline exceeded"
+// at half a minute while its own backend was still working — the same shape of
+// lie as a dead backend being called a timeout (bug-0079).
+func TestTheClientOutlivesTheBackendsSlowestAnswer(t *testing.T) {
+	// The number lives in the other module, so it is restated here rather than
+	// imported: the coupling is real, and no test can span the boundary and keep
+	// it honest.
+	const backendMetadataWait = 60 * time.Second
+
+	if requestTimeout < backendMetadataWait {
+		t.Fatalf("the client would give up after %v, before the backend's %v wait finishes",
+			requestTimeout, backendMetadataWait)
+	}
 }

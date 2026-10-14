@@ -1678,49 +1678,168 @@ header-based since idea-0066. What changed is that it is now the *only* client,
 so the assumption can no longer survive by living in `frontend/src/` alongside
 a working one.
 
-### The goal stops describing machinery that no longer exists
-The concept still told the reader two things that stopped being true when the Qt
-client and the bearer ticket went away, and both were telling in the wrong
-direction: they *understated* what the project does.
+### The first sentence of the concept is finally under test
 
-`/stream` was documented as the one exception — "the token is not checked", with
-access granted by a short-lived signed `?ticket=` that could be handed to anyone.
-That has not been the case since mpv turned out to be able to send headers
-(`--http-header-fields`): the media endpoint is an ordinary authenticated route,
-and a room-scoped `CanRead` check sits in front of it, so somebody holding the
-process token but not sitting in the room gets a 403. The paragraph is replaced by
-what is actually true. It is worth saying which way this error pointed: the goal
-described a hole that had been closed, so anyone reading the goal believed the
-contents of a torrent were reachable by anyone with a ticket. Principle 9 exists
-so that the goal describes the target state rather than the current code; here the
-target state was better than the description.
+"The file starts playing as soon as enough data has arrived" was never checked
+against anything real. Everything green proved it was written correctly; nothing
+proved it was true. The scenario tests deliberately stop short of adding a magnet
+because no torrent exists in any swarm, and `localBackend` -- the only
+implementation that talks to a real torrent client -- appeared in no test at all.
+`backend/internal/torrent/real_swarm_test.go` closes that: a real `.torrent`
+built from a real file, two real anacrolix clients, a real loopback tracker
+(`loopback_tracker_test.go` -- the library ships the tracker *protocol* and a
+handler, but no tracker; the `nodes` list in a `.torrent` looked like the cheap
+answer and silently drops the address when `NoDHT` is set). The leecher is
+rate-limited so "partly downloaded" is a fact rather than a hope about timing,
+and the seeder is then removed, so that everything which still works works
+because it works partly.
 
-The "what is included" list said "video playback via libmpv in a Qt window". The
-frontend is Go/Fyne and the video plays in an `mpv` process the application talks
-to over a JSON socket — one binary, three platforms, no ABI to break (idea-0067).
-The list now says that.
+It did not pass at first, and the reason was in the test twice over:
 
-Audit after the goal edit, by cards whose `refs` point at the two changed
-sections: `deviation-0039` and `deviation-0061` (both point at "Доступ без лишних
-хлопот") were read and found unaffected — neither is about the stream endpoint's
-authentication, and neither's compromise changes; `bug-0070` (points at "Границы
-проекта") was read and found unaffected too, since the release job packs mpv as an
-external process already. Their statuses are unchanged, and the reasoning is
-recorded in their discussions. **Board: `idea-0079` accepted and carried out, card
-removed** — its history is here.
+- **Nothing was asked of the swarm.** anacrolix gives every piece of a freshly
+  added torrent `PiecePriorityNone`, and this project never calls `DownloadAll`:
+  it steers priorities from `internal/buffer`, which starts with a selected file
+  and a playhead. The test waited for pieces *before* selecting the file, so it
+  measured a silence it had created itself -- the seeder holding all 8 MiB, the
+  tracker seeing both peers, and not one byte moving, which was recorded as
+  "unexplained" in idea-0071.
+- **It waited for the wrong shape.** Twelve pieces *somewhere* is not twelve
+  playable pieces: anacrolix fills the window it is given by priority, not by
+  index, so the range the test streams waited on a byte nobody was sending.
+  `completePrefix` and `firstIncompletePiece` now express what a playhead at zero
+  can actually use.
+- Two priority assertions were also wrong, and about the code rather than the
+  scaffolding: a completed piece reports an *effective* priority of `None`
+  (there is nothing left to want), and `SelectForStreaming` marked the whole file
+  `Normal`, which lifts every incomplete piece in it to at least `Normal`. The
+  honest claim is not "far pieces are None" but "the piece under the playhead is
+  wanted more urgently than the far end".
 
-Board: `idea-0066` (steps 1-3 done), `deviation-0029` (resolved: tickets
-removed), `idea-0067` (accepted and carried out) -- removed from the board; their
-history is here. `idea-0063` stays open: the scenario passes and the client
-ships, but Windows and macOS builds are still only provable with their own
-toolchains. `idea-0064` -- WebRTC via weron -- now has its blocking premise gone;
-it is the next thing to decide.
+It is green now (11.5 s): two real clients exchange real pieces, the leecher
+walks away with 8.6% of the file and the seeder gone, the first twelve pieces
+stream back byte for byte, priorities follow the playhead, and the buffer window
+moves with it (idea-0071). What is still not proven is the product as a whole --
+the guest in a live room is not yet brought to a playing mpv (bug-0078) -- and
+that is the next slice of the same card, not this one.
 
-Verified: 103 frontend tests and 17 backend packages green under `-race`,
-`gofmt` and `go vet` clean. `GOOS=windows` builds every `internal/` package;
-the full binary builds on the target platform (`go run ./cmd/build`). Live run:
-client starts its backend, `/api/v1/version` is 200 with the token and 401
-without, the list polls every two seconds, nothing in the log but INFO.
+Found while checking the project against pojntfx/multiplex, which is also a fresh
+check: the board gains `bug-0078` (a room never gives its guest the host's file:
+`pendingRoomFile` is written and never read), `idea-0079` (the concept still
+describes the `/stream` ticket and libmpv-in-a-Qt-window, both removed) and
+`idea-0080` (subtitles and audio tracks, which Multiplex has and this project
+does not). **Fresh check: 3 discrepancies found** (idea-0079, bug-0078, plus the
+test-order bug fixed above), goal and way unchanged, 493 tests green in both
+modules, `gofmt` and `go vet` clean.
+
+### The room now gives its guest what the host is watching
+
+A room is a shared viewing of one torrent, and the host decides which file that
+is: the file number travels with the room's torrent event. The guest's copy of
+that decision was written into `pendingRoomFile` and read by nothing — four
+occurrences of the field across the frontend, not one of them a read. So the
+guest joined a room, watched its own backend receive the magnet, and then sat
+there with no selected file and no player. The host pressed play, and the command
+arrived at a client whose `applySync` silently returned at `mpv == nil`. The
+second half of the product — "the others follow the host" — was a server feature
+with no client half (bug-0078).
+
+What was missing was a *second* moment, not a line. The room names a file, but a
+torrent's file list only exists once the metadata has arrived, so the choice
+cannot be applied when the event lands; it has to be applied when the torrent
+appears in the guest's own list. That is `adoptTheRoomsFile`, called from
+`refresh()`, and it ends in the same two calls a person's click makes:
+`presentFiles`, then `playFile`.
+
+The decisions are separated from the widgets that show them, because they are the
+kind that fails silently otherwise: `roomOffer.adopt()` says *when* — the room has
+named a file, the guest has not applied this offer yet, the torrent is in the
+guest's own list, and the guest is not already busy with a different torrent —
+and `fileToAdopt()` says *which* — exactly the file the room named, because a
+guest that picks its own file watches a different part of the release and nothing
+about that looks like an error. A file number the torrent does not have is
+refused rather than rounded to the nearest thing. New strings go through the
+catalogue, in both languages, rather than around it (idea-0073).
+
+Written RED first: `frontend/internal/ui/room_adopt_test.go` failed to compile,
+which is what a missing function looks like. Green now, four new tests in
+`internal/ui`, the whole frontend suite green including under `-race`, `gofmt` and
+`go vet` clean.
+
+The card stays `in_progress`, and the reason is recorded there: the behaviour is
+implemented and its decisions are tested, but "a guest arrives at a playing mpv"
+still has no scenario behind it. That proof needs a real swarm, because the client
+only knows how to add a magnet and a magnet resolves only when somebody answers —
+which is now possible, since `idea-0071` proved two real backends exchange real
+pieces on loopback. It is variant 3 of that card, not a separate one.
+
+### A guest now reaches the film the room is watching, and the path is under test
+
+The room has always said what it is watching: the host's magnet and the host's
+chosen file travel with the room's torrent event. The guest's client wrote the
+file number into `pendingRoomFile` and read it nowhere — four occurrences of the
+field in the frontend, not one of them a read. So the guest joined, watched its
+own backend accept the magnet, and sat there: no selected file, no player, and
+the host's play command arriving at a client whose `applySync` returned at
+`mpv == nil`. The second half of the product was a server feature with no client
+half (bug-0078).
+
+What was missing was not a line but a *second moment*. The room names a file, and
+a torrent's file list only exists once a swarm has answered, so the choice cannot
+be applied when the event lands; it has to be applied when the torrent appears in
+the guest's own list. That is `adoptTheRoomsFile`, called from `refresh()`,
+ending in the same two calls a person's click makes: `presentFiles`, `playFile`.
+
+The decisions live in a new package, `internal/adopt` (`Offer.Torrent`, `FileFor`,
+`CarryOut`), and that move is the point of the fix rather than tidying: inside
+`window` — a struct built from Fyne widgets — the whole path could only be
+executed by a running application, which is how the defect survived in the first
+place. The window is now an adapter: it builds the offer from its own state,
+carries it out, and turns the three outcomes (not yet / backend did not answer /
+the torrent has no such file) into three different things said to the person.
+Every new string goes through the catalogue in both languages
+(`status.roomJoining`, `status.roomReadFail`, `status.roomFileMissing`), not around
+it (idea-0073).
+
+**And it is now proven by a run, not by reasoning.**
+`TestAGuestEndsUpPlayingWhatTheRoomIsWatching` (3.4 s) puts up a real tracker, a
+real `.torrent` whose pieces really hash to the payload, a host backend holding
+the film on disk and seeding it, and a guest backend on memory storage — then
+drives the guest's whole path through the real `internal/adopt` with the real
+two-plane HTTP client and a real `POST /select`. The room names the magnet and the
+file; the guest's own backend takes the magnet; the metadata arrives from the
+seeder through the tracker; `CarryOut` reads the guest's file list and picks the
+host's file; and pieces really move from the host's backend to the guest's. The
+tracker is hand-written rather than linked (`loopback_tracker_test.go`) because the
+library ships the announce protocol and a handler for serving it but no tracker,
+and a dependency whose only job is to hand one list over is not worth the
+coupling — the same reasoning as `internal/buffer` being ours.
+
+The run found two things that were true about the product, not about the test:
+
+- **The client gave up before the backend did.** `api.Client` carried a blanket
+  30-second cap that silently overrode the caller's context, while adding a magnet
+  blocks until the swarm delivers the metadata and the backend allows 60 seconds
+  for it (`MagnetMetadataTimeout`). On a slow swarm the guest's first step after
+  joining always failed at half a minute with "context deadline exceeded" while
+  its own backend was still working — the same shape of lie as calling a dead
+  backend a timeout. `requestTimeout` is now two minutes, with the reason written
+  next to it and a test holding the coupling to the other module's number, which
+  no test can span (bug-0079).
+- **Nothing is asked of the swarm until a file is chosen.** anacrolix gives every
+  piece of a fresh torrent `PiecePriorityNone`, and this project steers priorities
+  from the buffer service, which starts with a selection. The guest is connected
+  and asking for nothing — which is why the scenario applies the file before it
+  waits for progress, the same mistake the backend's swarm test made first, now
+  recorded where it cannot be made again.
+
+Board: `bug-0078` fixed and removed — its history is here.
+`idea-0071` gains variant 3 (two participants, real streams) in the same run, and
+is now proven at both ends.
+
+Verified: 500 tests green in both modules — `internal/ui`, `internal/adopt`,
+`internal/api` and `internal/room` also under `-race` — `gofmt` and `go vet`
+clean, the new scenario runs in 3.4 s, and the integration package as a whole in
+under five.
 
 ## [v1.1.5] - 2026-07-12
 

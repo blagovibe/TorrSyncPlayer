@@ -126,10 +126,20 @@ type server struct {
 // startServer launches a backend on a free port with its own data directory.
 func startServer(t *testing.T, clientID string) *server {
 	t.Helper()
+	return startServerWith(t, clientID, t.TempDir(), false)
+}
+
+// startServerWith launches a backend, optionally with its torrent pieces written
+// to disk in dataDir.
+//
+// A seeder needs disk storage: the pieces have to exist before the client starts,
+// because "the host already has the film" is the whole premise of everyone else
+// pulling from the swarm. In memory there is nothing to hand out.
+func startServerWith(t *testing.T, clientID, dataDir string, disk bool) *server {
+	t.Helper()
 
 	token := fmt.Sprintf("token-%d", time.Now().UnixNano())
 	port := freePort(t)
-	dataDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "backend.log")
 
 	logFile, err := os.Create(logPath)
@@ -137,11 +147,16 @@ func startServer(t *testing.T, clientID string) *server {
 		t.Fatalf("backend log: %v", err)
 	}
 
-	cmd := exec.Command(backendBinary(t),
+	args := []string{
 		"--port", fmt.Sprint(port),
 		"--token", token,
 		"--data-dir", dataDir,
-	)
+	}
+	if disk {
+		args = append(args, "--disk-storage")
+	}
+
+	cmd := exec.Command(backendBinary(t), args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 

@@ -49,10 +49,25 @@ type Client struct {
 	clientID string
 }
 
+// requestTimeout is the patience of one API call.
+//
+// It has to outlive the slowest answer the backend can give, and that answer is
+// not a slow database: adding a magnet blocks until the swarm has answered with
+// the metadata, which the backend allows 60 seconds for
+// (backend/internal/constants/constants.go, MagnetMetadataTimeout). The window
+// already asks for two minutes on that call; a shorter blanket cap here overrode
+// the caller's context and turned a slow swarm into a client-side failure that
+// blamed the clock (bug-0079).
+//
+// The number is checked in client_test.go against that constant, because no test
+// can span a module boundary and the coupling is real: lower this below the
+// backend's wait and the guest's first step after joining a room starts failing.
+const requestTimeout = 2 * time.Minute
+
 // New builds a client for the two planes.
 func New(dataBaseURL, dataToken, controlBaseURL, controlToken string) *Client {
 	return &Client{
-		http:           &http.Client{Timeout: 30 * time.Second},
+		http:           &http.Client{Timeout: requestTimeout},
 		dataBaseURL:    strings.TrimRight(dataBaseURL, "/"),
 		dataToken:      dataToken,
 		controlBaseURL: strings.TrimRight(controlBaseURL, "/"),

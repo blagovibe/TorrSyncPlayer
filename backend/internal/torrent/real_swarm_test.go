@@ -98,14 +98,33 @@ func TestAPartialTorrentIsPlayableAndWhatIsPlayingIsFetchedFirst(t *testing.T) {
 		t.Fatalf("leecher ended up with %s, not the torrent it was given (%s)", got.ID, info.ID)
 	}
 
+	// Nothing is downloaded until something is wanted. anacrolix gives every
+	// piece of a freshly added torrent PiecePriorityNone, and this project
+	// never calls DownloadAll: it steers priorities from the buffer service
+	// instead, and that starts with a selected file and a playhead. An earlier
+	// version of this test waited for pieces *before* selecting the file, and
+	// got exactly zero bytes while the tracker happily reported both peers —
+	// the swarm was not broken, nothing had been asked of it.
+	if err := leecher.SelectFile(ctx, got.ID, "leecher", 0); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if err := leecher.UpdateBufferPosition(ctx, got.ID, 0); err != nil {
+		t.Fatalf("report position: %v", err)
+	}
+
 	// Give the seeder time to hash what is already on disk, so "the seeder has
 	// nothing" can never be mistaken for "the transfer is broken".
 	waitForPieces(t, seeding, tracker, got.ID, 512, 30*time.Second)
 
 	// Wait for enough pieces to arrive that the buffer window around the
 	// playhead can plausibly be full.
+	//
+	// It has to be a *prefix*, not a count: anacrolix fills the window it is
+	// given by priority, not by index, so twelve pieces somewhere in the file
+	// is not twelve playable pieces, and the range the test streams further
+	// down would wait for a byte nobody is sending.
 	const wantPieces = 12
-	if n := waitForPieces(t, leecher, tracker, got.ID, wantPieces, 10*time.Second); n == 0 {
+	if n := waitForPrefix(t, leecher, tracker, got.ID, wantPieces, 10*time.Second); n == 0 {
 		t.Skipf("the two clients found each other and the seeder holds the whole "+
 			"payload, but no pieces were exchanged in 10s — unexplained, see "+
 			"idea-0071 (tracker: %s)", tracker.state())
@@ -124,24 +143,27 @@ func TestAPartialTorrentIsPlayableAndWhatIsPlayingIsFetchedFirst(t *testing.T) {
 	}
 	t.Logf("leecher holds %.1f%% of %d bytes before the seeder leaves", progress*100, swarmFileSize)
 
-	if err := leecher.SelectFile(ctx, got.ID, "leecher", 0); err != nil {
-		t.Fatalf("select: %v", err)
-	}
-	if err := leecher.UpdateBufferPosition(ctx, got.ID, 0); err != nil {
-		t.Fatalf("report position: %v", err)
-	}
-
 	file := swarmFile(t, leecher, got.ID)
 
 	// The playhead is at the start, so the pieces there are wanted now and
 	// everything past the window is not wanted at all. This is the whole claim
 	// of the project, expressed as two numbers.
-	if p := file.Torrent().Piece(0).State().Priority; p != torrent.PiecePriorityNow {
-		t.Errorf("the piece being played has priority %v, not Now", p)
+	//
+	// Two things anacrolix does that these numbers have to survive, and neither
+	// is a defect: a completed piece reports an *effective* priority of None,
+	// because there is nothing left to want, and selecting the file for
+	// streaming marked the whole file Normal, which lifts every incomplete
+	// piece in it to at least Normal. So the honest claim is not "far pieces
+	// are None" — that was the first version of this assertion and it is not
+	// what the code does or should do — but "the piece under the playhead is
+	// wanted more urgently than the far end of the file".
+	frontier := firstIncompletePiece(file)
+	if p := file.Torrent().Piece(frontier).State().Priority; p != torrent.PiecePriorityNow && p != torrent.PiecePriorityHigh {
+		t.Errorf("the piece at the playhead has priority %v, not Now or High", p)
 	}
 	last := swarmFileSize/swarmPieceLength - 1
-	if p := file.Torrent().Piece(last).State().Priority; p != torrent.PiecePriorityNone {
-		t.Errorf("a piece far past the playhead has priority %v, not None", p)
+	if p := file.Torrent().Piece(last).State().Priority; p == torrent.PiecePriorityNow || p == torrent.PiecePriorityHigh {
+		t.Errorf("a piece far past the playhead is wanted as urgently as the playhead: %v", p)
 	}
 
 	// And the consequence: the beginning of the file streams, byte for byte,
@@ -348,6 +370,30 @@ func completePieces(file *torrent.File) int {
 	return n
 }
 
+// completePrefix counts the unbroken run of complete pieces from the start of
+// the file — the ones a playhead at zero can actually play.
+func completePrefix(file *torrent.File) int {
+	n := 0
+	for i := 0; i < file.Torrent().Info().NumPieces(); i++ {
+		if !file.Torrent().Piece(i).State().Complete {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// firstIncompletePiece is where the playhead has got to: the first piece the
+// transfer has not delivered yet.
+func firstIncompletePiece(file *torrent.File) int {
+	for i := 0; i < file.Torrent().Info().NumPieces(); i++ {
+		if !file.Torrent().Piece(i).State().Complete {
+			return i
+		}
+	}
+	return file.Torrent().Info().NumPieces() - 1
+}
+
 // waitForPieces blocks until want pieces are complete and returns how many it
 // actually got, so the caller can decide whether a shortfall is a failure or a
 // machine that cannot do the thing at all.
@@ -369,6 +415,42 @@ func waitForPieces(t *testing.T, svc *Service, tracker *loopbackTracker, torrent
 		}()
 		if ok {
 			got = completePieces(file)
+			if got >= want {
+				return got
+			}
+		}
+		if time.Now().After(deadline) {
+			if want > 1 {
+				return got
+			}
+			t.Fatalf("only %d of %d pieces arrived within %s (tracker: %s)", got, want, within, tracker.state())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// waitForPrefix blocks until the first want pieces of the file — the ones a
+// playhead at zero can actually play — are complete, and returns how many
+// arrived, so the caller can decide whether a shortfall is a failure or a
+// machine that cannot do the thing at all.
+func waitForPrefix(t *testing.T, svc *Service, tracker *loopbackTracker, torrentID string, want int, within time.Duration) int {
+	t.Helper()
+
+	deadline := time.Now().Add(within)
+	got := 0
+	for {
+		file, ok := func() (*torrent.File, bool) {
+			svc.mu.RLock()
+			defer svc.mu.RUnlock()
+			handle, exists := svc.torrents[torrentID]
+			if !exists {
+				return nil, false
+			}
+			file, isFile := handle.BufferTarget(0).(*torrent.File)
+			return file, isFile
+		}()
+		if ok {
+			got = completePrefix(file)
 			if got >= want {
 				return got
 			}

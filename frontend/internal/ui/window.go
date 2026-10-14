@@ -25,6 +25,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/adopt"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
@@ -70,6 +71,15 @@ type window struct {
 	// pick its own and the room would watch two parts of one release.
 	// -1 means the host has not chosen one.
 	pendingRoomFile int
+
+	// roomInfohash is the torrent the room is watching, and adoptedRoomFile
+	// records that the guest has already applied the host's choice. Both exist
+	// so that the adoption happens once, when the torrent appears in the
+	// guest's own list, and not again on every two-second poll tick
+	// (bug-0078). Before they existed the guest joined a room and nothing
+	// played.
+	roomInfohash    string
+	adoptedRoomFile bool
 
 	// Room state. The roster and the session live in the room package because
 	// their rules are subtle; here they are only driven.
@@ -421,7 +431,10 @@ func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
 		return
 	}
 
+	w.mu.Lock()
 	w.pendingRoomFile = ev.SelectedFile
+	w.roomInfohash = ev.InfoHash
+	w.mu.Unlock()
 	onMain(func() { w.entry.SetText(ev.MagnetURI) })
 	w.setStatus("The room is watching " + ev.Name + " — adding it to your backend")
 	w.addTorrent()
@@ -457,6 +470,29 @@ func (w *window) item(id widget.ListItemID) *Torrent {
 	}
 	t := w.torrents[id]
 	return &t
+}
+
+// torrentIDs is the guest's own holdings, as the adoption package wants them.
+func torrentIDs(torrents []Torrent) []string {
+	ids := make([]string, 0, len(torrents))
+	for _, t := range torrents {
+		ids = append(ids, t.ID)
+	}
+	return ids
+}
+
+// torrentByID finds the row the adoption just played, so the window shows the
+// list that belongs to it.
+func (w *window) torrentByID(id string) *Torrent {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for i := range w.torrents {
+		if w.torrents[i].ID == id {
+			t := w.torrents[i]
+			return &t
+		}
+	}
+	return nil
 }
 
 // play starts the torrent in mpv.
@@ -581,13 +617,6 @@ func (w *window) startPlayer() (*player.Player, error) {
 	return mpv, nil
 }
 
-// fileEntry is one row of the file list.
-type fileEntry struct {
-	Index int    `json:"index"`
-	Name  string `json:"name"`
-	Size  int64  `json:"size"`
-}
-
 // humanSize formats a byte count for the file list.
 func humanSize(n int64) string {
 	const unit = 1024
@@ -655,6 +684,104 @@ func (w *window) refresh() {
 
 	onMain(w.list.Refresh)
 	w.setStatus(w.trf("status.torrents", strconv.Itoa(len(out.Torrents))))
+
+	w.adoptTheRoomsFile()
+}
+
+// adoptTheRoomsFile finishes what the room's torrent event started.
+//
+// The room names the file the host is playing, and the guest's own backend
+// receives the magnet — but the two do not meet by themselves. A torrent's file
+// list only exists once the metadata has arrived, so the choice cannot be
+// applied when the event lands; it has to be applied when the torrent shows up
+// in the guest's own list. Until this existed, the guest watched its list gain a
+// row and nothing else happen: the host pressed play, and the command arrived at
+// a client that had never started a player (bug-0078).
+func (w *window) adoptTheRoomsFile() {
+	w.mu.RLock()
+	pending := w.pendingRoomFile
+	adopted := w.adoptedRoomFile
+	infohash := w.roomInfohash
+	playing := ""
+	if w.current != nil {
+		playing = w.current.ID
+	}
+	offer := adopt.Offer{
+		RoomInfohash: infohash,
+		HaveTorrents: torrentIDs(w.torrents),
+		Playing:      playing,
+		HostFile:     pending,
+		Adopted:      adopted,
+	}
+	w.mu.RUnlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		var playing struct {
+			id     string
+			files  []fileEntry
+			chosen fileEntry
+		}
+		outcome, err := adopt.CarryOut(ctx, offer, w.roomFiles, func(id string, fs []fileEntry, chosen fileEntry) {
+			playing.id, playing.files, playing.chosen = id, fs, chosen
+		})
+
+		switch outcome {
+		case adopt.NotYet:
+			return
+		case adopt.Unreadable:
+			// Not the same string the manual path uses: this one happens while
+			// nobody has touched anything, and "could not read the torrent"
+			// over a room the person just joined reads like their own mistake.
+			w.setStatus(w.trf("status.roomReadFail", err.Error()))
+			return
+		case adopt.NoSuchFile:
+			// The metadata arrived but the file the host named is not there.
+			// Saying so beats starting the first file of the release and having
+			// the room watch two different things. The name comes from the row
+			// in the list, because the offer itself carries only an infohash.
+			name := offer.RoomInfohash
+			if row := w.torrentByID(offer.RoomInfohash); row != nil {
+				name = row.Name
+			}
+			w.setStatus(w.trf("status.roomFileMissing", name))
+			return
+		}
+
+		w.mu.Lock()
+		w.adoptedRoomFile = true
+		w.mu.Unlock()
+
+		// The row is what the person sees, the list belongs to it, and the
+		// player then gets exactly the choice a click would have made.
+		row := w.torrentByID(playing.id)
+		listed := playing.files
+		chosen := playing.chosen
+		label := playing.id
+		if row != nil {
+			label = row.Name
+		}
+		w.setStatus(w.trf("status.roomJoining", label))
+		onMain(func() {
+			w.presentFiles(row, listed)
+			w.playFile(chosen)
+		})
+	}()
+}
+
+// roomFiles is the guest's own view of a torrent: the file list on its data
+// plane. Pulled out of adoptTheRoomsFile so the same call can be made by a test
+// against a real backend.
+func (w *window) roomFiles(ctx context.Context, torrentID string) ([]fileEntry, error) {
+	var listed struct {
+		Files []fileEntry `json:"files"`
+	}
+	if err := w.client.Get(ctx, api.Data, "/api/v1/torrents/"+torrentID+"/files", &listed); err != nil {
+		return nil, err
+	}
+	return listed.Files, nil
 }
 
 // onMain hands a widget change to Fyne's main thread.
@@ -731,6 +858,16 @@ func shouldAdoptRoomTorrent(ev room.TorrentEvent, thisPeer, hostPeer string) boo
 	return thisPeer != hostPeer
 }
 
+// The guest's half of a room lives in internal/adopt, so that the whole path —
+// decision, file list, choice, hand-off to the player — can be driven by a
+// scenario against a real backend instead of only by a running application.
+// That is the shape the defect had: the wiring lived inside window, which is
+// built from widgets, so nothing but a live run ever executed it (bug-0078).
+type (
+	roomOffer = adopt.Offer
+	fileEntry = adopt.File
+)
+
 // canJoinRoom refuses a join with no torrent to watch.
 func canJoinRoom(torrentID, roomID string) bool {
 	if torrentID == "" {
@@ -739,6 +876,16 @@ func canJoinRoom(torrentID, roomID string) bool {
 	return room.ValidateRoomID(roomID) == nil
 }
 
+// roomOffer is everything an adoption decision is made from: the guest's own
+// torrent list, what the room is watching, what the guest is playing right now,
+// the file the host named, and whether it has been applied already.
+//
+// It is a value rather than four arguments because every one of those is a
+// reason to answer "not yet" — and a decision with five inputs, passed one by
+// one, is how a field ends up written and never read (bug-0078).
+// roomOutcome is why carrying out a room offer stopped where it did.
+//
+// It is reported instead of a bool because "nothing happened" and "something went
 // tr renders a catalogue string in the window's language.
 //
 // The source language is English, so the source string is the identity: a
