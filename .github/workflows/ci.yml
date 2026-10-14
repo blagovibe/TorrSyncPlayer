@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.27.1'
+  GO_VERSION: '1.27.2'
 
 jobs:
   lint-backend:
@@ -104,7 +104,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libfontconfig1
 
       # The driver must be offscreen: without a display the tests hang waiting
       # for a window rather than failing.

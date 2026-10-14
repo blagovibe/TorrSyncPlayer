@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 env:
-  GO_VERSION: '1.27.1'
+  GO_VERSION: '1.27.2'
 
 # Every step here fails the job. A release workflow that swallows errors does
 # not publish a broken application — it publishes nothing and reports success,
@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1 \
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libfontconfig1 \
             mpv desktop-file-utils file fuse3
 
       - name: Build the application and the backend

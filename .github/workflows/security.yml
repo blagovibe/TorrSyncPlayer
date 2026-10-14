@@ -4,7 +4,7 @@ env:
   # Single source of truth for the Go version across all workflows, matching
   # ci.yml and release.yml. Keep this in sync with those two by editing only
   # the value here and in the workflow-level `env:` blocks.
-  GO_VERSION: '1.27.1'
+  GO_VERSION: '1.27.2'
 
 on:
   schedule:
@@ -92,7 +92,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.2'
           cache: true
           cache-dependency-path: backend/go.sum
 
@@ -111,5 +111,5 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends -qq \
-            libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libwayland-dev libfontconfig1
           CGO_ENABLED=1 "$(go env GOPATH)/bin/gosec" -quiet -fmt=github ./...
