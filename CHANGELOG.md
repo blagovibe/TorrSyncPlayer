@@ -2111,3 +2111,40 @@ The Unix behaviour is pinned exactly as before, the Windows behaviour is pinned 
 deliberately absent rather than silently broken, and the day someone makes the
 check quietly do nothing on any platform the test fails instead of the application
 starting with no backend.
+
+### Three platforms, three green legs, and the gap that is still open
+
+`test-frontend-go` runs on ubuntu, macOS and windows now, and all three legs are
+green — 13 of 13 CI jobs. The same suite on each: tests under `-race`, the no-skip
+player gate, the full build, and the end-to-end scenario tests that start the real
+backend binary and drive the real client against it. Windows took an hour, macOS
+two minutes, ubuntu ninety seconds.
+
+The run was worth its cost. Nine findings, every one of them something no Linux
+shell would have shown, and two of them product defects rather than test defects:
+
+- `FindBackend` refused every backend on Windows, because Go reports mode 0666 for
+  a temp file there whatever the permissions are, so the Unix "who can write this"
+  check had no answer for the platform and answered *no* to all of it. The check is
+  per platform now, with the loss written down: on Windows it is an ACL question
+  the standard library does not expose.
+- `go build -o` silently appends `.exe`, so the scenario harness built one name
+  and exec'd another. Six scenarios, red on Windows and green on Linux.
+- The player's socket was a path where Windows wanted a pipe name — the comment in
+  `dial_windows.go` already said so, and `NewWindow` did not read it. Both go
+  through one function now.
+- The fake mpv used a unix socket. It runs over `net.Pipe` now, and the transport
+  is a field on `Player` rather than a call: that is what let the protocol tests
+  run on a platform with no unix sockets at all.
+
+Plus two that were the tests being wrong in a platform's terms: `/var` versus
+`private/var` spelling the same directory on macOS, and the 104-byte unix socket
+cap that a `t.TempDir()` already nearly fills there. The last one is worth
+remembering for the product, not only the tests: the application's own socket path
+is `<tempDir>/torrsync-<pid>.sock`, and a long `TMPDIR` would put it over the same
+limit.
+
+What this does not prove, and the card for the work says so in its own words: that
+a window opens and the video plays. A headless runner compiles code and runs
+tests. The gap between "built on three platforms" and "used on three platforms" is
+a run on a real machine, and that is still unscheduled.
