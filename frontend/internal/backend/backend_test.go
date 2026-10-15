@@ -18,24 +18,36 @@ func TestArgsCarryNoFlagTheBackendWouldRefuse(t *testing.T) {
 	// An unknown flag makes the backend print "flag provided but not defined"
 	// and exit 2. The application then does not start, and nothing in CI sees
 	// it: this is the class of defect that shipped --jwt-secret once.
-	if arg, ok := UnknownFlag(Args(8889, "abc")); !ok {
+	if arg, ok := UnknownFlag(Args(Launch{Port: 8889, Token: "abc"})); !ok {
 		t.Fatalf("the backend would refuse %q", arg)
 	}
 }
 
 func TestArgsPassThePortAndTheToken(t *testing.T) {
-	args := Args(1234, "secret")
+	// The secret used to travel in here as `--token <secret>` — in the process
+	// list, readable by anyone who can run ps on this machine
+	// (deviation-0061). The flag now only says that the token is coming; the
+	// secret itself goes to the child's standard input, and it must not appear
+	// among the arguments at all.
+	args := Args(Launch{Port: 1234, Token: "secret"})
 
-	want := []string{"--port", "1234", "--token", "secret"}
+	want := []string{"--port", "1234", "--token-stdin", "--data-dir", ""}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("got %v, want %v", args, want)
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, "secret") {
+			t.Fatalf("the secret appears on the command line as %q", arg)
+		}
 	}
 }
 
 func TestArgsOmitAnEmptyToken(t *testing.T) {
 	// An empty token pins the backend to an empty secret rather than letting
-	// it generate one, which is exactly the failure bug-0060 was about.
-	for _, arg := range Args(8889, "") {
+	// it generate one, which is exactly the failure bug-0060 was about. With
+	// no token there is nothing to write to standard input, so the flag that
+	// asks for one is left out too.
+	for _, arg := range Args(Launch{Port: 8889}) {
 		if strings.Contains(arg, "token") {
 			t.Fatalf("an empty token was passed as %q", arg)
 		}

@@ -34,7 +34,7 @@ import (
 func main() {
 	var (
 		clientID  = flag.String("c", "client-id", "Client identifier for P2P room (auto-generated if not provided)")
-		signaler  = flag.String("signaler", "wss://weron.up.railway.app/", "Weron signaler where rooms meet (e.g., ws://localhost:1337/)")
+		signaler  = flag.String("signaler", "", "Weron signaler where rooms meet (empty: the saved setting, then the public one)")
 		lang      = flag.String("lang", "", "Interface language: ru, en")
 		noTray    = flag.Bool("no-tray", false, "Don't use system tray")
 		darkTheme = flag.Bool("dark-theme", false, "Use dark theme")
@@ -53,11 +53,6 @@ func main() {
 	}
 }
 
-// signalerDefault is where rooms meet unless told otherwise: weron's public
-// signaler, the same one Multiplex uses. It introduces peers and encrypts the
-// introductions; the playback itself never passes through it.
-const signalerDefault = "wss://weron.up.railway.app/"
-
 type runOptions struct {
 	ClientID  string
 	Language  string
@@ -66,14 +61,24 @@ type runOptions struct {
 	Signaler  string
 }
 
-// signalerURL resolves where rooms meet: the flag, or the public default.
-// An empty flag is not an error — it means "the usual place", the way an empty
-// --server-url means "my own backend".
-func signalerURL(opts runOptions) string {
-	if opts.Signaler != "" {
-		return opts.Signaler
+// backendLaunch turns the saved choices into the child's launch description.
+//
+// Storage and the gateway used to be unreachable from the window: the
+// application always started its backend with a port and a token and nothing
+// else, so every other flag required a hand-started server that then was not
+// the application's own backend (idea-0083).
+func backendLaunch(settings ui.Settings, executable string, port int, token string) backend.Launch {
+	return backend.Launch{
+		Executable:    executable,
+		Port:          port,
+		Token:         token,
+		DiskStorage:   settings.UsesDiskStorage(),
+		DataDir:       settings.DataDir,
+		GatewayURL:    settings.GatewayURL,
+		GatewayUser:   settings.GatewayUser,
+		GatewayPass:   settings.GatewayPass,
+		GatewayCACert: settings.GatewayCACert,
 	}
-	return signalerDefault
 }
 
 func run(opts runOptions) error {
@@ -85,6 +90,17 @@ func run(opts runOptions) error {
 		}
 		clientID = hex.EncodeToString(raw)
 	}
+
+	// The saved choices are read before the backend starts: storage and the
+	// gateway are the child's own configuration, and a backend already running
+	// cannot be reconfigured by a window that came up later. The window reads
+	// the same file again for itself.
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		configDir = os.TempDir()
+	}
+	store := ui.NewSettingsStore(ui.DefaultPath(configDir))
+	settings := store.Load()
 
 	// The backend is started unconditionally, even with --server-url. Every
 	// participant runs its own torrent client and pulls the media from the
@@ -110,7 +126,7 @@ func run(opts runOptions) error {
 		return err
 	}
 
-	child, err := backend.Start(executable, port, token)
+	child, err := backend.Start(backendLaunch(settings, executable, port, token))
 	if err != nil {
 		return err
 	}
@@ -130,26 +146,22 @@ func run(opts runOptions) error {
 
 	a := app.NewWithID("com.blagovibe.torrsyncplayer")
 	a.Settings().SetTheme(theme.LightTheme())
-
-	// Settings are read before the window is built: the language is applied to
-	// the texts as they are created, and setting it afterwards would leave half
-	// the interface in the previous language.
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		configDir = os.TempDir()
-	}
-	store := ui.NewSettingsStore(ui.DefaultPath(configDir))
-	settings := store.Load()
-	if opts.Language != "" {
-		settings.Language = opts.Language
-	}
 	if opts.DarkTheme || settings.DarkTheme {
 		a.Settings().SetTheme(theme.DarkTheme())
 	}
 
 	window := a.NewWindow("TorrSyncPlayer")
-	window.SetContent(ui.NewWindow(client, clientID, store, signalerURL(opts)))
+	window.SetContent(ui.NewWindow(client, clientID, store, ui.WindowOptions{
+		Language: opts.Language,
+		Signaler: opts.Signaler,
+	}))
 	window.Resize(fyne.NewSize(1100, 700))
+
+	// The first-launch storage question goes up with the window. It does
+	// nothing once answered; until then, pieces stay in memory, which is also
+	// what this run uses — the backend is already running, and the question
+	// says the answer applies at the next launch.
+	ui.AskAboutStorage(store, window)
 
 	// Closing the window hides it while the tray is there: the backend is a
 	// child process, so downloads continue whether or not anyone is looking.
@@ -161,7 +173,7 @@ func run(opts runOptions) error {
 	// believes it did something.
 	var tray *ui.Tray
 	if !opts.NoTray {
-		tray = ui.NewTray(settings.Language,
+		tray = ui.NewTray(ui.PreferredLanguage(opts.Language, settings.Language),
 			func() { window.Show(); window.RequestFocus() },
 			a.Quit)
 		defer tray.Shutdown()

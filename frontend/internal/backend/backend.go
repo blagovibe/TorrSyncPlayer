@@ -36,7 +36,7 @@ import (
 // not start. That is why the list is asserted here rather than assumed.
 func KnownFlags() []string {
 	return []string{
-		"port", "addr", "token",
+		"port", "addr", "token", "token-stdin",
 		"data-dir", "disk-storage",
 		"tls-cert", "tls-key", "tls", "auto-tls",
 		"enable-profiling",
@@ -49,8 +49,9 @@ func KnownFlags() []string {
 // The token belongs to this process, not to the backend. Left to itself the
 // backend generates a random one and prints it to stdout, and nobody reads
 // that: the client then cannot talk to its own backend at all and every
-// request comes back 401. Passing the secret in is the mode --token already
-// documents — "тот, кто его задал, знает его и так".
+// request comes back 401. The secret travels to the child on its standard
+// input (--token-stdin), so it never appears in the process list — it used to
+// be an argument, readable by anyone who could run ps (deviation-0061).
 func GenerateToken() (string, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
@@ -127,15 +128,109 @@ func FindBackend(appDir string) (string, error) {
 		appDir, strings.Join(CandidatePaths(appDir), ", "))
 }
 
+// Launch describes the backend child this application starts.
+//
+// Grown from (path, port, token) because the child is told more than where to
+// listen: which storage to use and whether an htorrent gateway owns the
+// torrents. Which channel carries what is deliberate — see Args and LaunchEnv.
+type Launch struct {
+	// Executable is the backend binary.
+	Executable string
+	// Port the backend should listen on.
+	Port int
+	// Token the backend must accept. It travels on the child's standard input,
+	// never on the command line (deviation-0061).
+	Token string
+
+	// DiskStorage writes pieces under DataDir instead of keeping them in
+	// memory. DataDir also holds the torrent registry, which is what makes a
+	// restart resume rather than start over.
+	DiskStorage bool
+	// DataDir is where pieces and persistent data go. Empty with DiskStorage
+	// unset disables persistence: memory storage leaves nothing on disk at
+	// all.
+	DataDir string
+
+	// GatewayURL switches the backend into remoting mode, where an htorrent
+	// gateway owns the torrents; user and password are required together, the
+	// CA certificate is optional.
+	GatewayURL    string
+	GatewayUser   string
+	GatewayPass   string
+	GatewayCACert string
+}
+
 // Args builds the command line for the embedded backend.
-func Args(port int, token string) []string {
-	args := []string{"--port", fmt.Sprint(port)}
-	if token != "" {
+//
+// The access token is not here: it travels on the child's standard input
+// (--token-stdin), so it never appears in the process list (deviation-0061).
+// The gateway password is not here either — it travels in the environment.
+// What is here may be read by anyone: where to listen and which storage the
+// window chose.
+//
+// Storage travels as flags, not as the DATA_DIR/DISK_STORAGE environment the
+// backend also accepts: a flag is not a default, so nothing inherited from a
+// shell can stand in for the choice made in the window. The empty directory
+// passed in memory mode is on purpose — it is the backend's documented way to
+// keep nothing on disk.
+func Args(l Launch) []string {
+	args := []string{"--port", fmt.Sprint(l.Port)}
+	if l.Token != "" {
 		// An empty token would pin the backend to an empty secret instead of
 		// letting it generate a random one, which is the failure being fixed.
-		args = append(args, "--token", token)
+		// With no token to write, the flag that asks for one is left out too.
+		args = append(args, "--token-stdin")
+	}
+	args = append(args, "--data-dir", l.DataDir)
+	if l.DiskStorage {
+		args = append(args, "--disk-storage")
 	}
 	return args
+}
+
+// managedEnv is the child environment the launch decides.
+//
+// DATA_DIR and DISK_STORAGE are in the list even though storage travels as
+// flags: the backend reads them as flag defaults, and a leftover in the
+// environment must not stand in for the choice made in the window.
+func managedEnv(entry string) bool {
+	key, _, _ := strings.Cut(entry, "=")
+	switch strings.ToUpper(key) {
+	case "DATA_DIR", "DISK_STORAGE",
+		"GATEWAY_URL", "GATEWAY_USER", "GATEWAY_PASS", "GATEWAY_CA_CERT":
+		return true
+	}
+	return false
+}
+
+// LaunchEnv builds the environment for the backend child.
+//
+// The child inherits this process's environment, and the backend reads the
+// gateway settings from it. The variables the launch decides are replaced
+// rather than appended to: appending would win for a value the launch sets,
+// but a variable the launch switches off — a gateway removed in the settings —
+// would survive and keep redirecting the backend. Anything unrelated is
+// passed through untouched.
+func LaunchEnv(parent []string, l Launch) []string {
+	env := make([]string, 0, len(parent)+4)
+	for _, entry := range parent {
+		if managedEnv(entry) {
+			continue
+		}
+		env = append(env, entry)
+	}
+
+	if l.GatewayURL != "" {
+		env = append(env,
+			"GATEWAY_URL="+l.GatewayURL,
+			"GATEWAY_USER="+l.GatewayUser,
+			"GATEWAY_PASS="+l.GatewayPass,
+		)
+		if l.GatewayCACert != "" {
+			env = append(env, "GATEWAY_CA_CERT="+l.GatewayCACert)
+		}
+	}
+	return env
 }
 
 // UnknownFlag reports the first argument the backend would refuse.
@@ -182,12 +277,20 @@ type Process struct {
 }
 
 // Start launches the backend and returns the running process.
-func Start(path string, port int, token string) (*Process, error) {
-	// #nosec G204 -- path is a binary this process resolved from its own
-	// installation (CandidatePaths beside the client, or a built backend), not
-	// user input; the args are flags built here from an int and the token this
-	// process itself generated.
-	cmd := exec.Command(path, Args(port, token)...)
+func Start(l Launch) (*Process, error) {
+	// #nosec G204 -- l.Executable is a binary this process resolved from its
+	// own installation (CandidatePaths beside the client, or a built backend),
+	// not user input; the args are flags built in Args here, and the
+	// environment is this process's own with the launch's variables replaced.
+	cmd := exec.Command(l.Executable, Args(l)...)
+	cmd.Env = LaunchEnv(os.Environ(), l)
+
+	// The secret goes to the child's standard input: written once, with the
+	// newline its reader expects, and the pipe is closed when the reader is
+	// exhausted. It never appears in the process list (deviation-0061).
+	if l.Token != "" {
+		cmd.Stdin = strings.NewReader(l.Token + "\n")
+	}
 
 	// The backend's own output is the only place the reason for a failure will
 	// ever appear — a port clash, a bad flag, a storage directory that is not
@@ -196,7 +299,7 @@ func Start(path string, port int, token string) (*Process, error) {
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start backend %s: %w", path, err)
+		return nil, fmt.Errorf("start backend %s: %w", l.Executable, err)
 	}
 
 	process := &Process{cmd: cmd, exited: make(chan struct{})}

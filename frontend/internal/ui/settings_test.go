@@ -85,3 +85,100 @@ func TestSettingsDefaultPathIsPerApplication(t *testing.T) {
 
 	assert.Equal(t, filepath.Join("/home/someone/.config", "TorrSyncPlayer", "settings.json"), path)
 }
+
+// The dialog edits more than a language and a colour scheme now: storage, the
+// gateway and the signaler all live here. A field that is written and read
+// back wrongly is a setting that looks like it works, which is the exact shape
+// of the mpv bug the file's other tests exist for.
+func TestSettingsRememberEverythingTheDialogEdits(t *testing.T) {
+	store := NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
+
+	written := Settings{
+		Language:      "ru",
+		DarkTheme:     true,
+		PlayerBinary:  "/opt/mpv",
+		StorageMode:   StorageDisk,
+		DataDir:       "/tmp/pieces",
+		StorageAsked:  true,
+		GatewayURL:    "https://gateway.example.com",
+		GatewayUser:   "friend",
+		GatewayPass:   "secret",
+		GatewayCACert: "/etc/ca.pem",
+		Signaler:      "ws://127.0.0.1:1337/",
+	}
+	require.NoError(t, store.Save(written))
+
+	assert.Equal(t, written, store.Load())
+}
+
+// The storage question belongs to the first launch and to nothing else: asked
+// on every start it would be a nag, and asked never it would leave a person
+// with a film in RAM and no explanation.
+func TestTheStorageQuestionIsAskedOnlyUntilAnswered(t *testing.T) {
+	assert.True(t, DefaultSettings().NeedsStorageChoice())
+
+	answered := DefaultSettings()
+	answered.StorageAsked = true
+	assert.False(t, answered.NeedsStorageChoice())
+}
+
+// The backend exits on startup when disk storage has nowhere to write, and the
+// person reads that in a log. Catching it in the form costs nothing.
+func TestDiskStorageNeedsADirectoryToWriteTo(t *testing.T) {
+	assert.Empty(t, Settings{}.Problem(), "memory needs no directory")
+
+	disk := Settings{StorageMode: StorageDisk}
+	assert.NotEmpty(t, disk.Problem())
+
+	disk.DataDir = "   "
+	assert.NotEmpty(t, disk.Problem(), "whitespace is not a directory")
+
+	disk.DataDir = "/tmp/pieces"
+	assert.Empty(t, disk.Problem())
+}
+
+// The backend refuses a gateway whose login is half-given: the server would
+// start and every playback would fail at the first request instead.
+func TestTheGatewayNeedsBothHalvesOfItsLogin(t *testing.T) {
+	half := Settings{GatewayURL: "https://gateway.example.com"}
+	assert.NotEmpty(t, half.Problem())
+
+	half.GatewayUser = "friend"
+	assert.NotEmpty(t, half.Problem())
+
+	half.GatewayPass = "secret"
+	assert.Empty(t, half.Problem())
+
+	// A login without a URL is not a problem: the gateway is simply off.
+	assert.Empty(t, Settings{GatewayUser: "friend"}.Problem())
+}
+
+// Where rooms meet: the flag is a deliberate override for one launch, so it
+// wins; then the setting; then the public address. Getting the order wrong
+// silently ignores the person who typed the flag.
+func TestTheSignalerPrecedence(t *testing.T) {
+	assert.Equal(t, "ws://flag/", EffectiveSignaler("ws://flag/", "ws://setting/"))
+	assert.Equal(t, "ws://setting/", EffectiveSignaler("", "ws://setting/"))
+	assert.Equal(t, DefaultSignaler, EffectiveSignaler("", ""))
+}
+
+// A typed ~ has to mean the same directory the form would have prefilled, or
+// the backend creates a literal "~" folder beside itself.
+func TestATypedTildeMeansTheHomeDirectory(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(home, "Pieces"), ExpandPath("~/Pieces"))
+	assert.Equal(t, home, ExpandPath("~"))
+	assert.Equal(t, "/already/absolute", ExpandPath("/already/absolute"))
+	assert.Equal(t, "", ExpandPath("   "))
+}
+
+// Pieces are large and meant to be deleted by hand, so the default place is
+// one a person already knows how to find.
+func TestTheDefaultDirectoryForPiecesIsInDownloads(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(home, "Downloads", "TorrSyncPlayer"), DefaultDataDir())
+}

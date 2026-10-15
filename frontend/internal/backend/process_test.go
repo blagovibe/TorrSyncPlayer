@@ -116,6 +116,36 @@ func TestDescribeExitSaysSomethingUsefulInEveryCase(t *testing.T) {
 	}
 }
 
+// TestStartDeliversTheTokenOnStandardInput is the other half of
+// deviation-0061: the flag asks the backend to read the secret from standard
+// input, and something has to put it there. The stand-in checks both
+// directions at once — the token arrived on stdin, and it did not arrive as an
+// argument.
+func TestStartDeliversTheTokenOnStandardInput(t *testing.T) {
+	standIn := script(t, `
+for arg in "$@"; do
+  if [ "$arg" = "secret-value" ]; then exit 3; fi
+done
+IFS= read -r token || exit 4
+if [ "$token" != "secret-value" ]; then exit 5; fi
+exit 0`)
+
+	process, err := Start(Launch{Executable: standIn, Token: "secret-value"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	select {
+	case <-process.Exited():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stand-in backend never finished reading its token")
+	}
+
+	if err := process.ExitError(); err != nil {
+		t.Errorf("the stand-in failed (3: secret on the command line, 4: nothing on stdin, 5: wrong token): %v", err)
+	}
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 // script writes an executable shell script and returns its path.
@@ -139,7 +169,7 @@ func script(t *testing.T, body string) string {
 func failingProcess(t *testing.T) *Process {
 	t.Helper()
 
-	process, err := Start(script(t, "echo 'address already in use' >&2\nexit 1"), 0, "t")
+	process, err := Start(Launch{Executable: script(t, "echo 'address already in use' >&2\nexit 1"), Token: "t"})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -149,7 +179,7 @@ func failingProcess(t *testing.T) *Process {
 func sleepingProcess(t *testing.T) *Process {
 	t.Helper()
 
-	process, err := Start(script(t, "trap 'exit 0' TERM\nwhile true; do sleep 0.1; done"), 0, "t")
+	process, err := Start(Launch{Executable: script(t, "trap 'exit 0' TERM\nwhile true; do sleep 0.1; done"), Token: "t"})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}

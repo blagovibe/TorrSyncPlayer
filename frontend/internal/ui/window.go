@@ -11,6 +11,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -98,10 +100,16 @@ type window struct {
 	roomLabel *widget.Label
 	buffer    *room.BufferReporter
 
-	// signaler is where rooms meet: the weron signaler URL without credentials.
-	// The room itself — its community, password and key — travels the invite
-	// code, so this is only the introduction point, not the room.
-	signaler string
+	// bufferCancel ends the buffer report of the file that was playing before
+	// the current one. One report per file: a switch must stop steering the
+	// backend's download window toward a film nobody is watching.
+	bufferCancel context.CancelFunc
+
+	// signalerFlag is the --signaler value for this run (empty when the flag
+	// was not given), kept apart from the settings because the flag
+	// deliberately outranks the saved choice. Where rooms actually meet is
+	// signaler(), read at every join.
+	signalerFlag string
 
 	inviteEntry *widget.Entry
 	createRoom  *widget.Button
@@ -129,16 +137,32 @@ func playerSocketPath(pid int) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("torrsync-%d.sock", pid))
 }
 
-// NewWindow builds the main window around a client.
-//
-// signalerURL is the weron signaler rooms are introduced through. The room's
-// own secrets travel the invite code; this is only where peers meet.
-func NewWindow(client *api.Client, clientID string, store *SettingsStore, signalerURL string) fyne.CanvasObject {
+// WindowOptions are the launch choices a flag can also make. Each outranks the
+// saved setting for this run; an empty value means "the setting decides".
+type WindowOptions struct {
+	// Language is the --lang value.
+	Language string
+	// Signaler is the --signaler value.
+	Signaler string
+}
+
+// NewWindow builds the main window around a client and starts its loops.
+func NewWindow(client *api.Client, clientID string, store *SettingsStore, opts WindowOptions) fyne.CanvasObject {
+	w, content := newWindow(client, clientID, store, opts)
+	go w.poll()
+	go w.watchPlayer()
+	return content
+}
+
+// newWindow builds the window and its contents, and starts nothing: the
+// polling goroutines belong to NewWindow, so a test can look at the wiring
+// without leaving a poller behind.
+func newWindow(client *api.Client, clientID string, store *SettingsStore, opts WindowOptions) (*window, fyne.CanvasObject) {
 	w := &window{
 		client:          client,
 		clientID:        clientID,
 		store:           store,
-		signaler:        signalerURL,
+		signalerFlag:    opts.Signaler,
 		socketPath:      playerSocketPath(os.Getpid()),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		pendingRoomFile: -1,
@@ -147,7 +171,7 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore, signal
 	if store != nil {
 		w.settings = store.Load()
 	}
-	w.language = w.settings.Language
+	w.language = PreferredLanguage(opts.Language, w.settings.Language)
 
 	w.entry = widget.NewEntry()
 	w.entry.SetPlaceHolder("magnet:?xt=urn:btih:…")
@@ -181,6 +205,8 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore, signal
 		w.entry,
 		w.addButton,
 		widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
+		layout.NewSpacer(),
+		widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), w.showSettings),
 	)
 
 	// The file list sits next to the torrent list: picking a torrent answers
@@ -216,12 +242,10 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore, signal
 	// empty selectors teaches a person that the app has nothing to offer.
 	w.audioSelect = widget.NewSelect(nil, nil)
 	w.audioSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackAudio, choice) }
+	w.subSelect = widget.NewSelect(nil, nil)
 	w.subSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackSub, choice) }
 	w.audioSelect.Hide()
 	w.subSelect.Hide()
-
-	go w.poll()
-	go w.watchPlayer()
 
 	// The room line sits above the lists: who is watching with you is a
 	// one-line answer that belongs where it is always visible.
@@ -271,9 +295,26 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore, signal
 				fmt.Sprintf("/api/v1/torrents/%s/buffer/position", torrentID),
 				map[string]int64{"position": offset}, &out)
 		},
+		// The position comes from the same mpv the room commands drive. Until
+		// a player exists there is nothing to report, and an error — not a
+		// zero — is the honest answer: a zero would tell the prioritiser the
+		// film is at its beginning, which is exactly the wrong number to
+		// report about a player that cannot be asked (bug-0082).
+		Position: func() (float64, error) {
+			w.mu.RLock()
+			mpv := w.mpv
+			w.mu.RUnlock()
+			if mpv == nil {
+				return 0, errors.New("no player is running")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return mpv.Position(ctx)
+		},
 	})
 
-	return container.NewStack(body)
+	return w, container.NewStack(body)
 }
 
 // onJoinPressed joins the room named by the invite code in the field.
@@ -329,13 +370,22 @@ func (w *window) leaveRoom() {
 	onMain(func() { w.roomLabel.SetText("") })
 }
 
+// signaler is where rooms meet now: the --signaler flag, then the saved
+// choice, then the public default. Read at every join, so a change in the
+// settings dialog applies to the next room without a restart.
+func (w *window) signaler() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return EffectiveSignaler(w.signalerFlag, w.settings.Signaler)
+}
+
 // joinMesh opens the data-channel mesh for an invite and starts the room
 // driver on it. isHost seeds the role: the creator drives, joiners follow.
 func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 	w.leaveRoom()
 
 	mesh := rtc.NewMesh(rtc.MeshOptions{
-		Signaler:  w.signaler,
+		Signaler:  w.signaler(),
 		Community: invite.Community,
 		Password:  invite.Password,
 		Key:       invite.Key,
@@ -402,7 +452,7 @@ func (w *window) joinRoom(code string) {
 
 	go func() {
 		if _, err := w.joinMesh(invite, false); err != nil {
-			w.setStatus("Could not join: " + err.Error())
+			w.setStatus(w.trf("status.joinFail", err.Error()))
 			return
 		}
 		w.setStatus(w.tr("status.joined"))
@@ -427,7 +477,7 @@ func (w *window) tellRoom(send func(ctx context.Context, r *rtc.Room) error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := send(ctx, room); err != nil {
-			w.setStatus("Could not send: " + err.Error())
+			w.setStatus(w.trf("status.sendFail", err.Error()))
 		}
 	}()
 }
@@ -563,7 +613,7 @@ func (w *window) adoptRoomTorrent(ev rtc.Magnet) {
 	w.roomInfohash = ev.InfoHash
 	w.mu.Unlock()
 	onMain(func() { w.entry.SetText(ev.MagnetURI) })
-	w.setStatus("The room is watching " + ev.Name + " — adding it to your backend")
+	w.setStatus(w.trf("status.roomWatching", ev.Name))
 	w.addTorrent()
 }
 
@@ -676,11 +726,11 @@ func (w *window) play(t *Torrent) {
 			Files []fileEntry `json:"files"`
 		}
 		if err := w.client.Get(ctx, "/api/v1/torrents/"+t.ID+"/files", &listed); err != nil {
-			w.setStatus("Could not read the torrent: " + err.Error())
+			w.setStatus(w.trf("status.torrentReadFail", err.Error()))
 			return
 		}
 		if len(listed.Files) == 0 {
-			w.setStatus("The torrent has no files yet")
+			w.setStatus(w.tr("status.torrentNoFiles"))
 			return
 		}
 
@@ -721,7 +771,7 @@ func (w *window) playFile(f fileEntry) {
 		}
 		body := map[string]int{"fileIndex": f.Index}
 		if err := w.client.Post(ctx, "/api/v1/torrents/"+torrent.ID+"/select", body, &selected); err != nil {
-			w.setStatus("Could not select the file: " + err.Error())
+			w.setStatus(w.trf("status.fileSelectFail", err.Error()))
 			return
 		}
 		w.mu.Lock()
@@ -730,21 +780,92 @@ func (w *window) playFile(f fileEntry) {
 
 		p, err := w.startPlayer()
 		if err != nil {
-			w.setStatus("Could not start mpv: " + err.Error())
+			w.setStatus(w.trf("status.mpvStartFail", err.Error()))
 			return
 		}
 
 		if err := p.Play(ctx, w.client.StreamURL(torrent.ID)); err != nil {
-			w.setStatus("Could not play: " + err.Error())
+			w.setStatus(w.trf("status.playFail", err.Error()))
 			return
 		}
 		w.setStatus(w.trf("status.playing", f.Name))
+
+		// The prioritiser steers by this report: what is playing, how large it
+		// is, and where in it playback stands. Without it the download window
+		// stays at byte zero for the whole film, and the middle arrives only
+		// by luck (bug-0082).
+		w.reportBuffer(torrent.ID, f.Size, p.Duration)
 
 		// The tracks exist as soon as mpv has read the file's header, which is
 		// not a number anyone should guess at in code. Poll for them and stop at
 		// the first answer, or at the deadline: a film with one voice is the
 		// common case, and it has nothing to offer anyway.
 		go w.loadTracks(p)
+	}()
+}
+
+// durationWait bounds the wait for the file's length; durationPoll is how often
+// mpv is asked while it reads. The same shape as loadTracks, and for the same
+// reason: there is no mpv notification worth wiring up, and the answer appears
+// within a few hundred milliseconds of playback starting.
+const (
+	durationWait = 30 * time.Second
+	durationPoll = 250 * time.Millisecond
+)
+
+// waitForDuration asks until the player can say how long the file is.
+//
+// While mpv is still reading the header, a zero and an error both mean "not
+// yet" and neither may reach the reporter: the byte offset is a fraction of
+// the file, and a guessed fraction aims the download window at the wrong part
+// of the film — worse than staying quiet, which is what happens instead.
+func waitForDuration(ctx context.Context, read func(context.Context) (float64, error)) (float64, bool) {
+	deadline := time.Now().Add(durationWait)
+	for time.Now().Before(deadline) {
+		readingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		duration, err := read(readingCtx)
+		cancel()
+		if err == nil && duration > 0 {
+			return duration, true
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0, false
+		case <-time.After(durationPoll):
+		}
+	}
+	return 0, false
+}
+
+// reportBuffer starts reporting the playhead of a file to this application's
+// own backend, where the piece prioritiser turns it into a download window.
+//
+// This is the data plane's only feedback loop, and its absence was invisible
+// for exactly the reason the goal warns about: the window starts at zero and
+// so does the film, so the first minutes look right either way (bug-0082).
+//
+// A switch to another file cancels the previous report — the old window must
+// stop steering pieces of a film nobody is watching. The poll and the reporting
+// loop share one context, so one cancel ends both.
+func (w *window) reportBuffer(torrentID string, fileSize int64, readDuration func(context.Context) (float64, error)) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	w.mu.Lock()
+	previous := w.bufferCancel
+	w.bufferCancel = cancel
+	w.mu.Unlock()
+	if previous != nil {
+		previous()
+	}
+
+	go func() {
+		duration, ok := waitForDuration(ctx, readDuration)
+		if !ok {
+			return
+		}
+		w.buffer.Track(torrentID, fileSize, duration, true)
+		w.buffer.Run(ctx, torrentID)
 	}()
 }
 

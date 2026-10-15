@@ -16,6 +16,7 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/backend"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/ui"
 )
 
 // Startup is where a broken build shows up first, and it used to show up as a
@@ -108,7 +109,11 @@ func processAlive(t *testing.T) *backend.Process {
 
 	// A process that is running but will never serve: exactly the case the
 	// timeout exists for.
-	process, err := backend.Start(stubBackend(t, "trap 'exit 0' TERM\nwhile true; do sleep 0.1; done"), 0, "t")
+	process, err := backend.Start(backend.Launch{
+		Executable: stubBackend(t, "trap 'exit 0' TERM\nwhile true; do sleep 0.1; done"),
+		Port:       0,
+		Token:      "t",
+	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -119,7 +124,11 @@ func processAlive(t *testing.T) *backend.Process {
 func processDead(t *testing.T) *backend.Process {
 	t.Helper()
 
-	process, err := backend.Start(stubBackend(t, "exit 1"), 0, "t")
+	process, err := backend.Start(backend.Launch{
+		Executable: stubBackend(t, "exit 1"),
+		Port:       0,
+		Token:      "t",
+	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -128,8 +137,9 @@ func processDead(t *testing.T) *backend.Process {
 }
 
 // stubBackend writes an executable that accepts the backend's flags and does
-// whatever the test needs. Start always passes --port and --token, so a
-// stand-in that objected to them would fail for the wrong reason.
+// whatever the test needs. Start always passes --port and --data-dir, and the
+// token on standard input, so a stand-in that objected to any of them would
+// fail for the wrong reason.
 func stubBackend(t *testing.T, body string) string {
 	t.Helper()
 
@@ -145,17 +155,64 @@ func stubBackend(t *testing.T, body string) string {
 	return path
 }
 
-// The signaler flag chooses where rooms meet. Empty means the public default,
-// the way an empty --server-url means "my own backend": failing on an empty
-// value would make every launch without the flag an error.
-func TestEmptySignalerMeansThePublicDefault(t *testing.T) {
-	if got := signalerURL(runOptions{}); got != "wss://weron.up.railway.app/" {
-		t.Errorf("empty flag gave %q", got)
+// The window is not the backend: everything it chose has to cross the launch
+// description, or the dialog says one thing and the child does another. The
+// mapping is small and silent, which is exactly why it is tested.
+func TestTheLaunchCarriesTheStorageChoice(t *testing.T) {
+	launch := backendLaunch(
+		ui.Settings{StorageMode: ui.StorageDisk, DataDir: "/tmp/pieces"},
+		"/opt/backend", 7777, "tok")
+
+	if launch.Executable != "/opt/backend" || launch.Port != 7777 || launch.Token != "tok" {
+		t.Errorf("the child was described as %q on port %d", launch.Executable, launch.Port)
+	}
+	if !launch.DiskStorage || launch.DataDir != "/tmp/pieces" {
+		t.Errorf("the storage choice did not reach the child: disk=%v dir=%q",
+			launch.DiskStorage, launch.DataDir)
 	}
 }
 
-func TestExplicitSignalerWinsOverTheDefault(t *testing.T) {
-	if got := signalerURL(runOptions{Signaler: "ws://127.0.0.1:1337/"}); got != "ws://127.0.0.1:1337/" {
-		t.Errorf("explicit flag gave %q", got)
+// Memory is the absence of disk storage, and the absence has to travel as an
+// absence: the backend reads DATA_DIR from the environment as a flag default,
+// so a leftover would put the pieces on disk anyway.
+func TestTheLaunchKeepsMemoryOffTheDisk(t *testing.T) {
+	launch := backendLaunch(ui.Settings{StorageMode: ui.StorageMemory}, "/opt/backend", 1, "t")
+
+	if launch.DiskStorage {
+		t.Error("memory storage was described as disk storage")
+	}
+	if launch.DataDir != "" {
+		t.Errorf("memory storage carried a directory: %q", launch.DataDir)
+	}
+}
+
+func TestTheLaunchCarriesTheGateway(t *testing.T) {
+	launch := backendLaunch(ui.Settings{
+		GatewayURL:    "https://gateway.example.com",
+		GatewayUser:   "friend",
+		GatewayPass:   "secret",
+		GatewayCACert: "/etc/ca.pem",
+	}, "/opt/backend", 1, "t")
+
+	if launch.GatewayURL != "https://gateway.example.com" {
+		t.Errorf("the gateway address did not reach the child: %q", launch.GatewayURL)
+	}
+	if launch.GatewayUser != "friend" || launch.GatewayPass != "secret" {
+		t.Error("the gateway login did not reach the child")
+	}
+	if launch.GatewayCACert != "/etc/ca.pem" {
+		t.Errorf("the CA certificate did not reach the child: %q", launch.GatewayCACert)
+	}
+}
+
+// An empty gateway is off, and off has to travel as empty: a half-configured
+// gateway would make the backend proxy every request to nowhere.
+func TestAnEmptyGatewayIsOff(t *testing.T) {
+	launch := backendLaunch(ui.Settings{}, "/opt/backend", 1, "t")
+
+	if launch.GatewayURL != "" || launch.GatewayUser != "" ||
+		launch.GatewayPass != "" || launch.GatewayCACert != "" {
+		t.Errorf("an empty form produced a gateway: url=%q user=%q cert=%q",
+			launch.GatewayURL, launch.GatewayUser, launch.GatewayCACert)
 	}
 }

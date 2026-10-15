@@ -8,10 +8,25 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
-// Settings are the few choices a person makes that should survive a restart.
+// Storage modes a person can choose. Memory is what an unanswered question
+// means: the application never moves anybody to disk on its own.
+const (
+	// StorageMemory keeps torrent pieces in RAM. Nothing is left on disk and a
+	// restart starts the download over.
+	StorageMemory = "memory"
+	// StorageDisk writes pieces under DataDir, so a restart resumes.
+	StorageDisk = "disk"
+)
+
+// DefaultSignaler is where rooms meet unless a flag or a setting says
+// otherwise: weron's public signaler, the same one Multiplex uses.
+const DefaultSignaler = "wss://weron.up.railway.app/"
+
+// Settings are the choices a person makes that should survive a restart.
 //
 // Deliberately small. Everything else either comes from the backend or belongs
 // to the room, and saving those would mean storing state that is somebody
@@ -24,6 +39,95 @@ type Settings struct {
 	// PlayerBinary lets a person point at a different mpv. Empty means the one
 	// on PATH.
 	PlayerBinary string `json:"playerBinary,omitempty"`
+
+	// StorageMode is "memory" or "disk". Empty means memory.
+	StorageMode string `json:"storageMode,omitempty"`
+	// DataDir is where pieces go when StorageMode is disk.
+	DataDir string `json:"dataDir,omitempty"`
+	// StorageAsked records that the first-launch storage question was
+	// answered. The question is asked once per installation.
+	StorageAsked bool `json:"storageAsked,omitempty"`
+
+	// Gateway (remoting) mode: when the URL is set, the backend proxies every
+	// torrent operation to an htorrent gateway instead of using its own
+	// client. The password travels to the child in its environment, never on
+	// the command line.
+	GatewayURL    string `json:"gatewayUrl,omitempty"`
+	GatewayUser   string `json:"gatewayUser,omitempty"`
+	GatewayPass   string `json:"gatewayPass,omitempty"`
+	GatewayCACert string `json:"gatewayCaCert,omitempty"`
+
+	// Signaler is where rooms meet. Empty means the public default; the
+	// --signaler flag overrides it for one launch.
+	Signaler string `json:"signaler,omitempty"`
+}
+
+// UsesDiskStorage reports whether pieces go to disk.
+func (s Settings) UsesDiskStorage() bool { return s.StorageMode == StorageDisk }
+
+// NeedsStorageChoice reports whether the first-launch question about storage
+// has not been answered yet.
+func (s Settings) NeedsStorageChoice() bool { return !s.StorageAsked }
+
+// Problem returns the catalogue key of the first reason these settings cannot
+// be saved, or "" when they can.
+//
+// The rules mirror the ones the backend enforces at startup, so the person
+// reads them in the form rather than in the backend's output after a restart
+// that refused to happen.
+func (s Settings) Problem() string {
+	if s.UsesDiskStorage() && strings.TrimSpace(s.DataDir) == "" {
+		return "settings.problem.diskDir"
+	}
+	if strings.TrimSpace(s.GatewayURL) != "" &&
+		(strings.TrimSpace(s.GatewayUser) == "" || s.GatewayPass == "") {
+		return "settings.problem.gatewayLogin"
+	}
+	return ""
+}
+
+// EffectiveSignaler resolves where rooms meet: the flag, then the setting,
+// then the public default. The flag is a deliberate override for one launch,
+// and a saved setting must not silently outrank it.
+func EffectiveSignaler(flagValue, setting string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if setting != "" {
+		return setting
+	}
+	return DefaultSignaler
+}
+
+// ExpandPath turns a leading ~ into this user's home directory, so a typed
+// "~/Pieces" means the directory the form would have prefilled rather than a
+// literal "~" folder beside the application.
+func ExpandPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		// Nothing to expand to. The path stays as typed; the backend's
+		// startup check will be the one to explain it.
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
+}
+
+// DefaultDataDir is where pieces go when disk storage is chosen and no
+// directory has been picked: inside the familiar Downloads folder, where a
+// person can find and delete them.
+func DefaultDataDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, "Downloads", "TorrSyncPlayer")
 }
 
 // SettingsStore reads and writes settings, tolerating a file that is missing,

@@ -4,12 +4,14 @@ go 1.26.0
 
 require (
 	fyne.io/fyne/v2 v2.8.2
+	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4
+	github.com/pojntfx/weron v0.3.0
 	github.com/stretchr/testify v1.11.1
 )
 
 require (
-	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
+	github.com/FyshOS/fancyfs v0.0.1 // indirect
 	github.com/anthonynsimon/bild v0.14.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
@@ -38,7 +40,6 @@ require (
 	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -67,7 +68,6 @@ require (
 	github.com/pion/webrtc/v3 v3.3.5 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/pojntfx/go-auth-utils v0.1.0 // indirect
-	github.com/pojntfx/weron v0.3.0 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/rubenv/sql-migrate v1.8.0 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
