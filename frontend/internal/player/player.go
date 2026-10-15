@@ -220,6 +220,27 @@ func (p *Player) Position(ctx context.Context) (float64, error) {
 	return reply.Data, nil
 }
 
+// Duration reports the current file's length in seconds.
+//
+// The buffer reporter needs it to turn a playback position into a byte offset,
+// and it is mpv that knows it: the header it read when loading the file is the
+// only source. Before a file is loaded mpv answers "property unavailable" —
+// an error, not a zero, so the reporter can tell "not yet" from "empty" and
+// stay quiet instead of aiming the download window at nowhere.
+func (p *Player) Duration(ctx context.Context) (float64, error) {
+	var reply struct {
+		Error string  `json:"error"`
+		Data  float64 `json:"data"`
+	}
+	if err := p.request(ctx, []any{"get_property", "duration"}, &reply); err != nil {
+		return 0, err
+	}
+	if reply.Error != "" && reply.Error != "success" {
+		return 0, fmt.Errorf("player: %s", reply.Error)
+	}
+	return reply.Data, nil
+}
+
 // Close stops mpv.
 func (p *Player) Close() {
 	p.closeOnce.Do(func() {

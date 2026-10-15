@@ -117,6 +117,97 @@ func TestRealMpvPositionBeforePlayingIsZero(t *testing.T) {
 	}
 }
 
+// The buffer reporter turns a position in seconds into an offset in bytes, and
+// it can only do that against the file's full length: the same position is
+// halfway through a short clip and a rounding error in a long film. The length
+// is mpv's to know — it read the file's header — so the question is asked of
+// mpv, over the same IPC every other property travels on.
+func TestDurationAsksMpvForTheFileLength(t *testing.T) {
+	fake := startFakeMPV(map[string]any{"error": "success", "data": 3520.5})
+
+	duration, err := fake.play("fake").Duration(context.Background())
+	if err != nil {
+		t.Fatalf("reading the duration: %v", err)
+	}
+	if duration != 3520.5 {
+		t.Errorf("the duration came back as %v, mpv said 3520.5", duration)
+	}
+
+	select {
+	case request := <-fake.requests:
+		command, _ := request["command"].([]any)
+		if len(command) != 2 || command[0] != "get_property" || command[1] != "duration" {
+			t.Fatalf("mpv was sent %v, wanted get_property duration", command)
+		}
+	case <-timeAfter():
+		t.Fatal("the fake mpv never saw the question")
+	}
+}
+
+// TestDurationBeforeAnythingIsLoadedIsAnErrorNotAZero is the state at every
+// launch: mpv has no file and answers "property unavailable". A zero returned
+// as success would tell the reporter the film is zero seconds long, which is
+// the one number it must never guess — it would aim the download window at
+// nowhere.
+func TestDurationBeforeAnythingIsLoadedIsAnErrorNotAZero(t *testing.T) {
+	fake := startFakeMPV(map[string]any{"error": "property unavailable"})
+
+	if _, err := fake.play("fake").Duration(context.Background()); err == nil {
+		t.Fatal("a missing duration came back as a number")
+	}
+}
+
+// TestRealMpvReportsTheFileDuration checks the property name against the real
+// binary. "duration" is what this project's reading says mpv calls it, and a
+// wrong name fails exactly like "the file is still loading" — a poll that
+// waits forever — rather than with an error worth reading.
+func TestRealMpvReportsTheFileDuration(t *testing.T) {
+	if !mpvAvailable() {
+		t.Skip("mpv is not installed")
+	}
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("no ffmpeg on PATH, so there is no file to measure")
+	}
+
+	// The multi-track file is two seconds of synthetic media; anything
+	// between one second and five says mpv measured the file rather than
+	// answering a constant.
+	media := buildMultiTrackFile(t, ffmpeg)
+	socket := testSocketPath(t, "duration")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	p, err := Start(ctx, Options{
+		Binary:     "mpv",
+		SocketPath: socket,
+		ExtraArgs:  []string{"--vo=null", "--ao=null"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	if err := p.Play(ctx, media); err != nil {
+		t.Fatalf("mpv refused the file: %v", err)
+	}
+
+	var duration float64
+	waitFor(t, 15*time.Second, func() bool {
+		reading, err := p.Duration(ctx)
+		if err == nil && reading > 0 {
+			duration = reading
+			return true
+		}
+		return false
+	})
+
+	if duration < 1 || duration > 5 {
+		t.Errorf("mpv says the two-second file is %v seconds long", duration)
+	}
+}
+
 func TestRealMpvSendsTheHeaderItWasGiven(t *testing.T) {
 	// The claim that started idea-0066, checked against the real binary: mpv
 	// puts the configured header on the stream request.
