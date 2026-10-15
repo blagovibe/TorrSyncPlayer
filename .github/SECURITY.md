@@ -39,7 +39,6 @@ When reporting a vulnerability, please include:
   `--token` replaces the random value with a fixed one; it then survives a
   restart and is no longer printed to the log, so treat the flag — or the unit
   file carrying it — as the secret it is.
-- bcrypt password hashing (cost=12) for room passwords
 - Rate limiting (per-IP; a bad token cannot be used to flood)
 - Forwarded headers ignored unless the proxy is explicitly trusted
 - Security headers (CSP, X-Frame-Options, Permissions-Policy). HSTS is sent
@@ -62,19 +61,21 @@ When reporting a vulnerability, please include:
 - Torrent pieces are held in memory by default (`--memory-capacity`, max 256 GB);
   use `--data-dir` with `--disk-storage` to persist them to disk. There is no
   user storage at all — auth is one token per process.
-- SSE endpoint doesn't scale to many concurrent connections - use for small groups
-- **`/stream` no longer takes a URL ticket.** The endpoint accepts the ordinary
+- **`/stream` takes no URL ticket.** The endpoint accepts the ordinary
   `X-Access-Token` header, which `mpv` sends because it can be told to
-  (`--http-header-fields`). A room-scoped `CanRead` check precedes serving, so
-  holding the process token is necessary but not sufficient — a non-participant
-  is rejected. The bearer-in-the-URL deviation (deviation-0029) is closed.
+  (`--http-header-fields`). A `CanRead` ownership check precedes serving: the
+  caller must own the torrent, and nobody else's backend is reachable at all —
+  guests pull from their own. The bearer-in-the-URL deviation (deviation-0029)
+  is closed, and so is the room-scoped variant of it (deviation-0039): there is
+  no guest access path left to scope.
 - **`/metrics`, `/health`, `/api/v1/version` and `/swagger/*` are reachable
   without the access token**, each behind its own rate limit. The metrics
-  endpoint exposes room counts, peer counts and request rates; it is meant
+  endpoint exposes torrent and request rates; it is meant
   for monitoring tools that cannot carry the token. Do not publish it
   without putting an authenticating proxy in front of it.
-- **A room id and a magnet hash are not secrets**, and are not treated as such.
-  They are identifiers, logged by design.
+- **A magnet hash is not a secret**, and is not treated as such. It is an
+  identifier, logged by design. Room ids no longer exist anywhere to leak:
+  rooms are named by invite code, which never touches this server.
 
 ## What the Server Sees
 
@@ -90,58 +91,72 @@ sends a magnet URI to `POST /api/v1/torrents` and the player then reads
 desktop app, so the media bytes are handled by the server. Pieces are held in
 memory by default, or on disk under `--data-dir` with `--disk-storage`.
 
-**Playback synchronisation, with positions and times.** Every play, pause, seek
-and buffering report is recorded by `internal/sync/service.go`, including the
-room id, the acting client and the playback position.
+**Playback synchronisation does not.** Play, pause, seek and buffering reports
+travel a WebRTC data channel between the participants' own applications; the
+server never sees them, has no endpoint for them, and keeps no state about
+them (idea-0064). What the server operator can reconstruct about viewing ends
+at the media their own backend fetched.
 
-**Room membership.** Room names, the host's user id, the client ids
-(`X-Client-ID`), and the peer ids generated per session.
-
-**Room passwords.** Received on the request and stored as a bcrypt hash
-(cost 12). Only the hash is kept.
+**Room membership does not either.** There are no rooms, names, hosts or
+passwords on this server and nothing persists them. What the *signaler* sees
+instead is below, under Threat Model — it is a different machine with a
+different view.
 
 **The access token.** One token per process, printed to stdout at startup unless
-`--token` supplies a fixed value.
+`--token` supplies a fixed value. It guards this backend only: nobody else's
+application talks to it, and the invite code does not carry it.
 
 **HTTP request metadata.** The access log records method, path, status,
 duration and remote address. It records `r.URL.Path` and deliberately not the
-query string — which is why stream tickets do not reach the log.
+query string.
 
 ### What is written where
 
 | Destination | Contents |
 |---|---|
-| Log (stdout) | HTTP method/path/status/duration/remote address; sync operations with room id, acting client and position; room joins and leaves with peer and client ids; magnet hashes |
-| Disk: `rooms.json` | Room metadata including the password **hash**; file mode 0600 |
-| Disk: `sync.json` | Per-room playback positions |
-| Disk: `--data-dir` | Torrent pieces, when disk storage is enabled |
-| Memory | Buffered media pieces, session state, event buffers |
+| Log (stdout) | HTTP method/path/status/duration/remote address; torrent adds and magnet hashes |
+| Disk: `--data-dir` | Torrent pieces, when disk storage is enabled; the torrent registry |
+| Memory | Buffered media pieces |
 
 The torrent library's own peer logging is not connected to the application
-logger, so swarm peer addresses are not written by this project. Passwords are
-never logged; a wrong room password produces a warning carrying only the room id.
+logger, so swarm peer addresses are not written by this project.
 
 ## Threat Model
 
-**The server operator is the main adversary for "what can be learned about my
-viewing".** They can see which rooms exist, who is in them, every
-synchronisation command with its position, and the media itself. A room is not a
-private channel; treat the server as able to reconstruct what each participant
-watched and when.
+**The server operator learns almost nothing about viewing.** The backend they
+run fetches media for its owner and answers that owner's application. Rooms,
+commands and positions never reach it: a room is not a server resource anymore,
+so "which rooms exist" is not a question this machine can answer. What it can
+reconstruct is which torrents its owner fetched — the media itself, as before.
 
-**Possession of the access token means full API access.** There is one token per
-process and no per-user identity. Anyone holding it can create rooms, join
-rooms and drive playback as the host. The token's protection is the
+**The signaler is the new party who sees something.** Whoever runs it — by
+default someone else's public service — sees peer IP addresses and community
+membership: who met whom, and in which room. It does not see commands or
+positions: the introductions are encrypted with the invite key, and the data
+channel runs under DTLS. Treat the default signaler as an introducer that
+knows the guest list, not as a participant. `--signaler` points at another
+one; running your own removes even that view.
+
+**Possession of the access token means full API access — to one backend.**
+There is one token per process and no per-user identity. Anyone holding it
+controls that backend's torrents. What it no longer means is anything about
+rooms: there are no rooms to create, join or drive from this API, and the
+invite code does not carry the token. The token's protection is the
 distribution, not the mechanism: share it only with people who would already be
-allowed to control the room.
+allowed to touch the machine it guards — which, since guests never need it, is
+nobody outside it.
 
 **`X-Client-ID` is self-declared.** It is not authenticated. A client may claim
 any identifier, so `X-Client-ID` distinguishes sessions for bookkeeping, not for
 access control.
 
-**Room passwords are the only thing separating a room from an open one, and
-they are optional.** A room created without a password is joinable by anyone
-who knows its id. Passwords are compared against a bcrypt hash, which is the
-right primitive, but there is no attempt limit beyond the per-IP rate limiter.
+**The invite code is the room's only secret, and it is shared by copying.**
+Community, password and key travel one line from host to guest, by hand or by
+messenger. Anyone holding it can watch — and, holding the key, can also speak
+on the data channel, which is why strangers' commands are ignored and only the
+host's are obeyed. There is no attempt limit and no revocation: a leaked code
+cannot be unshared short of opening a new room. A room created without care
+around the code is joinable by anyone who can guess its community — which, for
+a random nine-character string, means anyone who is told it.
 
 Thank you for helping keep TorrSyncPlayer secure!
