@@ -183,6 +183,19 @@ func (m *Mesh) Send(ctx context.Context, msg any) error {
 	return nil
 }
 
+// Next blocks until any message arrives, returning its sender with it.
+// It is what a room driver pumps: one message at a time, in arrival order.
+func (m *Mesh) Next(ctx context.Context) (string, any, bool) {
+	select {
+	case in := <-m.incoming:
+		return in.from, in.msg, true
+	case <-ctx.Done():
+		return "", nil, false
+	case <-m.closed:
+		return "", nil, false
+	}
+}
+
 // WaitFor blocks until a message of the given type arrives, or nil on timeout,
 // closed mesh, or done context. Messages of other types stay queued for later
 // WaitFor calls.
