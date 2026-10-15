@@ -1930,3 +1930,52 @@ The track test also stopped conflating two failures. "The file never opened" and
 "the file has no such tracks" used to look identical — both were an empty list —
 so `waitForLoaded` now waits for the playlist to admit the file first and fails
 naming the file when it does not. Whatever fails next will say which one it is.
+
+### v1.2.0-rc.6 — the pipeline is green and the artifacts are real
+
+The release workflow has now run, and run green: `TorrSyncPlayer-x86_64.AppImage`
+(111 MB), `TorrSyncPlayer-windows-x64.zip` (68 MB), `TorrSyncPlayer-macos-arm64.dmg`
+(27 MB) and `SHA256SUMS`, each one unpacked or mounted on its own runner and
+checked for the client, the backend, mpv, the launcher and a non-empty library
+directory. CI on the same commit is green too — twelve jobs, no failures.
+
+Getting there took six release-candidate tags, and every one of them found
+something no reading would have:
+
+1. **rc.1** — `--verbosity error`: linuxdeploy wants a number. And `Get-Command mpv`
+   found nothing, because the chocolatey package does not add mpv to PATH.
+2. **rc.2** — the AppImage was built (110 MB of squashfs) and then declared missing,
+   because linuxdeploy writes its output to the *working directory*, not to the
+   AppDir's parent; the swarm test then hung CI for ten minutes, streaming bytes
+   of a piece that a failed hash check had un-marked with no seeder left to
+   re-request it from; and the no-skip gate caught a missing ffmpeg.
+3. **rc.5** — `Player.request` decoded the first line it could read as the reply,
+   and mpv broadcasts async events to every connected client. A position poll that
+   landed on an event reported position **0 with no error**, and the buffer
+   reporter handed the room "the start of the film". Replies are now matched by
+   shape (`request_id`), bounded at 32 skipped events.
+4. **rc.6** — mpv enumerates a file's tracks only when it has an output chain to
+   feed them to. On a runner with no DRM, no SDL and no display, `aid` and `vid`
+   stay `auto`, the tracks are never created, and `track-list` answers an empty
+   list with error `success` — indistinguishable, over the wire, from a file that
+   is still loading. The test runs headless now (`--vo=null --ao=null`, an output
+   that needs no device; `--vo=no` looks right and is not — mpv reports "Video
+   output no not found").
+
+Two of the six were product defects rather than test defects. One was the request
+reader. The other is the shape of a feature: on a machine with no video output a
+user's film has no selectable tracks, because mpv never activates them. The
+application opens a window and needs no workaround for that, but it is now known
+and written down rather than assumed.
+
+`Test Frontend (Go)` passed five red runs before it passed green, which is the
+point of a gate that cannot be silenced. mpv's own output is no longer discarded:
+a player that fails to open a file or a track used to fail silently, and that
+silence is what made this take six tags to understand.
+
+Board: `bug-0070` fixed and removed. `idea-0026` (packaging) is carried out for all
+three platforms — AppImage, zip-with-mpv, and an ad-hoc-signed DMG — with Winget
+still unstarted, which is what the card's own wording always meant by "Winget".
+
+The release is a draft pre-release, deliberately: a tag with a suffix publishes
+nothing until somebody looks at the artifacts and decides.
