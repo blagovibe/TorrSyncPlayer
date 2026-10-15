@@ -483,3 +483,38 @@ func TestAnEventLineIsNotMistakenForAReply(t *testing.T) {
 		t.Fatalf("the event line ate the reply: got %+v", tracks)
 	}
 }
+
+// The host broadcasts what its player does, so it has to be able to ask: is it
+// paused, and is it stalled on an empty cache. Both are single properties, and
+// both are read on a hot poll loop — which is why they return plain answers
+// rather than another event stream.
+func TestPausedReportsWhatThePlayerSays(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		reply map[string]any
+		want  bool
+	}{
+		{"paused", map[string]any{"error": "success", "data": true}, true},
+		{"playing", map[string]any{"error": "success", "data": false}, false},
+	} {
+		fake := startFakeMPV(c.reply)
+		got, err := fake.play("fake").Paused(context.Background())
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: reported %v", c.name, got)
+		}
+	}
+}
+
+func TestStalledReportsCacheStarvation(t *testing.T) {
+	fake := startFakeMPV(map[string]any{"error": "success", "data": true})
+	stalled, err := fake.play("fake").Stalled(context.Background())
+	if err != nil {
+		t.Fatalf("stalled: %v", err)
+	}
+	if !stalled {
+		t.Error("mpv says paused-for-cache and the player reports no stall")
+	}
+}

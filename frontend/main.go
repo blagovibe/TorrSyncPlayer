@@ -36,6 +36,7 @@ func main() {
 		serverURL   = flag.String("s", "server-url", "Server URL (e.g., http://localhost:8889)")
 		accessToken = flag.String("a", "access-token", "Access token for API authentication")
 		clientID    = flag.String("c", "client-id", "Client identifier for P2P room (auto-generated if not provided)")
+		signaler    = flag.String("signaler", "wss://weron.up.railway.app/", "Weron signaler where rooms meet (e.g., ws://localhost:1337/)")
 		lang        = flag.String("lang", "", "Interface language: ru, en")
 		noTray      = flag.Bool("no-tray", false, "Don't use system tray")
 		darkTheme   = flag.Bool("dark-theme", false, "Use dark theme")
@@ -49,11 +50,17 @@ func main() {
 		Language:    *lang,
 		NoTray:      *noTray,
 		DarkTheme:   *darkTheme,
+		Signaler:    *signaler,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "TorrSyncPlayer:", err)
 		os.Exit(1)
 	}
 }
+
+// signalerDefault is where rooms meet unless told otherwise: weron's public
+// signaler, the same one Multiplex uses. It introduces peers and encrypts the
+// introductions; the playback itself never passes through it.
+const signalerDefault = "wss://weron.up.railway.app/"
 
 type runOptions struct {
 	ServerURL   string
@@ -62,6 +69,17 @@ type runOptions struct {
 	Language    string
 	NoTray      bool
 	DarkTheme   bool
+	Signaler    string
+}
+
+// signalerURL resolves where rooms meet: the flag, or the public default.
+// An empty flag is not an error — it means "the usual place", the way an empty
+// --server-url means "my own backend".
+func signalerURL(opts runOptions) string {
+	if opts.Signaler != "" {
+		return opts.Signaler
+	}
+	return signalerDefault
 }
 
 func run(opts runOptions) error {
@@ -140,7 +158,7 @@ func run(opts runOptions) error {
 	}
 
 	window := a.NewWindow("TorrSyncPlayer")
-	window.SetContent(ui.NewWindow(client, clientID, store))
+	window.SetContent(ui.NewWindow(client, clientID, store, signalerURL(opts)))
 	window.Resize(fyne.NewSize(1100, 700))
 
 	// Closing the window hides it while the tray is there: the backend is a

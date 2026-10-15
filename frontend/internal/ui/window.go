@@ -11,7 +11,6 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +30,7 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/room"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
 // Torrent is one row of the list, as the data plane reports it.
@@ -73,6 +73,11 @@ type window struct {
 	// -1 means the host has not chosen one.
 	pendingRoomFile int
 
+	// selectedFile is the file THIS peer chose in its own backend, or -1. The
+	// host announces it so the room knows what is playing; the guest records
+	// it the same way when it follows.
+	selectedFile int
+
 	// roomInfohash is the torrent the room is watching, and adoptedRoomFile
 	// records that the guest has already applied the host's choice. Both exist
 	// so that the adoption happens once, when the torrent appears in the
@@ -82,19 +87,24 @@ type window struct {
 	roomInfohash    string
 	adoptedRoomFile bool
 
-	// Room state. The roster and the session live in the room package because
-	// their rules are subtle; here they are only driven.
-	roster    room.Roster
-	stream    *room.Client
-	session   *room.Session
-	room      string
+	// Room state. There is no server anymore: the roster is whoever said hello
+	// over the mesh, the host role moves by message, and the film arrives as a
+	// magnet from the host. The rules live in the rtc package because they are
+	// subtle; here they are only driven.
+	mesh      *rtc.Mesh
+	rtcRoom   *rtc.Room
+	roomID    string
+	invite    rtc.Invite
 	roomLabel *widget.Label
 	buffer    *room.BufferReporter
 
-	inviteEntry  *widget.Entry
-	roomIDField  *widget.Entry
-	roomPassword *widget.Entry
-	createRoom   *widget.Button
+	// signaler is where rooms meet: the weron signaler URL without credentials.
+	// The room itself — its community, password and key — travels the invite
+	// code, so this is only the introduction point, not the room.
+	signaler string
+
+	inviteEntry *widget.Entry
+	createRoom  *widget.Button
 
 	// Track choosers. mpv knows every voice and every subtitle track in the
 	// file; until this existed a person who needed the dub had no way to reach
@@ -120,14 +130,19 @@ func playerSocketPath(pid int) string {
 }
 
 // NewWindow builds the main window around a client.
-func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.CanvasObject {
+//
+// signalerURL is the weron signaler rooms are introduced through. The room's
+// own secrets travel the invite code; this is only where peers meet.
+func NewWindow(client *api.Client, clientID string, store *SettingsStore, signalerURL string) fyne.CanvasObject {
 	w := &window{
 		client:          client,
 		clientID:        clientID,
 		store:           store,
+		signaler:        signalerURL,
 		socketPath:      playerSocketPath(os.Getpid()),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		pendingRoomFile: -1,
+		selectedFile:    -1,
 	}
 	if store != nil {
 		w.settings = store.Load()
@@ -206,18 +221,15 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 	w.subSelect.Hide()
 
 	go w.poll()
+	go w.watchPlayer()
 
 	// The room line sits above the lists: who is watching with you is a
 	// one-line answer that belongs where it is always visible.
 	w.roomLabel = widget.NewLabel("")
 
-	w.roomIDField = widget.NewEntry()
-	w.roomIDField.SetPlaceHolder(w.tr("field.roomID"))
-	// A password field, not a plain entry: an invitation screen is exactly where
-	// a password gets typed in public.
-	w.roomPassword = widget.NewPasswordEntry()
-	w.roomPassword.SetPlaceHolder(w.tr("field.roomPassword"))
-
+	// Joining takes an invite code, not a room id and a password: the room has
+	// no server to ask, so there is nothing to look up. The triple carries the
+	// community, the password that admits, and the key that encrypts.
 	w.inviteEntry = widget.NewEntry()
 	w.inviteEntry.SetPlaceHolder(w.tr("field.invite"))
 
@@ -231,8 +243,6 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 
 	roomPanel := container.NewVBox(
 		container.NewHBox(
-			w.roomIDField,
-			w.roomPassword,
 			widget.NewButtonWithIcon(w.tr("action.join"), theme.MediaRecordIcon(), w.onJoinPressed),
 			w.createRoom,
 		),
@@ -266,123 +276,178 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.C
 	return container.NewStack(body)
 }
 
-// onJoinPressed joins the room named in the fields.
+// onJoinPressed joins the room named by the invite code in the field.
 func (w *window) onJoinPressed() {
-	w.joinRoom(w.roomIDField.Text, w.roomPassword.Text)
+	w.joinRoom(w.inviteEntry.Text)
 }
 
-// onPasteCodePressed fills the fields from a pasted invitation code.
+// onPasteCodePressed reads the invitation code pasted into the field.
 func (w *window) onPasteCodePressed() {
-	code, err := room.ParseInviteCode(w.inviteEntry.Text)
-	if err != nil {
+	if _, err := rtc.ParseInviteCode(w.inviteEntry.Text); err != nil {
 		w.setStatus(err.Error())
 		return
 	}
-	w.roomIDField.SetText(code.RoomID)
-	w.roomPassword.SetText(code.Password)
 	w.setStatus(w.tr("status.codeRead"))
 }
 
 // onCopyCodePressed fills the field with this room's invitation code.
 func (w *window) onCopyCodePressed() {
-	id := w.currentRoom()
-	if id == "" {
+	w.mu.RLock()
+	invite := w.invite
+	inRoom := w.rtcRoom != nil
+	w.mu.RUnlock()
+	if !inRoom {
 		w.setStatus(w.tr("status.notIn"))
 		return
 	}
-	w.inviteEntry.SetText(room.InviteCode{
-		RoomID:   id,
-		Password: w.roomPassword.Text,
-	}.Encode())
+	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
 }
 
-// currentRoom is the room this client is in, or an empty string.
+// currentRoom is the room community this client is in, or an empty string.
 func (w *window) currentRoom() string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return w.room
+	return w.roomID
 }
 
 // ── room ───────────────────────────────────────────────────────────────────
 
-// joinRoom enters a room on the control plane.
+// leaveRoom closes the current room, if any. Joining or creating while in a
+// room leaves it first: one window, one room, and the old mesh stops hearing
+// the new one's traffic the moment its connections close.
+func (w *window) leaveRoom() {
+	w.mu.Lock()
+	mesh := w.mesh
+	w.mesh, w.rtcRoom = nil, nil
+	w.roomID = ""
+	w.invite = rtc.Invite{}
+	w.mu.Unlock()
+
+	if mesh != nil {
+		_ = mesh.Close()
+	}
+	onMain(func() { w.roomLabel.SetText("") })
+}
+
+// joinMesh opens the data-channel mesh for an invite and starts the room
+// driver on it. isHost seeds the role: the creator drives, joiners follow.
+func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
+	w.leaveRoom()
+
+	mesh := rtc.NewMesh(rtc.MeshOptions{
+		Signaler:  w.signaler,
+		Community: invite.Community,
+		Password:  invite.Password,
+		Key:       invite.Key,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := mesh.Join(ctx, isHost); err != nil {
+		_ = mesh.Close()
+		return nil, err
+	}
+
+	room := rtc.NewRoom(mesh, mesh.SelfID(), w.clientID, isHost, w.roomCallbacks())
+	go room.Run(context.Background())
+
+	w.mu.Lock()
+	w.mesh = mesh
+	w.rtcRoom = room
+	w.roomID = invite.Community
+	w.invite = invite
+	w.mu.Unlock()
+
+	return room, nil
+}
+
+// roomCallbacks translates room events into window actions. The driver decides;
+// this is where the window acts — players and widgets stay out of rtc.
+func (w *window) roomCallbacks() *rtc.Callbacks {
+	return &rtc.Callbacks{
+		OnRoster: func(peers []rtc.Peer) {
+			onMain(func() {
+				w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
+			})
+		},
+		OnMagnet: func(m rtc.Magnet) {
+			w.adoptRoomTorrent(m)
+		},
+		OnPause: func(paused bool) {
+			w.applyPause(paused)
+		},
+		OnSeek: func(seconds float64) {
+			w.applySeek(seconds)
+		},
+		OnBuffering: func(peerID string, buffering bool) {
+			w.showRoster()
+		},
+		OnHostChanged: func(hostPeerID string) {
+			w.showRoster()
+		},
+	}
+}
+
+// joinRoom enters the room named by an invite code.
 //
-// The room is bound to a torrent and the server refuses a mismatch, so this
-// cannot succeed without one. That is deliberate: a room with nothing to watch
-// is a room with nothing to do.
-func (w *window) joinRoom(roomID, password string) {
-	if roomID == "" {
-		w.setStatus("A room id is required")
-		return
-	}
-
-	w.mu.RLock()
-	torrentID := ""
-	if w.current != nil {
-		torrentID = w.current.ID
-	}
-	w.mu.RUnlock()
-
-	if !canJoinRoom(torrentID, roomID) {
-		// A room is bound to a torrent and the server refuses a mismatch.
-		if torrentID == "" {
-			w.setStatus(w.tr("status.pick"))
-		} else {
-			w.setStatus(w.tr("status.badRoom"))
-		}
+// No torrent is needed upfront: the guest learns the magnet from the host over
+// the mesh and adds it to its own backend, pulling the media from the swarm
+// itself.
+func (w *window) joinRoom(code string) {
+	invite, err := rtc.ParseInviteCode(strings.TrimSpace(code))
+	if err != nil {
+		w.setStatus(err.Error())
 		return
 	}
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		session := room.NewSession(nil, w.client.ControlURL(), w.client.ControlToken(), w.clientID)
-		if err := session.Join(ctx, roomID, password, torrentID); err != nil {
+		if _, err := w.joinMesh(invite, false); err != nil {
 			w.setStatus("Could not join: " + err.Error())
 			return
 		}
-
-		w.mu.Lock()
-		w.room = roomID
-		w.session = session
-		w.mu.Unlock()
-
-		w.subscribe(roomID)
 		w.setStatus(w.tr("status.joined"))
 	}()
 }
 
 // tellRoom sends a playback command to the room.
 //
-// Only the host's commands change anything — the server refuses the rest — but
-// every participant sends, so that "I pressed play" and "the room is playing"
-// do not become different beliefs.
-func (w *window) tellRoom(send func(ctx context.Context, s *room.Session) error) {
+// Mesh sends cannot be refused the way the server refused non-hosts — there is
+// no one left to refuse — so the authority lives in the followers ignoring
+// strangers instead. An error here is transport-level: the room is unreachable,
+// not unconvinced.
+func (w *window) tellRoom(send func(ctx context.Context, r *rtc.Room) error) {
 	w.mu.RLock()
-	session := w.session
+	room := w.rtcRoom
 	w.mu.RUnlock()
-	if session == nil {
+	if room == nil {
 		return
 	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := send(ctx, session); err != nil {
-			w.setStatus("The room refused: " + err.Error())
+		if err := send(ctx, room); err != nil {
+			w.setStatus("Could not send: " + err.Error())
 		}
 	}()
 }
 
 // playRoom asks the room to start.
 func (w *window) playRoom() {
-	w.tellRoom(func(ctx context.Context, s *room.Session) error { return s.Play(ctx) })
+	w.tellRoom(func(ctx context.Context, r *rtc.Room) error { return r.Play(ctx) })
 }
 
 // pauseRoom asks the room to stop.
 func (w *window) pauseRoom() {
-	w.tellRoom(func(ctx context.Context, s *room.Session) error { return s.Pause(ctx) })
+	w.tellRoom(func(ctx context.Context, r *rtc.Room) error { return r.Pause(ctx) })
+}
+
+// seekRoom asks the room to move to a position in seconds.
+//
+// The position travels raw; every follower smooths it against its own lag. A
+// pre-smoothed number would steer everyone by one peer's delay.
+func (w *window) seekRoom(seconds float64) {
+	w.tellRoom(func(ctx context.Context, r *rtc.Room) error { return r.Seek(ctx, seconds) })
 }
 
 // reportBuffering tells the room this peer stalled, or caught up.
@@ -390,64 +455,91 @@ func (w *window) pauseRoom() {
 // Any peer may, not only the host: otherwise a participant whose stream
 // recovered could not say so and the room would stay paused for everyone.
 func (w *window) reportBuffering(buffering bool) {
-	w.tellRoom(func(ctx context.Context, s *room.Session) error {
-		return s.ReportBuffering(ctx, buffering)
+	w.tellRoom(func(ctx context.Context, r *rtc.Room) error {
+		return r.ReportBuffering(ctx, buffering)
 	})
 }
 
-func (w *window) subscribe(roomID string) {
-	stream := room.New(room.Options{
-		BaseURL:  w.client.ControlURL(),
-		Token:    w.client.ControlToken(),
-		ClientID: w.clientID,
-	}, w.onRoomEvent)
-
-	w.mu.Lock()
-	w.stream = stream
-	w.mu.Unlock()
-
-	stream.Subscribe(context.Background(), roomID)
-}
-
-// onRoomEvent is where the room stream lands.
+// watchPlayer broadcasts what the local player does, when this peer is the
+// host, and reports stalls for any member.
 //
-// The torrent event is the important one: it is how a guest learns what to
-// download, because it pulls the media from the swarm itself.
-func (w *window) onRoomEvent(e room.Event) {
-	switch e.Type {
-	case room.EventPeerList:
-		list, seq, err := room.DecodePeerList(e.Data)
-		if err != nil {
-			return
-		}
-		if w.roster.Apply(list, seq) {
-			w.showRoster()
+// The host has no send button: it drives mpv's own window, and this loop turns
+// state changes into room commands. Play and pause travel on change; a position
+// travels when it jumps further than drift — polls are 500 ms apart, so drift
+// is half a second and anything past two is a seek someone made. Guests poll
+// too but never broadcast playback: a guest's pause is its own business until
+// the host moves.
+func (w *window) watchPlayer() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastPaused *bool
+	var lastPosition float64
+	var lastStalled *bool
+
+	for range ticker.C {
+		w.mu.RLock()
+		mpv := w.mpv
+		room := w.rtcRoom
+		w.mu.RUnlock()
+		if mpv == nil || room == nil {
+			lastPaused, lastPosition, lastStalled = nil, 0, nil
+			continue
 		}
 
-	case room.EventTorrent:
-		var ev room.TorrentEvent
-		if err := json.Unmarshal(e.Data, &ev); err != nil || ev.MagnetURI == "" {
-			return
-		}
-		w.adoptRoomTorrent(ev)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		paused, pausedErr := mpv.Paused(ctx)
+		position, positionErr := mpv.Position(ctx)
+		stalled, stalledErr := mpv.Stalled(ctx)
+		cancel()
 
-	case room.EventSync:
-		var ev room.SyncEvent
-		if err := json.Unmarshal(e.Data, &ev); err != nil {
-			return
+		if stalledErr == nil && (lastStalled == nil || *lastStalled != stalled) {
+			lastStalled = &stalled
+			_ = room.ReportBuffering(context.Background(), stalled)
 		}
-		w.applySync(ev)
+
+		if !room.IsHost() {
+			lastPaused = boolPtr(paused, pausedErr)
+			lastPosition = positionOr(position, positionErr, lastPosition)
+			continue
+		}
+
+		if pausedErr == nil && (lastPaused == nil || *lastPaused != paused) {
+			lastPaused = &paused
+			if paused {
+				_ = room.Pause(context.Background())
+			} else {
+				_ = room.Play(context.Background())
+			}
+		}
+		if positionErr == nil {
+			if lastPosition == 0 {
+				lastPosition = position
+			} else if position-lastPosition > rtc.MaxSeekDrift || lastPosition-position > rtc.MaxSeekDrift {
+				_ = room.Seek(context.Background(), position)
+			}
+			lastPosition = position
+		}
 	}
 }
 
-func (w *window) showRoster() {
-	onMain(func() {
-		w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(w.roster.Peers()), ", ")))
-	})
+func boolPtr(v bool, err error) *bool {
+	if err != nil {
+		return nil
+	}
+	return &v
 }
 
+func positionOr(v float64, err error, fallback float64) float64 {
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+// showRoster renders the membership line.
 // adoptRoomTorrent adds the room's torrent to THIS client's backend.
-func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
+func (w *window) adoptRoomTorrent(ev rtc.Magnet) {
 	w.mu.RLock()
 	have := w.current != nil && w.current.ID == ev.InfoHash
 	w.mu.RUnlock()
@@ -455,13 +547,12 @@ func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
 		return
 	}
 
+	w.mu.RLock()
+	room := w.rtcRoom
+	w.mu.RUnlock()
 	hostPeer := ""
-	if _, isHost := w.roster.FindHost(); isHost {
-		for _, peer := range w.roster.Peers() {
-			if peer.IsHost {
-				hostPeer = peer.UserID
-			}
-		}
+	if room != nil {
+		hostPeer = room.HostPeer()
 	}
 	if !shouldAdoptRoomTorrent(ev, w.clientID, hostPeer) {
 		return
@@ -476,7 +567,8 @@ func (w *window) adoptRoomTorrent(ev room.TorrentEvent) {
 	w.addTorrent()
 }
 
-func (w *window) applySync(ev room.SyncEvent) {
+// applyPause drives the local player from the host's play state.
+func (w *window) applyPause(paused bool) {
 	w.mu.RLock()
 	mpv := w.mpv
 	w.mu.RUnlock()
@@ -487,15 +579,48 @@ func (w *window) applySync(ev room.SyncEvent) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		switch ev.Action {
-		case "play":
-			_ = mpv.Resume(ctx)
-		case "pause":
+		if paused {
 			_ = mpv.Pause(ctx)
-		case "seek":
-			_ = mpv.Seek(ctx, positionFor(ev))
+		} else {
+			_ = mpv.Resume(ctx)
 		}
 	}()
+}
+
+// applySeek drives the local player to the host's raw target, smoothed against
+// this peer's own lag. Following the requested position puts this client
+// seconds ahead of everyone else, silently, because the number looks plausible.
+func (w *window) applySeek(seconds float64) {
+	w.mu.RLock()
+	mpv := w.mpv
+	w.mu.RUnlock()
+	if mpv == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		current, err := mpv.Position(ctx)
+		if err != nil {
+			current = 0
+		}
+		_ = mpv.Seek(ctx, rtc.SmoothSeek(current, seconds))
+	}()
+}
+
+// showRoster renders the membership line.
+func (w *window) showRoster() {
+	w.mu.RLock()
+	room := w.rtcRoom
+	w.mu.RUnlock()
+	if room == nil {
+		return
+	}
+	peers := room.Peers()
+	onMain(func() {
+		w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
+	})
 }
 
 func (w *window) item(id widget.ListItemID) *Torrent {
@@ -599,6 +724,9 @@ func (w *window) playFile(f fileEntry) {
 			w.setStatus("Could not select the file: " + err.Error())
 			return
 		}
+		w.mu.Lock()
+		w.selectedFile = f.Index
+		w.mu.Unlock()
 
 		p, err := w.startPlayer()
 		if err != nil {
@@ -919,7 +1047,7 @@ func (w *window) setStatus(text string) {
 // failure anything else in the suite would notice.
 
 // describeRoster renders the membership line.
-func describeRoster(peers []room.Peer) []string {
+func describeRoster(peers []rtc.Peer) []string {
 	labels := make([]string, 0, len(peers))
 	for _, peer := range peers {
 		label := peer.UserID
@@ -938,26 +1066,13 @@ func describeRoster(peers []room.Peer) []string {
 	return labels
 }
 
-// positionFor is where a client should actually go after a seek.
-//
-// The server smooths a jump, so the position asked for and the position the
-// room moved to differ on purpose. Following the requested one puts this client
-// seconds ahead of everyone else, silently, because the number looks plausible.
-// A room that has not moved yet reports zero, and zero is not a place to go.
-func positionFor(ev room.SyncEvent) float64 {
-	if ev.Status != nil && ev.Status.Position > 0 {
-		return ev.Status.Position
-	}
-	return ev.Position
-}
-
 // shouldAdoptRoomTorrent decides whether to add the room's torrent to this
 // client's backend.
 //
 // The room broadcasts its torrent on every join, so the host is offered its own
 // film back each time. The host already has it and re-adding would start a fresh
 // download of something it is playing.
-func shouldAdoptRoomTorrent(ev room.TorrentEvent, thisPeer, hostPeer string) bool {
+func shouldAdoptRoomTorrent(ev rtc.Magnet, thisPeer, hostPeer string) bool {
 	if ev.MagnetURI == "" || ev.InfoHash == "" {
 		// An infohash identifies a torrent without carrying one. Adding by hash
 		// alone builds a magnet with no trackers: it resolves over DHT and
@@ -976,14 +1091,6 @@ type (
 	roomOffer = adopt.Offer
 	fileEntry = adopt.File
 )
-
-// canJoinRoom refuses a join with no torrent to watch.
-func canJoinRoom(torrentID, roomID string) bool {
-	if torrentID == "" {
-		return false
-	}
-	return room.ValidateRoomID(roomID) == nil
-}
 
 // roomOffer is everything an adoption decision is made from: the guest's own
 // torrent list, what the room is watching, what the guest is playing right now,

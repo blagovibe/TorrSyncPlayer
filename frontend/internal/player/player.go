@@ -168,6 +168,40 @@ func (p *Player) Seek(ctx context.Context, seconds float64) error {
 	return p.command(ctx, [][]any{{"seek", seconds, "absolute"}})
 }
 
+// Paused reports whether playback is stopped. The host's broadcast loop reads
+// it on a tick: a pause pressed in mpv's own window is still a pause the room
+// must follow, and there is no other way to learn it.
+func (p *Player) Paused(ctx context.Context) (bool, error) {
+	var reply struct {
+		Error string `json:"error"`
+		Data  bool   `json:"data"`
+	}
+	if err := p.request(ctx, []any{"get_property", "pause"}, &reply); err != nil {
+		return false, err
+	}
+	if reply.Error != "" && reply.Error != "success" {
+		return false, fmt.Errorf("player: %s", reply.Error)
+	}
+	return reply.Data, nil
+}
+
+// Stalled reports whether mpv is paused for an empty cache — out of data, not
+// out of will. Any peer may broadcast it, host or not: a recovered stream that
+// cannot say so keeps the room paused for everyone.
+func (p *Player) Stalled(ctx context.Context) (bool, error) {
+	var reply struct {
+		Error string `json:"error"`
+		Data  bool   `json:"data"`
+	}
+	if err := p.request(ctx, []any{"get_property", "paused-for-cache"}, &reply); err != nil {
+		return false, err
+	}
+	if reply.Error != "" && reply.Error != "success" {
+		return false, fmt.Errorf("player: %s", reply.Error)
+	}
+	return reply.Data, nil
+}
+
 // Position reports the current playback position in seconds.
 //
 // The buffer report the room needs travels on every tick, so this is on a hot

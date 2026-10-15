@@ -1,36 +1,32 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025-2026 TorrSyncPlayer contributors
-// See LICENSE for full license text
+// See LICENSE file for full license text
 
 package ui
 
 import (
 	"context"
-	"strings"
 	"time"
-	"unicode"
 
-	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/room"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
 // Creating a room.
 //
-// Session.Create existed and was covered by tests, and nothing in the interface
-// ever called it: the window could join a room but not open one. Since a room id
-// comes from the server, that left no way to start a watch party from the app at
-// all — the whole second half of the product was unreachable.
+// There is no server to ask anymore: the host generates the room's address
+// itself — a community, a password and a key — and announces its own film over
+// the mesh it opens. Guests learn everything from the host, never from a
+// directory.
 
-// maxRoomNameRunes is the server's limit (validation.MaxRoomNameLength). It is
-// repeated here rather than imported because the client is a separate module,
-// and a client that cannot validate a name offline makes a typo a round trip.
-const maxRoomNameRunes = 50
+// maxRoomNameRunes is gone with the server: rooms have no names to validate,
+// only the torrent's own name travelling inside the magnet announcement.
 
 // onCreatePressed opens a room for the torrent that is selected.
 //
-// The room takes its name from the torrent because there is nothing to type:
-// the person is watching something, and its name is already on screen. It takes
-// its password from the field the join form already has, so one password field
-// serves both directions instead of the window collecting a credential twice.
+// The room takes nothing typed: the person is watching something, and the film
+// is named by the magnet announcement. It needs the magnet first, which lives
+// on this client's own backend — the infohash alone does not carry one.
 func (w *window) onCreatePressed() {
 	w.mu.RLock()
 	torrent := w.current
@@ -41,36 +37,72 @@ func (w *window) onCreatePressed() {
 		return
 	}
 
-	password := w.roomPassword.Text
-	name := roomNameFor(torrent.Name, w.tr("room.defaultName"))
 	torrentID := torrent.ID
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		session := room.NewSession(nil, w.client.ControlURL(), w.client.ControlToken(), w.clientID)
-		roomID, err := session.Create(ctx, name, password, torrentID)
+		magnet, err := w.roomMagnet(ctx, torrentID)
 		if err != nil {
 			w.setStatus(w.trf("status.couldNot", w.tr("action.createRoom")) + ": " + err.Error())
 			return
 		}
 
-		w.mu.Lock()
-		w.room = roomID
-		w.session = session
-		w.mu.Unlock()
+		invite := rtc.GenerateInvite()
+		room, err := w.joinMesh(invite, true)
+		if err != nil {
+			w.setStatus(w.trf("status.couldNot", w.tr("action.createRoom")) + ": " + err.Error())
+			return
+		}
 
-		w.subscribe(roomID)
+		if err := room.AnnounceMagnet(ctx, magnet); err != nil {
+			w.setStatus(w.trf("status.couldNot", w.tr("action.createRoom")) + ": " + err.Error())
+			return
+		}
 
 		// The code lands in the field the copy button reads, so the next thing
 		// a host does — send it to the people they are watching with — is one
 		// click away instead of a trip through a menu.
-		code := invitationFor(roomID, password)
-		onMain(func() { w.inviteEntry.SetText(code) })
+		onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
 
 		w.setStatus(w.tr("status.created"))
 	}()
+}
+
+// roomMagnet fetches the magnet URI of a torrent this client holds, from its
+// own backend. The magnet travels the room so every guest adds the same
+// torrent; deriving it from the infohash instead would lose the trackers and
+// resolve over DHT, dropping every seeder.
+func (w *window) roomMagnet(ctx context.Context, torrentID string) (rtc.Magnet, error) {
+	var out struct {
+		MagnetURI string `json:"magnetUri"`
+		Files     []struct {
+			Index int    `json:"index"`
+			Name  string `json:"name"`
+		} `json:"files"`
+	}
+	// The magnet names the torrent; the selected file is this peer's own
+	// choice, remembered so the announcement names what is actually playing.
+	if err := w.client.Get(ctx, api.Data, "/api/v1/torrents/"+torrentID+"/magnet", &out); err != nil {
+		return rtc.Magnet{}, err
+	}
+
+	w.mu.RLock()
+	selected := w.selectedFile
+	name := ""
+	if w.current != nil {
+		name = w.current.Name
+	}
+	w.mu.RUnlock()
+
+	return rtc.Magnet{
+		Envelope:     rtc.Envelope{Type: rtc.TypeMagnet},
+		MagnetURI:    out.MagnetURI,
+		InfoHash:     torrentID,
+		SelectedFile: selected,
+		Name:         name,
+	}, nil
 }
 
 // syncCreateRoom enables the control only when there is something to watch.
@@ -99,9 +131,9 @@ func (w *window) currentTorrent() *Torrent {
 	return w.current
 }
 
-// canCreateRoom refuses a room with nothing to watch, the same way joining
-// does: the server refuses it too, and a refusal from the server is a worse
-// answer than one before the request.
+// canCreateRoom refuses a room with nothing to watch: a room with nothing to
+// watch is a room with nothing to do, and there is no server left whose refusal
+// would say so later.
 func canCreateRoom(torrentID string) bool {
 	return torrentID != ""
 }
@@ -113,50 +145,7 @@ func torrentIDOf(t *Torrent) string {
 	return t.ID
 }
 
-// invitationFor is the line a host hands over: "id:password".
-func invitationFor(roomID, password string) string {
-	return room.InviteCode{RoomID: roomID, Password: password}.Encode()
-}
-
-// roomNameFor turns a torrent name into a name the server will accept.
-//
-// The server takes letters, digits, spaces, hyphens and underscores, up to 50
-// characters. Real torrent names are none of those things — dots for the
-// extension, brackets for the release group, and so on — so passing one through
-// unchanged is a 400 after the person has already chosen a torrent and a
-// password. Anything outside the rule is dropped, runs of whitespace collapse,
-// and the result is cut to the limit.
-//
-// When nothing usable survives, the fallback is used: the name is a label, and
-// an empty one would be refused for a reason the person cannot act on.
-func roomNameFor(torrentName, fallback string) string {
-	var b strings.Builder
-	lastSpace := false
-
-	for _, r := range torrentName {
-		switch {
-		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_':
-			b.WriteRune(r)
-			lastSpace = false
-		case unicode.IsSpace(r):
-			// Leading and repeated spaces are dropped rather than trimmed at
-			// the end, so the cut below cannot leave a trailing one either.
-			if !lastSpace && b.Len() > 0 {
-				b.WriteRune(' ')
-				lastSpace = true
-			}
-		default:
-			// Dots, brackets, colons and the rest: not in the room name rule.
-		}
-	}
-
-	name := strings.TrimRight(b.String(), " ")
-	if name == "" {
-		return fallback
-	}
-
-	if runes := []rune(name); len(runes) > maxRoomNameRunes {
-		name = strings.TrimRight(string(runes[:maxRoomNameRunes]), " ")
-	}
-	return name
+// invitationFor is the line a host hands over: community:password:key.
+func invitationFor(invite rtc.Invite) string {
+	return invite.Encode()
 }

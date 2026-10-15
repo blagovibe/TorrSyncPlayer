@@ -144,3 +144,18 @@ func stubBackend(t *testing.T, body string) string {
 	}
 	return path
 }
+
+// The signaler flag chooses where rooms meet. Empty means the public default,
+// the way an empty --server-url means "my own backend": failing on an empty
+// value would make every launch without the flag an error.
+func TestEmptySignalerMeansThePublicDefault(t *testing.T) {
+	if got := signalerURL(runOptions{}); got != "wss://weron.up.railway.app/" {
+		t.Errorf("empty flag gave %q", got)
+	}
+}
+
+func TestExplicitSignalerWinsOverTheDefault(t *testing.T) {
+	if got := signalerURL(runOptions{Signaler: "ws://127.0.0.1:1337/"}); got != "ws://127.0.0.1:1337/" {
+		t.Errorf("explicit flag gave %q", got)
+	}
+}

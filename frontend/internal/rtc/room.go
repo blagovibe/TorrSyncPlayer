@@ -366,6 +366,13 @@ func (r *Room) emitHostChanged(hostPeerID string) {
 	}
 }
 
+// MaxSeekDrift is the biggest position change between two polls that still
+// counts as drift rather than a seek. The host's broadcast loop polls twice a
+// second, so drift is half a second; anything past this is a seek someone made
+// and travels the room. It matches the smoothing boundary on purpose: a jump
+// the follower would take whole is not worth announcing either.
+const MaxSeekDrift = 2.0
+
 // SmoothSeek is where a follower actually goes after a seek.
 //
 // The host sends the raw target; the follower moves the whole way for small
@@ -374,18 +381,18 @@ func (r *Room) emitHostChanged(hostPeerID string) {
 // kept because the perceived behavior is already tuned to them, not because
 // the server that computed them still exists.
 func SmoothSeek(current, requested float64) float64 {
-	const maxJump = 2.0
-	const ratio = 0.3
-
 	diff := requested - current
 	if diff < 0 {
 		diff = -diff
 	}
-	if diff <= maxJump {
+	if diff <= MaxSeekDrift {
 		return requested
 	}
-	return current + (requested-current)*ratio
+	return current + (requested-current)*smoothRatio
 }
+
+// smoothRatio is how far a smoothed jump moves: partway, not teleporting.
+const smoothRatio = 0.3
 
 // Invite is a room's address: the community to join, the password that admits,
 // and the key that encrypts the signaling. The host generates all three and
