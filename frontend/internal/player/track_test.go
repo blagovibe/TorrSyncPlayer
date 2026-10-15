@@ -46,7 +46,7 @@ func startFakeMPV(t *testing.T, reply map[string]any) *fakeMPV {
 	t.Helper()
 
 	f := &fakeMPV{
-		path:     filepath.Join(t.TempDir(), "mpv.sock"),
+		path:     testSocketPath(t, t.Name()),
 		reply:    reply,
 		requests: make(chan map[string]any, 8),
 	}
@@ -76,7 +76,7 @@ func startFakeMPVWithEvents(t *testing.T, events []string, reply map[string]any)
 	t.Helper()
 
 	f := &fakeMPV{
-		path:     filepath.Join(t.TempDir(), "mpv.sock"),
+		path:     testSocketPath(t, t.Name()),
 		reply:    reply,
 		requests: make(chan map[string]any, 8),
 	}
@@ -289,7 +289,7 @@ func TestRealMpvListsAndSwitchesTracks(t *testing.T) {
 	}
 
 	media := buildMultiTrackFile(t, ffmpeg)
-	socket := filepath.Join(t.TempDir(), "mpv.sock")
+	socket := testSocketPath(t, "tracks")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -39,10 +39,28 @@ func TestBuildPutsBothBinariesInTheRequestedDirectory(t *testing.T) {
 		if !filepath.IsAbs(output) {
 			t.Errorf("output %q is relative: go build resolves it against its own module directory, not the directory the caller asked for", output)
 		}
-		if got := filepath.Dir(output); got != want {
+		// Both sides are resolved before comparing, and not as a formality: on
+		// macOS /var is a symlink to /private/var, so t.TempDir() hands out
+		// /var/folders/... while filepath.Abs — which is what the build script
+		// uses and what os.Getwd returns — produces /private/var/folders/...
+		// for the same directory. Comparing the strings made a passing build
+		// look broken on a platform where it is not.
+		if got, want := resolveSymlinks(t, filepath.Dir(output)), resolveSymlinks(t, want); got != want {
 			t.Errorf("output %q landed in %q, want %q", output, got, want)
 		}
 	}
+}
+
+// resolveSymlinks returns the directory a path really names, so a comparison is
+// about the directory rather than about one spelling of it.
+func resolveSymlinks(t *testing.T, path string) string {
+	t.Helper()
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
 }
 
 func TestBuildFailsWhenABinaryDoesNotCompile(t *testing.T) {

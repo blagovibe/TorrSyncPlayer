@@ -6,8 +6,11 @@ package player
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,7 +77,7 @@ func startRealPlayer(t *testing.T) *Player {
 		t.Skip("mpv is not installed")
 	}
 
-	socket := filepath.Join(t.TempDir(), "mpv.sock")
+	socket := testSocketPath(t, "position")
 
 	header, err := FormatHeader("X-Access-Token", "letmein")
 	if err != nil {
@@ -118,7 +121,7 @@ func TestRealMpvSendsTheHeaderItWasGiven(t *testing.T) {
 	// The claim that started idea-0066, checked against the real binary: mpv
 	// puts the configured header on the stream request.
 	recorder := newHeaderRecorder(t)
-	socket := filepath.Join(t.TempDir(), "mpv.sock")
+	socket := testSocketPath(t, "position")
 
 	header, err := FormatHeader("X-Access-Token", "letmein")
 	if err != nil {
@@ -154,11 +157,33 @@ func TestSocketPathMustBeGiven(t *testing.T) {
 func TestStartReportsAMissingBinary(t *testing.T) {
 	_, err := Start(context.Background(), Options{
 		Binary:     filepath.Join(t.TempDir(), "definitely-not-mpv"),
-		SocketPath: filepath.Join(t.TempDir(), "mpv.sock"),
+		SocketPath: testSocketPath(t, "missing"),
 	}, nil)
 	if err == nil {
 		t.Fatal("starting a nonexistent binary reported success")
 	}
+}
+
+// testSocketPath is a socket path short enough for every platform's limit.
+//
+// macOS caps unix socket paths at 104 bytes, and a t.TempDir() on a macOS runner
+// is already most of that before the test's own name is appended — the real-mpv
+// tests failed there with "bind: invalid argument", and mpv itself with "did not
+// open .../mpv.sock in time". /tmp is short on every platform that has it, and it
+// is a directory rather than a spelling, so nothing else changes.
+//
+// The name carries the pid so two players in one run cannot collide, and the
+// cleanup removes the socket rather than leaving one for the next run.
+func testSocketPath(t *testing.T, label string) string {
+	t.Helper()
+
+	dir := os.TempDir()
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		dir = "/tmp"
+	}
+	path := filepath.Join(dir, fmt.Sprintf("torrsync-%s-%d.sock", label, os.Getpid()))
+	t.Cleanup(func() { _ = os.Remove(path) })
+	return path
 }
 
 func waitFor(t *testing.T, within time.Duration, done func() bool) {

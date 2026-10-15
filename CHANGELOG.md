@@ -2012,3 +2012,44 @@ What this does not prove, said plainly as the card for it demands: that an
 application *window* opens and the video plays. A headless runner compiles and
 tests code; it cannot open a window. The gap between "built" and "someone is
 watching" is closed by a run on a real machine, and that remains unscheduled.
+
+### The first three-platform run, and what only macOS and Windows showed
+
+`test-frontend-go` is a matrix now — ubuntu, macOS, windows, same suite — and it
+ran red three times over, each leg finding something the other two never could.
+That is the whole point of a matrix that does not cancel itself: it says *where*
+the break is.
+
+**Ubuntu lost mpv.** The first run of the matrix dropped `mpv ffmpeg` from the apt
+line while rewriting the per-platform installs, so the player tests failed with
+`exec: "mpv": executable file not found in $PATH`. A red job that tells nobody
+anything about the platform, which is why the packages are installed next to the
+headers rather than in a step of their own.
+
+**Windows did not parse my PowerShell.** `"$name: ..."` — PowerShell reads `$name:`
+as a *drive-qualified variable reference* and refuses it: "':' was not followed by
+a valid variable name character". It needs `${name}:`. The release workflow never
+hit this because it prints `$mpvDir` and no `$name:`; the matrix hit it within
+minutes, which is what a matrix is for.
+
+**macOS found two things that are true about the project.**
+
+The build script is fine and its test was not: it compared the output directory as
+a *string*, and on macOS `/var` is a symlink to `/private/var`, so `t.TempDir()`
+hands out `/var/folders/...` while `filepath.Abs` — what the build script uses, and
+what `os.Getwd` returns — produces `/private/var/folders/...` for the same
+directory. A passing build looked broken. Both sides are resolved before they are
+compared now.
+
+And macOS caps unix socket paths at 104 bytes. `t.TempDir()` on a macOS runner is
+already most of that before the test's own name is appended, so the real-mpv tests
+died with `bind: invalid argument` and "mpv did not open .../mpv.sock in time". The
+socket in the tests is now in a short directory; the name still carries the pid so
+two players cannot collide. This one was a near miss for the product rather than a
+test-only issue: the application's own socket path is
+`<tempDir>/torrsync-<pid>.sock`, and a long `TMPDIR` would put it over the same
+limit.
+
+What the matrix still does not prove, and the card for this work says so out loud:
+that a window opens and the video plays. A headless runner compiles code and runs
+tests; it cannot open a window.

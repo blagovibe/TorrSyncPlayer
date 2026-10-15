@@ -108,12 +108,18 @@ jobs:
       # Fyne builds through cgo. What that needs differs per platform, and the
       # difference is the point: a header that exists on one runner and not on
       # another is a green matrix that means "checked one platform".
+      # Fyne builds through cgo and needs the GL/X11 headers; the player tests
+      # drive a real mpv over its IPC socket, and ffmpeg builds the multi-track
+      # fixture one of them plays. Without these the suite does not skip — it
+      # fails on a missing executable, which is a red job that says nothing about
+      # the platform.
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev \
+            mpv ffmpeg
 
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
@@ -132,7 +138,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $roots = "$env:ProgramData\chocolatey\lib", "$env:ProgramFiles", "${env:ProgramFiles(x86)}"
+          $roots = "$env:ProgramData\chocolatey\lib", "$env:ProgramFiles", "$env:ProgramFiles(x86)"
           foreach ($name in 'mpv', 'ffmpeg') {
             $found = Get-ChildItem -Path $roots -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
             if (-not $found) { Write-Error "$name was installed but cannot be found under: $roots"; exit 1 }
@@ -143,7 +149,7 @@ jobs:
               Sort-Object Dlls -Descending |
               Select-Object -First 1
             $dir = Split-Path $best.Path
-            Write-Host "$name: $dir ($($best.Dlls) DLLs beside it)"
+            Write-Host "${name}: $dir ($($best.Dlls) DLLs beside it)"
             "$dir" >> $env:GITHUB_PATH
           }
 
