@@ -1979,3 +1979,36 @@ still unstarted, which is what the card's own wording always meant by "Winget".
 
 The release is a draft pre-release, deliberately: a tag with a suffix publishes
 nothing until somebody looks at the artifacts and decides.
+
+### The frontend is checked on all three platforms now
+
+The goal promises a desktop application for Linux, macOS and Windows, and CI
+checked one of them: `test-frontend-go` ran on ubuntu alone, while the backend had
+a three-way matrix since long before. Everything that can only break somewhere
+else broke silently — path separators, the mpv IPC named pipe that Windows uses
+instead of a unix socket, Fyne's cgo and GL headers, `fyne.io/systray`, and the
+packaging of the client+backend pair.
+
+`test-frontend-go` is a matrix now: ubuntu-22.04, macos-latest, windows-latest,
+with the same suite on each — tests under `-race`, the no-skip player gate, the
+full build, and the end-to-end scenario tests that start the real backend binary
+and drive the real client against it. What differs per platform is how the
+dependencies arrive, and that difference is the point of the matrix rather than an
+inconvenience: headers that exist on one runner and not another, a display on none
+of them, mpv and ffmpeg from three different package managers.
+
+Three things were needed to make that honest rather than merely green:
+
+- **`fail-fast: false`.** A red macOS leg must not cancel ubuntu and Windows —
+  the value of a matrix is that it says *where* the break is, and a cancelled leg
+  tells nobody anything.
+- **One shell syntax.** Every step is `bash`, including on Windows, so the job is
+  one file rather than three dialects of the same ten steps.
+- **mpv and ffmpeg on PATH on Windows.** Chocolatey does not put mpv there for
+  later steps — the release job learned that the hard way — so the directory is
+  found by what it holds and pushed onto PATH.
+
+What this does not prove, said plainly as the card for it demands: that an
+application *window* opens and the video plays. A headless runner compiles and
+tests code; it cannot open a window. The gap between "built" and "someone is
+watching" is closed by a run on a real machine, and that remains unscheduled.

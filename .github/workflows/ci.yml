@@ -84,9 +84,17 @@ jobs:
           base: ""
 
   test-frontend-go:
-    name: Test Frontend (Go)
+    name: Test Frontend (${{ matrix.os }})
     needs: lint-backend
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+
+    # fail-fast: false on purpose. One red platform must not cancel the other
+    # two: the value of a matrix is that it reports *where* the break is, and a
+    # cancelled macos leg tells nobody anything (idea-0072).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v7
@@ -97,29 +105,53 @@ jobs:
           cache: true
           cache-dependency-path: frontend/go.sum
 
-      # Fyne needs OpenGL and X11 headers to build. Without them the job fails
-      # with an error that looks like a project problem rather than a missing
-      # package.
-      - name: Install GUI build dependencies
+      # Fyne builds through cgo. What that needs differs per platform, and the
+      # difference is the point: a header that exists on one runner and not on
+      # another is a green matrix that means "checked one platform".
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev
 
-      # The driver must be offscreen: without a display the tests hang waiting
-      # for a window rather than failing.
-      # The player tests drive a real mpv over its IPC socket. Without it they
-      # fail (or skip, depending on the test), and the claims they check go
-      # unverified — install it before running the suite, not after it.
-      #
-      # ffmpeg builds the multi-track fixture one of those tests plays: two
-      # audio tracks and a subtitle muxed into a small mkv from synthetic
-      # sources. Without it that test skips, and the no-skip gate below fails —
-      # which is the gate working, not the test.
-      - name: Install mpv
-        run: sudo apt-get install -y --no-install-recommends mpv ffmpeg
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install mpv ffmpeg
 
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install mpv ffmpeg -y --no-progress | Write-Host
+
+      # Chocolatey does not put mpv on PATH for later steps, and the release
+      # job already learned that the hard way. The directory is found and pushed
+      # onto PATH here so the suite sees a real mpv and a real ffmpeg.
+      - name: Put mpv and ffmpeg on PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $roots = "$env:ProgramData\chocolatey\lib", "$env:ProgramFiles", "${env:ProgramFiles(x86)}"
+          foreach ($name in 'mpv', 'ffmpeg') {
+            $found = Get-ChildItem -Path $roots -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
+            if (-not $found) { Write-Error "$name was installed but cannot be found under: $roots"; exit 1 }
+            $best = $found |
+              ForEach-Object {
+                [pscustomobject]@{ Path = $_.FullName; Dlls = @(Get-ChildItem (Split-Path $_.FullName) -Filter *.dll -File -ErrorAction SilentlyContinue).Count }
+              } |
+              Sort-Object Dlls -Descending |
+              Select-Object -First 1
+            $dir = Split-Path $best.Path
+            Write-Host "$name: $dir ($($best.Dlls) DLLs beside it)"
+            "$dir" >> $env:GITHUB_PATH
+          }
+
+      # The driver must be offscreen: without a display the tests hang waiting
+      # for a window rather than failing. That is per-platform too — there is no
+      # display on any of these runners, only the shape differs.
       - name: Run tests
+        shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
@@ -127,21 +159,29 @@ jobs:
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Report coverage
+        shell: bash
         working-directory: frontend
         run: go tool cover -func=coverage.out | tail -1
 
+      # The player tests drive a real mpv over its IPC socket, which on Windows
+      # is a named pipe rather than a unix socket — the one piece of this project
+      # that has never run anywhere but on the machine it was written on. The
+      # no-skip gate is what says so: without it a runner missing mpv would turn
+      # every player claim into a skip and stay green.
       - name: Re-run player tests without skipping
+        shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
           CGO_ENABLED: '1'
         run: |
           if go test -run 'TestRealMpv' -v ./internal/player/... | grep -q SKIP; then
-            echo "mpv tests were skipped: mpv is missing or not working here"
+            echo "mpv tests were skipped: mpv is missing or not working on ${{ runner.os }}"
             exit 1
           fi
 
       - name: Build the application
+        shell: bash
         working-directory: frontend
         env:
           CGO_ENABLED: '1'
@@ -152,6 +192,7 @@ jobs:
       # they need the backend module to build — which is why they run here and
       # not as part of the backend job.
       - name: Run the end-to-end scenario tests
+        shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
