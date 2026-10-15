@@ -1725,6 +1725,95 @@ icon renders, `desktop-file-validate` accepts the entry, `AppRun` parses.
 What is still missing is the one thing that closes the card: the workflow has not
 been run by a tag. That is the owner's action, not the agent's.
 
+### What existed and nothing wired: the reporter, the catalogue, the secret, and the settings
+
+Four cards and one storage question, with the same shape between them: something
+was built, tested and unreachable. A green suite sees none of that.
+
+- **The buffer reporter was constructed and never asked to do anything
+  (bug-0082).** `room.BufferReporter` had been finished and tested for a long
+  time; the window created it and never called `Track`, `Run` or set a playing
+  state, so the backend's piece prioritiser — the thing that makes "watch, don't
+  download" true — was steered by nothing. The window now asks mpv for the
+  file's duration (`player.Duration`), waits until mpv actually knows it
+  (`waitForDuration`: a zero while the header is still being read is not an
+  answer), starts the report with the file size and the duration, and cancels
+  the previous file's report when the person switches files. The reporter's
+  `Position` now asks mpv and returns an error while there is no player, instead
+  of inventing a zero. A 2000-byte file that mpv says is 100 s long, playing at
+  25 s, becomes byte 500 — the number the download window steers from.
+- **Half the window bypassed the catalogue (idea-0073).** Every playback error,
+  the room's own status lines and the track choosers were written as English
+  literals, so a person reading the Russian interface read every failure in the
+  source language. All of them go through `tr`/`trf` now. The check that keeps
+  them from coming back — `internal/ui/catalog_usage_test.go`, a `go/parser`
+  walk over the package — also found **eight keys the window asked for and the
+  catalogue never defined**: they rendered as empty labels, which reads as a
+  missing feature rather than a missing translation (tracks and room lines,
+  left behind by `be96d0d`). Defined and translated in both languages.
+- **The access token no longer travels on the command line (deviation-0061).**
+  The embedded backend was started with `--token <secret>`, readable by anyone
+  who can run `ps`. The backend gained `--token-stdin`: it reads the first line
+  of standard input, trims it, refuses an empty secret at startup, and treats
+  `--token` together with `--token-stdin` as a configuration error. The frontend
+  no longer puts the secret in `Args` at all and writes it to the child's stdin;
+  a test drives a real shell stand-in through `Start` to prove delivery.
+- **The window could not reach its own backend (idea-0083), which is what the
+  storage question was waiting for (idea-0081).** Storage, the htorrent gateway
+  and the signaler were reachable only by starting a server by hand — and then
+  it was not the application's own backend. There is a settings dialog now:
+  language, theme, mpv path, storage (memory or disk with a directory), gateway
+  and signaler, with storage and gateway in the same form the backend accepts
+  them.
+
+What the settings dialog does not do is pretend. Theme and signaler apply at
+once (the window redraws; the signaler is read at the next join); language, mpv,
+storage and gateway are read at startup, and the form says so — the backend
+child is already running and a window cannot reconfigure it. On first launch the
+application asks where the pieces should live, with **memory preselected** and
+`~/Downloads/TorrSyncPlayer` offered for disk; "Later" is not an answer, so the
+question returns at the next launch. Memory mode now means **nothing on disk**,
+registry included: the frontend passes an empty `--data-dir`, which disables
+persistence entirely, matching what "in memory" promises.
+
+What travels to the child, and how, is deliberate: storage as **flags**
+(`--data-dir`, `--disk-storage` — a flag is not a default, so an inherited
+`DATA_DIR` cannot substitute for the choice made in the window), the gateway as
+**environment** with replace-and-scrub semantics (so a gateway switched off in
+the window does not survive the next launch), and the token on **stdin**. The
+password is never on the command line.
+
+Two more defects came out of the same pass, both found by running what was
+written rather than by reading it:
+
+- `--lang` reached only the tray. The window kept reading the store, so the flag
+  changed the tray menu and nothing else — worse than no flag, because `--help`
+  promises it. Both surfaces now use one resolver
+  (`PreferredLanguage`: flag → setting → system locale → English), the
+  documented system-language fallback exists at all, and locale spellings like
+  `ru-RU` and `ru_RU.UTF-8` are understood.
+- The window constructor started its poll and player-watch loops **twice**: the
+  split into a build-only function and one that starts the loops left the
+  goroutine starts in both halves, so every window polled its backend twice.
+  Caught by `-race` after the split, not by review; fixed, with the smoke test
+  building through the goroutine-free half so no test leaves a poller behind.
+
+Also: `frontend/go.mod` tidied (the dialog gained `github.com/FyshOS/fancyfs`,
+systray and weron became direct requirements, `kr/text` dropped), and `DEV.md`
+gained the confirmed wording: English is the source language and fallback,
+`--token-stdin`, the storage question, the settings channels, and the pact file
+declared a hand-edited fixture rather than a recorded contract (idea-0076). The
+swarm scenarios already in the tree closed the "watch, don't download" card
+(idea-0071); subtitles from the swarm stay open with the owner's choice recorded
+(idea-0080: a separate endpoint, `--sub-file=http`, no code this pass).
+
+Verified: frontend — `go build`, `go vet`, `gofmt` clean; `go test ./...` green
+with `FYNE_DRIVER=offscreen`; `-race` green for the changed packages; the five
+real-mpv tests ran and passed, not skipped. Backend — build, vet, full test
+suite green. Full `-race` over the frontend is red in `internal/rtc` for a
+reason outside this repository: `weron@v0.3.0`'s in-process signaler has a data
+race in its own client map, with no project frame in the report; the plain run
+is green and the package is untouched.
 
 ## [v1.1.5] - 2026-07-12
 
