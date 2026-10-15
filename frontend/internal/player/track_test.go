@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -360,7 +361,8 @@ func waitForLoaded(t *testing.T, ctx context.Context, p *Player, media string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("mpv never opened %s: it is not in the playlist", media)
+			t.Fatalf("mpv never opened %s: it is not in the playlist\n--- what mpv said ---\n%s",
+				media, tailLines(p.Log(), 25))
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -371,16 +373,29 @@ func waitForTracks(t *testing.T, ctx context.Context, p *Player, kind TrackKind,
 	t.Helper()
 
 	deadline := time.Now().Add(15 * time.Second)
+	var last []Track
+	var lastErr error
 	for {
-		tracks, err := p.Tracks(ctx, kind)
-		if err == nil && len(tracks) >= want {
-			return tracks
+		last, lastErr = p.Tracks(ctx, kind)
+		if lastErr == nil && len(last) >= want {
+			return last
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("mpv never reported %d %s tracks (last: %v, %v)", want, kind, tracks, err)
+			t.Fatalf("mpv never reported %d %s tracks (last: %v, %v)\n--- what mpv said ---\n%s",
+				want, kind, last, lastErr, tailLines(p.Log(), 25))
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// tailLines is how much of a log a failure quotes: the last few lines are where
+// the reason is, and the first few hundred are the same on every run.
+func tailLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // mpvTrackSelected asks mpv which track is current and compares it.

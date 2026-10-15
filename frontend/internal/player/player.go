@@ -21,11 +21,11 @@ package player
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -36,8 +36,31 @@ import (
 type Player struct {
 	cmd  *exec.Cmd
 	sock string
+	log  *lockedBuffer
 
 	closeOnce sync.Once
+}
+
+// Log is what mpv said about itself. Kept so a failure can quote it instead of
+// leaving a reader to guess what the player was doing.
+func (p *Player) Log() string { return p.log.String() }
+
+// lockedBuffer is a concurrency-safe io.Writer for a process's output.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // Options configures a Player.
@@ -70,14 +93,19 @@ func Start(ctx context.Context, opts Options, headers []string) (*Player, error)
 	// own values, and the extra args are the documented way to pass a custom
 	// mpv (opts.Binary itself is that setting, not an argument).
 	cmd := exec.Command(binary, Args(opts.SocketPath, headers, opts.ExtraArgs...)...)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+
+	// mpv's own output is kept, not discarded. It was thrown away, and a player
+	// that fails to open a file or a track then fails silently — which is how a
+	// track test spent fifteen seconds guessing at the reason on a CI runner.
+	output := &lockedBuffer{}
+	cmd.Stdout = output
+	cmd.Stderr = output
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("player: start %s: %w", binary, err)
 	}
 
-	p := &Player{cmd: cmd, sock: opts.SocketPath}
+	p := &Player{cmd: cmd, sock: opts.SocketPath, log: output}
 	if err := p.waitReady(ctx); err != nil {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
