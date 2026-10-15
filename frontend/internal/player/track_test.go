@@ -294,7 +294,19 @@ func TestRealMpvListsAndSwitchesTracks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	p, err := Start(ctx, Options{Binary: "mpv", SocketPath: socket}, nil)
+	// A null video and audio output: mpv enumerates the tracks of a file only when
+	// it has an output chain to feed them to. This is not a detail, it is the
+	// whole difference between a test that passes on a laptop and one that passes
+	// on a runner. On a machine with no DRM, no SDL and no display, mpv still
+	// loads the file and lists every track in its own log — and reports an empty
+	// `track-list` over IPC with error "success", because nothing was ever
+	// activated. `--vo=no` is not the answer either: that disables the chain
+	// entirely and does the same. `null` is an output that needs no device.
+	p, err := Start(ctx, Options{
+		Binary:     "mpv",
+		SocketPath: socket,
+		ExtraArgs:  []string{"--vo=null", "--ao=null"},
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
