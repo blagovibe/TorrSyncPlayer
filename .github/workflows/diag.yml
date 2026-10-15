@@ -1,0 +1,26 @@
+name: Diagnostics
+on: workflow_dispatch
+jobs:
+  diag:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get install -y --no-install-recommends mpv ffmpeg
+      - name: Build the multi-track fixture
+        run: |
+          set -eu
+          ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i "sine=frequency=440:duration=2" \
+            -f lavfi -i "sine=frequency=880:duration=2" \
+            -f lavfi -i "testsrc=size=64x64:rate=5:duration=2" \
+            -map 2:v -map 0:a -map 1:a \
+            -c:v libx264 -preset ultrafast -c:a aac \
+            -metadata:s:a:0 title=Original -metadata:s:a:1 title=Dub \
+            -y /tmp/diag.mkv
+          printf '1\n00:00:00,000 --> 00:00:01,000\nhello\n\n' > /tmp/diag.srt
+          ffmpeg -hide_banner -loglevel error -i /tmp/diag.mkv -i /tmp/diag.srt \
+            -map 0 -map 1:s -c copy -y /tmp/diag2.mkv
+          mv /tmp/diag2.mkv /tmp/diag.mkv
+          ffmpeg -hide_banner -i /tmp/diag.mkv 2>&1 | grep Stream || true
+      - name: Talk to mpv over IPC
+        run: python3 diag_player.py
