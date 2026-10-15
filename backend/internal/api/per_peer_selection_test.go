@@ -73,18 +73,6 @@ func (s *recordingTorrentService) MagnetFor(context.Context, string, string) (st
 	return s.magnet, s.magnetErr
 }
 
-func (s *recordingTorrentService) SelectedFileFor(context.Context, string, string) (int, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.selected, true
-}
-
-func (s *recordingTorrentService) TorrentName(context.Context, string, string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.name
-}
-
 type selection struct {
 	userID    string
 	fileIndex int

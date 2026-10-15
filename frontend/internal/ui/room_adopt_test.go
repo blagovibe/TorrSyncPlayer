@@ -74,7 +74,7 @@ func TestTheHostAnnouncesItsOwnFilm(t *testing.T) {
 	defer server.Close()
 
 	w := &window{
-		client:       api.New(server.URL, "token", server.URL, "token"),
+		client:       api.New(server.URL, "token"),
 		current:      &Torrent{ID: "abc", Name: "Film"},
 		selectedFile: 0,
 	}

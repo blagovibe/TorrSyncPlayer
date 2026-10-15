@@ -233,10 +233,7 @@ run_verification_tests() {
         # API checks
         curl -k -s -H "Authorization: Bearer test-token" \
             "https://localhost:${BACKEND_PORT}/api/v1/torrents" > /dev/null || true
-        
-        curl -k -s -H "Authorization: Bearer test-token" \
-            "https://localhost:${BACKEND_PORT}/api/v1/rooms" > /dev/null || true
-        
+
         sleep 5
     done
 }

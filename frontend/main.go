@@ -33,24 +33,20 @@ import (
 
 func main() {
 	var (
-		serverURL   = flag.String("s", "server-url", "Server URL (e.g., http://localhost:8889)")
-		accessToken = flag.String("a", "access-token", "Access token for API authentication")
-		clientID    = flag.String("c", "client-id", "Client identifier for P2P room (auto-generated if not provided)")
-		signaler    = flag.String("signaler", "wss://weron.up.railway.app/", "Weron signaler where rooms meet (e.g., ws://localhost:1337/)")
-		lang        = flag.String("lang", "", "Interface language: ru, en")
-		noTray      = flag.Bool("no-tray", false, "Don't use system tray")
-		darkTheme   = flag.Bool("dark-theme", false, "Use dark theme")
+		clientID  = flag.String("c", "client-id", "Client identifier for P2P room (auto-generated if not provided)")
+		signaler  = flag.String("signaler", "wss://weron.up.railway.app/", "Weron signaler where rooms meet (e.g., ws://localhost:1337/)")
+		lang      = flag.String("lang", "", "Interface language: ru, en")
+		noTray    = flag.Bool("no-tray", false, "Don't use system tray")
+		darkTheme = flag.Bool("dark-theme", false, "Use dark theme")
 	)
 	flag.Parse()
 
 	if err := run(runOptions{
-		ServerURL:   *serverURL,
-		AccessToken: *accessToken,
-		ClientID:    *clientID,
-		Language:    *lang,
-		NoTray:      *noTray,
-		DarkTheme:   *darkTheme,
-		Signaler:    *signaler,
+		ClientID:  *clientID,
+		Language:  *lang,
+		NoTray:    *noTray,
+		DarkTheme: *darkTheme,
+		Signaler:  *signaler,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "TorrSyncPlayer:", err)
 		os.Exit(1)
@@ -63,13 +59,11 @@ func main() {
 const signalerDefault = "wss://weron.up.railway.app/"
 
 type runOptions struct {
-	ServerURL   string
-	AccessToken string
-	ClientID    string
-	Language    string
-	NoTray      bool
-	DarkTheme   bool
-	Signaler    string
+	ClientID  string
+	Language  string
+	NoTray    bool
+	DarkTheme bool
+	Signaler  string
 }
 
 // signalerURL resolves where rooms meet: the flag, or the public default.
@@ -124,14 +118,10 @@ func run(opts runOptions) error {
 
 	dataURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	// Without --server-url the client is the host, and its own backend serves
-	// the room it creates.
-	controlURL, controlToken := dataURL, token
-	if opts.ServerURL != "" {
-		controlURL, controlToken = opts.ServerURL, opts.AccessToken
-	}
-
-	client := api.New(dataURL, token, controlURL, controlToken)
+	// Every participant runs its own backend and pulls the media from the swarm
+	// itself; rooms meet over WebRTC, so there is no second server to point at
+	// anymore (idea-0064).
+	client := api.New(dataURL, token)
 	client.SetClientID(clientID)
 
 	if err := waitForBackend(client, child, 10*time.Second); err != nil {
@@ -210,7 +200,7 @@ func waitForBackend(client *api.Client, child *backend.Process, timeout time.Dur
 	var lastErr error
 	for {
 		var out map[string]any
-		if err := client.Get(ctx, api.Data, "/api/v1/version", &out); err == nil {
+		if err := client.Get(ctx, "/api/v1/version", &out); err == nil {
 			return nil
 		} else {
 			lastErr = err

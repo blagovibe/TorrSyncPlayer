@@ -98,7 +98,7 @@ func TestWaitGivesUpOnALiveBackendThatNeverAnswers(t *testing.T) {
 }
 
 func clientFor(url string) *api.Client {
-	client := api.New(url, "t", url, "t")
+	client := api.New(url, "t")
 	client.SetClientID("test")
 	return client
 }

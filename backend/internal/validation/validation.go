@@ -20,8 +20,6 @@ import (
 
 // Regular expressions for validation
 var (
-	// roomNameRegex allows letters, digits, spaces, hyphens and underscores
-	roomNameRegex = regexp.MustCompile(`^[\p{L}\p{N}\s\-_]{1,50}$`)
 	// usernameRegex allows letters, digits, underscores and hyphens
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,30}$`)
 	// magnetRegex for validating magnet links - restricted to btih URN type only
@@ -59,8 +57,6 @@ const (
 	MaxUsernameLength    = 30
 	MinUsernameLength    = 3
 	MinPasswordLength    = 8
-	MaxRoomNameLength    = 50
-	MinRoomNameLength    = 1
 	MaxTorrentNameLength = 255
 	MaxFileSize          = constants.MaxStreamFileSize
 )
@@ -180,22 +176,8 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// ValidateRoomName validates the room name.
-// Checks length and allowed characters.
-func ValidateRoomName(name string) error {
-	name = strings.TrimSpace(name)
-
-	if utf8.RuneCountInString(name) < MinRoomNameLength {
-		return fmt.Errorf("room name cannot be empty")
-	}
-	if utf8.RuneCountInString(name) > MaxRoomNameLength {
-		return fmt.Errorf("room name too long (maximum %d characters)", MaxRoomNameLength)
-	}
-	if !roomNameRegex.MatchString(name) {
-		return fmt.Errorf("room name contains invalid characters")
-	}
-	return nil
-}
+// Rooms have no names anymore: they meet over WebRTC and are addressed by
+// invite code (idea-0064). There is nothing left to validate one against.
 
 // ValidateMagnetURI validates the magnet link format.
 // Ensures the link uses btih URN (not other schemes) and validates parameter format.
@@ -289,22 +271,6 @@ func ValidateTorrentID(id string) error {
 	for _, c := range id {
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return fmt.Errorf("torrent ID contains invalid character: %c", c)
-		}
-	}
-	return nil
-}
-
-// ValidateRoomID validates the room ID (hex string of 32 characters = 16 bytes).
-func ValidateRoomID(id string) error {
-	if id == "" {
-		return fmt.Errorf("room ID cannot be empty")
-	}
-	if len(id) != 32 {
-		return fmt.Errorf("room ID must be 32 characters (got %d)", len(id))
-	}
-	for _, c := range id {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return fmt.Errorf("room ID contains invalid character: %c", c)
 		}
 	}
 	return nil

@@ -54,26 +54,6 @@ func TestAPIPaths_Torrents(t *testing.T) {
 }
 
 // TestAPIPaths_Rooms tests room paths
-func TestAPIPaths_Rooms(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, "/api/v1/rooms", APIPathRooms)
-	assert.Equal(t, "/api/v1/rooms/join", APIPathRoomJoin)
-	assert.Equal(t, "/api/v1/rooms/leave", APIPathRoomLeave)
-	assert.Equal(t, "/api/v1/rooms/signal", APIPathRoomSignal)
-	assert.Equal(t, "/api/v1/rooms/events", APIPathRoomEvents)
-	assert.Equal(t, "/api/v1/rooms/info", APIPathRoomInfo)
-}
-
-// TestAPIPaths_Sync tests sync paths
-func TestAPIPaths_Sync(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, "/api/v1/sync/play", APIPathSyncPlay)
-	assert.Equal(t, "/api/v1/sync/pause", APIPathSyncPause)
-	assert.Equal(t, "/api/v1/sync/seek", APIPathSyncSeek)
-	assert.Equal(t, "/api/v1/sync/status", APIPathSyncStatus)
-}
-
-// TestAPIPaths_AllDefined tests that all paths are defined and non-empty
 func TestAPIPaths_AllDefined(t *testing.T) {
 	t.Parallel()
 	paths := map[string]string{
@@ -90,15 +70,6 @@ func TestAPIPaths_AllDefined(t *testing.T) {
 		"TorrentSelect":  APIPathTorrentSelect,
 		"TorrentStream":  APIPathTorrentStream,
 		"TorrentRemove":  APIPathTorrentRemove,
-		"Rooms":          APIPathRooms,
-		"RoomJoin":       APIPathRoomJoin,
-		"RoomLeave":      APIPathRoomLeave,
-		"RoomSignal":     APIPathRoomSignal,
-		"RoomEvents":     APIPathRoomEvents,
-		"SyncPlay":       APIPathSyncPlay,
-		"SyncPause":      APIPathSyncPause,
-		"SyncSeek":       APIPathSyncSeek,
-		"SyncStatus":     APIPathSyncStatus,
 	}
 
 	for name, path := range paths {
@@ -123,15 +94,6 @@ func TestAPIPaths_Consistency(t *testing.T) {
 		APIPathTorrentSelect,
 		APIPathTorrentStream,
 		APIPathTorrentRemove,
-		APIPathRooms,
-		APIPathRoomJoin,
-		APIPathRoomLeave,
-		APIPathRoomSignal,
-		APIPathRoomEvents,
-		APIPathSyncPlay,
-		APIPathSyncPause,
-		APIPathSyncSeek,
-		APIPathSyncStatus,
 	}
 
 	for _, path := range apiPaths {

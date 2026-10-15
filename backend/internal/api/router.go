@@ -25,8 +25,6 @@ import (
 // RouterConfig router configuration.
 type RouterConfig struct {
 	TorrentSvc  internal.TorrentService
-	P2pSvc      internal.P2PService
-	SyncSvc     internal.SyncService
 	AuthService *auth.AuthService
 }
 
@@ -103,30 +101,8 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/{id}/buffer/info", GetBufferInfo(config.TorrentSvc))
 			})
 
-			// P2P endpoints
-			r.Route("/rooms", func(r chi.Router) {
-				r.Post("/", CreateRoom(config.P2pSvc, config.TorrentSvc))
-				r.Post("/join", JoinRoom(config.P2pSvc, config.TorrentSvc))
-				r.Post("/leave", LeaveRoom(config.P2pSvc))
-				r.Post("/signal", Signal(config.P2pSvc))
-				// /info resolves the caller's own room from membership instead of a
-				// path parameter, so it is a static segment — registered here so the
-				// {roomID} pattern below can never shadow it.
-				r.Get("/info", GetRoomInfo(config.P2pSvc))
-				r.Get("/{roomID}/events", RoomEvents(config.P2pSvc))
-			})
-
-			// Sync endpoints
-			r.Route("/sync", func(r chi.Router) {
-				r.Post("/play", SyncPlay(config.SyncSvc, config.P2pSvc))
-				r.Post("/pause", SyncPause(config.SyncSvc, config.P2pSvc))
-				r.Post("/seek", SyncSeek(config.SyncSvc, config.P2pSvc))
-				r.Post("/buffering", SyncBuffering(config.SyncSvc, config.P2pSvc))
-				r.Get("/status", SyncStatus(config.SyncSvc, config.P2pSvc))
-			})
-
 			// Detailed health check (requires the access token)
-			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc, config.P2pSvc, config.SyncSvc))
+			r.Get("/health/detailed", DetailedHealthCheck(config.TorrentSvc))
 		})
 
 		// 404 handler for unknown routes within the protected group

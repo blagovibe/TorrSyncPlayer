@@ -118,3 +118,50 @@ func startLoopbackTracker(t *testing.T) (string, *loopbackTracker) {
 	t.Cleanup(server.Close)
 	return server.URL + "/announce", tracker
 }
+
+// bencodeValue is the encoder the tracker answers with, without a test to fail
+// in: the loopback tracker answers from a plain HTTP handler and has no
+// *testing.T to reach for. A type it does not know becomes nil rather than a
+// half-encoded dictionary, because a truncated answer would fail somewhere far
+// from here.
+func bencodeValue(value interface{}) []byte {
+	switch v := value.(type) {
+	case string:
+		return []byte(encodeString(v))
+	case int:
+		return []byte(encodeInt(int64(v)))
+	case int64:
+		return []byte(encodeInt(v))
+	case map[string]interface{}:
+		// Keys are sorted: bencode dictionaries are ordered by key, and a
+		// different order is a different answer.
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sortStrings(keys)
+
+		out := "d"
+		for _, key := range keys {
+			encoded := bencodeValue(v[key])
+			if encoded == nil {
+				return nil
+			}
+			out += encodeString(key) + string(encoded)
+		}
+		return []byte(out + "e")
+	default:
+		return nil
+	}
+}
+
+func encodeString(s string) string { return strconv.Itoa(len(s)) + ":" + s }
+func encodeInt(n int64) string     { return "i" + strconv.FormatInt(n, 10) + "e" }
+
+func sortStrings(values []string) {
+	for i := 1; i < len(values); i++ {
+		for j := i; j > 0 && values[j-1] > values[j]; j-- {
+			values[j-1], values[j] = values[j], values[j-1]
+		}
+	}
+}

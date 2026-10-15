@@ -25,14 +25,6 @@ type Metrics struct {
 	torrentsRemoved int64
 	torrentsActive  int64
 
-	roomsCreated int64
-	roomsActive  int64
-	peersTotal   int64
-
-	syncOperations int64
-
-	eventChannelFull int64
-
 	cacheMu      sync.Mutex
 	cachedOutput string
 	cacheTime    time.Time
@@ -96,60 +88,6 @@ func (m *Metrics) TorrentRemoved() {
 	if m.torrentsActive > 0 {
 		m.torrentsActive--
 	}
-}
-
-// RoomCreated registers a room creation
-func (m *Metrics) RoomCreated() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.roomsCreated++
-	m.roomsActive++
-}
-
-// RoomClosed registers a room closing
-func (m *Metrics) RoomClosed() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.roomsActive > 0 {
-		m.roomsActive--
-	}
-}
-
-// PeerJoined registers a peer connection
-func (m *Metrics) PeerJoined() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.peersTotal++
-}
-
-// PeerLeft registers a peer disconnection
-func (m *Metrics) PeerLeft() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.peersTotal > 0 {
-		m.peersTotal--
-	}
-}
-
-// SyncOperation registers a sync operation
-func (m *Metrics) SyncOperation() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.syncOperations++
-}
-
-// EventChannelFull increments the event channel full counter.
-func (m *Metrics) EventChannelFull() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.eventChannelFull++
-}
-
-// GetEventChannelFull returns the event channel full counter.
-func (m *Metrics) GetEventChannelFull() int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.eventChannelFull
 }
 
 // GetUptime returns the server uptime in seconds
@@ -229,29 +167,6 @@ func (m *Metrics) formatPrometheusUnsafe(memStats map[string]uint64) string {
 	result += "# HELP torrsyncplayer_torrents_added_total Total added torrents\n"
 	result += "# TYPE torrsyncplayer_torrents_added_total counter\n"
 	result += fmt.Sprintf("torrsyncplayer_torrents_added_total %d\n", m.torrentsAdded)
-
-	// Rooms
-	result += "# HELP torrsyncplayer_rooms_active Active rooms\n"
-	result += "# TYPE torrsyncplayer_rooms_active gauge\n"
-	result += fmt.Sprintf("torrsyncplayer_rooms_active %d\n", m.roomsActive)
-
-	result += "# HELP torrsyncplayer_rooms_created_total Total created rooms\n"
-	result += "# TYPE torrsyncplayer_rooms_created_total counter\n"
-	result += fmt.Sprintf("torrsyncplayer_rooms_created_total %d\n", m.roomsCreated)
-
-	// Peers
-	result += "# HELP torrsyncplayer_peers_total Total peers\n"
-	result += "# TYPE torrsyncplayer_peers_total gauge\n"
-	result += fmt.Sprintf("torrsyncplayer_peers_total %d\n", m.peersTotal)
-
-	// Sync
-	result += "# HELP torrsyncplayer_sync_operations_total Total sync operations\n"
-	result += "# TYPE torrsyncplayer_sync_operations_total counter\n"
-	result += fmt.Sprintf("torrsyncplayer_sync_operations_total %d\n", m.syncOperations)
-
-	result += "# HELP torrsyncplayer_event_channel_full_total Total SSE event channel full events\n"
-	result += "# TYPE torrsyncplayer_event_channel_full_total counter\n"
-	result += fmt.Sprintf("torrsyncplayer_event_channel_full_total %d\n", m.eventChannelFull)
 
 	// Memory
 	result += "# HELP torrsyncplayer_memory_alloc_bytes Allocated memory\n"

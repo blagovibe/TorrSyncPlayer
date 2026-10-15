@@ -7,285 +7,22 @@
 package api
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
-	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
 	apperrors "github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/metrics"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/validation"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/version"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/response"
 )
 
-// ── SSE Connection Management ──────────────────────────────────────────
-
-const (
-	// maxSSEConnections maximum number of concurrent SSE connections per room
-	maxSSEConnections = constants.MaxSSEConnections
-
-	// maxGlobalSSEConnections maximum total SSE connections across all rooms
-	maxGlobalSSEConnections = constants.MaxGlobalSSEConnections
-
-	// sseTimeout timeout for SSE connection
-	sseTimeout = constants.SSETimeout
-
-	// ssePingInterval ping interval for keeping SSE connection alive
-	ssePingInterval = constants.SSEPingInterval
-)
-
-// sseConnectionManager manages active SSE connections
-// with both per-room and global connection limits
-type sseConnectionManager struct {
-	mu        sync.Mutex
-	wg        sync.WaitGroup
-	counts    map[string]int
-	maxConn   int // per room
-	maxGlobal int // global limit (0 = unlimited)
-	global    int
-}
-
-// newSSEConnectionManager creates an SSE connection manager
-func newSSEConnectionManager(maxConn int) *sseConnectionManager {
-	return &sseConnectionManager{
-		counts:    make(map[string]int),
-		maxConn:   maxConn,
-		maxGlobal: maxGlobalSSEConnections,
-	}
-}
-
-// tryAcquire tries to acquire a connection slot for the specified room
-// Returns true if the connection is allowed
-func (m *sseConnectionManager) tryAcquire(roomID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.counts[roomID] >= m.maxConn {
-		return false
-	}
-	if m.maxGlobal > 0 && m.global >= m.maxGlobal {
-		return false
-	}
-	m.counts[roomID]++
-	m.global++
-	return true
-}
-
-// release releases a connection slot for the specified room
-func (m *sseConnectionManager) release(roomID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.counts[roomID] > 0 {
-		m.counts[roomID]--
-		m.global--
-	}
-}
-
-// count returns the total number of active connections across all rooms
-func (m *sseConnectionManager) Count() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.global
-}
-
-// Add increments the WaitGroup counter for an active SSE connection.
-func (m *sseConnectionManager) Add(delta int) {
-	m.wg.Add(delta)
-}
-
-// Done decrements the WaitGroup counter when an SSE connection closes.
-func (m *sseConnectionManager) Done() {
-	m.wg.Done()
-}
-
-// Wait blocks until all active SSE connections have closed.
-func (m *sseConnectionManager) Wait() {
-	m.wg.Wait()
-}
-
-// WaitForSSEConnections waits for active SSE connections to close, giving up
-// after timeout and reporting whether every connection finished in time.
-//
-// The wait used to be an unbounded wg.Wait(). An SSE connection is designed
-// to live for constants.SSETimeout (30 minutes), so a single idle client
-// holding a room subscription could block Ctrl-C for half an hour — long
-// after the HTTP server had already shut down and the process could have
-// exited. Shutdown must always be bounded; a straggler is logged, not awaited
-// forever.
-func WaitForSSEConnections(timeout time.Duration) bool {
-	if timeout <= 0 {
-		sseManager.Wait()
-		return true
-	}
-
-	done := make(chan struct{})
-	go func() {
-		sseManager.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		return true
-	case <-time.After(timeout):
-		logger.Warn("API: timeout waiting for SSE connections to close",
-			"timeout", timeout.String())
-		return false
-	}
-}
-
-// sseManager global SSE connection manager
-var sseManager = newSSEConnectionManager(maxSSEConnections)
-
-// SSEEventHandler common function for handling SSE events.
-// Used to eliminate SSE logic duplication across different handlers.
-// Parameters:
-//   - w: ResponseWriter for sending data
-//   - r: HTTP request
-//   - events: event channel for subscription
-//   - roomID: room ID for connection limiting (empty string = no limit)
-//   - logPath: path for logging
-//   - onDisconnect: called when the stream ends, for any reason
-//   - onKeepAlive: called on every ping, to record that this peer is still
-//     connected. The idle pruner reads that record, so without it a peer holding
-//     an open stream is eventually reaped as idle (bug-0021).
-func SSEEventHandler(w http.ResponseWriter, r *http.Request, events <-chan models.P2PEvent, roomID string, logPath string, onDisconnect func(), onKeepAlive func()) {
-	sseManager.Add(1)
-	defer sseManager.Done()
-	if roomID != "" {
-		if !sseManager.tryAcquire(roomID) {
-			logger.Warn("SSE: connection limit exceeded for room", "roomID", roomID, "max", maxSSEConnections)
-			WriteError(w, http.StatusTooManyRequests, "Too many connections for this room. Please try again later.")
-			return
-		}
-		defer sseManager.release(roomID)
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		WriteError(w, http.StatusInternalServerError, "Streaming is not supported")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), sseTimeout)
-	defer cancel()
-
-	if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"ok\"}\n\n"); err != nil {
-		logger.Warn("SSE: error sending initial event", "error", err, "path", logPath)
-		return
-	}
-	flusher.Flush()
-
-	pingTicker := time.NewTicker(ssePingInterval)
-	defer pingTicker.Stop()
-
-	serializationErrors := 0
-	const maxSerializationErrors = 5
-
-	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				logger.Info("SSE event channel closed", "path", logPath)
-				return
-			}
-
-			data, err := json.Marshal(event)
-			if err != nil {
-				serializationErrors++
-				logger.Error("SSE event serialization error", "error", err, "eventType", event.Type, "serializationErrors", serializationErrors)
-				if serializationErrors >= maxSerializationErrors {
-					logger.Error("SSE: too many serialization errors, disconnecting", "path", logPath)
-					if _, writeErr := fmt.Fprintf(w, "event: error\ndata: {\"message\":\"Critical server error\"}\n\n"); writeErr == nil {
-						flusher.Flush()
-					}
-					return
-				}
-				if _, writeErr := fmt.Fprintf(w, "event: error\ndata: {\"message\":\"Event processing error\"}\n\n"); writeErr != nil {
-					logger.Warn("SSE: write error", "error", writeErr, "path", logPath)
-					return
-				}
-				flusher.Flush()
-				continue
-			}
-			serializationErrors = 0
-			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data)); err != nil {
-				logger.Warn("SSE: write error", "error", err, "path", logPath)
-				return
-			}
-			flusher.Flush()
-
-		case <-pingTicker.C:
-			if _, err := fmt.Fprintf(w, "event: ping\ndata: {}\n\n"); err != nil {
-				logger.Warn("SSE: error writing ping", "error", err, "path", logPath)
-				return
-			}
-			flusher.Flush()
-			// The stream is alive, so the peer is alive. Recorded before the next
-			// wait, and never on a path that would let a dead stream keep a stale
-			// claim: every return above skips it.
-			if onKeepAlive != nil {
-				onKeepAlive()
-			}
-
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				logger.Info("SSE connection closed by timeout", "path", logPath)
-				if _, err := fmt.Fprintf(w, "event: timeout\ndata: {\"message\":\"Connection timeout\"}\n\n"); err != nil {
-					return
-				}
-				flusher.Flush()
-			} else {
-				logger.Info("SSE client closed connection", "path", logPath)
-			}
-			if onDisconnect != nil {
-				go onDisconnect()
-			}
-			return
-		}
-	}
-}
-
 // ============ Error Handling ============
-
-// resolveCallerRoom determines which room the caller is currently in.
-//
-// Every room-scoped endpoint needs exactly this and nothing more: the room comes
-// from the caller's own membership, so one client can never read or act on
-// another's room. A caller outside any room gets a 400 with a stable message,
-// identical across all handlers — so a client can branch on the status code
-// alone and never has to match on text.
-//
-// Centralised because the lookup was previously repeated per handler and
-// diverged: the read-only /sync/status swallowed the lookup error and fell
-// through to GetStatus(""), which answers with a zeroed status and 200 —
-// indistinguishable from a real room sitting at position 0 (bug-0019).
-//
-// Returns ok=false when the caller has no room; the caller must then return.
-func resolveCallerRoom(w http.ResponseWriter, r *http.Request, p2pSvc internal.P2PService) (*models.RoomInfo, string, bool) {
-	userID := auth.GetClientID(r)
-
-	roomInfo, err := p2pSvc.GetRoomInfo(r.Context(), userID)
-	if err != nil || roomInfo == nil || roomInfo.ID == "" {
-		logger.Warn("Request: caller is not in a room", "userID", userID, "path", r.URL.Path)
-		WriteError(w, http.StatusBadRequest, "Not connected to a room")
-		return nil, "", false
-	}
-	return roomInfo, userID, true
-}
 
 // handleError maps an error to an HTTP response using structured AppError types.
 // Logs the full error server-side but returns only a safe message to the client.
@@ -409,12 +146,15 @@ func HealthCheck() http.HandlerFunc {
 // the startup token in the X-Access-Token header.
 // Returns detailed information about service state:
 //   - status: "ok" or "degraded"
-//   - services: state of each service (torrent, p2p, sync)
+//   - services: state of each service (torrent)
 //   - version: application version
 //   - uptime: uptime in seconds
 //
 // Returns 503 if any service is unavailable.
-func DetailedHealthCheck(torrentSvc internal.TorrentService, p2pSvc internal.P2PService, syncSvc internal.SyncService) http.HandlerFunc {
+//
+// Rooms and sync used to be brokered here; playback commands travel peer to
+// peer now, and the server keeps no room state at all (idea-0064).
+func DetailedHealthCheck(torrentSvc internal.TorrentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		services := make(map[string]string)
 		allHealthy := true
@@ -424,21 +164,6 @@ func DetailedHealthCheck(torrentSvc internal.TorrentService, p2pSvc internal.P2P
 			services["torrent"] = "ok"
 		} else {
 			services["torrent"] = "unavailable"
-			allHealthy = false
-		}
-
-		// Check p2p service
-		if p2pSvc != nil {
-			services["p2p"] = "ok"
-		} else {
-			_, _ = services, allHealthy
-		}
-
-		// Check sync service
-		if syncSvc != nil {
-			services["sync"] = "ok"
-		} else {
-			services["sync"] = "unavailable"
 			allHealthy = false
 		}
 

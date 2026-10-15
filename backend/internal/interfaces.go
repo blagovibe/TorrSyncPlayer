@@ -31,13 +31,6 @@ type TorrentService interface {
 	// infohash identifies a torrent without carrying one.
 	MagnetFor(ctx context.Context, userID, torrentID string) (string, error)
 
-	// SelectedFileFor reports which file userID plays from torrentID, and
-	// whether that peer chose one. Selection is per-peer (bug-0048), so the
-	// host's choice has to travel in the room's torrent event explicitly.
-	SelectedFileFor(ctx context.Context, torrentID, userID string) (int, bool)
-
-	// TorrentName is the display name of a torrent, for the room event.
-	TorrentName(ctx context.Context, userID, torrentID string) string
 	// SelectFile selects a file for streaming for a specific user (per-peer).
 	// userID is the caller's client ID (X-Client-ID header).
 	SelectFile(ctx context.Context, torrentID, userID string, fileIndex int) error
@@ -47,47 +40,4 @@ type TorrentService interface {
 	UpdateBufferPosition(ctx context.Context, torrentID string, position int64) error
 	GetBufferInfo(ctx context.Context, userID, torrentID string) (*models.BufferInfo, error)
 	Close() error
-}
-
-type P2PService interface {
-	// Session-scoped operations - userID identifies the user's session
-	CreateRoom(ctx context.Context, userID, name, password, torrentID string) (*models.RoomInfo, error)
-	JoinRoom(ctx context.Context, userID, roomID, password, torrentID string) error
-	LeaveRoom(ctx context.Context, userID string) error
-	SendSignal(ctx context.Context, userID string, signal []byte) error
-	GetEvents(userID string) chan models.P2PEvent
-	GetRoomInfo(ctx context.Context, userID string) (*models.RoomInfo, error)
-	IsHost(ctx context.Context, userID, roomID string) (bool, error)
-	BroadcastSync(roomID string, event models.SyncEvent)
-	// TouchPeer records that the user is still connected, refreshing the
-	// heartbeat the idle pruner reads. Driven by the SSE stream (bug-0021).
-	TouchPeer(ctx context.Context, userID string) error
-	// TorrentsVisibleTo reports which torrents a peer may read: those bound to
-	// the room it participates in. The access token is per-process and cannot
-	// tell a room guest from the machine's owner (bug-0049).
-	TorrentsVisibleTo(ctx context.Context, userID string) map[string]bool
-	// SetPeerBuffering records that a peer reported itself as buffering or
-	// caught up, so the roster can name it (idea-0017).
-	SetPeerBuffering(ctx context.Context, userID string, buffering bool)
-	// BroadcastPeerList sends the room's current roster to everyone in it.
-	BroadcastPeerList(roomID string)
-
-	// BroadcastTorrent hands the room's torrent to its members, so a guest that
-	// knows only an infohash still has something to add to its own backend.
-	BroadcastTorrent(roomID, infoHash, magnetURI, name string, selectedFile int)
-	Close() error
-}
-
-// HostChecker checks if a user is the host of a room.
-type HostChecker interface {
-	IsHost(ctx context.Context, userID, roomID string) (bool, error)
-}
-
-type SyncService interface {
-	Play(ctx context.Context, roomID, userID string) (models.SyncStatus, error)
-	Pause(ctx context.Context, roomID, userID string) (models.SyncStatus, error)
-	Seek(ctx context.Context, roomID, userID string, position float64) (models.SyncStatus, error)
-	Buffering(ctx context.Context, roomID, userID string, buffering bool) (models.SyncStatus, error)
-	GetStatus(roomID string) models.SyncStatus
-	Close()
 }

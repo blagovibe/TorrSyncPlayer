@@ -5,8 +5,8 @@ import { Rate, Trend, Counter } from 'k6/metrics';
 // Custom metrics
 const errorRate = new Rate('errors');
 const listDuration = new Trend('list_duration');
-const roomCreateDuration = new Trend('room_create_duration');
-const syncDuration = new Trend('sync_duration');
+const bufferDuration = new Trend('buffer_duration');
+const magnetDuration = new Trend('magnet_duration');
 const deleteDuration = new Trend('delete_duration');
 const authDuration = new Trend('auth_duration');
 const totalRequests = new Counter('total_requests');
@@ -39,9 +39,7 @@ const journeyCompleted = new Rate('journey_completed');
 //
 // Known simplification: all VUs share one client id. A load generator measures
 // the server rather than login throughput, and the startup token is identical
-// for every caller by design. Concurrent
-// room creation by one account means a VU's sync calls may target the room its
-// session currently points at, which is fine for throughput measurement.
+// for every caller by design.
 // The journey deliberately probes a torrent id that does not exist to confirm
 // it is answered with 404 rather than a 500 or a silent success. k6 counts any
 // status >= 400 as a failed request by default, so that intentional 404 showed up
@@ -95,8 +93,8 @@ export const options = {
     errors: ['rate<0.02'],
     http_req_duration: ['p(95)<50'],
     list_duration: ['p(95)<50'],
-    room_create_duration: ['p(95)<100'],
-    sync_duration: ['p(95)<50'],
+    buffer_duration: ['p(95)<50'],
+    magnet_duration: ['p(95)<50'],
     delete_duration: ['p(95)<50'],
     auth_duration: ['p(95)<1000'],
     // Catches a journey that aborts part-way: any exception before the end of
@@ -105,16 +103,12 @@ export const options = {
   },
 };
 
-// One room per VU, created on that VU's first iteration and reused after.
-// Indexed by __VU, not __ITER: k6 keeps one VU-local copy of module scope per
-// virtual user, so this persists across that VU's iterations.
-const roomByVU = [];
-
 const BASE_URL = __ENV.BASE_URL || 'https://localhost:8889';
 const ACCESS_TOKEN = __ENV.ACCESS_TOKEN;
 
-// Rooms must be bound to a torrent. Load testing cannot seed a swarm, so use
-// an ID that describes nothing: sharing warns, creation still returns 201.
+// Load testing cannot seed a swarm, so the journey probes a torrent id that
+// describes nothing and expects 404s: endpoints must refuse unknown torrents,
+// not fail on them.
 const LOAD_TEST_TORRENT_ID = '0000000000000000000000000000000000000000';
 
 function jsonHeaders() {
@@ -161,75 +155,38 @@ function userJourney(token, vu) {
 
   sleep(1);
 
-  // 2. Create a room — once per VU, not once per iteration.
-  //
-  // A session tracks exactly one current room, and every create overwrites it.
-  // Creating on every iteration orphaned every room except the most recent one,
-  // because leave only ever removes the session's current room. After ~1000
-  // orphaned rooms the server hit constants.MaxRooms and every create started
-  // failing with "maximum number of rooms exceeded".
-  //
-  // One room per VU also matches real use: a person opens a room once and then
-  // plays and syncs in it, rather than recreating it several times a minute.
-  if (!roomByVU[vu]) {
-    group('Create Room', () => {
-      const res = http.post(
-        `${BASE_URL}/api/v1/rooms`,
-        JSON.stringify({ name: `LoadTest Room ${vu}`, torrentId: LOAD_TEST_TORRENT_ID }),
-        { headers, timeout: '30s' }
-      );
-      roomCreateDuration.add(res.timings.duration);
-      totalRequests.add(1);
-      check(res, {
-        'create room 201': (r) => r.status === 201,
-        'has room id': (r) => (r.json('id') || r.json('roomId')) !== undefined,
-      }) || errorRate.add(1);
+  // 2. Buffer heartbeat — the 2 Hz position report every playing client
+  // sends, and the buffer state read beside it. Playback commands travel peer
+  // to peer now, so these are the only per-second endpoints the server keeps
+  // (idea-0064). Unknown torrent ids answer 404: the heartbeat of a removed
+  // torrent is an ordinary state, not a failure.
+  group('Buffer Heartbeat', () => {
+    const report = http.post(`${BASE_URL}/api/v1/torrents/${LOAD_TEST_TORRENT_ID}/buffer/position`,
+      JSON.stringify({ position: 1048576 }),
+      { headers, timeout: '30s' }
+    );
+    bufferDuration.add(report.timings.duration);
+    totalRequests.add(1);
+    check(report, { 'buffer position 404 for unknown torrent': (r) => r.status === 404 }) || errorRate.add(1);
 
-      if (res.status === 201) {
-        roomByVU[vu] = res.json('id') || res.json('roomId');
-      }
-    });
-  }
+    sleep(1);
+
+    const info = http.get(`${BASE_URL}/api/v1/torrents/${LOAD_TEST_TORRENT_ID}/buffer/info`, { headers, timeout: '30s' });
+    bufferDuration.add(info.timings.duration);
+    totalRequests.add(1);
+    check(info, { 'buffer info 404 for unknown torrent': (r) => r.status === 404 }) || errorRate.add(1);
+  });
 
   sleep(1);
 
-  // 3. Sync playback: play, seek, status, pause.
-  // Creating the room already puts the caller in it, so no join step is needed.
-  group('Sync Playback', () => {
-    const play = http.post(`${BASE_URL}/api/v1/sync/play`, null, { headers, timeout: '30s' });
-    syncDuration.add(play.timings.duration);
+  // 3. Magnet for an unknown torrent: 404, not 500. The host announces its own
+  // film from this endpoint, so a missing torrent here would strand a room
+  // before it starts.
+  group('Magnet Lookup', () => {
+    const res = http.get(`${BASE_URL}/api/v1/torrents/${LOAD_TEST_TORRENT_ID}/magnet`, { headers, timeout: '30s' });
+    magnetDuration.add(res.timings.duration);
     totalRequests.add(1);
-    check(play, { 'sync play 200': (r) => r.status === 200 }) || errorRate.add(1);
-
-    sleep(1);
-
-    const seek = http.post(`${BASE_URL}/api/v1/sync/seek`,
-      JSON.stringify({ position: 30 }),
-      { headers, timeout: '30s' }
-    );
-    syncDuration.add(seek.timings.duration);
-    totalRequests.add(1);
-    check(seek, {
-      'sync seek 200': (r) => r.status === 200,
-      'seek reports position': (r) => r.json('position') !== undefined,
-    }) || errorRate.add(1);
-
-    sleep(1);
-
-    const status = http.get(`${BASE_URL}/api/v1/sync/status`, { headers, timeout: '30s' });
-    syncDuration.add(status.timings.duration);
-    totalRequests.add(1);
-    check(status, {
-      'sync status 200': (r) => r.status === 200,
-      'status has timestamp': (r) => r.json('timestamp') !== undefined,
-    }) || errorRate.add(1);
-
-    sleep(1);
-
-    const pause = http.post(`${BASE_URL}/api/v1/sync/pause`, null, { headers, timeout: '30s' });
-    syncDuration.add(pause.timings.duration);
-    totalRequests.add(1);
-    check(pause, { 'sync pause 200': (r) => r.status === 200 }) || errorRate.add(1);
+    check(res, { 'magnet 404 for unknown torrent': (r) => r.status === 404 }) || errorRate.add(1);
   });
 
   sleep(1);
@@ -255,29 +212,14 @@ function userJourney(token, vu) {
 
   sleep(1);
 
-  // Leave is deliberately NOT part of the iteration. It clears the session's
-  // current room, which is the room the next iteration's sync calls target, so
-  // running it every iteration would both break the sync calls and leave each
-  // VU without a room to return to. It is exercised once in teardown() instead,
-  // which is also the only place it belongs: leaving is a one-off at the end of
-  // a session, not a per-iteration action.
   journeyCompleted.add(1);
 }
 
-// teardown exercises the leave endpoint once, at the end of the run, and checks
-// that leaving actually releases the room. This is the only place leave belongs:
-// it clears the session's current room, so calling it per iteration would break
-// the sync calls that follow.
+// teardown lists once more at the end of the run: the rooms it used to create
+// and leave are gone with the broker, so there is nothing to release.
 export function teardown(data) {
   const headers = jsonHeaders();
 
-  const created = http.post(
-    `${BASE_URL}/api/v1/rooms`,
-    JSON.stringify({ name: 'LoadTest Teardown Room', torrentId: LOAD_TEST_TORRENT_ID }),
-    { headers, timeout: '30s' }
-  );
-  check(created, { 'teardown create room 201': (r) => r.status === 201 });
-
-  const left = http.post(`${BASE_URL}/api/v1/rooms/leave`, null, { headers, timeout: '30s' });
-  check(left, { 'teardown leave 200': (r) => r.status === 200 });
+  const res = http.get(`${BASE_URL}/api/v1/torrents`, { headers, timeout: '30s' });
+  check(res, { 'teardown list 200': (r) => r.status === 200 });
 }

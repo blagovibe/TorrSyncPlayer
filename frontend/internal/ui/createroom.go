@@ -8,7 +8,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
@@ -84,7 +83,7 @@ func (w *window) roomMagnet(ctx context.Context, torrentID string) (rtc.Magnet, 
 	}
 	// The magnet names the torrent; the selected file is this peer's own
 	// choice, remembered so the announcement names what is actually playing.
-	if err := w.client.Get(ctx, api.Data, "/api/v1/torrents/"+torrentID+"/magnet", &out); err != nil {
+	if err := w.client.Get(ctx, "/api/v1/torrents/"+torrentID+"/magnet", &out); err != nil {
 		return rtc.Magnet{}, err
 	}
 

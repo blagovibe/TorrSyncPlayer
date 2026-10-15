@@ -62,40 +62,4 @@ const (
 
 	// TorrentBufferInfo buffer state path (use with {id})
 	APIPathTorrentBufferInfo = "/api/v1/torrents/{id}/buffer/info"
-
-	// ── Room endpoints ─────────────────────────────────────────────────
-
-	// Rooms room creation path
-	APIPathRooms = "/api/v1/rooms"
-
-	// RoomJoin room join path
-	APIPathRoomJoin = "/api/v1/rooms/join"
-
-	// RoomLeave room leave path
-	APIPathRoomLeave = "/api/v1/rooms/leave"
-
-	// RoomSignal signal sending path
-	APIPathRoomSignal = "/api/v1/rooms/signal"
-
-	// RoomEvents room SSE events path
-	APIPathRoomEvents = "/api/v1/rooms/events"
-
-	// RoomInfo room info path. Deliberately without {roomID}: the room is
-	// resolved from the caller's own membership, so one client can never ask
-	// about another client's room.
-	APIPathRoomInfo = "/api/v1/rooms/info"
-
-	// ── Sync endpoints ─────────────────────────────────────────────────
-
-	// SyncPlay playback synchronization path
-	APIPathSyncPlay = "/api/v1/sync/play"
-
-	// SyncPause pause synchronization path
-	APIPathSyncPause = "/api/v1/sync/pause"
-
-	// SyncSeek seek synchronization path
-	APIPathSyncSeek = "/api/v1/sync/seek"
-
-	// SyncStatus sync status path
-	APIPathSyncStatus = "/api/v1/sync/status"
 )

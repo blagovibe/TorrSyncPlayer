@@ -344,33 +344,6 @@ func (s *Service) MagnetFor(_ context.Context, userID, torrentID string) (string
 	}
 }
 
-// SelectedFileFor reports which file userID is playing from torrentID, and
-// whether that peer chose one at all.
-//
-// It travels in the room's torrent event because file selection is per-peer
-// (bug-0048): the server knows the host's choice, and without saying so a guest
-// picks its own and the room ends up watching different parts of one release.
-func (s *Service) SelectedFileFor(_ context.Context, torrentID, userID string) (int, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	index, ok := s.selectedFiles[torrentID][userID]
-	return index, ok
-}
-
-// TorrentName is a small convenience for the room event, which shows people a
-// title rather than a hash.
-func (s *Service) TorrentName(_ context.Context, _ string, torrentID string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	handle, ok := s.torrents[torrentID]
-	if !ok {
-		return ""
-	}
-	return handle.Name()
-}
-
 // StorageType identifies the torrent piece storage backend.
 type StorageType string
 

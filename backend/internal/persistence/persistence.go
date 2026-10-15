@@ -8,34 +8,15 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
 
 // PersistenceVersion is the current format version for migration handling
 const PersistenceVersion = 1
 
-// RoomSnapshot is the serializable subset of a room. Live peer connections
-// (SSE channels) cannot be persisted; only room metadata and the host are
-// saved so a room can be re-created after a restart.
-type RoomSnapshot struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	HostID     string `json:"hostId"`
-	HostUserID string `json:"hostUserId"`
-	Password   string `json:"password"`
-	CreatedAt  int64  `json:"createdAt"`
-}
-
-type RoomsData struct {
-	Version int                      `json:"version"`
-	Rooms   map[string]*RoomSnapshot `json:"rooms"`
-}
-
-type SyncData struct {
-	Version int                          `json:"version"`
-	Status  map[string]models.SyncStatus `json:"status"`
-}
+// Rooms and playback state are not persisted anymore: rooms meet over WebRTC
+// and no server holds them (idea-0064). What survives a restart is the torrent
+// registry below — whose torrent came from where, and who added it.
 
 // TorrentOwnershipData persists torrent ownership (bug-0049).
 // torrentID -> userID mapping so a restart knows who added each torrent.
@@ -54,128 +35,6 @@ func NewStore(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create data directory %s: %w", dataDir, err)
 	}
 	return &Store{dir: dataDir}, nil
-}
-
-// SaveRooms persists room metadata atomically to rooms.json.
-func (s *Store) SaveRooms(data *RoomsData) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data.Version = PersistenceVersion
-
-	path := filepath.Join(s.dir, "rooms.json")
-	tmpPath := path + ".tmp"
-
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal rooms: %w", err)
-	}
-
-	if err := os.WriteFile(tmpPath, encoded, 0600); err != nil {
-		return fmt.Errorf("failed to write rooms file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		if rmErr := os.Remove(tmpPath); rmErr != nil {
-			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
-		}
-		return fmt.Errorf("failed to rename rooms file: %w", err)
-	}
-
-	return nil
-}
-
-// LoadRooms loads room metadata from rooms.json, tolerating a missing or
-// corrupted file by returning an empty collection.
-func (s *Store) LoadRooms() (*RoomsData, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	path := filepath.Join(s.dir, "rooms.json")
-	// #nosec G304 -- path is under the configured data directory
-	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &RoomsData{Version: PersistenceVersion, Rooms: make(map[string]*RoomSnapshot)}, nil
-		}
-		return nil, fmt.Errorf("failed to read rooms file: %w", err)
-	}
-
-	var result RoomsData
-	if err := json.Unmarshal(data, &result); err != nil {
-		logger.Warn("persistence: corrupted rooms.json, starting fresh", "error", err)
-		return &RoomsData{Version: PersistenceVersion, Rooms: make(map[string]*RoomSnapshot)}, nil
-	}
-
-	if result.Version == 0 {
-		result.Version = PersistenceVersion
-	}
-	if result.Rooms == nil {
-		result.Rooms = make(map[string]*RoomSnapshot)
-	}
-
-	return &result, nil
-}
-
-// SaveSync persists per-room playback state atomically to sync.json.
-func (s *Store) SaveSync(data *SyncData) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data.Version = PersistenceVersion
-
-	path := filepath.Join(s.dir, "sync.json")
-	tmpPath := path + ".tmp"
-
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal sync state: %w", err)
-	}
-
-	if err := os.WriteFile(tmpPath, encoded, 0600); err != nil {
-		return fmt.Errorf("failed to write sync file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		if rmErr := os.Remove(tmpPath); rmErr != nil {
-			logger.Error("persistence: failed to remove temp file", "path", tmpPath, "error", rmErr)
-		}
-		return fmt.Errorf("failed to rename sync file: %w", err)
-	}
-
-	return nil
-}
-
-// LoadSync loads per-room playback state from sync.json, tolerating a missing
-// or corrupted file by returning an empty collection.
-func (s *Store) LoadSync() (*SyncData, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	path := filepath.Join(s.dir, "sync.json")
-	// #nosec G304 -- path is under the configured data directory
-	data, err := os.ReadFile(path) //nolint:gosec // path is under data directory
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &SyncData{Version: PersistenceVersion, Status: make(map[string]models.SyncStatus)}, nil
-		}
-		return nil, fmt.Errorf("failed to read sync file: %w", err)
-	}
-
-	var result SyncData
-	if err := json.Unmarshal(data, &result); err != nil {
-		logger.Warn("persistence: corrupted sync.json, starting fresh", "error", err)
-		return &SyncData{Version: PersistenceVersion, Status: make(map[string]models.SyncStatus)}, nil
-	}
-
-	if result.Version == 0 {
-		result.Version = PersistenceVersion
-	}
-	if result.Status == nil {
-		result.Status = make(map[string]models.SyncStatus)
-	}
-
-	return &result, nil
 }
 
 // SaveTorrents persists torrent ownership atomically to torrents.json.

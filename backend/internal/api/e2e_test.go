@@ -16,8 +16,6 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
 )
 
@@ -40,16 +38,10 @@ func setupTestServer(t *testing.T) (*httptest.Server, string, func()) {
 
 	authService, err := auth.NewAuthService()
 	require.NoError(t, err)
-	p2pSvc, err := p2p.NewService(authService)
-	require.NoError(t, err)
-
-	syncSvc := sync.NewService(p2pSvc)
 
 	// Создаём роутер
 	router := NewRouter(RouterConfig{
 		TorrentSvc:  torrentSvc,
-		P2pSvc:      p2pSvc,
-		SyncSvc:     syncSvc,
 		AuthService: authService,
 	})
 
@@ -63,8 +55,6 @@ func setupTestServer(t *testing.T) (*httptest.Server, string, func()) {
 	cleanup := func() {
 		server.Close()
 		_ = torrentSvc.Close()
-		_ = p2pSvc.Close()
-		syncSvc.Close()
 	}
 
 	// The access token is printed at startup in production; tests get it here so
@@ -242,172 +232,9 @@ func TestE2E_TorrentList(t *testing.T) {
 }
 
 // TestE2E_SyncFlow проверяет цикл синхронизации.
-func TestE2E_SyncFlow(t *testing.T) {
-	server, token, cleanup := setupTestServer(t)
-	defer cleanup()
+// Rooms and sync used to be brokered here; playback commands travel peer to
+// peer now, and these flows have no server endpoint to test against (idea-0064).
 
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	// Reset rate limiter for this test
-	globalClientRateLimiter.resetAll()
-
-	// 1. Create a room
-	createBody := map[string]string{
-		"name":      "Test Room",
-		"password":  "",
-		"torrentId": "torrent-e2e",
-	}
-	body, _ := json.Marshal(createBody)
-
-	req, err := http.NewRequest("POST", server.URL+"/api/v1/rooms", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var roomResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&roomResult)
-	require.NoError(t, err)
-	roomID := roomResult["id"].(string)
-
-	// 2. Join the room
-	joinBody := map[string]string{
-		"roomId":    roomID,
-		"password":  "",
-		"torrentId": "torrent-e2e",
-	}
-	body, _ = json.Marshal(joinBody)
-
-	req, err = http.NewRequest("POST", server.URL+"/api/v1/rooms/join", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err = client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// 3. Play
-	playBody := map[string]interface{}{}
-	body, _ = json.Marshal(playBody)
-
-	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/play", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err = client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var playResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&playResult)
-	require.NoError(t, err)
-	assert.Equal(t, true, playResult["isPlaying"])
-
-	// 4. Seek (small jump, applied directly under latency compensation)
-	seekBody := map[string]float64{
-		"position": 1.5,
-	}
-	body, _ = json.Marshal(seekBody)
-
-	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/seek", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err = client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var seekResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&seekResult)
-	require.NoError(t, err)
-	assert.Equal(t, 1.5, seekResult["position"])
-
-	// 5. Pause
-	pauseBody := map[string]interface{}{}
-	body, _ = json.Marshal(pauseBody)
-
-	req, err = http.NewRequest("POST", server.URL+"/api/v1/sync/pause", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err = client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var pauseResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&pauseResult)
-	require.NoError(t, err)
-	assert.Equal(t, false, pauseResult["isPlaying"])
-
-	// 6. Get Status
-	req, err = http.NewRequest("GET", server.URL+"/api/v1/sync/status", nil)
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-
-	resp, err = client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var statusResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&statusResult)
-	require.NoError(t, err)
-	assert.Equal(t, false, statusResult["isPlaying"])
-	assert.Equal(t, 1.5, statusResult["position"])
-}
-
-// TestE2E_RoomFlow проверяет цикл работы с комнатами.
-func TestE2E_RoomFlow(t *testing.T) {
-	server, token, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	// 1. Создание комнаты
-	createBody := map[string]string{
-		"name":      "Test Room",
-		"password":  "roompass123",
-		"torrentId": "torrent-e2e",
-	}
-	body, _ := json.Marshal(createBody)
-
-	req, err := http.NewRequest("POST", server.URL+"/api/v1/rooms", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set(auth.HeaderAccessToken, token)
-	req.Header.Set(auth.HeaderClientID, "e2e-client")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var roomResult map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&roomResult)
-	require.NoError(t, err)
-	assert.NotNil(t, roomResult["id"])
-	assert.Equal(t, "Test Room", roomResult["name"])
-}
-
-// TestE2E_UnauthorizedAccess проверяет защиту от несанкционированного доступа.
 func TestE2E_UnauthorizedAccess(t *testing.T) {
 	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
@@ -438,13 +265,13 @@ func TestE2E_InvalidInput(t *testing.T) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// Невалидный seek (отрицательная позиция)
-	seekBody := map[string]float64{
-		"position": -100,
+	// Невалидный fileIndex (отрицательный) на существующем пути выбора файла.
+	selectBody := map[string]int{
+		"fileIndex": -1,
 	}
-	body, _ := json.Marshal(seekBody)
+	body, _ := json.Marshal(selectBody)
 
-	req, err := http.NewRequest("POST", server.URL+"/api/v1/sync/seek", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", server.URL+"/api/v1/torrents/0123456789abcdef0123456789abcdef01234567/select", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set(auth.HeaderAccessToken, token)
 	req.Header.Set(auth.HeaderClientID, "e2e-client")

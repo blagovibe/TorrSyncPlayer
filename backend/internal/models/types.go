@@ -17,56 +17,6 @@ type FileInfo struct {
 	Size  int64  `json:"size"`
 }
 
-// PeerInfo describes one participant in a room (idea-0017).
-//
-// Only what the server actually knows is listed. In particular there is no
-// "in sync" flag: the room shares one playback position, so the server cannot
-// tell how far any individual peer has drifted.
-type PeerInfo struct {
-	// PeerID is the session identifier of this participant. It changes on
-	// reconnect; UserID does not.
-	PeerID   string `json:"peerID" example:"peer-abc"`
-	UserID   string `json:"userID" example:"user-1"`
-	Username string `json:"username,omitempty"`
-	// IsHost marks the room's host, who controls play/pause/seek.
-	IsHost bool `json:"isHost" example:"false"`
-	// Buffering reports that this peer last said it was out of data. It is
-	// sticky until the peer says otherwise, so a peer that vanishes without
-	// saying is dropped from the roster instead.
-	Buffering bool `json:"buffering" example:"false"`
-}
-
-// RoomInfo information about a P2P room
-type RoomInfo struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	TorrentID  string     `json:"torrentId,omitempty"` // infohash of the torrent bound to this room
-	HostID     string     `json:"hostId"`
-	HostUserID string     `json:"hostUserId"`
-	PeerCount  int        `json:"peerCount" example:"2"`
-	Peers      []PeerInfo `json:"peers,omitempty"`
-	RosterSeq  int64      `json:"rosterSeq,omitempty"`
-}
-
-// SyncStatus playback synchronization status
-type SyncStatus struct {
-	IsPlaying bool    `json:"isPlaying"`
-	Position  float64 `json:"position"`
-	Duration  float64 `json:"duration"`
-	Timestamp int64   `json:"timestamp"`
-	Buffering bool    `json:"buffering"`
-}
-
-// P2PEvent is a server-brokered room event delivered to clients over SSE.
-// Types include "peer_joined", "peer_left", "signal" and "sync".
-type P2PEvent struct {
-	Type string      `json:"type"`
-	Data interface{} `json:"data"`
-	// Seq is the sequence number of this event within its room.
-	// Clients use it to detect gaps and request replay.
-	Seq int64 `json:"seq,omitempty"`
-}
-
 // AddTorrentRequest request to add a torrent
 type AddTorrentRequest struct {
 	MagnetURI   string `json:"magnetUri,omitempty"`

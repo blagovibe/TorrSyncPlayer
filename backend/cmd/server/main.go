@@ -32,9 +32,7 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/auth"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/buffer"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/p2p"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/persistence"
-	"github.com/blagovibe/TorrSyncPlayer/backend/internal/sync"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/torrent"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/version"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
@@ -173,28 +171,19 @@ func main() {
 		)
 	}
 
-	p2pSvc, err := p2p.NewService(authService)
-	if err != nil {
-		logger.Error("Failed to initialize P2P service", "error", err)
-		os.Exit(1)
-	}
+	// No room-scoped visibility wiring: rooms meet over WebRTC now, and no
+	// guest ever touches this backend — it serves its owner's torrents only.
+	// canRead falls back to ownership, which is stricter than the room check
+	// it replaces (idea-0064; deviation-0039 is moot: the invite carries no
+	// token anymore).
 
-	// Room-scoped read access (bug-0049). The access token is per-process, so
-	// without this the torrent service cannot tell a room guest from the
-	// machine's owner and would hand out the host's whole library.
-	torrentSvc.SetVisibility(p2pSvc)
-
-	syncSvc := sync.NewService(p2pSvc)
-
-	// Persistence is only needed for rooms and playback state now; there is no
-	// user store and no token revocation list to keep.
+	// Persistence is only needed for the torrent registry now; rooms and
+	// playback state live in no server at all.
 	if config.DataDir != "" {
 		persistStore, perr := persistence.NewStore(config.DataDir)
 		if perr != nil {
 			logger.Error("Failed to initialize persistence store", "error", perr)
 		} else {
-			p2pSvc.SetPersistence(persistStore)
-			syncSvc.SetPersistence(persistStore)
 			torrentSvc.SetPersistence(persistStore)
 		}
 	}
@@ -202,8 +191,6 @@ func main() {
 	// Create router
 	router := api.NewRouter(api.RouterConfig{
 		TorrentSvc:  torrentSvc,
-		P2pSvc:      p2pSvc,
-		SyncSvc:     syncSvc,
 		AuthService: authService,
 	})
 
@@ -309,22 +296,7 @@ func main() {
 		logger.Error("Error stopping HTTP server", "error", err)
 	}
 
-	// Give live SSE subscriptions a short grace period, then stop waiting.
-	// Without this bound Ctrl-C could block for constants.SSETimeout (30
-	// minutes) on a single idle room subscription.
-	if api.WaitForSSEConnections(constants.SSEShutdownGrace) {
-		logger.Info("HTTP server stopped")
-	} else {
-		logger.Warn("HTTP server stopped, but some SSE connections were still open")
-	}
-
-	// Stop sync service
-	syncSvc.Close()
-
-	// Stop P2P service
-	if err := p2pSvc.Close(); err != nil {
-		logger.Error("Error stopping P2P service", "error", err)
-	}
+	logger.Info("HTTP server stopped")
 
 	// Stop torrent service
 	if err := torrentSvc.Close(); err != nil {

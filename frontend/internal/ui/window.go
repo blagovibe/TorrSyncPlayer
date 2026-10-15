@@ -267,7 +267,7 @@ func NewWindow(client *api.Client, clientID string, store *SettingsStore, signal
 	w.buffer = room.NewBufferReporter(room.ReporterOptions{
 		Report: func(ctx context.Context, torrentID string, offset int64) error {
 			var out struct{}
-			return w.client.Post(ctx, api.Data,
+			return w.client.Post(ctx,
 				fmt.Sprintf("/api/v1/torrents/%s/buffer/position", torrentID),
 				map[string]int64{"position": offset}, &out)
 		},
@@ -675,7 +675,7 @@ func (w *window) play(t *Torrent) {
 		var listed struct {
 			Files []fileEntry `json:"files"`
 		}
-		if err := w.client.Get(ctx, api.Data, "/api/v1/torrents/"+t.ID+"/files", &listed); err != nil {
+		if err := w.client.Get(ctx, "/api/v1/torrents/"+t.ID+"/files", &listed); err != nil {
 			w.setStatus("Could not read the torrent: " + err.Error())
 			return
 		}
@@ -720,7 +720,7 @@ func (w *window) playFile(f fileEntry) {
 			Name  string `json:"name"`
 		}
 		body := map[string]int{"fileIndex": f.Index}
-		if err := w.client.Post(ctx, api.Data, "/api/v1/torrents/"+torrent.ID+"/select", body, &selected); err != nil {
+		if err := w.client.Post(ctx, "/api/v1/torrents/"+torrent.ID+"/select", body, &selected); err != nil {
 			w.setStatus("Could not select the file: " + err.Error())
 			return
 		}
@@ -841,7 +841,7 @@ func (w *window) startPlayer() (*player.Player, error) {
 		return w.mpv, nil
 	}
 
-	header, err := player.FormatHeader("X-Access-Token", w.client.DataToken())
+	header, err := player.FormatHeader("X-Access-Token", w.client.Token())
 	if err != nil {
 		return nil, err
 	}
@@ -882,7 +882,7 @@ func (w *window) addTorrent() {
 
 		var out Torrent
 		body := map[string]string{"magnetUri": magnet}
-		if err := w.client.Post(ctx, api.Data, "/api/v1/torrents", body, &out); err != nil {
+		if err := w.client.Post(ctx, "/api/v1/torrents", body, &out); err != nil {
 			w.setStatus(w.trf("status.couldNot", err.Error()))
 			return
 		}
@@ -910,7 +910,7 @@ func (w *window) refresh() {
 	var out struct {
 		Torrents []Torrent `json:"torrents"`
 	}
-	if err := w.client.Get(ctx, api.Data, "/api/v1/torrents", &out); err != nil {
+	if err := w.client.Get(ctx, "/api/v1/torrents", &out); err != nil {
 		w.setStatus(w.trf("status.unreach", err.Error()))
 		return
 	}
@@ -1015,7 +1015,7 @@ func (w *window) roomFiles(ctx context.Context, torrentID string) ([]fileEntry, 
 	var listed struct {
 		Files []fileEntry `json:"files"`
 	}
-	if err := w.client.Get(ctx, api.Data, "/api/v1/torrents/"+torrentID+"/files", &listed); err != nil {
+	if err := w.client.Get(ctx, "/api/v1/torrents/"+torrentID+"/files", &listed); err != nil {
 		return nil, err
 	}
 	return listed.Files, nil

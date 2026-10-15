@@ -33,9 +33,6 @@ func TestMetrics_ConcurrentAccess(t *testing.T) {
 				m.RequestStarted()
 				m.RequestSuccess()
 				m.TorrentAdded()
-				m.RoomCreated()
-				m.PeerJoined()
-				m.SyncOperation()
 			}
 		}()
 	}
@@ -58,9 +55,6 @@ func TestMetrics_ConcurrentAccess(t *testing.T) {
 	assert.Equal(t, int64(numGoroutines*numOperations), m.requestsTotal)
 	assert.Equal(t, int64(numGoroutines*numOperations), m.requestsSuccess)
 	assert.Equal(t, int64(numGoroutines*numOperations), m.torrentsAdded)
-	assert.Equal(t, int64(numGoroutines*numOperations), m.roomsCreated)
-	assert.Equal(t, int64(numGoroutines*numOperations), m.peersTotal)
-	assert.Equal(t, int64(numGoroutines*numOperations), m.syncOperations)
 }
 
 // TestMetrics_GetUptime_Race проверяет отсутствие гонки в GetUptime
@@ -128,70 +122,3 @@ func TestMetrics_ConcurrentTorrentOperations(t *testing.T) {
 
 // TestMetrics_ConcurrentRoomOperations проверяет потокобезопасность
 // при одновременном создании и закрытии комнат
-func TestMetrics_ConcurrentRoomOperations(t *testing.T) {
-	m := &Metrics{
-		startTime: time.Now(),
-	}
-
-	var wg sync.WaitGroup
-	numGoroutines := 50
-
-	// Создаём комнаты
-	wg.Add(numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			m.RoomCreated()
-		}()
-	}
-	wg.Wait()
-
-	assert.Equal(t, int64(numGoroutines), m.roomsActive)
-
-	// Закрываем комнаты
-	wg.Add(numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			m.RoomClosed()
-		}()
-	}
-	wg.Wait()
-
-	assert.Equal(t, int64(0), m.roomsActive)
-}
-
-// TestMetrics_ConcurrentPeerOperations проверяет потокобезопасность
-// при одновременном подключении и отключении пиров
-func TestMetrics_ConcurrentPeerOperations(t *testing.T) {
-	m := &Metrics{
-		startTime: time.Now(),
-	}
-
-	var wg sync.WaitGroup
-	numGoroutines := 50
-
-	// Подключаем пиров
-	wg.Add(numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			m.PeerJoined()
-		}()
-	}
-	wg.Wait()
-
-	assert.Equal(t, int64(numGoroutines), m.peersTotal)
-
-	// Отключаем пиров
-	wg.Add(numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			m.PeerLeft()
-		}()
-	}
-	wg.Wait()
-
-	assert.Equal(t, int64(0), m.peersTotal)
-}

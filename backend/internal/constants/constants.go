@@ -172,44 +172,6 @@ const (
 
 	// MaxPasswordLength maximum password length for bcrypt
 	MaxPasswordLength = 72
-
-	// SSEShutdownGrace is how long graceful shutdown waits for live SSE
-	// subscriptions to drain before giving up and exiting anyway. Short on
-	// purpose: without a bound, one idle client holding a room subscription
-	// blocks Ctrl-C for SSETimeout (30 minutes).
-	SSEShutdownGrace = 5 * time.Second
-)
-
-// ── P2P Constants ─────────────────────────────────────────────────────────
-
-const (
-	// P2PEventChannelSize P2P event channel buffer size
-	P2PEventChannelSize = 100
-
-	// PeerIDLength peer identifier length in bytes
-	PeerIDLength = 16
-
-	// MaxSignalSize maximum room-signal payload size in bytes (64 KB).
-	// Signals are relayed as opaque JSON through the server (no WebRTC), so this
-	// is a DoS guard on the broker, not an SDP/ICE size limit.
-	MaxSignalSize = 64 * 1024
-
-	// MaxRooms maximum number of concurrent P2P rooms
-	MaxRooms = 1000
-
-	// P2PCloseTimeoutDefault timeout for graceful P2P service shutdown
-	P2PCloseTimeoutDefault = 5 * time.Second
-
-	// P2PDebounceInterval debounce interval for token revocation persistence
-	P2PDebounceInterval = 5 * time.Second
-
-	// PeerIdleTimeout maximum allowed time between heartbeats before a peer is
-	// considered disconnected and pruned from its room. Clients refresh their
-	// presence by rejoining; without pruning, abandoned sessions leak peers.
-	PeerIdleTimeout = 5 * time.Minute
-
-	// PeerPruneInterval how often the idle-peer sweep runs.
-	PeerPruneInterval = 1 * time.Minute
 )
 
 // ── Torrent Constants ─────────────────────────────────────────────────────
@@ -230,43 +192,6 @@ const (
 
 	// MaxStreamFileSize maximum file size for streaming (100 GB)
 	MaxStreamFileSize int64 = 100 * 1024 * 1024 * 1024
-)
-
-// ── Sync Constants ────────────────────────────────────────────────────────
-
-const (
-	// MaxPositionJump maximum position jump in seconds for smooth adjustment
-	MaxPositionJump = 2.0
-
-	// SmoothAdjustmentRatio smooth position adjustment ratio
-	SmoothAdjustmentRatio = 0.3
-)
-
-// ── SSE Constants ─────────────────────────────────────────────────────────
-
-const (
-	// MaxSSEConnections maximum number of concurrent SSE connections per room
-	MaxSSEConnections = 100
-
-	// MaxGlobalSSEConnections maximum total SSE connections across all rooms
-	// Independent of room count to prevent DoS via many rooms
-	MaxGlobalSSEConnections = 1000
-
-	// MaxSessions maximum number of concurrent P2P sessions (bug-0041)
-	// Prevents unbounded memory growth from arbitrary X-Client-IDs
-	MaxSessions = 1000
-
-	// SessionIdleTimeout after which an idle session (no room) is pruned (bug-0041)
-	SessionIdleTimeout = 30 * time.Minute
-
-	// EventHistoryMaxSize maximum number of events stored per room for replay (bug-0040)
-	EventHistoryMaxSize = 1000
-
-	// SSETimeout SSE connection timeout
-	SSETimeout = 30 * time.Minute
-
-	// SSEPingInterval ping interval for keeping SSE connection alive
-	SSEPingInterval = 30 * time.Second
 )
 
 // ── Pagination Constants ──────────────────────────────────────────────────

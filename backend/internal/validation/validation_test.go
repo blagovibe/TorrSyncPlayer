@@ -110,40 +110,6 @@ func TestValidatePassword(t *testing.T) {
 	}
 }
 
-// TestValidateRoomName tests room name validation
-func TestValidateRoomName(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		room    string
-		wantErr bool
-	}{
-		{"valid simple", "My Room", false},
-		{"valid with dash", "My-Room", false},
-		{"valid with underscore", "My_Room", false},
-		{"valid with numbers", "Room 123", false},
-		{"valid unicode", "\u041a\u043e\u043c\u043d\u0430\u0442\u0430", false},
-		{"empty", "", true},
-		{"only spaces", "   ", true},
-		{"too long", "this is a very long room name that exceeds fifty characters limit", true},
-		{"with special chars", "Room@#$", true},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := ValidateRoomName(tt.room)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestValidateMagnetURI tests magnet link validation
 func TestValidateMagnetURI(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -292,42 +258,6 @@ func TestValidateTorrentID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateTorrentID(tt.id)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestValidateRoomID tests room ID validation
-func TestValidateRoomID(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		id      string
-		wantErr bool
-	}{
-		{"valid hex id", "0123456789abcdef0123456789abcdef", false},
-		{"valid uppercase", "0123456789ABCDEF0123456789ABCDEF", false},
-		{"valid mixed case", "0123456789aBcDeF0123456789AbCdEf", false},
-		{"all zeros", "00000000000000000000000000000000", false},
-		{"all f's", "ffffffffffffffffffffffffffffffff", false},
-		{"all F's", "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", false},
-		{"empty id", "", true},
-		{"too short", "0123456789abcdef", true},
-		{"too long", "0123456789abcdef0123456789abcdef0", true},
-		{"invalid chars", "xyz123456789abcdef0123456789abcde", true},
-		{"special chars", "0123456789abcdef0123456789abcdeg!", true},
-		{"with spaces", "0123456789abcdef0123456789abcd ", true},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := ValidateRoomID(tt.id)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
