@@ -2095,3 +2095,19 @@ Two things are still unproven, and they are recorded rather than assumed: that
 mpv on Windows opens a *pipe* with a bare name (it should, and the real-mpv
 tests are the ones that will say), and that a window opens at all on any of the
 three.
+
+### The world-writable test now asserts the coupling, not one platform
+
+The Windows fix for the world-writable backend refused to be tested by a test that
+asked both platforms the same question. `TestFindBackendRefusesAWorldWritableBinary`
+asserted "a world-writable backend is refused", which is true on Unix — where
+`os.Chmod 0777` really is world-writable — and false on Windows, where the check
+deliberately is not implemented because Go's mode bits do not answer the question
+there.
+
+It now asserts the *coupling*: if this platform's check calls the file
+world-writable, the search must refuse it; if it does not, the search must use it.
+The Unix behaviour is pinned exactly as before, the Windows behaviour is pinned as
+deliberately absent rather than silently broken, and the day someone makes the
+check quietly do nothing on any platform the test fails instead of the application
+starting with no backend.

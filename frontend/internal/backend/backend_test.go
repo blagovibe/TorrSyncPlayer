@@ -179,8 +179,29 @@ func TestFindBackendRefusesAWorldWritableBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := FindBackend(dir); err == nil {
-		t.Fatal("a world-writable backend was accepted")
+	// The assertion follows what this platform's check can even see, and asking
+	// both platforms the same question is how the Windows run failed: there Go
+	// reports 0666 for a temp file whatever the permissions are, so the Unix
+	// check refuses every backend on that platform. Asserting the *coupling*
+	// (if the platform calls it world-writable, the search must refuse it) pins
+	// the behaviour without pretending the two platforms agree.
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found, findErr := FindBackend(dir)
+	if worldWritable(info) {
+		if findErr == nil {
+			t.Fatal("a world-writable backend was accepted")
+		}
+		return
+	}
+	if findErr != nil {
+		t.Fatalf("a backend this platform does not consider world-writable was refused: %v", findErr)
+	}
+	if found != target {
+		t.Fatalf("found %s, want %s", found, target)
 	}
 }
 
