@@ -684,6 +684,47 @@
                 }
             }
         },
+        "/api/v1/torrents/{id}/magnet": {
+            "get": {
+                "description": "Returns the magnet URI for a torrent the caller holds",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Get torrent magnet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.MagnetResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/torrents/{id}/select": {
             "post": {
                 "description": "Selects a torrent file for streaming by index (per-peer)",
@@ -920,6 +961,15 @@
                 },
                 "message": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_blagovibe_TorrSyncPlayer_backend_internal_models.MagnetResponse": {
+            "type": "object",
+            "properties": {
+                "magnetUri": {
+                    "type": "string",
+                    "example": "magnet:?xt=urn:btih:3b2b1a9c"
                 }
             }
         },

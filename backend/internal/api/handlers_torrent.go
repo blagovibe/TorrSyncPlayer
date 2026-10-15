@@ -262,6 +262,52 @@ func SelectFile(torrentSvc internal.TorrentService) http.HandlerFunc {
 	}
 }
 
+// GetMagnet handler for the magnet URI of a torrent the caller holds.
+//
+// The host announces its own film to the room itself now — there is no server
+// left to broadcast it from — and the infohash alone does not carry a torrent:
+// it identifies one without transporting it. MagnetFor derives the magnet from
+// the source the torrent was added from, which is what makes the guest's copy
+// the *same* torrent (bug-0053).
+//
+// @Summary      Get torrent magnet
+// @Description  Returns the magnet URI for a torrent the caller holds
+// @Tags         torrents
+// @Produce      json
+// @Param        id   path      string  true  "Torrent ID"
+// @Success      200  {object}  models.MagnetResponse
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      404  {object}  models.ErrorResponse
+// @Router       /api/v1/torrents/{id}/magnet [get]
+func GetMagnet(torrentSvc internal.TorrentService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := chi.URLParam(r, "id")
+		if torrentID == "" {
+			WriteError(w, http.StatusBadRequest, "Torrent ID is required")
+			return
+		}
+
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
+			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
+			return
+		}
+
+		userID := auth.GetClientID(r)
+		if userID == "" {
+			WriteError(w, http.StatusBadRequest, "X-Client-ID header required")
+			return
+		}
+
+		magnet, err := torrentSvc.MagnetFor(r.Context(), userID, torrentID)
+		if err != nil {
+			handleError(w, r, err, "getting magnet")
+			return
+		}
+
+		WriteJSON(w, http.StatusOK, models.MagnetResponse{MagnetURI: magnet})
+	}
+}
+
 // StreamFile handler for HTTP streaming of a torrent file (per-peer, bug-0048).
 // Supports Range requests for seeking.
 // Torrent ID is passed in the URL parameter.

@@ -118,6 +118,11 @@ type SuccessResponse struct {
 	Message string `json:"message"`
 }
 
+// MagnetResponse carries the magnet URI of a torrent the caller holds.
+type MagnetResponse struct {
+	MagnetURI string `json:"magnetUri" example:"magnet:?xt=urn:btih:3b2b1a9c"`
+}
+
 // JoinRoomResponse is returned by POST /api/v1/rooms/join.
 //
 // The join used to answer with a bare SuccessResponse, so a client had no way

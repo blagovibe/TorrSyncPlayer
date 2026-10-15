@@ -100,6 +100,12 @@ definitions:
       message:
         type: string
     type: object
+  github_com_blagovibe_TorrSyncPlayer_backend_internal_models.MagnetResponse:
+    properties:
+      magnetUri:
+        example: magnet:?xt=urn:btih:3b2b1a9c
+        type: string
+    type: object
   github_com_blagovibe_TorrSyncPlayer_backend_internal_models.P2PEvent:
     properties:
       data: {}
@@ -704,6 +710,33 @@ paths:
           schema:
             $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
       summary: List torrent files
+      tags:
+      - torrents
+  /api/v1/torrents/{id}/magnet:
+    get:
+      description: Returns the magnet URI for a torrent the caller holds
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.MagnetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Get torrent magnet
       tags:
       - torrents
   /api/v1/torrents/{id}/select:
