@@ -33,79 +33,57 @@ func timeAfter() <-chan time.Time { return time.After(2 * time.Second) }
 // carries tracks.
 
 // fakeMPV is a JSON IPC server that answers one canned reply.
+//
+// It runs over net.Pipe rather than over a socket, and that is the whole reason
+// it is shaped this way: a unix socket is a Unix thing, and the fake-mpv tests
+// failed the first three-platform run on Windows with "bind: invalid argument".
+// net.Pipe is an in-memory, in-process pair that behaves like a connection on
+// every platform, so the protocol is what is being tested and the OS transport
+// is not.
 type fakeMPV struct {
-	path   string
-	reply  map[string]any
-	gotCmd []string
+	reply map[string]any
 
 	requests chan map[string]any
 }
 
-// startFakeMPV runs a fake IPC socket and returns it.
-func startFakeMPV(t *testing.T, reply map[string]any) *fakeMPV {
-	t.Helper()
-
-	f := &fakeMPV{
-		path:     testSocketPath(t, t.Name()),
+// startFakeMPV returns a fake whose transport the client must be given.
+func startFakeMPV(reply map[string]any) *fakeMPV {
+	return &fakeMPV{
 		reply:    reply,
 		requests: make(chan map[string]any, 8),
 	}
-
-	listener, err := net.Listen("unix", f.path)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go f.serve(conn)
-		}
-	}()
-	return f
 }
 
-// startFakeMPVWithEvents runs a fake that speaks first: event lines, then the
+// dial is what the client uses to reach it: every call is a fresh pair, exactly
+// as a fresh connection would be, and the server side is served at once.
+func (f *fakeMPV) dial(string) (net.Conn, error) {
+	client, server := net.Pipe()
+	go f.serve(server)
+	return client, nil
+}
+
+// startFakeMPVWithEvents returns a fake that speaks first: event lines, then the
 // reply. That is the order a real mpv produces when the file is still loading
 // while a query is already in flight.
-func startFakeMPVWithEvents(t *testing.T, events []string, reply map[string]any) *fakeMPV {
-	t.Helper()
+func startFakeMPVWithEvents(events []string, reply map[string]any) *fakeMPV {
+	return &fakeMPV{reply: reply, requests: make(chan map[string]any, 8)}
+}
 
-	f := &fakeMPV{
-		path:     testSocketPath(t, t.Name()),
-		reply:    reply,
-		requests: make(chan map[string]any, 8),
-	}
-
-	listener, err := net.Listen("unix", f.path)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func(conn net.Conn) {
-				defer func() { _ = conn.Close() }()
-				encoder := json.NewEncoder(conn)
-				for _, event := range events {
-					if _, err := conn.Write([]byte(event + "\n")); err != nil {
-						return
-					}
+func (f *fakeMPV) dialWithEvents(events []string) func(string) (net.Conn, error) {
+	return func(string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() {
+			defer func() { _ = server.Close() }()
+			encoder := json.NewEncoder(server)
+			for _, event := range events {
+				if _, err := server.Write([]byte(event + "\n")); err != nil {
+					return
 				}
-				_ = encoder.Encode(reply)
-			}(conn)
-		}
-	}()
-	return f
+			}
+			_ = encoder.Encode(f.reply)
+		}()
+		return client, nil
+	}
 }
 
 // serve answers every request with the same reply, one line per request, the way
@@ -131,15 +109,16 @@ func (f *fakeMPV) serve(conn net.Conn) {
 	}
 }
 
-// playerOn is a Player pointed at a fake socket; nothing here launches mpv.
-func playerOn(path string) *Player { return &Player{sock: path} }
+// playerOn is a Player pointed at a fake; nothing here launches mpv, and
+// nothing here needs an operating system either.
+func (f *fakeMPV) play(on string) *Player { return &Player{sock: on, dial: f.dial} }
 
 // TestTracksComeBackAsTracks checks the wire shape: mpv answers get_property
 // track-list with a heterogeneous list of everything in the file, and the caller
 // asked for audio only. Handing that unfiltered to a chooser would put video
 // tracks and chapter markers in a list of languages.
 func TestTracksComeBackAsTracks(t *testing.T) {
-	fake := startFakeMPV(t, map[string]any{
+	fake := startFakeMPV(map[string]any{
 		"error": "success",
 		"data": []any{
 			map[string]any{"id": 1, "type": "video", "selected": true, "codec": "h264"},
@@ -150,7 +129,7 @@ func TestTracksComeBackAsTracks(t *testing.T) {
 		},
 	})
 
-	tracks, err := playerOn(fake.path).Tracks(context.Background(), TrackAudio)
+	tracks, err := fake.play("fake").Tracks(context.Background(), TrackAudio)
 	if err != nil {
 		t.Fatalf("listing the audio tracks: %v", err)
 	}
@@ -169,7 +148,7 @@ func TestTracksComeBackAsTracks(t *testing.T) {
 
 	// And the subtitles are the same query with a different filter, not a
 	// second command to learn.
-	subs, err := playerOn(fake.path).Tracks(context.Background(), TrackSub)
+	subs, err := fake.play("fake").Tracks(context.Background(), TrackSub)
 	if err != nil {
 		t.Fatalf("listing the subtitle tracks: %v", err)
 	}
@@ -210,7 +189,7 @@ func TestATrackIsNamedByWhatItActuallyHas(t *testing.T) {
 // property is `audio` and `sub`, and setting the alias leaves the player exactly
 // where it was with no error at all.
 func TestSelectingATrackSetsThePropertyMpvUnderstands(t *testing.T) {
-	fake := startFakeMPV(t, map[string]any{"error": "success", "data": nil})
+	fake := startFakeMPV(map[string]any{"error": "success", "data": nil})
 
 	for _, c := range []struct {
 		kind TrackKind
@@ -220,7 +199,7 @@ func TestSelectingATrackSetsThePropertyMpvUnderstands(t *testing.T) {
 		{TrackAudio, 2, "audio"},
 		{TrackSub, 3, "sub"},
 	} {
-		if err := playerOn(fake.path).SelectTrack(context.Background(), c.kind, c.id); err != nil {
+		if err := fake.play("fake").SelectTrack(context.Background(), c.kind, c.id); err != nil {
 			t.Fatalf("selecting track %d on %s: %v", c.id, c.kind, err)
 		}
 
@@ -243,9 +222,9 @@ func TestSelectingATrackSetsThePropertyMpvUnderstands(t *testing.T) {
 // spells "no subtitles", and a chooser that cannot offer it forces a person to
 // keep burnt-in subs or no subs at all.
 func TestTurningSubtitlesOffIsATrackChoice(t *testing.T) {
-	fake := startFakeMPV(t, map[string]any{"error": "success", "data": nil})
+	fake := startFakeMPV(map[string]any{"error": "success", "data": nil})
 
-	if err := playerOn(fake.path).SelectTrack(context.Background(), TrackSub, 0); err != nil {
+	if err := fake.play("fake").SelectTrack(context.Background(), TrackSub, 0); err != nil {
 		t.Fatalf("turning subtitles off: %v", err)
 	}
 
@@ -264,9 +243,9 @@ func TestTurningSubtitlesOffIsATrackChoice(t *testing.T) {
 // anything is loaded: mpv answers "property not found", and reporting that as
 // "no tracks" would make the chooser claim the film has one voice.
 func TestAPropertyThatDoesNotExistIsAnErrorNotAnEmptyList(t *testing.T) {
-	fake := startFakeMPV(t, map[string]any{"error": "property not found"})
+	fake := startFakeMPV(map[string]any{"error": "property not found"})
 
-	if _, err := playerOn(fake.path).Tracks(context.Background(), TrackAudio); err == nil {
+	if _, err := fake.play("fake").Tracks(context.Background(), TrackAudio); err == nil {
 		t.Fatal("a missing property came back as an empty list of tracks")
 	}
 }
@@ -487,7 +466,7 @@ func writeSubtitle(t *testing.T, path string) {
 // a position query in that moment reports position 0 with no error, and the
 // buffer reporter hands the room "the start of the film".
 func TestAnEventLineIsNotMistakenForAReply(t *testing.T) {
-	fake := startFakeMPVWithEvents(t,
+	fake := startFakeMPVWithEvents(
 		[]string{`{"event":"tracks-changed"}`},
 		map[string]any{
 			"error": "success",
@@ -496,7 +475,7 @@ func TestAnEventLineIsNotMistakenForAReply(t *testing.T) {
 			},
 		})
 
-	tracks, err := playerOn(fake.path).Tracks(context.Background(), TrackAudio)
+	tracks, err := fake.play("fake").Tracks(context.Background(), TrackAudio)
 	if err != nil {
 		t.Fatalf("listing the tracks past an event line: %v", err)
 	}

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -49,7 +50,15 @@ func backendBinary(t *testing.T) string {
 			buildErr = err
 			return
 		}
-		binaryPath = filepath.Join(dir, "torrsyncplayer")
+		// go build appends .exe to -o on Windows, and it appends it *silently*:
+		// the command succeeds and the binary is at a different name than the one
+		// the tests then try to exec, which fails as "executable file not found"
+		// on every scenario. Naming it here is cheaper than guessing later.
+		name := "torrsyncplayer"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		binaryPath = filepath.Join(dir, name)
 
 		cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/server")
 		cmd.Dir = filepath.Join(repoRoot(t), "backend")

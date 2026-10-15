@@ -107,13 +107,16 @@ func CandidatePaths(appDir string) []string {
 //
 // A world-writable binary is refused with a warning rather than silently run:
 // anyone able to write it would be choosing which code executes as this user.
+// What "world-writable" means is per platform — see worldwritable_unix.go and
+// worldwritable_windows.go, because on Windows the mode bits answer a different
+// question than they do here.
 func FindBackend(appDir string) (string, error) {
 	for _, path := range CandidatePaths(appDir) {
 		info, err := os.Stat(path)
 		if err != nil || info.IsDir() {
 			continue
 		}
-		if info.Mode().Perm()&0o002 != 0 {
+		if worldWritable(info) {
 			fmt.Fprintf(os.Stderr,
 				"backend binary %s is world-writable — refusing to run it\n", path)
 			continue

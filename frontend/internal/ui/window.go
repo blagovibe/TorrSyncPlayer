@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,13 +105,27 @@ type window struct {
 	subTracks   []player.Track
 }
 
+// playerSocketPath is what mpv should listen on for this process.
+//
+// On Unix it is a path under the temp directory. On Windows it is a bare pipe
+// name: a named pipe takes a name, and dial adds `\\.\pipe\` — a path is not
+// a valid pipe name, and handing mpv one leaves it with nothing to open. The pid
+// keeps two instances of the application from driving each other's player, which
+// is the same reason the socket is per process there too.
+func playerSocketPath(pid int) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("torrsync-%d", pid)
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("torrsync-%d.sock", pid))
+}
+
 // NewWindow builds the main window around a client.
 func NewWindow(client *api.Client, clientID string, store *SettingsStore) fyne.CanvasObject {
 	w := &window{
 		client:          client,
 		clientID:        clientID,
 		store:           store,
-		socketPath:      filepath.Join(os.TempDir(), fmt.Sprintf("torrsync-%d.sock", os.Getpid())),
+		socketPath:      playerSocketPath(os.Getpid()),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		pendingRoomFile: -1,
 	}

@@ -26,20 +26,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 )
 
+// dialer opens whatever transport mpv listens on: a unix socket on Unix, a
+// named pipe on Windows. It is a field rather than a call so a test can supply
+// an in-memory pipe — net.Pipe works on every platform, and a unix socket does
+// not, which is how the fake-mpv tests came to fail the first Windows run.
+type dialer func(address string) (net.Conn, error)
+
 // Player is a running mpv, controlled over its JSON IPC socket.
 type Player struct {
 	cmd  *exec.Cmd
 	sock string
 	log  *lockedBuffer
+	dial dialer
 
 	closeOnce sync.Once
 }
+
+// SocketName is what mpv is told to listen on, and therefore what dial opens.
+func (p *Player) SocketName() string { return p.sock }
 
 // Log is what mpv said about itself. Kept so a failure can quote it instead of
 // leaving a reader to guess what the player was doing.
@@ -105,7 +116,7 @@ func Start(ctx context.Context, opts Options, headers []string) (*Player, error)
 		return nil, fmt.Errorf("player: start %s: %w", binary, err)
 	}
 
-	p := &Player{cmd: cmd, sock: opts.SocketPath, log: output}
+	p := &Player{cmd: cmd, sock: opts.SocketPath, log: output, dial: dial}
 	if err := p.waitReady(ctx); err != nil {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
@@ -125,7 +136,7 @@ func (p *Player) waitReady(ctx context.Context) error {
 		default:
 		}
 
-		conn, err := dial(p.sock)
+		conn, err := p.dial(p.sock)
 		if err == nil {
 			return conn.Close()
 		}
@@ -193,7 +204,7 @@ const maxSkippedEvents = 32
 
 // command sends a batch and ignores the reply, for fire-and-forget control.
 func (p *Player) command(ctx context.Context, commands [][]any) error {
-	conn, err := dial(p.sock)
+	conn, err := p.dial(p.sock)
 	if err != nil {
 		return err
 	}
@@ -224,7 +235,7 @@ func (p *Player) command(ctx context.Context, commands [][]any) error {
 // request_id (zero when the command did not set one), and an async event never
 // does.
 func (p *Player) request(ctx context.Context, command []any, out any) error {
-	conn, err := dial(p.sock)
+	conn, err := p.dial(p.sock)
 	if err != nil {
 		return err
 	}

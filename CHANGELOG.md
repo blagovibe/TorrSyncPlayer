@@ -2053,3 +2053,45 @@ limit.
 What the matrix still does not prove, and the card for this work says so out loud:
 that a window opens and the video plays. A headless runner compiles code and runs
 tests; it cannot open a window.
+
+### Windows, for the first time, and what it cost
+
+The macOS run turned green with two fixes. The Windows leg ran red for forty
+minutes and found four things — none of which are visible from a Linux shell,
+which is the entire point of the matrix.
+
+**The backend was refused as world-writable.** Go reports mode 0666 for a file
+created in a temp directory on Windows whatever the actual permissions are, so
+`FindBackend`'s Unix check refused *every* candidate and the application had no
+backend to start. On Windows there is no portability answer for "who can write
+this": it is an ACL question, and the standard library does not expose one. The
+check is now per platform — the mode bits on Unix, false on Windows with the
+reason and the size of the loss written next to it. What is lost is a check, not
+an assurance: the binary is still looked for beside this application rather than
+downloaded.
+
+**`go build -o` silently appends `.exe`.** The scenario harness built the backend
+into a path without an extension; on Windows the command succeeds and writes
+`torrsyncplayer.exe`, and the tests then try to exec `torrsyncplayer` — six
+scenarios failing with "executable file not found", each one of them a green-CI
+lie on Linux.
+
+**The player's socket was a path where Windows wanted a name.** `dial_windows.go`
+already said so in its comment ("mpv is handed a bare name with
+--input-ipc-server, and it is opened here as `\\.\pipe\<name>`"), and
+`NewWindow` handed it a full path anyway, so nothing agreed with anything. The
+application's socket is now a pipe name on Windows and a path everywhere else,
+and the application and the player cannot drift apart because both go through one
+function.
+
+**The fake mpv used a unix socket.** Windows has none, so the protocol tests died
+with `bind: invalid argument`. The fake now runs over `net.Pipe` — an in-memory
+pair that behaves like a connection on every platform — and the transport is a
+field on `Player` so a test can supply one. That is what makes the protocol
+testable where the OS has no unix sockets, and it is also why the tests now fail
+for a reason rather than for a platform.
+
+Two things are still unproven, and they are recorded rather than assumed: that
+mpv on Windows opens a *pipe* with a bare name (it should, and the real-mpv
+tests are the ones that will say), and that a window opens at all on any of the
+three.

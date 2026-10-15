@@ -164,24 +164,32 @@ func TestStartReportsAMissingBinary(t *testing.T) {
 	}
 }
 
-// testSocketPath is a socket path short enough for every platform's limit.
+// testSocketPath is what mpv should listen on, short enough and in the right
+// shape for every platform.
 //
-// macOS caps unix socket paths at 104 bytes, and a t.TempDir() on a macOS runner
-// is already most of that before the test's own name is appended — the real-mpv
-// tests failed there with "bind: invalid argument", and mpv itself with "did not
-// open .../mpv.sock in time". /tmp is short on every platform that has it, and it
-// is a directory rather than a spelling, so nothing else changes.
+// Three different platform limits meet here, and all three were found by a real
+// run rather than by reading:
+//
+//   - macOS caps unix socket paths at 104 bytes, and t.TempDir() on a runner is
+//     already most of that before the test's own name is appended — hence /tmp.
+//   - Windows has no unix sockets at all, so net.Listen("unix") there is
+//     "invalid argument"; the transport is a named pipe.
+//   - A Windows named pipe takes a *name*, and `\\.\pipe\` is added by dial.
+//     A path is not a valid pipe name, which is why mpv is given a bare name
+//     here and the full path is refused on purpose.
 //
 // The name carries the pid so two players in one run cannot collide, and the
 // cleanup removes the socket rather than leaving one for the next run.
 func testSocketPath(t *testing.T, label string) string {
 	t.Helper()
 
-	dir := os.TempDir()
-	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		dir = "/tmp"
+	if runtime.GOOS == "windows" {
+		name := fmt.Sprintf("torrsync-%s-%d", label, os.Getpid())
+		t.Cleanup(func() {})
+		return name
 	}
-	path := filepath.Join(dir, fmt.Sprintf("torrsync-%s-%d.sock", label, os.Getpid()))
+
+	path := filepath.Join("/tmp", fmt.Sprintf("torrsync-%s-%d.sock", label, os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(path) })
 	return path
 }
