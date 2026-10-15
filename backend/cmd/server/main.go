@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -14,8 +15,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -25,6 +28,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,6 +73,7 @@ type Config struct {
 	Port                  string
 	ListenAddr            string // Address to listen on; --addr replaces the derived ":<port>"
 	AccessToken           string // Fixed access token; empty means generate a random one at startup
+	AccessTokenStdin      bool   // Read the access token from standard input instead of the command line
 	DataDir               string // Directory for persistent data (defaults to ./data; empty disables persistence)
 	MemoryStorageCapacity int64  // Maximum in-memory storage size in bytes
 	DiskStorage           bool   // Persist torrent pieces to disk under DataDir
@@ -97,6 +102,19 @@ func main() {
 	if err := validateConfig(config); err != nil {
 		logger.Error("Configuration error", "error", err)
 		os.Exit(1)
+	}
+
+	// The token may arrive on standard input. The parent process that started
+	// this server writes the secret and a newline; it never touches the command
+	// line, where any process on the machine can read it out of the process
+	// list (deviation-0061).
+	if config.AccessTokenStdin {
+		token, err := readStdinToken(os.Stdin)
+		if err != nil {
+			logger.Error("Failed to read the access token from standard input", "error", err)
+			os.Exit(1)
+		}
+		config.AccessToken = token
 	}
 
 	logger.Info("Starting TorrServer",
@@ -250,10 +268,16 @@ func main() {
 		// With --token the operator already knows the value and put it in the
 		// command line or a unit file, so echo it back only as a reminder that
 		// a fixed token was requested — printing the secret would undo the
-		// point of managing it outside the process.
-		if config.AccessToken != "" {
+		// point of managing it outside the process. With --token-stdin nobody
+		// reading this log asked to see it either: the writer is the parent
+		// process, and the whole reason for the flag is that the secret does
+		// not travel where others can read it.
+		switch {
+		case config.AccessTokenStdin:
+			logger.Info("using the access token from --token-stdin (not printed: it never leaves the process that wrote it)")
+		case config.AccessToken != "":
 			logger.Info("using the access token from --token (not printed: it is managed outside this process)")
-		} else {
+		default:
 			logger.Info("access token (share this with friends along with the server address)",
 				"token", authService.AccessToken())
 		}
@@ -332,6 +356,28 @@ func newAuthService(token string) (*auth.AuthService, error) {
 	return auth.NewAuthServiceWithToken(token)
 }
 
+// readStdinToken reads the access token from standard input: one line, trimmed.
+//
+// The parent process writes the secret and a newline and keeps the descriptor;
+// anything after the first newline is not the token and is ignored. An empty
+// secret is refused here rather than pinned later: a server started with an
+// empty token would accept the empty string as one.
+func readStdinToken(r io.Reader) (string, error) {
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", fmt.Errorf("read the token: %w", err)
+		}
+		return "", errors.New("no token on standard input")
+	}
+
+	token := strings.TrimSpace(scanner.Text())
+	if token == "" {
+		return "", errors.New("empty token on standard input")
+	}
+	return token, nil
+}
+
 // validateConfig validates the server configuration.
 // Returns an error if the configuration is invalid.
 func validateConfig(config Config) error {
@@ -347,6 +393,13 @@ func validateConfig(config Config) error {
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("invalid port: %s (must be 1-65535)", portStr)
+	}
+
+	// Two sources for one secret is an operator error, not a preference: one of
+	// them would be silently ignored, and the server would start with a token
+	// the operator may not expect.
+	if config.AccessToken != "" && config.AccessTokenStdin {
+		return errors.New("--token and --token-stdin cannot be used together: pick the source of the access token")
 	}
 
 	if config.MemoryStorageCapacity < 0 {
@@ -395,13 +448,16 @@ func parseFlagsOrExit(fs *flag.FlagSet, args []string) Config {
 // --addr replaces the address derived from --port outright, so an operator can
 // bind a specific interface or a port with no host part. --token fixes the
 // access token instead of taking the random one; without it the token is
-// generated at startup and changes on every start.
+// generated at startup and changes on every start. --token-stdin takes the
+// fixed token from standard input instead, keeping the secret out of the
+// process list.
 func parseFlags(fs *flag.FlagSet, args []string) (Config, error) {
 	var config Config
 
 	fs.StringVar(&config.Port, "port", getEnv("PORT", defaultPort), "Server port")
 	fs.StringVar(&config.ListenAddr, "addr", "", "Address to listen on (replaces :<port>), e.g. 127.0.0.1:8889 or :9999")
 	fs.StringVar(&config.AccessToken, "token", "", "Fix the access token instead of generating a random one at startup")
+	fs.BoolVar(&config.AccessTokenStdin, "token-stdin", false, "Read the access token from standard input (one line), so it never appears in the process list")
 	fs.StringVar(&config.DataDir, "data-dir", getEnv("DATA_DIR", defaultDir), "Directory for persistent data (defaults to ./data; set empty to disable persistence)")
 	fs.Int64Var(&config.MemoryStorageCapacity, "memory-capacity", func() int64 {
 		if v := os.Getenv("MEMORY_CAPACITY"); v != "" {

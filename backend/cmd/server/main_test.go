@@ -7,6 +7,7 @@ package main
 import (
 	"flag"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -180,5 +181,75 @@ func TestParseFlagsGateway(t *testing.T) {
 	}
 	if cfg.GatewayCACert != "/etc/ssl/gateway.pem" {
 		t.Errorf("GatewayCACert = %q", cfg.GatewayCACert)
+	}
+}
+
+// ── --token-stdin, deviation-0061 ─────────────────────────────────────────
+
+// TestParseFlagsTokenStdin pins the flag itself: it asks for the token to be
+// read from standard input rather than from the command line, so the secret
+// never appears in the process list.
+func TestParseFlagsTokenStdin(t *testing.T) {
+	cfg, err := parseFlags(newTestFlagSet(), []string{"--token-stdin"})
+	if err != nil {
+		t.Fatalf("parseFlags returned error: %v", err)
+	}
+	if !cfg.AccessTokenStdin {
+		t.Error("--token-stdin did not reach the config")
+	}
+	if cfg.AccessToken != "" {
+		t.Errorf("AccessToken = %q with no token given, want empty", cfg.AccessToken)
+	}
+}
+
+// TestValidateConfigRejectsBothTokenSources covers the ambiguous invocation:
+// two token sources at once. Honouring one silently would start the server
+// with a secret the operator did not choose, which is exactly the kind of
+// confusion the startup check exists for.
+func TestValidateConfigRejectsBothTokenSources(t *testing.T) {
+	cfg := Config{
+		Port:             "8889",
+		ListenAddr:       ":8889",
+		AccessToken:      "fixed",
+		AccessTokenStdin: true,
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("--token together with --token-stdin was accepted")
+	}
+}
+
+// TestReadStdinTokenTakesTheFirstLine is the transport: the parent writes the
+// secret and a newline; whatever follows is not the token.
+func TestReadStdinTokenTakesTheFirstLine(t *testing.T) {
+	token, err := readStdinToken(strings.NewReader("secret-value\nleftover bytes\n"))
+	if err != nil {
+		t.Fatalf("readStdinToken returned error: %v", err)
+	}
+	if token != "secret-value" {
+		t.Errorf("token = %q, want %q", token, "secret-value")
+	}
+}
+
+// TestReadStdinTokenTrimsWhitespace keeps a stray \r from a Windows parent
+// from becoming part of the secret: it would compare unequal on every request
+// and look like a wrong token rather than a transport detail.
+func TestReadStdinTokenTrimsWhitespace(t *testing.T) {
+	token, err := readStdinToken(strings.NewReader("  secret-value  \r\n"))
+	if err != nil {
+		t.Fatalf("readStdinToken returned error: %v", err)
+	}
+	if token != "secret-value" {
+		t.Errorf("token = %q, want %q", token, "secret-value")
+	}
+}
+
+// TestReadStdinTokenRefusesAnEmptySecret: an empty token would pin the server
+// to an empty secret, which is the failure the whole token-pinning change was
+// about. Refusing at startup says so; accepting it would not.
+func TestReadStdinTokenRefusesAnEmptySecret(t *testing.T) {
+	for _, input := range []string{"", "\n", "   \n", "\r\n"} {
+		if _, err := readStdinToken(strings.NewReader(input)); err == nil {
+			t.Errorf("input %q was accepted as a token", input)
+		}
 	}
 }
