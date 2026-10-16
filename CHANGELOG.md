@@ -48,6 +48,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arrives via `WindowOptions`; without one (tests) the line is the whole
   report. Pinned by `TestAFailureInterruptsAndPersists` for both shapes.
   Verified: `./internal/ui/` and `./internal/catalog/` green.
+- Window hotkeys and shortcuts dialog (idea-0103, accepted; card
+  removed). The window had no keyboard surface, so a dialog would have
+  documented nothing: Ctrl+L focuses the magnet field, Ctrl+R refreshes
+  the list, Ctrl+, opens settings — one `shortcutSpecs` list feeds both
+  the bindings and the dialog, pinned by `TestTheWindowListsItsOwnShortcuts`
+  (keys, descriptions, headless actions). Player keys stay out on purpose:
+  playback lives in mpv's window (bug-0101). Catalogue keys in both
+  languages. Verified: `./internal/ui/` and `./internal/catalog/` green.
+- Two-machine field test cancelled by the owner (2026-10-17): no testing
+  on two computers. The queue item is removed, not deferred — heartbeat
+  convergence, takeover and relay paths stay proven by single-machine
+  scenario tests only. bug-0101 stays open: it needs one machine with a
+  display, not two.
+- Troubleshooting in README told readers to eyeball connection failures
+  (bug-0102, trivial fix, card removed). It now points at the connection
+  block, the shared-rendezvous check and the event line — and the settings
+  field is named `Бутстрап`, not `Рандеву`, as the old text claimed.
+  Verified by reading against the layout, the catalogue and the poll.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two
