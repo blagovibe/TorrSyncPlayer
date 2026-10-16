@@ -91,15 +91,6 @@ type PaginationParams struct {
 	Offset int `json:"offset"`
 }
 
-// PaginatedResponse wrapper for paginated responses
-type PaginatedResponse struct {
-	Data       interface{} `json:"data"`
-	TotalCount int         `json:"totalCount"`
-	Limit      int         `json:"limit"`
-	Offset     int         `json:"offset"`
-	HasMore    bool        `json:"hasMore"`
-}
-
 // TorrentListResponse response with torrent list and pagination
 type TorrentListResponse struct {
 	Torrents   []*TorrentInfo `json:"torrents"`
@@ -118,18 +109,6 @@ type FileListResponse struct {
 	HasMore    bool       `json:"hasMore"`
 }
 
-// NewPaginatedResponse creates a paginated response
-func NewPaginatedResponse(data interface{}, totalCount, limit, offset int) PaginatedResponse {
-	return PaginatedResponse{
-		Data:       data,
-		TotalCount: totalCount,
-		Limit:      limit,
-		Offset:     offset,
-		HasMore:    offset+limit < totalCount,
-	}
-}
-
-// NewTorrentListResponse creates a torrent list response
 func NewTorrentListResponse(torrents []*TorrentInfo, totalCount, limit, offset int) TorrentListResponse {
 	return TorrentListResponse{
 		Torrents:   torrents,

@@ -378,13 +378,6 @@ func (w *window) onCopyCodePressed() {
 	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
 }
 
-// currentRoom is the room community this client is in, or an empty string.
-func (w *window) currentRoom() string {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.roomID
-}
-
 // ── room ───────────────────────────────────────────────────────────────────
 
 // leaveRoom closes the current room, if any. Joining or creating while in a
@@ -511,57 +504,6 @@ func (w *window) joinRoom(code string) {
 		}
 		w.setStatus(w.tr("status.joined"))
 	}()
-}
-
-// tellRoom sends a playback command to the room.
-//
-// Mesh sends cannot be refused the way the server refused non-hosts — there is
-// no one left to refuse — so the authority lives in the followers ignoring
-// strangers instead. An error here is transport-level: the room is unreachable,
-// not unconvinced.
-func (w *window) tellRoom(send func(ctx context.Context, r *rtc.Room) error) {
-	w.mu.RLock()
-	room := w.rtcRoom
-	w.mu.RUnlock()
-	if room == nil {
-		return
-	}
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := send(ctx, room); err != nil {
-			w.setStatus(w.trf("status.sendFail", err.Error()))
-		}
-	}()
-}
-
-// playRoom asks the room to start.
-func (w *window) playRoom() {
-	w.tellRoom(func(ctx context.Context, r *rtc.Room) error { return r.Play(ctx) })
-}
-
-// pauseRoom asks the room to stop.
-func (w *window) pauseRoom() {
-	w.tellRoom(func(ctx context.Context, r *rtc.Room) error { return r.Pause(ctx) })
-}
-
-// seekRoom asks the room to move to a position in seconds.
-//
-// The position travels raw; every follower smooths it against its own lag. A
-// pre-smoothed number would steer everyone by one peer's delay.
-func (w *window) seekRoom(seconds float64) {
-	w.tellRoom(func(ctx context.Context, r *rtc.Room) error { return r.Seek(ctx, seconds) })
-}
-
-// reportBuffering tells the room this peer stalled, or caught up.
-//
-// Any peer may, not only the host: otherwise a participant whose stream
-// recovered could not say so and the room would stay paused for everyone.
-func (w *window) reportBuffering(buffering bool) {
-	w.tellRoom(func(ctx context.Context, r *rtc.Room) error {
-		return r.ReportBuffering(ctx, buffering)
-	})
 }
 
 // watchPlayer broadcasts what the local player does, when this peer is the

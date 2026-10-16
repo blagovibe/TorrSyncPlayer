@@ -57,9 +57,6 @@ func New(baseURL, token string) *Client {
 	}
 }
 
-// BaseURL is this application's own backend.
-func (c *Client) BaseURL() string { return c.baseURL }
-
 // Token is the token for this application's own backend.
 //
 // Exposed because mpv needs it as a header: it fetches the stream itself and
@@ -118,15 +115,6 @@ func (c *Client) Post(ctx context.Context, path string, body, out any) error {
 	return c.do(req, out)
 }
 
-// Delete performs a DELETE.
-func (c *Client) Delete(ctx context.Context, path string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
-	if err != nil {
-		return err
-	}
-	return c.do(req, nil)
-}
-
 func (c *Client) do(req *http.Request, out any) error {
 	req.Header.Set("Accept", "application/json")
 	if c.token != "" {
@@ -166,9 +154,6 @@ const maxResponseSize = 16 << 20
 
 // SetClientID identifies this run to the backend.
 func (c *Client) SetClientID(id string) { c.clientID = id }
-
-// ClientID returns this run's identifier.
-func (c *Client) ClientID() string { return c.clientID }
 
 // APIError is a non-2xx answer with where it came from: "the request failed"
 // is not actionable, the path and status are.

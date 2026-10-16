@@ -43,6 +43,10 @@ func timeAfter() <-chan time.Time { return time.After(2 * time.Second) }
 type fakeMPV struct {
 	reply map[string]any
 
+	// events speak before the first reply: the order a real mpv produces
+	// when the file is still loading while a query is already in flight.
+	events []string
+
 	requests chan map[string]any
 }
 
@@ -66,33 +70,20 @@ func (f *fakeMPV) dial(string) (net.Conn, error) {
 // reply. That is the order a real mpv produces when the file is still loading
 // while a query is already in flight.
 func startFakeMPVWithEvents(events []string, reply map[string]any) *fakeMPV {
-	return &fakeMPV{reply: reply, requests: make(chan map[string]any, 8)}
-}
-
-func (f *fakeMPV) dialWithEvents(events []string) func(string) (net.Conn, error) {
-	return func(string) (net.Conn, error) {
-		client, server := net.Pipe()
-		go func() {
-			defer func() { _ = server.Close() }()
-			encoder := json.NewEncoder(server)
-			for _, event := range events {
-				if _, err := server.Write([]byte(event + "\n")); err != nil {
-					return
-				}
-			}
-			_ = encoder.Encode(f.reply)
-		}()
-		return client, nil
-	}
+	return &fakeMPV{reply: reply, events: events, requests: make(chan map[string]any, 8)}
 }
 
 // serve answers every request with the same reply, one line per request, the way
-// mpv does. The commands are recorded so a test can assert what was asked.
+// mpv does. Queued event lines speak before the first reply: that is the order
+// a real mpv produces, and the reader must skip them. They wait for the first
+// request because net.Pipe is a rendezvous — an unsolicited write before the
+// first read deadlocks both sides, while a real socket would buffer it.
 func (f *fakeMPV) serve(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReader(conn)
 	encoder := json.NewEncoder(conn)
+	eventsSpoken := false
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -103,6 +94,14 @@ func (f *fakeMPV) serve(conn net.Conn) {
 			return
 		}
 		f.requests <- request
+		if !eventsSpoken {
+			eventsSpoken = true
+			for _, event := range f.events {
+				if _, err := conn.Write([]byte(event + "\n")); err != nil {
+					return
+				}
+			}
+		}
 		if err := encoder.Encode(f.reply); err != nil {
 			return
 		}

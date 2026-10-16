@@ -49,9 +49,6 @@ type Player struct {
 	closeOnce sync.Once
 }
 
-// SocketName is what mpv is told to listen on, and therefore what dial opens.
-func (p *Player) SocketName() string { return p.sock }
-
 // Log is what mpv said about itself. Kept so a failure can quote it instead of
 // leaving a reader to guess what the player was doing.
 func (p *Player) Log() string { return p.log.String() }

@@ -22,7 +22,6 @@ type fakeTransport struct {
 	mu       sync.Mutex
 	self     string
 	peers    []string
-	sent     []any
 	incoming chan incomingMessage
 	closed   bool
 }
@@ -36,9 +35,6 @@ func newFakeTransport(self string, peers ...string) *fakeTransport {
 }
 
 func (f *fakeTransport) Send(_ context.Context, msg any) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.sent = append(f.sent, msg)
 	return nil
 }
 
@@ -68,15 +64,6 @@ func (f *fakeTransport) Close() error {
 
 func (f *fakeTransport) feed(from string, msg any) {
 	f.incoming <- incomingMessage{from: from, msg: msg}
-}
-
-func (f *fakeTransport) lastSent() any {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.sent) == 0 {
-		return nil
-	}
-	return f.sent[len(f.sent)-1]
 }
 
 // runRoom starts the driver and returns it. The test owns stopping via ctx.

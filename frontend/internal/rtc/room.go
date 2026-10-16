@@ -93,9 +93,6 @@ func NewRoom(transport Transport, selfID, userID string, isHost bool, cb *Callba
 	return r
 }
 
-// SelfID is this peer's ID.
-func (r *Room) SelfID() string { return r.selfID }
-
 // IsHost reports whether this peer currently holds the host role.
 func (r *Room) IsHost() bool {
 	r.mu.RLock()
@@ -171,18 +168,6 @@ func (r *Room) AnnounceMagnet(ctx context.Context, m Magnet) error {
 	r.magnet = &cp
 	r.mu.Unlock()
 	return r.transport.Send(ctx, NewMagnet(m))
-}
-
-// TransferHost hands the host role to another peer and says so. The message
-// names the successor but is believable for being sent by the current host —
-// authority is in the mouth, not in the name.
-func (r *Room) TransferHost(ctx context.Context, toPeerID string) error {
-	r.mu.Lock()
-	r.isHost = false
-	r.hostPeer = toPeerID
-	r.mu.Unlock()
-	r.emitHostChanged(toPeerID)
-	return r.transport.Send(ctx, NewHost(toPeerID))
 }
 
 func (r *Room) handle(from string, msg any) {

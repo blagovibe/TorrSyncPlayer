@@ -392,13 +392,6 @@ func (r *readCloserWithClose) Close() error {
 	return r.ReadSeekCloser.Close()
 }
 
-// NewService creates a new torrent service with in-memory storage.
-// Parameter bufferService - buffer service (can be nil).
-// Returns an initialized service or an error.
-func NewService(bufferService *buffer.Service) (*Service, error) {
-	return NewServiceWithOptions(bufferService, ServiceOptions{})
-}
-
 // NewServiceWithOptions creates a new torrent service with extended options.
 // Allows configuring network parameters for testing. By default torrent
 // pieces are kept in memory; set opts.Storage to StorageDisk (with a DataDir)

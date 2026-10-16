@@ -105,6 +105,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `IsNotFound` assertions in the three `_NotRegistered` tests (RED first),
   verified against a live server: 404 and 404.
 
+- Dead code removed from both modules (bug-0098, card removed). `deadcode
+  -test` plus per-item reference triage (false positives — contract-tagged
+  tests, `loopbackTracker.state` — dismissed with evidence). Backend: the
+  whole orphaned `Debouncer`, `torrent.NewService`,
+  `errors.NotImplemented`, `models.PaginatedResponse`. Frontend: three
+  `Client` getters, `Player.SocketName`, `BufferReporter.SetPlaying`,
+  `Room.SelfID`, `Room.TransferHost`, six window methods including
+  `tellRoom` (orphaned by the same pass — removed right after), three test
+  helpers and the orphaned `status.sendFail` key. Fix found along the way:
+  `startFakeMPVWithEvents` dropped its events, so the event-line test
+  passed vacuously; events now flow through `dial`/`serve` (ordering
+  matters — net.Pipe rendezvous deadlocks on write-before-read, caught from
+  a goroutine dump). Verified: both modules fully green, lint clean,
+  `deadcode -test` quiet.
+
 - Lint Backend red on the release pipeline (trivial fix, no card: one
   package, test files only, no goal/way/interface change). golangci-lint
   v2.14.0 brought new checks the tree never saw: gosec G705 taint on two

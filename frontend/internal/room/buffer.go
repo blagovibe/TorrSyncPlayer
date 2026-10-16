@@ -74,14 +74,6 @@ func (b *BufferReporter) Track(torrentID string, fileSize int64, duration float6
 	b.playing = playing
 }
 
-// SetPlaying records whether playback is running. A paused player still has a
-// position worth reporting — the window should stay where it is, not drift.
-func (b *BufferReporter) SetPlaying(playing bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.playing = playing
-}
-
 // BytePosition converts a playback position in seconds into a byte offset.
 func BytePosition(positionSeconds, durationSeconds float64, sizeBytes int64) (int64, bool) {
 	// Guessing here would aim the prioritiser at the wrong part of the file,

@@ -265,9 +265,3 @@ func encodeTorrent(t *testing.T, raw []byte) string {
 	t.Helper()
 	return base64Std.EncodeToString(raw)
 }
-
-// jsonUnmarshal is a thin alias so the scenario file reads without importing
-// encoding/json under two names.
-func jsonUnmarshal(data []byte, out any) error {
-	return json.Unmarshal(data, out)
-}

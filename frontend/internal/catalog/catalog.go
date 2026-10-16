@@ -62,7 +62,6 @@ var catalog = map[string]string{
 	// line as plain literals, so a person reading the Russian interface read
 	// every failure in English (idea-0073).
 	"status.joinFail":        "Could not join: %s",
-	"status.sendFail":        "Could not send: %s",
 	"status.roomWatching":    "The room is watching %s — adding it to your backend",
 	"status.roomReadFail":    "Could not read the room's torrent: %s",
 	"status.roomFileMissing": "The file the host is playing is not in this torrent: %s",
@@ -168,7 +167,6 @@ var Russian = Strings{
 	"status.notIn":                  "Вы ещё не в комнате",
 	"status.unreach":                "Бэкенд недоступен: %s",
 	"status.joinFail":               "Не удалось войти: %s",
-	"status.sendFail":               "Не удалось отправить: %s",
 	"status.roomWatching":           "Комната смотрит %s — добавляю торрент в ваш бэкенд",
 	"status.roomReadFail":           "Не удалось прочитать торрент комнаты: %s",
 	"status.roomFileMissing":        "Файла, который воспроизводит хост, нет в этом торренте: %s",
