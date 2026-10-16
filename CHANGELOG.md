@@ -94,6 +94,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   argument on release day; the `/api/v1` path prefix is unrelated and
   untouched.
 
+- Buffer endpoints answered 500 instead of 404 for unknown torrents
+  (bug-0097, card removed). The k6 journey expects 404 on `/buffer/info`
+  and `/buffer/position` (10k failed checks, red job); both returned 500
+  because the buffer service raised plain `fmt.Errorf` and `handleError`
+  maps everything untyped to Internal — while the Swagger annotations
+  promise 404. The expectations came from idea-0064 slice 4, after rc.6, so
+  the green rc.6 never ran them. Fixed at the owner of the knowledge:
+  `errors.NotFound` in `UpdatePosition`/`GetBufferInfo`, pinned by typed
+  `IsNotFound` assertions in the three `_NotRegistered` tests (RED first),
+  verified against a live server: 404 and 404.
+
 - Lint Backend red on the release pipeline (trivial fix, no card: one
   package, test files only, no goal/way/interface change). golangci-lint
   v2.14.0 brought new checks the tree never saw: gosec G705 taint on two

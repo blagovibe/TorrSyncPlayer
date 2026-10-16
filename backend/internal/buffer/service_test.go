@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	apperrors "github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
@@ -132,7 +133,7 @@ func TestSetPosition_NotRegistered(t *testing.T) {
 	s := NewService(constants.DefaultMaxBufferSize)
 	err := s.SetPosition(context.Background(), "nonexistent", 1000)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "torrent not found: nonexistent")
+	assert.True(t, apperrors.IsNotFound(err), "an unknown torrent must map to 404, not 500: %v", err)
 }
 
 // TestUpdatePosition_NotRegistered tests error handling for unregistered torrents
@@ -140,7 +141,7 @@ func TestUpdatePosition_NotRegistered(t *testing.T) {
 	s := NewService(constants.DefaultMaxBufferSize)
 	err := s.UpdatePosition(context.Background(), "nonexistent", 1000)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "torrent not found: nonexistent")
+	assert.True(t, apperrors.IsNotFound(err), "an unknown torrent must map to 404, not 500: %v", err)
 }
 
 // TestGetBufferInfo_NotRegistered tests error handling for unregistered torrents
@@ -148,7 +149,7 @@ func TestGetBufferInfo_NotRegistered(t *testing.T) {
 	s := NewService(constants.DefaultMaxBufferSize)
 	_, err := s.GetBufferInfo(context.Background(), "nonexistent")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "torrent not found: nonexistent")
+	assert.True(t, apperrors.IsNotFound(err), "an unknown torrent must map to 404, not 500: %v", err)
 }
 
 // TestUnregisterTorrent tests unregistering non-existent torrent (should not panic)

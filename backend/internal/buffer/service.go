@@ -4,7 +4,6 @@ package buffer
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/constants"
+	apperrors "github.com/blagovibe/TorrSyncPlayer/backend/internal/errors"
 	"github.com/blagovibe/TorrSyncPlayer/backend/internal/models"
 	"github.com/blagovibe/TorrSyncPlayer/backend/pkg/logger"
 )
@@ -134,7 +134,7 @@ func (s *Service) UpdatePosition(ctx context.Context, torrentID string, position
 
 	tb, exists := s.torrentBuffers[torrentID]
 	if !exists {
-		return fmt.Errorf("torrent not found: %s", torrentID)
+		return apperrors.NotFound("torrent", torrentID)
 	}
 
 	tb.CurrentPosition = position
@@ -213,7 +213,7 @@ func (s *Service) GetBufferInfo(ctx context.Context, torrentID string) (*models.
 
 	tb, exists := s.torrentBuffers[torrentID]
 	if !exists {
-		return nil, fmt.Errorf("torrent not found: %s", torrentID)
+		return nil, apperrors.NotFound("torrent", torrentID)
 	}
 
 	t := tb.File.Torrent()
