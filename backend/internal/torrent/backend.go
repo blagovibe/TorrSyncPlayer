@@ -52,11 +52,15 @@ type TorrentHandle interface {
 	// room and playback state stay valid across a restart.
 	ID() string
 
-	// Name, TotalLength, BytesCompleted and Complete drive the torrent list.
+	// Name, TotalLength, BytesCompleted, Complete and ActivePeers drive the
+	// torrent list.
 	Name() string
 	TotalLength() int64
 	BytesCompleted() int64
 	Complete() bool
+	// ActivePeers is the live swarm around this torrent: connected peers,
+	// not tracker promises. The window shows it beside the megabytes.
+	ActivePeers() int
 
 	// FileCount, FileName and FileLength describe the contents. FileName is
 	// the basename only — sanitised by the caller where it becomes a header.

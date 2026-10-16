@@ -205,6 +205,7 @@ func TestGatewayBackend_HandleReportsProgress(t *testing.T) {
 
 	assert.Equal(t, int64(420), handle.BytesCompleted())
 	assert.False(t, handle.Complete(), "420 of 1020 bytes is not complete")
+	assert.Equal(t, 3, handle.ActivePeers(), "the gateway's swarm count must reach the handle")
 }
 
 // Seeking is the whole reason /stream is proxied rather than buffered: the

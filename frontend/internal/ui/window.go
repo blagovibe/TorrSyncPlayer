@@ -43,6 +43,7 @@ type Torrent struct {
 	Size     int64   `json:"size"`
 	Progress float64 `json:"progress"`
 	Status   string  `json:"status"`
+	Peers    int     `json:"peers"`
 }
 
 // window is the top-level window.
@@ -52,9 +53,15 @@ type window struct {
 	settings Settings
 	store    *SettingsStore
 
-	list      *widget.List
-	fileList  *widget.List
-	status    *widget.Label
+	list     *widget.List
+	fileList *widget.List
+	status   *widget.Label
+	// events is what a human must not miss: arrivals, departures, failures.
+	// The poll rewrites status every two seconds, so anything reported
+	// through status alone is gone by the next tick — an error that lives
+	// two seconds is not reported at all. Events persist until the next
+	// event; the poll never touches this line.
+	events    *widget.Label
 	language  string
 	entry     *widget.Entry
 	addButton *widget.Button
@@ -106,7 +113,12 @@ type window struct {
 	// and departures. Reset on leave: the next join baselines again.
 	lastRoster map[string]string
 	roomLabel  *widget.Label
-	buffer     *room.BufferReporter
+	// connLabel is the compact connection diagnostics: DHT readiness, peer
+	// count split into direct and relayed, and the short self id. It lives
+	// next to the room line because that is where "who is here" is answered —
+	// "how am I connected" belongs beside it.
+	connLabel *widget.Label
+	buffer    *room.BufferReporter
 
 	// preparingLine shows the playing torrent's download state: name, percent
 	// and backend status from the 2-second list poll. Playback starts before
@@ -193,6 +205,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		relaysFlag:      opts.Relays,
 		socketPath:      playerSocketPath(os.Getpid()),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
+		events:          widget.NewLabel(""),
 		pendingRoomFile: -1,
 		selectedFile:    -1,
 	}
@@ -282,6 +295,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	// one-line answer that belongs where it is always visible. The preparing
 	// line sits beside it: what is still downloading while you watch.
 	w.roomLabel = widget.NewLabel("")
+	w.connLabel = widget.NewLabel("")
 	w.preparing = widget.NewLabel("")
 
 	// Joining takes an invite code, not a room id and a password: the room has
@@ -318,8 +332,8 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 
 	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
 	body := container.NewBorder(
-		toolbar, w.status, nil, nil,
-		container.NewVBox(w.roomLabel, w.preparing, roomPanel, tracks, lists),
+		toolbar, container.NewVBox(w.events, w.status), nil, nil,
+		container.NewVBox(w.roomLabel, w.connLabel, w.preparing, roomPanel, tracks, lists),
 	)
 
 	w.buffer = room.NewBufferReporter(room.ReporterOptions{
@@ -359,10 +373,10 @@ func (w *window) onJoinPressed() {
 // onPasteCodePressed reads the invitation code pasted into the field.
 func (w *window) onPasteCodePressed() {
 	if _, err := rtc.ParseInviteCode(w.inviteEntry.Text); err != nil {
-		w.setStatus(err.Error())
+		w.notify(err.Error())
 		return
 	}
-	w.setStatus(w.tr("status.codeRead"))
+	w.notify(w.tr("status.codeRead"))
 }
 
 // onCopyCodePressed fills the field with this room's invitation code.
@@ -372,7 +386,7 @@ func (w *window) onCopyCodePressed() {
 	inRoom := w.rtcRoom != nil
 	w.mu.RUnlock()
 	if !inRoom {
-		w.setStatus(w.tr("status.notIn"))
+		w.notify(w.tr("status.notIn"))
 		return
 	}
 	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
@@ -395,7 +409,10 @@ func (w *window) leaveRoom() {
 	if mesh != nil {
 		_ = mesh.Close()
 	}
-	onMain(func() { w.roomLabel.SetText("") })
+	onMain(func() {
+		w.roomLabel.SetText("")
+		w.connLabel.SetText("")
+	})
 }
 
 // rendezvous is where rooms meet now: the --bootstrap flag, then the saved
@@ -464,7 +481,7 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 				w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
 			})
 			for _, line := range lines {
-				w.setStatus(line)
+				w.notify(line)
 			}
 		},
 		OnMagnet: func(m rtc.Magnet) {
@@ -493,16 +510,16 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 func (w *window) joinRoom(code string) {
 	invite, err := rtc.ParseInviteCode(strings.TrimSpace(code))
 	if err != nil {
-		w.setStatus(err.Error())
+		w.notify(err.Error())
 		return
 	}
 
 	go func() {
 		if _, err := w.joinMesh(invite, false); err != nil {
-			w.setStatus(w.trf("status.joinFail", err.Error()))
+			w.notify(w.trf("status.joinFail", err.Error()))
 			return
 		}
-		w.setStatus(w.tr("status.joined"))
+		w.notify(w.tr("status.joined"))
 	}()
 }
 
@@ -629,7 +646,7 @@ func (w *window) adoptRoomTorrent(ev rtc.Magnet) {
 	w.roomInfohash = ev.InfoHash
 	w.mu.Unlock()
 	onMain(func() { w.entry.SetText(ev.MagnetURI) })
-	w.setStatus(w.trf("status.roomWatching", ev.Name))
+	w.notify(w.trf("status.roomWatching", ev.Name))
 	w.addTorrent()
 }
 
@@ -742,11 +759,11 @@ func (w *window) play(t *Torrent) {
 			Files []fileEntry `json:"files"`
 		}
 		if err := w.client.Get(ctx, "/api/v1/torrents/"+t.ID+"/files", &listed); err != nil {
-			w.setStatus(w.trf("status.torrentReadFail", err.Error()))
+			w.notify(w.trf("status.torrentReadFail", err.Error()))
 			return
 		}
 		if len(listed.Files) == 0 {
-			w.setStatus(w.tr("status.torrentNoFiles"))
+			w.notify(w.tr("status.torrentNoFiles"))
 			return
 		}
 
@@ -765,7 +782,7 @@ func (w *window) presentFiles(t *Torrent, files []fileEntry) {
 
 	w.syncCreateRoom()
 	onMain(w.fileList.Refresh)
-	w.setStatus(w.tr("status.choose"))
+	w.notify(w.tr("status.choose"))
 }
 
 // playFile selects the file on the data plane and hands the stream to mpv.
@@ -787,7 +804,7 @@ func (w *window) playFile(f fileEntry) {
 		}
 		body := map[string]int{"fileIndex": f.Index}
 		if err := w.client.Post(ctx, "/api/v1/torrents/"+torrent.ID+"/select", body, &selected); err != nil {
-			w.setStatus(w.trf("status.fileSelectFail", err.Error()))
+			w.notify(w.trf("status.fileSelectFail", err.Error()))
 			return
 		}
 		w.mu.Lock()
@@ -796,15 +813,15 @@ func (w *window) playFile(f fileEntry) {
 
 		p, err := w.startPlayer()
 		if err != nil {
-			w.setStatus(w.trf("status.mpvStartFail", err.Error()))
+			w.notify(w.trf("status.mpvStartFail", err.Error()))
 			return
 		}
 
 		if err := p.Play(ctx, w.client.StreamURL(torrent.ID)); err != nil {
-			w.setStatus(w.trf("status.playFail", err.Error()))
+			w.notify(w.trf("status.playFail", err.Error()))
 			return
 		}
-		w.setStatus(w.trf("status.playing", f.Name))
+		w.notify(w.trf("status.playing", f.Name))
 		w.showSubFiles()
 
 		// The prioritiser steers by this report: what is playing, how large it
@@ -1032,7 +1049,7 @@ func humanSize(n int64) string {
 func (w *window) addTorrent() {
 	magnet := w.entry.Text
 	if magnet == "" {
-		w.setStatus(w.tr("status.nothing"))
+		w.notify(w.tr("status.nothing"))
 		return
 	}
 
@@ -1044,11 +1061,11 @@ func (w *window) addTorrent() {
 		var out Torrent
 		body := map[string]string{"magnetUri": magnet}
 		if err := w.client.Post(ctx, "/api/v1/torrents", body, &out); err != nil {
-			w.setStatus(w.trf("status.couldNot", err.Error()))
+			w.notify(w.trf("status.couldNot", err.Error()))
 			return
 		}
 		onMain(func() { w.entry.SetText("") })
-		w.setStatus(w.trf("status.added", out.Name))
+		w.notify(w.trf("status.added", out.Name))
 		w.refresh()
 	}()
 }
@@ -1068,11 +1085,24 @@ func (w *window) refresh() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// The connection block updates on the same tick as the lists: DHT
+	// readiness and peer arrivals change without roster events, and a second
+	// poll keeps the line honest without a second ticker. It runs even when
+	// the backend is unreachable — the mesh does not need it.
+	w.mu.RLock()
+	mesh := w.mesh
+	w.mu.RUnlock()
+	conn := ""
+	if mesh != nil {
+		conn = connStatusText(w.tr, mesh.ConnStatus())
+	}
+	onMain(func() { w.connLabel.SetText(conn) })
+
 	var out struct {
 		Torrents []Torrent `json:"torrents"`
 	}
 	if err := w.client.Get(ctx, "/api/v1/torrents", &out); err != nil {
-		w.setStatus(w.trf("status.unreach", err.Error()))
+		w.notify(w.trf("status.unreach", err.Error()))
 		return
 	}
 
@@ -1139,7 +1169,7 @@ func (w *window) adoptTheRoomsFile() {
 			// Not the same string the manual path uses: this one happens while
 			// nobody has touched anything, and "could not read the torrent"
 			// over a room the person just joined reads like their own mistake.
-			w.setStatus(w.trf("status.roomReadFail", err.Error()))
+			w.notify(w.trf("status.roomReadFail", err.Error()))
 			return
 		case adopt.NoSuchFile:
 			// The metadata arrived but the file the host named is not there.
@@ -1150,7 +1180,7 @@ func (w *window) adoptTheRoomsFile() {
 			if row := w.torrentByID(offer.RoomInfohash); row != nil {
 				name = row.Name
 			}
-			w.setStatus(w.trf("status.roomFileMissing", name))
+			w.notify(w.trf("status.roomFileMissing", name))
 			return
 		}
 
@@ -1167,7 +1197,7 @@ func (w *window) adoptTheRoomsFile() {
 		if row != nil {
 			label = row.Name
 		}
-		w.setStatus(w.trf("status.roomJoining", label))
+		w.notify(w.trf("status.roomJoining", label))
 		onMain(func() {
 			w.presentFiles(row, listed)
 			w.playFile(chosen)
@@ -1203,6 +1233,13 @@ func (w *window) setStatus(text string) {
 	onMain(func() { w.status.SetText(text) })
 }
 
+// notify reports what a human must not miss on the event line, which the
+// poll never rewrites. Failures, arrivals and one-shot confirmations go
+// here; the two-second counters stay on status.
+func (w *window) notify(text string) {
+	onMain(func() { w.events.SetText(text) })
+}
+
 // The icons are Fyne's own. Shipping a parallel set would be a second thing to
 // translate and keep in step, for no gain.
 
@@ -1230,18 +1267,34 @@ func playingTorrent(torrents []Torrent, playingID string) *Torrent {
 }
 
 // preparingText renders the download-visibility line for the playing torrent:
-// name, percent and backend status. Empty when there is nothing to report —
-// no torrent playing, or the download already finished. The numbers come
-// from the 2-second list poll: no new endpoints for one line.
+// name, downloaded and total megabytes, percent and backend status. Empty
+// when there is nothing to report — no torrent playing, or the download
+// already finished. The numbers come from the 2-second list poll: Size and
+// Progress are already in it, so no new endpoints for a few more digits.
 func preparingText(tr func(string) string, t *Torrent) string {
 	if t == nil || t.Name == "" || t.Progress >= 1 {
 		return ""
+	}
+	size := t.Size
+	if size < 0 {
+		size = 0
+	}
+	done := int64(float64(size) * t.Progress)
+	if done < 0 {
+		done = 0
+	}
+	if done > size {
+		done = size
+	}
+	peers := t.Peers
+	if peers < 0 {
+		peers = 0
 	}
 	pct := int(t.Progress * 100)
 	if pct < 0 {
 		pct = 0
 	}
-	return fmt.Sprintf(tr("status.preparing"), t.Name, pct, torrentStatusWord(tr, t.Status))
+	return fmt.Sprintf(tr("status.preparing"), t.Name, humanSize(done), humanSize(size), pct, torrentStatusWord(tr, t.Status), peers)
 }
 
 // torrentStatusWord translates the backend's English status id for display.
@@ -1252,6 +1305,36 @@ func torrentStatusWord(tr func(string) string, status string) string {
 		return word
 	}
 	return status
+}
+
+// connStatusText renders the compact connection diagnostics for the room
+// window: DHT readiness, the room peer count split into direct and relayed,
+// and a short self id. Empty outside a room — nothing joined, nothing to
+// report. An unready DHT says so instead of going blank: a missing line would
+// hide a broken rendezvous.
+func connStatusText(tr func(string) string, st rtc.ConnStatus) string {
+	if st.SelfID == "" {
+		return ""
+	}
+	if !st.DHTReady {
+		return tr("status.connWaiting")
+	}
+	direct := 0
+	for _, p := range st.Peers {
+		if !p.Relayed {
+			direct++
+		}
+	}
+	return fmt.Sprintf(tr("status.connReady"), len(st.Peers), direct, len(st.Peers)-direct, shortPeerID(st.SelfID))
+}
+
+// shortPeerID keeps the self id readable: a full peer ID is dozens of base58
+// characters, and the line needs the fact of identity, not its entirety.
+func shortPeerID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // rosterSnapshot records a roster by peer id for the next diff.

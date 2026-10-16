@@ -103,9 +103,10 @@ type gatewayMetrics []struct {
 	} `json:"files"`
 }
 
-// gatewayFileMetrics is the cached per-file progress for one torrent.
+// gatewayFileMetrics is the cached per-torrent progress and swarm for one torrent.
 type gatewayFileMetrics struct {
 	completed int64
+	peers     int
 }
 
 // NewGatewayBackend builds a TorrentBackend backed by an htorrent gateway.
@@ -365,7 +366,7 @@ func (b *remoteBackend) metricsFor(ctx context.Context) map[string]gatewayFileMe
 		for _, f := range t.Files {
 			completed += f.Completed
 		}
-		refreshed[t.InfoHash] = gatewayFileMetrics{completed: completed}
+		refreshed[t.InfoHash] = gatewayFileMetrics{completed: completed, peers: t.Peers}
 	}
 
 	b.metrics = refreshed
@@ -428,6 +429,18 @@ func (h *remoteHandle) Complete() bool {
 		return false
 	}
 	return h.BytesCompleted() >= h.total
+}
+
+// ActivePeers reports the gateway's swarm count for this torrent. Same
+// best-effort terms as progress: no metrics, no peers.
+func (h *remoteHandle) ActivePeers() int {
+	ctx, cancel := context.WithTimeout(context.Background(), h.backend.timeout)
+	defer cancel()
+
+	if m, ok := h.backend.metricsFor(ctx)[h.id]; ok {
+		return m.peers
+	}
+	return 0
 }
 
 // SelectForStreaming is accepted and ignored: the gateway decides what to fetch

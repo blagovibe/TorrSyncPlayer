@@ -8,6 +8,7 @@ type TorrentInfo struct {
 	Progress float64 `json:"progress"`
 	Status   string  `json:"status"`
 	Size     int64   `json:"size"`
+	Peers    int     `json:"peers"`
 }
 
 // FileInfo information about a file in a torrent

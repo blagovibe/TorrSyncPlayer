@@ -5,6 +5,92 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Connection diagnostics in the room window (idea-0100, accepted and
+  transferred to the goal and the way; card removed). The window carries a
+  compact block under the room line: DHT rendezvous ready or still looking,
+  room peer count split into direct and relayed, and a short self id. The
+  source is the node itself — `Node.DHTReady`, `Node.PeerRelayed`
+  (`/p2p-circuit` among the peer's connection addresses), `Mesh.ConnStatus`
+  over the admitted room peers — so no new protocol and nothing the node
+  cannot do. Refreshed on the window's 2-second poll, cleared on leave;
+  decisions live in testable `connStatusText`/`shortPeerID`, catalogue keys
+  `status.connReady`/`status.connWaiting` in both languages (the
+  catalogue-usage gate covers them). `CONCEPT.md#Не нужно догадываться, что
+  происходит` and `DEV.md#Диагностика соединения` say the new model.
+  Verified: `FYNE_DRIVER=offscreen go test -race ./internal/rtc/` green
+  (direct reads direct, circuit-only reads relayed, pre-join reads empty),
+  `./internal/ui/` and `./internal/catalog/` green.
+- Preparing line shows megabytes (idea-0090, UX parity slice). The line
+  read name, percent and backend status; now it reads downloaded and total
+  megabytes beside them — `Size` and `Progress` were already in the 2-second
+  poll, so no backend change and no new endpoints. Reuses the file list's
+  `humanSize`; bounds are clamped, an unknown size shows as `0 B` rather
+  than a blank. Catalogue `status.preparing` reworded in both languages
+  (single call site). Swarm peers in the same line stay a follow-up: the
+  local backend does not expose a peer count, and that is an API change.
+- Playback-input audit hit what a headless machine cannot prove (bug-0101,
+  open): mpv starts with `--no-input-default-bindings` since f0b2e8a with
+  no reason recorded, which plausibly leaves the player window without
+  keyboard control. No display, no xvfb and no mpv manual here, so closing
+  it takes a live run — keys and OSC buttons against a real window. The
+  flag is not removed blind: its intent is unknown, and silent behavior
+  change beats a card.
+- Event line beside the status line (idea-0090, UX parity slice). Every
+  failure, arrival and one-shot confirmation travelled through the status
+  line — which the 2-second poll rewrites, so a reported error lived two
+  seconds and was gone. Events (`w.notify`) persist until the next event;
+  the poll owns status and never touches them. All former event call sites
+  moved over; the poll counter stayed. Pinned by `TestEventsSurviveThePoll`
+  (a succeeding poll must leave the event line alone). No new catalogue
+  keys: messages already travelled through `tr`/`trf` at the call sites.
+- Preparing line shows peers (idea-0090, UX parity slice). `TorrentHandle`
+  grew `ActivePeers` — live connections, not tracker promises
+  (`localHandle` reads `Stats().ActivePeers`, `remoteHandle` the gateway's
+  `peers` from the already-fetched metrics) — plumbed through
+  `torrentToInfo` into `models.TorrentInfo.peers`, and the window renders
+  it beside the megabytes (`peers: N` / `пиры: N`, no declension machinery).
+  Swagger regenerated (docs-only diff, CI freshness gate holds); the pact is
+  untouched — its list bodies are empty. Verified: backend `go test ./...`
+  green, frontend `ui`/`catalog` green, `integration` 4/5 green with the one
+  red a cold-cache run (38 s vs 5 s warm, never reproduced) — recorded as a
+  flake, not a finding.
+
+### Fixed
+
+- Untracked `validation_edge_test.go` did not compile (bug-0099, trivial
+  fix, card removed). The mutant-killing edge tests used `math.NaN()` with
+  no `math` import, so `go test`/`go vet` failed for the whole
+  `internal/validation` package. One import added; verified: package green,
+  `go vet` clean, `gofmt` clean.
+
+### Changed
+
+- Packaging epic idea-0026 closed (card removed). Verified against the live
+  release: `v0.1.0` is published, not a draft, with all three artifacts
+  (`TorrSyncPlayer-x86_64.AppImage`, `TorrSyncPlayer-windows-x64.zip`,
+  `TorrSyncPlayer-macos-arm64.dmg`) plus `SHA256SUMS`. Winget stays refused
+  and auto-update stays deferred — both recorded decisions, not open items.
+- Direction after the multiplex comparison fixed (idea-0090, refining):
+  connection diagnostics first (new candidate idea-0100 — room swarm/DHT/
+  relay state in the window instead of eyeballing "did not connect"),
+  then full UX parity with the multiplex tutorial, then the two-machine
+  field test. Nothing of multiplex's transport or toolkit is taken: weron
+  is frozen and GTK4 is Linux-only, both contradict our goal.
+
+### Reconciliation 2026-10-16 — 1 finding, fixed here
+
+Fresh reconciliation (project-docs step 2). Boundary: last commit touching
+this file (`6c264ba`) plus the zone — commit `6a12eb4` (mutant-killing tests
+in `buffer`/`persistence` only, no production code) and one untracked file
+(`validation_edge_test.go`). Suite in the zone: `buffer` and `persistence`
+green, `validation` build-failed on the missing import — the single finding
+(bug-0099), repaired the same session. No goal/way change; boundary moves
+with this entry.
+
 ## [v0.1.0] - 2026-10-16
 
 ### Fixed

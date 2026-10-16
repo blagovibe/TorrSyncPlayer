@@ -648,6 +648,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "peers": {
+                    "type": "integer"
+                },
                 "progress": {
                     "type": "number"
                 },

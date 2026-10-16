@@ -5,6 +5,8 @@
 package ui
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -190,12 +192,12 @@ func TestThePreparingLineReportsThePlayingDownload(t *testing.T) {
 	if got := preparingText(tr, done); got != "" {
 		t.Errorf("a finished download must read as no line, got %q", got)
 	}
-	half := &Torrent{ID: "a", Name: "Film.mkv", Progress: 0.42, Status: "downloading"}
-	if got, want := preparingText(tr, half), "Fetching Film.mkv — 42% (Downloading)"; got != want {
+	half := &Torrent{ID: "a", Name: "Film.mkv", Size: 1500000000, Progress: 0.42, Status: "downloading", Peers: 3}
+	if got, want := preparingText(tr, half), "Fetching Film.mkv — 600.8 MB / 1.4 GB (42%, Downloading, peers: 3)"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	strange := &Torrent{ID: "a", Name: "Film.mkv", Progress: 0.1, Status: "mystery"}
-	if got, want := preparingText(tr, strange), "Fetching Film.mkv — 10% (mystery)"; got != want {
+	strange := &Torrent{ID: "a", Name: "Film.mkv", Size: 200000000, Progress: 0.1, Status: "mystery", Peers: 0}
+	if got, want := preparingText(tr, strange), "Fetching Film.mkv — 19.1 MB / 190.7 MB (10%, mystery, peers: 0)"; got != want {
 		t.Errorf("an unknown status must show as it arrived, got %q, want %q", got, want)
 	}
 
@@ -208,6 +210,58 @@ func TestThePreparingLineReportsThePlayingDownload(t *testing.T) {
 	}
 	if playingTorrent(list, "") != nil {
 		t.Error("no selection must read as not playing")
+	}
+}
+
+// The connection block reports what the node itself knows and nothing else:
+// outside a room it is blank, an unready DHT says it is looking, and a ready
+// one splits the room peers into direct and relayed beside a short self id.
+func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
+	tr := func(key string) string { return catalog.Lookup(catalog.English, key) }
+
+	if got := connStatusText(tr, rtc.ConnStatus{}); got != "" {
+		t.Errorf("outside a room the block must stay blank, got %q", got)
+	}
+	waiting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: false}
+	if got, want := connStatusText(tr, waiting), "Finding the room — DHT not ready yet"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	ready := rtc.ConnStatus{
+		SelfID:   "12D3KooWABCDEFGH",
+		DHTReady: true,
+		Peers:    []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
+	}
+	if got, want := connStatusText(tr, ready), "DHT ready — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := shortPeerID("abc"); got != "abc" {
+		t.Errorf("a short id must survive intact, got %q", got)
+	}
+}
+
+// The poll rewrites status every two seconds; the event line must survive
+// it. Before the event line existed every failure, arrival and confirmation
+// travelled through status — and the next tick erased it. A reported error
+// that lives two seconds is not reported at all.
+func TestEventsSurviveThePoll(t *testing.T) {
+	_ = test.NewApp()
+
+	// A backend with nothing to say: the poll succeeds, so status moves on
+	// while the event line must stand still.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"torrents":[]}`))
+	}))
+	defer srv.Close()
+	client := api.New(srv.URL, "test-token")
+
+	w, _ := newWindow(client, "peer-test", nil, WindowOptions{})
+	w.notify("boom")
+	w.refresh()
+	if got := w.events.Text; got != "boom" {
+		t.Errorf("the poll erased the event line, got %q", got)
+	}
+	if got := w.status.Text; got == "boom" {
+		t.Errorf("events must not leak into the poll counter line, got %q", got)
 	}
 }
 

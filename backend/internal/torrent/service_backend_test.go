@@ -75,6 +75,7 @@ type stubHandle struct {
 	total     int64
 	completed int64
 	complete  bool
+	peers     int
 	names     []string
 	lengths   []int64
 
@@ -88,6 +89,7 @@ func (h *stubHandle) Name() string          { return h.name }
 func (h *stubHandle) TotalLength() int64    { return h.total }
 func (h *stubHandle) BytesCompleted() int64 { return h.completed }
 func (h *stubHandle) Complete() bool        { return h.complete }
+func (h *stubHandle) ActivePeers() int      { return h.peers }
 
 func (h *stubHandle) FileCount() int { return len(h.names) }
 
@@ -159,6 +161,23 @@ func TestServiceOverBackend_ListTorrents(t *testing.T) {
 	list = svc.ListTorrents(context.Background(), "peer-a")
 	assert.InDelta(t, 0.5, list[0].Progress, 0.0001)
 	assert.Equal(t, "seeding", list[0].Status)
+}
+
+// The list must carry the swarm beside the bytes: the window's preparing
+// line shows peers next to megabytes, and a count the service drops is a
+// count the window cannot show.
+func TestServiceOverBackend_ListCarriesPeers(t *testing.T) {
+	handle := newStubHandle()
+	handle.peers = 3
+	svc := newStubService(t, &stubBackend{handle: handle}, nil)
+	t.Cleanup(func() { _ = svc.Close() })
+
+	_, err := svc.AddMagnet(context.Background(), "peer-a", testMagnet)
+	require.NoError(t, err)
+
+	list := svc.ListTorrents(context.Background(), "peer-a")
+	require.Len(t, list, 1)
+	assert.Equal(t, 3, list[0].Peers, "the handle's peers must reach the list")
 }
 
 func TestServiceOverBackend_GetFilesSanitizesNames(t *testing.T) {

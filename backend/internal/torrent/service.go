@@ -1050,9 +1050,10 @@ func (s *Service) torrentToInfo(handle TorrentHandle) *models.TorrentInfo {
 	size := handle.TotalLength()
 
 	info := &models.TorrentInfo{
-		ID:   handle.ID(),
-		Name: handle.Name(),
-		Size: size,
+		ID:    handle.ID(),
+		Name:  handle.Name(),
+		Size:  size,
+		Peers: handle.ActivePeers(),
 	}
 
 	if size == 0 {
