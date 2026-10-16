@@ -8,14 +8,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
-	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	wrtcsgl "github.com/pojntfx/weron/pkg/wrtcsgl"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
 // A real swarm on loopback: a real .torrent whose pieces really hash to the
@@ -122,53 +124,28 @@ func waitForProgress(t *testing.T, srv *server, torrentID string, want float64, 
 	}
 }
 
-// newTestSignaler runs a weron signaler on loopback for one test. The public
-// signaler is for manual runs.
-func newTestSignaler(addr string, ctx context.Context) interface {
-	Close() error
-} {
-	signaler := wrtcsgl.NewSignaler(addr, "", "", &wrtcsgl.SignalerConfig{
-		Heartbeat:            2 * time.Second,
-		EphemeralCommunities: true,
-	}, ctx)
-	if err := signaler.Open(); err != nil {
-		panic("open test signaler: " + err.Error())
-	}
-	return signaler
-}
-
-// waitForTCP blocks until something answers on addr.
-func waitForTCP(t *testing.T, addr string) {
+// startTestbed runs a stable DHT node the room meshes bootstrap through and
+// returns its address as MeshOptions.Bootstrap. The public bootstrap is for
+// manual runs, and a test that needs someone else's service fails for someone
+// else's reasons. The key must match the room's: the testbed only runs the
+// DHT, but it runs it inside the room's swarm, which the key gates.
+func startTestbed(t *testing.T, inv rtc.Invite) string {
 	t.Helper()
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, time.Second)
-		if err == nil {
-			_ = conn.Close()
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("nothing listening on %s", addr)
-}
-
-// startSignaler runs a weron signaler on loopback and returns its ws URL.
-func startSignaler(t *testing.T) string {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("find a free port: %v", err)
-	}
-	addr := listener.Addr().String()
-	_ = listener.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	signaler := newTestSignaler(addr, ctx)
-	t.Cleanup(func() { _ = signaler.Close() })
-	waitForTCP(t, addr)
-	return "ws://" + addr
+	bed, err := rtc.NewNode(rtc.NodeOptions{Invite: inv})
+	require.NoError(t, err, "the testbed node could not start")
+	t.Cleanup(func() { _ = bed.Close() })
+	require.NoError(t, bed.Bootstrap(ctx, nil), "the testbed DHT could not start")
+
+	info := bed.AddrInfo()
+	addrs, err := peer.AddrInfoToP2pAddrs(&info)
+	require.NoError(t, err)
+	parts := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		parts = append(parts, a.String())
+	}
+	return strings.Join(parts, ",")
 }

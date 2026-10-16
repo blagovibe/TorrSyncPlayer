@@ -3,14 +3,14 @@
 // See LICENSE file for full license text
 
 // Package rtc is the room's voice once the server broker is gone: the messages
-// that travel a WebRTC data channel between peers, and the two rules that decide
+// that travel libp2p streams between peers, and the two rules that decide
 // whose commands count.
 //
-// The transport underneath is weron (signaler for the introduction, DTLS for the
-// channel itself, AES on the signaling). What this package owns is everything
-// above that: the shape of each message and the host authority the server used
-// to enforce. Nothing here knows about sockets, signalers, or widgets, so the
-// whole of it runs in a unit test.
+// The transport underneath is libp2p (DHT for the introduction, Noise/TLS on
+// the streams, the password and key pair handshake for admission). What
+// this package owns is everything above that: the shape of each message and
+// the host authority the server used to enforce. Nothing here knows about
+// sockets, bootstrap nodes, or widgets, so the whole of it runs in a unit test.
 package rtc
 
 import (
@@ -19,9 +19,9 @@ import (
 	"sort"
 )
 
-// Message types on the data channel. They mirror what the room's SSE stream
+// Message types on the room streams. They mirror what the room's SSE stream
 // used to carry, minus everything that was the server's bookkeeping (roster
-// versions, sequence numbers, replay): the channel is reliable and ordered while
+// versions, sequence numbers, replay): the stream is reliable and ordered while
 // it lives, so there is nothing to compensate for.
 const (
 	TypeMagnet    = "magnet"
@@ -200,7 +200,7 @@ func Parse(raw []byte) (any, error) {
 
 // ShouldFollow is the one rule that replaces the server's host check: playback
 // commands count only from the host peer — the one that sent the magnet. Anyone
-// holding the room key can open a data channel, so arrival is not authority.
+// holding the room key can open a stream, so arrival is not authority.
 func ShouldFollow(fromPeerID, hostPeerID string) bool {
 	return fromPeerID != "" && fromPeerID == hostPeerID
 }
@@ -216,4 +216,27 @@ func TakeoverHost(peerIDs []string) string {
 	ids := append([]string(nil), peerIDs...)
 	sort.Strings(ids)
 	return ids[0]
+}
+
+// messageType names a parsed protocol message for WaitFor. Unknown shapes
+// stay queued rather than matched: matching "" would deliver anything.
+func messageType(msg any) string {
+	switch m := msg.(type) {
+	case Magnet:
+		return m.Type
+	case Pause:
+		return m.Type
+	case Position:
+		return m.Type
+	case Buffering:
+		return m.Type
+	case Hello:
+		return m.Type
+	case Host:
+		return m.Type
+	case Bye:
+		return m.Type
+	default:
+		return ""
+	}
 }

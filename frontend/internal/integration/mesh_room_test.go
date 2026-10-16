@@ -23,12 +23,12 @@ import (
 //
 // The old scenarios drove rooms through the backend's HTTP endpoints; those
 // endpoints are gone, and with them the tests. This one proves the world that
-// replaced them: two real backends holding real torrent state, one local
-// signaler introducing them, the host's magnet travelling a data channel, the
-// guest pulling real pieces from the swarm, playback commands fanning out, and
-// the host role surviving the host's departure.
+// replaced them: two real backends holding real torrent state, one local DHT
+// testbed introducing them, the host's magnet travelling a stream, the guest
+// pulling real pieces from the swarm, playback commands fanning out, and the
+// host role surviving the host's departure.
 //
-// Nothing here is stubbed below the room driver: the meshes are real WebRTC
+// Nothing here is stubbed below the room driver: the meshes are real libp2p
 // peers, the tracker is real HTTP, and the pieces are real bytes.
 
 // TestARoomWithoutAServer plays the whole new flow end to end.
@@ -63,17 +63,17 @@ func TestARoomWithoutAServer(t *testing.T) {
 	require.Equal(t, 200, host.do(t, "POST", "/api/v1/torrents/"+added.ID+"/select",
 		map[string]int{"fileIndex": 0}, nil))
 
-	// 3. The room opens on a local signaler — the public one is for manual
-	// runs, and a test that needs someone else's service fails for someone
-	// else's reasons.
-	signaler := startSignaler(t)
-	community := "test-room"
+	// 3. The room opens on a local DHT testbed — the public bootstrap is for
+	// manual runs, and a test that needs someone else's service fails for
+	// someone else's reasons.
+	inv := rtc.Invite{Community: "test-room", Password: "test-password", Key: "test-key"}
+	bootstrap := startTestbed(t, inv)
 
 	hostMesh := rtc.NewMesh(rtc.MeshOptions{
-		Signaler:  signaler,
-		Community: community,
-		Password:  "test-password",
-		Key:       "test-key",
+		Bootstrap: bootstrap,
+		Community: inv.Community,
+		Password:  inv.Password,
+		Key:       inv.Key,
 	})
 	defer func() { _ = hostMesh.Close() }()
 	require.NoError(t, hostMesh.Join(ctx, true), "the host could not join the mesh")
@@ -90,10 +90,10 @@ func TestARoomWithoutAServer(t *testing.T) {
 	go hostRoom.Run(ctx)
 
 	guestMesh := rtc.NewMesh(rtc.MeshOptions{
-		Signaler:  signaler,
-		Community: community,
-		Password:  "test-password",
-		Key:       "test-key",
+		Bootstrap: bootstrap,
+		Community: inv.Community,
+		Password:  inv.Password,
+		Key:       inv.Key,
 	})
 	defer func() { _ = guestMesh.Close() }()
 	require.NoError(t, guestMesh.Join(ctx, false), "the guest could not join the mesh")

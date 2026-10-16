@@ -10,38 +10,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/pojntfx/weron/pkg/wrtcconn"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
-// channelSync is the data channel everything in a room travels on. One channel,
-// not one per message kind: the envelope routes, and a second channel would be
-// a second connection to watch die.
-const channelSync = "torrsync/sync"
+// rediscoverInterval re-runs DHT discovery for late joiners: presence is
+// announced once, but nobody is owed an introduction at a particular moment.
+const rediscoverInterval = 15 * time.Second
 
-// Mesh is a room without a server: peers find each other through a weron
-// signaler and exchange the protocol messages over WebRTC data channels.
+// Mesh is a room without a server: peers find each other over the DHT
+// rendezvous and exchange the protocol messages over libp2p streams.
 //
-// The signaler only introduces peers that share the community *and* the
-// password, and it encrypts the introduction with the key. The channel itself
-// runs under DTLS. What this wrapper owns is the mesh on top: accepting peers,
-// reading each one's stream, broadcasting sends, and keeping the roster that
-// the server used to hand out.
+// Streams are admitted by the invite password and key pair (see p2p.go);
+// what this wrapper owns is the mesh on top:
+// accepting peers, reading each one's stream, broadcasting sends, and
+// keeping the roster that the server used to hand out.
 type Mesh struct {
 	opts MeshOptions
 
-	mu            sync.RWMutex
-	adapter       *wrtcconn.Adapter
-	adapterCancel context.CancelFunc
-	selfID        string
-	isHost        bool
-	peers         map[string]*meshPeer
+	mu       sync.RWMutex
+	node     *Node
+	selfID   string
+	isHost   bool
+	peers    map[string]*meshPeer
+	dialing  map[string]struct{}
+	incoming chan incomingMessage
+	closed   chan struct{}
 
-	incoming  chan incomingMessage
-	closed    chan struct{}
 	closeOnce sync.Once
 }
 
@@ -59,15 +58,18 @@ type meshPeer struct {
 
 // MeshOptions configures one peer's place in the mesh.
 type MeshOptions struct {
-	// Signaler is the weron signaler URL without credentials, e.g.
-	// wss://weron.up.railway.app/ or ws://127.0.0.1:1337/ in tests.
-	Signaler string
 	// Community is the room. Only peers naming it meet each other.
 	Community string
-	// Password admits peers to the community. A wrong one joins nothing.
+	// Password admits peers to the room. A wrong one joins nothing.
 	Password string
-	// Key encrypts the signaling. The data channel itself runs under DTLS.
+	// Key gates the swarm and encrypts the signaling.
 	Key string
+	// Bootstrap is DHT rendezvous as comma-separated multiaddrs with /p2p/.
+	// Empty means the public defaults.
+	Bootstrap string
+	// Relays are the owner's fallback relay candidates, same shape as
+	// Bootstrap. Empty means DHT discovery only.
+	Relays string
 }
 
 // NewMesh builds an unjoined mesh peer.
@@ -75,63 +77,127 @@ func NewMesh(opts MeshOptions) *Mesh {
 	return &Mesh{
 		opts:     opts,
 		peers:    make(map[string]*meshPeer),
+		dialing:  make(map[string]struct{}),
 		incoming: make(chan incomingMessage, 64),
 		closed:   make(chan struct{}),
 	}
 }
 
-// Join introduces this peer to the community and starts accepting others.
-//
-// isHost records whether this peer holds the host role. It is announced in the
-// hello every peer sends on connect, so the mesh agrees on who drives playback
-// without asking anyone — there is no one left to ask.
+// Join publishes this peer's presence and starts meeting the room: accepting
+// inbound streams and dialing discovered ones. It returns once the presence
+// is published; the peers knowing each other takes discovery on top, so a
+// send before convergence lands nowhere — convergence is part of joining
+// here, not an afterthought in each caller.
 func (m *Mesh) Join(ctx context.Context, isHost bool) error {
-	u, err := url.Parse(m.opts.Signaler)
+	bootstrap, err := resolveBootstrap(m.opts.Bootstrap)
 	if err != nil {
-		return fmt.Errorf("rtc: parse signaler URL: %w", err)
+		return err
 	}
-	q := u.Query()
-	q.Set("community", m.opts.Community)
-	q.Set("password", m.opts.Password)
-	u.RawQuery = q.Encode()
-
-	adapterCtx, cancel := context.WithCancel(context.Background())
-
-	adapter := wrtcconn.NewAdapter(
-		u.String(),
-		m.opts.Key,
-		[]string{},
-		[]string{channelSync},
-		&wrtcconn.AdapterConfig{Timeout: 10 * time.Second},
-		adapterCtx,
-	)
-
-	ids, err := adapter.Open()
+	relays, err := resolveRelays(m.opts.Relays)
 	if err != nil {
-		cancel()
-		return fmt.Errorf("rtc: open adapter: %w", err)
+		return err
+	}
+	node, err := NewNode(NodeOptions{Invite: Invite{
+		Community: m.opts.Community,
+		Password:  m.opts.Password,
+		Key:       m.opts.Key,
+	}, EnableRelay: true, StaticRelays: relays})
+	if err != nil {
+		return err
+	}
+	if err := node.Bootstrap(ctx, bootstrap); err != nil {
+		_ = node.Close()
+		return err
+	}
+	if err := node.WaitReady(ctx); err != nil {
+		_ = node.Close()
+		return err
+	}
+	if err := node.Announce(ctx); err != nil {
+		_ = node.Close()
+		return err
 	}
 
-	select {
-	case id := <-ids:
-		m.mu.Lock()
-		m.adapter = adapter
-		m.adapterCancel = cancel
-		m.selfID = id
-		m.isHost = isHost
-		m.mu.Unlock()
-	case <-ctx.Done():
-		cancel()
-		_ = adapter.Close()
-		return fmt.Errorf("rtc: no ID from the signaler: %w", ctx.Err())
-	case <-time.After(30 * time.Second):
-		cancel()
-		_ = adapter.Close()
-		return fmt.Errorf("rtc: no ID from the signaler in time")
-	}
+	m.mu.Lock()
+	m.node = node
+	m.selfID = node.ID().String()
+	m.isHost = isHost
+	m.mu.Unlock()
 
 	go m.acceptLoop()
+	go m.discoverLoop()
 	return nil
+}
+
+// resolveBootstrap parses the bootstrap setting or falls back to the public
+// defaults. Every address must carry its /p2p/ peer ID: an address without
+// one cannot be dialed, and a setting that looks configured but is not is
+// worse than an empty one.
+func resolveBootstrap(setting string) ([]peer.AddrInfo, error) {
+	if setting == "" {
+		return defaultBootstrap(), nil
+	}
+	seen := map[peer.ID]struct{}{}
+	var out []peer.AddrInfo
+	for _, part := range splitAddrs(setting) {
+		addr, err := multiaddr.NewMultiaddr(part)
+		if err != nil {
+			return nil, fmt.Errorf("rtc: bad bootstrap address %q: %w", part, err)
+		}
+		info, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			return nil, fmt.Errorf("rtc: bootstrap address %q has no /p2p/ peer ID", part)
+		}
+		if _, dup := seen[info.ID]; dup {
+			continue
+		}
+		seen[info.ID] = struct{}{}
+		out = append(out, *info)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("rtc: no bootstrap addresses")
+	}
+	return out, nil
+}
+
+// resolveRelays parses the relays setting. Empty means DHT discovery only —
+// unlike bootstrap there are no public defaults to fall back to, so an empty
+// setting is valid and common. Anything listed must be dialable.
+func resolveRelays(setting string) ([]peer.AddrInfo, error) {
+	if setting == "" {
+		return nil, nil
+	}
+	seen := map[peer.ID]struct{}{}
+	var out []peer.AddrInfo
+	for _, part := range splitAddrs(setting) {
+		addr, err := multiaddr.NewMultiaddr(part)
+		if err != nil {
+			return nil, fmt.Errorf("rtc: bad relay address %q: %w", part, err)
+		}
+		info, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			return nil, fmt.Errorf("rtc: relay address %q has no /p2p/ peer ID", part)
+		}
+		if _, dup := seen[info.ID]; dup {
+			continue
+		}
+		seen[info.ID] = struct{}{}
+		out = append(out, *info)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("rtc: no relay addresses")
+	}
+	return out, nil
+}
+
+func splitAddrs(setting string) []string {
+	var out []string
+	for _, part := range strings.Split(setting, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // SelfID is this peer's ID in the mesh.
@@ -162,8 +228,8 @@ func (m *Mesh) Peers() []string {
 // Send broadcasts one protocol message to every connected peer.
 //
 // The message is encoded once and written per peer under that peer's own lock:
-// data channels are full-duplex streams, and two goroutines writing one JSON
-// document each would interleave them into neither.
+// streams are byte-oriented, and two goroutines writing one JSON document
+// each would interleave them into neither.
 func (m *Mesh) Send(ctx context.Context, msg any) error {
 	m.mu.RLock()
 	peers := make([]*meshPeer, 0, len(m.peers))
@@ -217,42 +283,20 @@ func (m *Mesh) WaitFor(ctx context.Context, msgType string, timeout time.Duratio
 	}
 }
 
-func messageType(msg any) string {
-	switch m := msg.(type) {
-	case Magnet:
-		return m.Type
-	case Pause:
-		return m.Type
-	case Position:
-		return m.Type
-	case Buffering:
-		return m.Type
-	case Hello:
-		return m.Type
-	case Host:
-		return m.Type
-	case Bye:
-		return m.Type
-	default:
-		return ""
-	}
-}
-
 // Close leaves the mesh.
 //
 // A bye goes first so the roster updates at once rather than when the silence
 // is noticed — but it is best-effort and bounded: the write blocks until the
 // far end reads, and by leave time nobody may be reading anymore. An unbounded
 // bye turned Close into a hang whenever the room had stopped listening. After
-// the grace the peer connections close, which drops us from every remote roster
+// the grace the streams close, which drops us from every remote roster
 // promptly either way, and unblocks the read loops.
 func (m *Mesh) Close() error {
 	var err error
 	m.closeOnce.Do(func() {
 		close(m.closed)
 		m.mu.RLock()
-		adapter := m.adapter
-		cancel := m.adapterCancel
+		node := m.node
 		selfID := m.selfID
 		peers := make([]*meshPeer, 0, len(m.peers))
 		for _, p := range m.peers {
@@ -274,11 +318,8 @@ func (m *Mesh) Close() error {
 		for _, p := range peers {
 			_ = p.conn.Close()
 		}
-		if adapter != nil {
-			err = adapter.Close()
-		}
-		if cancel != nil {
-			cancel()
+		if node != nil {
+			err = node.Close()
 		}
 	})
 	return err
@@ -307,40 +348,130 @@ func (m *Mesh) broadcast(msg any) error {
 	return nil
 }
 
+// acceptLoop admits inbound streams: the handshake already passed inside the
+// node, so everyone arriving here proved the password.
 func (m *Mesh) acceptLoop() {
 	m.mu.RLock()
-	adapter := m.adapter
+	node := m.node
 	m.mu.RUnlock()
-	if adapter == nil {
+	if node == nil {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-m.closed
+		cancel()
+	}()
+
+	for {
+		s, err := node.WaitAdmitted(ctx)
+		if err != nil {
+			return
+		}
+		remote := s.Conn().RemotePeer().String()
+		m.mu.RLock()
+		self := m.selfID
+		m.mu.RUnlock()
+		if remote == "" || remote == self {
+			_ = s.Close()
+			continue
+		}
+		m.addPeer(remote, s)
+	}
+}
+
+// discoverLoop dials discovered peers so late joiners converge without any
+// introducer: presence is announced once, discovery runs for the session.
+// One flight per peer: a dial already in flight is not started twice, and a
+// failed dial frees the peer for the next round.
+func (m *Mesh) discoverLoop() {
+	m.mu.RLock()
+	node := m.node
+	m.mu.RUnlock()
+	if node == nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-m.closed
+		cancel()
+	}()
+
+	discover := func() {
+		ch, err := node.Discover(ctx)
+		if err != nil {
+			return
+		}
+		for info := range ch {
+			if info.ID == node.ID() {
+				continue
+			}
+			id := info.ID.String()
+			m.mu.Lock()
+			_, known := m.peers[id]
+			_, flying := m.dialing[id]
+			if !known && !flying {
+				m.dialing[id] = struct{}{}
+			} else {
+				m.mu.Unlock()
+				continue
+			}
+			m.mu.Unlock()
+
+			go func(info peer.AddrInfo) {
+				defer func() {
+					m.mu.Lock()
+					delete(m.dialing, id)
+					m.mu.Unlock()
+				}()
+				dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
+				defer dialCancel()
+				s, err := node.DialRoom(dialCtx, info)
+				if err != nil {
+					return
+				}
+				m.addPeer(id, s)
+			}(info)
+		}
+	}
+
+	discover()
+	ticker := time.NewTicker(rediscoverInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-m.closed:
 			return
-		case peer, ok := <-adapter.Accept():
-			if !ok {
-				return
-			}
-			m.addPeer(peer)
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			discover()
 		}
 	}
 }
 
-func (m *Mesh) addPeer(peer *wrtcconn.Peer) {
+// addPeer plugs a connected peer into the mesh. The first stream for an ID
+// wins and later ones close: dials and admissions race each other, and two
+// streams to one peer would only waste connections — sends are keyed by ID,
+// so either survivor carries the same traffic.
+func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser) {
 	m.mu.Lock()
-	if _, exists := m.peers[peer.PeerID]; exists {
+	if _, exists := m.peers[id]; exists {
 		m.mu.Unlock()
+		_ = conn.Close()
 		return
 	}
-	mp := &meshPeer{id: peer.PeerID, conn: peer.Conn, enc: json.NewEncoder(peer.Conn)}
-	m.peers[peer.PeerID] = mp
+	mp := &meshPeer{id: id, conn: conn, enc: json.NewEncoder(conn)}
+	m.peers[id] = mp
 	selfID := m.selfID
 	isHost := m.isHost
 	m.mu.Unlock()
 
-	go m.readLoop(peer, mp)
+	go m.readLoop(mp)
 
 	// Announce presence at once: the roster is whoever said hello, and a peer
 	// that waits to be asked is a roster entry that never appears.
@@ -353,23 +484,21 @@ func (m *Mesh) sendTo(mp *meshPeer, msg any) error {
 	return mp.enc.Encode(msg)
 }
 
-func (m *Mesh) readLoop(peer *wrtcconn.Peer, mp *meshPeer) {
+func (m *Mesh) readLoop(mp *meshPeer) {
 	defer func() {
 		m.mu.Lock()
-		delete(m.peers, peer.PeerID)
+		if m.peers[mp.id] == mp {
+			delete(m.peers, mp.id)
+		}
 		m.mu.Unlock()
 	}()
 
-	// Line framing, not a streaming decoder, for two transports at once. A data
-	// channel is message-oriented — one read returns one sender's write — while
-	// a pipe is a byte stream; what both honor is the newline every Encode ends
-	// with (JSON escapes newlines inside strings, so a document never contains
-	// a raw one). A streaming decoder over the channel is the alternative that
-	// was tried: its first refill reads 512 bytes, and a queued message bigger
-	// than that fails the whole read with io.ErrShortBuffer instead of blocking
-	// for the rest — dropping the peer over nothing. The buffer here fits any
-	// message this protocol speaks; anything bigger is a violation, not a peer.
-	reader := bufio.NewReaderSize(peer.Conn, 64*1024)
+	// Line framing, one JSON document per line: streams are byte-oriented,
+	// and a queued message is never split across reads. JSON escapes newlines
+	// inside strings, so a document never contains a raw one. The buffer here
+	// fits any message this protocol speaks; anything bigger is a violation,
+	// not a peer.
+	reader := bufio.NewReaderSize(mp.conn, 64*1024)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -380,7 +509,7 @@ func (m *Mesh) readLoop(peer *wrtcconn.Peer, mp *meshPeer) {
 			continue
 		}
 		select {
-		case m.incoming <- incomingMessage{from: peer.PeerID, msg: msg}:
+		case m.incoming <- incomingMessage{from: mp.id, msg: msg}:
 		case <-m.closed:
 			return
 		}

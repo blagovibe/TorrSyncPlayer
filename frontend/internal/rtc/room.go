@@ -13,8 +13,8 @@ import (
 )
 
 // Transport is what a Room talks through: the mesh in production, channels in
-// tests. Rendezvous fails for the weather — CPU saturation, ghost peers on a
-// reused signaler — and room logic must not.
+// tests. Rendezvous fails for the weather — CPU saturation, empty routing
+// tables, ghost provider records — and room logic must not.
 type Transport interface {
 	Send(ctx context.Context, msg any) error
 	Next(ctx context.Context) (from string, msg any, ok bool)
@@ -394,9 +394,9 @@ func SmoothSeek(current, requested float64) float64 {
 // smoothRatio is how far a smoothed jump moves: partway, not teleporting.
 const smoothRatio = 0.3
 
-// Invite is a room's address: the community to join, the password that admits,
-// and the key that encrypts the signaling. The host generates all three and
-// copies them as one string; the guest pastes it back.
+// Invite is a room's address: the community to join and the password and key
+// pair that admits. The host generates all three and copies them as one
+// string; the guest pastes it back.
 type Invite struct {
 	Community string
 	Password  string

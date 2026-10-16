@@ -11,15 +11,13 @@ import (
 	"net"
 	"testing"
 	"time"
-
-	"github.com/pojntfx/weron/pkg/wrtcconn"
 )
 
 // These tests drive the mesh without any network: a net.Pipe pair stands in
-// for the data channel, and the peer is injected directly. Rendezvous —
-// signalers, ICE, DTLS — is a different test (mesh_test.go), because it fails
-// for the weather: CPU saturation, closed ports, ghost peers on a reused
-// signaler. Everything here fails only when the mesh logic is wrong.
+// for the stream, and the peer is injected directly. Rendezvous — DHT,
+// handshakes, relays — is a different test (mesh_test.go), because it fails
+// for the weather: CPU saturation, closed ports, empty routing tables.
+// Everything here fails only when the mesh logic is wrong.
 
 // pipePeer injects a peer whose far end the test holds.
 //
@@ -49,7 +47,7 @@ func pipePeer(t *testing.T, m *Mesh, peerID string) net.Conn {
 		}
 		helloed <- nil
 	}()
-	m.addPeer(&wrtcconn.Peer{PeerID: peerID, ChannelID: channelSync, Conn: local})
+	m.addPeer(peerID, local)
 	if err := <-helloed; err != nil {
 		t.Fatalf("no hello from the mesh: %v", err)
 	}

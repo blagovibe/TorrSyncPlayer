@@ -8,23 +8,26 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/stretchr/testify/require"
 )
 
-// The mesh is the room without a server: peers find each other through a weron
-// signaler and talk over WebRTC data channels. These tests run against a
-// signaler in this same process — the public one is for manual runs, and a test
-// that needs someone else's service is a test that fails for someone else's
-// reasons (idea-0064).
+// The mesh is the room without a server: peers find each other over the DHT
+// rendezvous and talk over libp2p streams. These tests run against an
+// in-process DHT testbed — the public bootstrap is for manual runs, and a
+// test that needs someone else's service is a test that fails for someone
+// else's reasons (idea-0086).
 //
-// Rendezvous is retried with a fresh signaler per attempt. A reused signaler
-// accumulates ghosts — closed peers whose membership outlives their connection
-// — and newcomers spend their offers on peers that will never answer. That is a
-// property of rapid open/close cycling in tests, not of a room: the product
-// opens one adapter per session and keeps it.
+// Rendezvous is retried with a fresh testbed per attempt. A reused testbed
+// accumulates ghosts — closed peers whose provider records outlive their
+// connections — and newcomers spend their dials on peers that will never
+// answer. That is a property of rapid open/close cycling in tests, not of a
+// room: the product opens one mesh per session and keeps it.
 
 // TestTwoPeersExchangeAMagnetThroughTheMesh is the whole transport in one
-// assertion: a host and a guest, a local signaler, and the magnet arriving over
-// a data channel. If this fails, nothing above it — rooms, sync, UI — can work.
+// assertion: a host and a guest, a local testbed, and the magnet arriving over
+// a stream. If this fails, nothing above it — rooms, sync, UI — can work.
 func TestTwoPeersExchangeAMagnetThroughTheMesh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -57,36 +60,62 @@ func TestTwoPeersExchangeAMagnetThroughTheMesh(t *testing.T) {
 }
 
 // TestAStrangerWithTheWrongPasswordJoinsNothing pins the admission rule: the
-// signaler introduces only peers that share the community *and* the password. A
-// guest with the wrong password must never see the room's traffic.
+// room admits only peers that prove the password. A guest with the wrong
+// password publishes presence like everyone else — presence is not authority —
+// but no handshake passes either way, so it never sees a peer and never hears
+// traffic, and the room never sees it.
 func TestAStrangerWithTheWrongPasswordJoinsNothing(t *testing.T) {
-	signaler := startTestSignaler(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	host := NewMesh(MeshOptions{
-		Signaler:  signaler.URL(),
-		Community: "test-room",
-		Password:  "test-password",
-		Key:       "test-key",
-	})
-	defer func() { _ = host.Close() }()
-	if err := host.Join(ctx, true); err != nil {
-		t.Fatalf("the host could not join the mesh: %v", err)
+	inv := testInvite()
+	bed := startTestbed(t, ctx, inv)
+	bootstrap := addrsToStrings(t, bed.AddrInfo())
+
+	host, guests := joinMeshOn(t, ctx, bootstrap, 1)
+
+	strangerOpts := MeshOptions{
+		Community: inv.Community,
+		Password:  "wrong-password",
+		Key:       inv.Key,
+		Bootstrap: bootstrap,
+	}
+	stranger := NewMesh(strangerOpts)
+	defer func() { _ = stranger.Close() }()
+	if err := stranger.Join(ctx, false); err != nil {
+		t.Fatalf("presence publishes even for a stranger; the handshake refuses, not the join: %v", err)
 	}
 
-	stranger := NewMesh(MeshOptions{
-		Signaler:  signaler.URL(),
-		Community: "test-room",
-		Password:  "wrong-password",
-		Key:       "test-key",
-	})
-	defer func() { _ = stranger.Close() }()
-	// Joining with the wrong password must fail rather than leave a peer that
-	// hears nothing: a silent peer is a roster entry that never speaks.
-	if err := stranger.Join(ctx, false); err == nil {
-		t.Fatal("a stranger with the wrong password joined the mesh")
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(stranger.Peers()) > 0 {
+			t.Fatalf("a stranger with the wrong password sees peers: %v", stranger.Peers())
+		}
+		for _, id := range host.Peers() {
+			if id == stranger.SelfID() {
+				t.Fatalf("the room sees a stranger with the wrong password: %v", host.Peers())
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+
+	if got := stranger.WaitFor(ctx, TypeMagnet, 5*time.Second); got != nil {
+		t.Fatalf("a stranger with the wrong password heard traffic: %+v", got)
+	}
+
+	// The room itself keeps working with the stranger hanging around: the
+	// host's magnet still reaches the guest, so a refused handshake is not a
+	// broken room.
+	magnet := NewMagnet(Magnet{MagnetURI: "magnet:?xt=urn:btih:abc", InfoHash: "abc"})
+	if err := host.Send(ctx, magnet); err != nil {
+		t.Fatalf("the host could not send with a stranger present: %v", err)
+	}
+	if got := guests[0].WaitFor(ctx, TypeMagnet, 30*time.Second); got == nil {
+		t.Fatal("the guest never received the magnet with a stranger present")
 	}
 }
 
@@ -116,21 +145,22 @@ func TestAHostCommandReachesEveryGuest(t *testing.T) {
 	}
 }
 
-// joinMesh builds one host and the given number of guests on a fresh signaler,
-// and returns once the host sees them all. Joining returns once the signaler
-// knows a peer; the peers knowing each other takes ICE on top, so a send before
-// convergence lands nowhere — convergence is part of joining here, not an
-// afterthought in each test.
+// joinMesh builds one host and the given number of guests on a fresh testbed,
+// and returns once the host sees them all. Joining returns once presence is
+// published; the peers knowing each other takes discovery on top, so a send
+// before convergence lands nowhere — convergence is part of joining here, not
+// an afterthought in each test.
 //
-// Rendezvous is retried with a fresh signaler per attempt, up to three. A reused
-// signaler keeps ghosts of closed peers, and a newcomer that offers to ghosts
-// never hears back. Fresh state per attempt keeps one attempt's weather out of
-// the next one's.
+// Rendezvous is retried with a fresh testbed per attempt, up to three. A
+// reused testbed keeps ghosts of closed peers, and a newcomer that dials
+// ghosts never hears back. Fresh state per attempt keeps one attempt's weather
+// out of the next one's.
 func joinMesh(t *testing.T, ctx context.Context, guests int) (*Mesh, []*Mesh) {
 	t.Helper()
 
 	for attempt := 0; attempt < 3; attempt++ {
-		host, gs, err := tryJoinMesh(t, ctx, guests)
+		bed := startTestbed(t, ctx, testInvite())
+		host, gs, err := tryJoinMesh(t, ctx, addrsToStrings(t, bed.AddrInfo()), guests)
 		if err == nil {
 			t.Cleanup(func() {
 				_ = host.Close()
@@ -146,15 +176,37 @@ func joinMesh(t *testing.T, ctx context.Context, guests int) (*Mesh, []*Mesh) {
 	return nil, nil
 }
 
-func tryJoinMesh(t *testing.T, ctx context.Context, guests int) (*Mesh, []*Mesh, error) {
+// joinMeshOn is joinMesh on someone else's testbed: for the stranger, whose
+// presence must publish into the room's rendezvous to prove it hears nothing.
+func joinMeshOn(t *testing.T, ctx context.Context, bootstrap string, guests int) (*Mesh, []*Mesh) {
 	t.Helper()
-	signaler := startTestSignaler(t)
+
+	for attempt := 0; attempt < 3; attempt++ {
+		host, gs, err := tryJoinMesh(t, ctx, bootstrap, guests)
+		if err == nil {
+			t.Cleanup(func() {
+				_ = host.Close()
+				for _, g := range gs {
+					_ = g.Close()
+				}
+			})
+			return host, gs
+		}
+		t.Logf("rendezvous attempt %d failed: %v", attempt+1, err)
+	}
+	t.Fatal("rendezvous never succeeded in 3 attempts")
+	return nil, nil
+}
+
+func tryJoinMesh(t *testing.T, ctx context.Context, bootstrap string, guests int) (*Mesh, []*Mesh, error) {
+	t.Helper()
+	inv := testInvite()
 
 	host := NewMesh(MeshOptions{
-		Signaler:  signaler.URL(),
-		Community: "test-room",
-		Password:  "test-password",
-		Key:       "test-key",
+		Community: inv.Community,
+		Password:  inv.Password,
+		Key:       inv.Key,
+		Bootstrap: bootstrap,
 	})
 	if err := host.Join(ctx, true); err != nil {
 		_ = host.Close()
@@ -164,10 +216,10 @@ func tryJoinMesh(t *testing.T, ctx context.Context, guests int) (*Mesh, []*Mesh,
 	gs := make([]*Mesh, guests)
 	for i := range gs {
 		gs[i] = NewMesh(MeshOptions{
-			Signaler:  signaler.URL(),
-			Community: "test-room",
-			Password:  "test-password",
-			Key:       "test-key",
+			Community: inv.Community,
+			Password:  inv.Password,
+			Key:       inv.Key,
+			Bootstrap: bootstrap,
 		})
 		if err := gs[i].Join(ctx, false); err != nil {
 			_ = host.Close()
@@ -200,6 +252,21 @@ func tryJoinMesh(t *testing.T, ctx context.Context, guests int) (*Mesh, []*Mesh,
 		_ = g.Close()
 	}
 	return nil, nil, errNoConvergence
+}
+
+// addrsToStrings renders a testbed's address for MeshOptions.Bootstrap.
+func addrsToStrings(t *testing.T, info peer.AddrInfo) string {
+	t.Helper()
+	addrs, err := peer.AddrInfoToP2pAddrs(&info)
+	require.NoError(t, err)
+	out := ""
+	for i, a := range addrs {
+		if i > 0 {
+			out += ","
+		}
+		out += a.String()
+	}
+	return out
 }
 
 var errNoConvergence = errorString("the mesh never converged")
