@@ -18,7 +18,7 @@ import (
 )
 
 // The settings dialog is the one place a person can reach what used to need a
-// command line: storage, the htorrent gateway, the signaler — plus the few
+// command line: storage, the htorrent gateway, rendezvous — plus the few
 // choices that already lived in settings.json.
 //
 // The form says what applies when, because half of these are read by the
@@ -173,7 +173,8 @@ type settingsForm struct {
 	gatewayPass   *widget.Entry
 	gatewayCACert *widget.Entry
 
-	signaler *widget.Entry
+	bootstrap *widget.Entry
+	relays    *widget.Entry
 }
 
 // The language options are not catalogue entries on purpose: each language
@@ -186,9 +187,10 @@ const (
 
 func newSettingsForm(current Settings, tr func(string) string, parent fyne.Window) *settingsForm {
 	f := &settingsForm{
-		tr:       tr,
-		mpv:      widget.NewEntry(),
-		signaler: widget.NewEntry(),
+		tr:        tr,
+		mpv:       widget.NewEntry(),
+		bootstrap: widget.NewEntry(),
+		relays:    widget.NewEntry(),
 	}
 
 	f.language = widget.NewSelect(
@@ -219,10 +221,16 @@ func newSettingsForm(current Settings, tr func(string) string, parent fyne.Windo
 	f.gatewayCACert = widget.NewEntry()
 	f.gatewayCACert.SetText(current.GatewayCACert)
 
-	// The placeholder is the default the backend child falls back to, so an
-	// empty field reads as "the public one", not as "no signaler".
-	f.signaler.SetPlaceHolder(DefaultSignaler)
-	f.signaler.SetText(current.Signaler)
+	// The placeholder is an example, not the default: an empty field reads
+	// as "the public defaults", not as "no rendezvous".
+	f.bootstrap.SetPlaceHolder(ExampleBootstrap)
+	f.bootstrap.SetText(current.Bootstrap)
+
+	// No example here on purpose: unlike bootstrap there are no public
+	// defaults to show, and any address would read as a recommendation.
+	// Empty means autorelay discovers candidates over the DHT.
+	f.relays.SetPlaceHolder(tr("settings.relaysPlaceholder"))
+	f.relays.SetText(current.Relays)
 
 	return f
 }
@@ -250,7 +258,8 @@ func (f *settingsForm) apply(current Settings) Settings {
 	s.GatewayPass = f.gatewayPass.Text
 	s.GatewayCACert = ExpandPath(f.gatewayCACert.Text)
 
-	s.Signaler = strings.TrimSpace(f.signaler.Text)
+	s.Bootstrap = strings.TrimSpace(f.bootstrap.Text)
+	s.Relays = strings.TrimSpace(f.relays.Text)
 
 	return s
 }
@@ -278,7 +287,8 @@ func (f *settingsForm) content(parent fyne.Window) fyne.CanvasObject {
 		labelRow(f.tr("settings.gatewayCACert"), container.NewBorder(nil, nil, nil,
 			chooseFileButton(f.tr, parent, f.gatewayCACert.SetText), f.gatewayCACert)),
 		widget.NewSeparator(),
-		labelRow(f.tr("settings.signaler"), f.signaler),
+		labelRow(f.tr("settings.bootstrap"), f.bootstrap),
+		labelRow(f.tr("settings.relays"), f.relays),
 	)
 	return container.NewVScroll(rows)
 }
@@ -327,7 +337,7 @@ func (w *window) showSettings() {
 		}
 
 		// What can apply now, applies now: the theme redraws the window, and
-		// the signaler is read when the next room is joined. The rest is read
+		// rendezvous is read when the next room is joined. The rest is read
 		// at startup, which is what the note on the form says.
 		w.mu.Lock()
 		w.settings = updated

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,23 +94,42 @@ type window struct {
 	// over the mesh, the host role moves by message, and the film arrives as a
 	// magnet from the host. The rules live in the rtc package because they are
 	// subtle; here they are only driven.
-	mesh      *rtc.Mesh
-	rtcRoom   *rtc.Room
-	roomID    string
-	invite    rtc.Invite
-	roomLabel *widget.Label
-	buffer    *room.BufferReporter
+	mesh    *rtc.Mesh
+	rtcRoom *rtc.Room
+	roomID  string
+	invite  rtc.Invite
+	// selfPeerID is this window's mesh peer id, set on join. Roster notices
+	// skip it: my own arrival is answered by the room opening.
+	selfPeerID string
+	// lastRoster is the previous roster by peer id. OnRoster hands the whole
+	// roster every time, so the window diffs it itself to notice arrivals
+	// and departures. Reset on leave: the next join baselines again.
+	lastRoster map[string]string
+	roomLabel  *widget.Label
+	buffer     *room.BufferReporter
+
+	// preparingLine shows the playing torrent's download state: name, percent
+	// and backend status from the 2-second list poll. Playback starts before
+	// the download finishes, so "nothing is ready yet" is a normal state,
+	// not an error — and it deserves its own line rather than the status
+	// line, which carries transient messages.
+	preparing *widget.Label
 
 	// bufferCancel ends the buffer report of the file that was playing before
 	// the current one. One report per file: a switch must stop steering the
 	// backend's download window toward a film nobody is watching.
 	bufferCancel context.CancelFunc
 
-	// signalerFlag is the --signaler value for this run (empty when the flag
+	// bootstrapFlag is the --bootstrap value for this run (empty when the flag
 	// was not given), kept apart from the settings because the flag
 	// deliberately outranks the saved choice. Where rooms actually meet is
-	// signaler(), read at every join.
-	signalerFlag string
+	// rendezvous(), read at every join.
+	bootstrapFlag string
+
+	// relaysFlag is the --relays value for this run, same precedence shape:
+	// flag, then the saved choice, then DHT discovery. Read at every join
+	// beside rendezvous().
+	relaysFlag string
 
 	inviteEntry *widget.Entry
 	createRoom  *widget.Button
@@ -121,6 +141,11 @@ type window struct {
 	subSelect   *widget.Select
 	audioTracks []player.Track
 	subTracks   []player.Track
+
+	// Subtitle-file chooser. Container tracks live in the film; subtitle
+	// files live next to it in the torrent, so they get a chooser of their
+	// own (idea-0080, variant 2).
+	subFileSelect *widget.Select
 }
 
 // playerSocketPath is what mpv should listen on for this process.
@@ -142,8 +167,10 @@ func playerSocketPath(pid int) string {
 type WindowOptions struct {
 	// Language is the --lang value.
 	Language string
-	// Signaler is the --signaler value.
-	Signaler string
+	// Bootstrap is the --bootstrap value.
+	Bootstrap string
+	// Relays is the --relays value.
+	Relays string
 }
 
 // NewWindow builds the main window around a client and starts its loops.
@@ -162,7 +189,8 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		client:          client,
 		clientID:        clientID,
 		store:           store,
-		signalerFlag:    opts.Signaler,
+		bootstrapFlag:   opts.Bootstrap,
+		relaysFlag:      opts.Relays,
 		socketPath:      playerSocketPath(os.Getpid()),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		pendingRoomFile: -1,
@@ -246,10 +274,15 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	w.subSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackSub, choice) }
 	w.audioSelect.Hide()
 	w.subSelect.Hide()
+	w.subFileSelect = widget.NewSelect(nil, nil)
+	w.subFileSelect.OnChanged = func(choice string) { w.chooseSubFile(choice) }
+	w.subFileSelect.Hide()
 
 	// The room line sits above the lists: who is watching with you is a
-	// one-line answer that belongs where it is always visible.
+	// one-line answer that belongs where it is always visible. The preparing
+	// line sits beside it: what is still downloading while you watch.
 	w.roomLabel = widget.NewLabel("")
+	w.preparing = widget.NewLabel("")
 
 	// Joining takes an invite code, not a room id and a password: the room has
 	// no server to ask, so there is nothing to look up. The triple carries the
@@ -280,12 +313,13 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	tracks := container.NewHBox(
 		widget.NewLabel(w.tr("track.audio")), w.audioSelect,
 		widget.NewLabel(w.tr("track.sub")), w.subSelect,
+		widget.NewLabel(w.tr("track.subfile")), w.subFileSelect,
 	)
 
 	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
 	body := container.NewBorder(
 		toolbar, w.status, nil, nil,
-		container.NewVBox(w.roomLabel, roomPanel, tracks, lists),
+		container.NewVBox(w.roomLabel, w.preparing, roomPanel, tracks, lists),
 	)
 
 	w.buffer = room.NewBufferReporter(room.ReporterOptions{
@@ -362,6 +396,7 @@ func (w *window) leaveRoom() {
 	w.mesh, w.rtcRoom = nil, nil
 	w.roomID = ""
 	w.invite = rtc.Invite{}
+	w.lastRoster = nil
 	w.mu.Unlock()
 
 	if mesh != nil {
@@ -370,22 +405,33 @@ func (w *window) leaveRoom() {
 	onMain(func() { w.roomLabel.SetText("") })
 }
 
-// signaler is where rooms meet now: the --signaler flag, then the saved
-// choice, then the public default. Read at every join, so a change in the
+// rendezvous is where rooms meet now: the --bootstrap flag, then the saved
+// choice, then the public defaults. Read at every join, so a change in the
 // settings dialog applies to the next room without a restart.
-func (w *window) signaler() string {
+func (w *window) rendezvous() string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return EffectiveSignaler(w.signalerFlag, w.settings.Signaler)
+	return EffectiveBootstrap(w.bootstrapFlag, w.settings.Bootstrap)
 }
 
-// joinMesh opens the data-channel mesh for an invite and starts the room
-// driver on it. isHost seeds the role: the creator drives, joiners follow.
+// fallbackRelays is where room traffic turns when direct paths fail: the
+// --relays flag, then the saved choice, then DHT discovery. Read at every
+// join, so a change in the settings dialog applies to the next room without
+// a restart.
+func (w *window) fallbackRelays() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return EffectiveRelays(w.relaysFlag, w.settings.Relays)
+}
+
+// joinMesh opens the room mesh for an invite and starts the room driver on
+// it. isHost seeds the role: the creator drives, joiners follow.
 func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 	w.leaveRoom()
 
 	mesh := rtc.NewMesh(rtc.MeshOptions{
-		Signaler:  w.signaler(),
+		Bootstrap: w.rendezvous(),
+		Relays:    w.fallbackRelays(),
 		Community: invite.Community,
 		Password:  invite.Password,
 		Key:       invite.Key,
@@ -406,6 +452,7 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 	w.rtcRoom = room
 	w.roomID = invite.Community
 	w.invite = invite
+	w.selfPeerID = mesh.SelfID()
 	w.mu.Unlock()
 
 	return room, nil
@@ -416,9 +463,16 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 func (w *window) roomCallbacks() *rtc.Callbacks {
 	return &rtc.Callbacks{
 		OnRoster: func(peers []rtc.Peer) {
+			w.mu.Lock()
+			lines := rosterNotices(w.tr, w.lastRoster, peers, w.selfPeerID)
+			w.lastRoster = rosterSnapshot(peers)
+			w.mu.Unlock()
 			onMain(func() {
 				w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
 			})
+			for _, line := range lines {
+				w.setStatus(line)
+			}
 		},
 		OnMagnet: func(m rtc.Magnet) {
 			w.adoptRoomTorrent(m)
@@ -515,10 +569,10 @@ func (w *window) reportBuffering(buffering bool) {
 //
 // The host has no send button: it drives mpv's own window, and this loop turns
 // state changes into room commands. Play and pause travel on change; a position
-// travels when it jumps further than drift — polls are 500 ms apart, so drift
-// is half a second and anything past two is a seek someone made. Guests poll
-// too but never broadcast playback: a guest's pause is its own business until
-// the host moves.
+// travels on a seek jump — and every five seconds regardless, so a follower
+// that drifted silently converges instead of waiting for the next seek.
+// Guests poll too but never broadcast playback: a guest's pause is its own
+// business until the host moves.
 func (w *window) watchPlayer() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -526,6 +580,7 @@ func (w *window) watchPlayer() {
 	var lastPaused *bool
 	var lastPosition float64
 	var lastStalled *bool
+	var tick uint64
 
 	for range ticker.C {
 		w.mu.RLock()
@@ -563,9 +618,8 @@ func (w *window) watchPlayer() {
 			}
 		}
 		if positionErr == nil {
-			if lastPosition == 0 {
-				lastPosition = position
-			} else if position-lastPosition > rtc.MaxSeekDrift || lastPosition-position > rtc.MaxSeekDrift {
+			tick++
+			if hostSeekDue(lastPosition, position, tick) {
 				_ = room.Seek(context.Background(), position)
 			}
 			lastPosition = position
@@ -585,6 +639,26 @@ func positionOr(v float64, err error, fallback float64) float64 {
 		return fallback
 	}
 	return v
+}
+
+// heartbeatEvery is the heartbeat in watchPlayer ticks: the loop polls every
+// 500 ms, so every 10th tick the host repeats its position. A follower that
+// drifted silently converges back through SmoothSeek instead of waiting for
+// the host's next seek (idea-0093).
+const heartbeatEvery = 10
+
+// hostSeekDue reports whether this host tick sends the position: on a real
+// seek jump, or on a heartbeat tick. Heartbeats reuse the ordinary seek path,
+// so followers converge with the same smoothing and no new message type. The
+// first sample never sends: there is nothing to have drifted from yet.
+func hostSeekDue(lastPosition, position float64, tick uint64) bool {
+	if lastPosition == 0 {
+		return false
+	}
+	if position-lastPosition > rtc.MaxSeekDrift || lastPosition-position > rtc.MaxSeekDrift {
+		return true
+	}
+	return tick%heartbeatEvery == 0
 }
 
 // showRoster renders the membership line.
@@ -789,6 +863,7 @@ func (w *window) playFile(f fileEntry) {
 			return
 		}
 		w.setStatus(w.trf("status.playing", f.Name))
+		w.showSubFiles()
 
 		// The prioritiser steers by this report: what is playing, how large it
 		// is, and where in it playback stands. Without it the download window
@@ -936,6 +1011,29 @@ func (w *window) showTracks() {
 	})
 }
 
+// mpvHeaders is what mpv sends on every HTTP fetch of its own: the token
+// that guards the backend, and the client id that owns the torrents.
+// Without the second header mpv is user "" on the backend, and the ownership
+// gate answers 403 to the very films the application added (bug-0089).
+// --http-header-fields repeats, so both ride the same option. An empty client
+// id sends nothing extra: an anonymously added torrent stays reachable
+// anonymously, exactly as before.
+func mpvHeaders(token, clientID string) ([]string, error) {
+	header, err := player.FormatHeader("X-Access-Token", token)
+	if err != nil {
+		return nil, err
+	}
+	headers := []string{header}
+	if clientID != "" {
+		id, err := player.FormatHeader("X-Client-ID", clientID)
+		if err != nil {
+			return nil, err
+		}
+		headers = append(headers, id)
+	}
+	return headers, nil
+}
+
 // startPlayer launches mpv once and reuses it for the rest of the run.
 // mpvOptions is how this window asks for a player.
 //
@@ -962,12 +1060,12 @@ func (w *window) startPlayer() (*player.Player, error) {
 		return w.mpv, nil
 	}
 
-	header, err := player.FormatHeader("X-Access-Token", w.client.Token())
+	headers, err := mpvHeaders(w.client.Token(), w.clientID)
 	if err != nil {
 		return nil, err
 	}
 
-	mpv, err := player.Start(context.Background(), w.mpvOptions(), []string{header})
+	mpv, err := player.Start(context.Background(), w.mpvOptions(), headers)
 	if err != nil {
 		return nil, err
 	}
@@ -1038,9 +1136,15 @@ func (w *window) refresh() {
 
 	w.mu.Lock()
 	w.torrents = out.Torrents
+	playing := ""
+	if w.current != nil {
+		playing = w.current.ID
+	}
 	w.mu.Unlock()
 
 	onMain(w.list.Refresh)
+	preparing := preparingText(w.tr, playingTorrent(out.Torrents, playing))
+	onMain(func() { w.preparing.SetText(preparing) })
 	w.setStatus(w.trf("status.torrents", strconv.Itoa(len(out.Torrents))))
 
 	w.adoptTheRoomsFile()
@@ -1166,6 +1270,91 @@ func (w *window) setStatus(text string) {
 // functions so they can be tested without a display: a room event that is never
 // applied looks exactly like a room where nothing happened, and that is not a
 // failure anything else in the suite would notice.
+
+// playingTorrent finds the playing torrent in a fresh list: the poll replaces
+// the slice every two seconds, so the window's pointer goes stale on every
+// refresh. A torrent the backend dropped (removed elsewhere) reads as "not
+// playing" rather than as last week's download.
+func playingTorrent(torrents []Torrent, playingID string) *Torrent {
+	if playingID == "" {
+		return nil
+	}
+	for i := range torrents {
+		if torrents[i].ID == playingID {
+			return &torrents[i]
+		}
+	}
+	return nil
+}
+
+// preparingText renders the download-visibility line for the playing torrent:
+// name, percent and backend status. Empty when there is nothing to report —
+// no torrent playing, or the download already finished. The numbers come
+// from the 2-second list poll: no new endpoints for one line.
+func preparingText(tr func(string) string, t *Torrent) string {
+	if t == nil || t.Name == "" || t.Progress >= 1 {
+		return ""
+	}
+	pct := int(t.Progress * 100)
+	if pct < 0 {
+		pct = 0
+	}
+	return fmt.Sprintf(tr("status.preparing"), t.Name, pct, torrentStatusWord(tr, t.Status))
+}
+
+// torrentStatusWord translates the backend's English status id for display.
+// An unknown id shows as it arrived: a new backend state stays visible
+// without a frontend change.
+func torrentStatusWord(tr func(string) string, status string) string {
+	if word := tr("torrent." + status); word != "" {
+		return word
+	}
+	return status
+}
+
+// rosterSnapshot records a roster by peer id for the next diff.
+func rosterSnapshot(peers []rtc.Peer) map[string]string {
+	out := make(map[string]string, len(peers))
+	for _, p := range peers {
+		out[p.PeerID] = p.UserID
+	}
+	return out
+}
+
+// rosterNotices diffs the previous roster against the new one and renders one
+// status line per arrival and departure, arrivals in roster order. The room
+// line already shows who is here; these lines say what just changed. The
+// first roster after joining is a baseline, not an arrival burst: everyone
+// already there is discovered, not joined. Self is silent.
+func rosterNotices(tr func(string) string, prev map[string]string, next []rtc.Peer, selfID string) []string {
+	if len(prev) == 0 {
+		return nil
+	}
+	var lines []string
+	for _, p := range next {
+		if p.PeerID == selfID {
+			continue
+		}
+		if _, known := prev[p.PeerID]; !known {
+			lines = append(lines, fmt.Sprintf(tr("status.peerJoined"), p.UserID))
+		}
+	}
+	inNext := make(map[string]struct{}, len(next))
+	for _, p := range next {
+		inNext[p.PeerID] = struct{}{}
+	}
+	var left []string
+	for id, user := range prev {
+		if id == selfID {
+			continue
+		}
+		if _, still := inNext[id]; !still {
+			left = append(left, fmt.Sprintf(tr("status.peerLeft"), user))
+		}
+	}
+	sort.Strings(left)
+	return append(lines, left...)
+}
 
 // describeRoster renders the membership line.
 func describeRoster(peers []rtc.Peer) []string {

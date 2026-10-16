@@ -13,6 +13,7 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
 // TestTheWindowBuilds is the smoke test the constructor never had.
@@ -96,31 +97,144 @@ func TestTheSocketPathIsPerProcess(t *testing.T) {
 	}
 }
 
-// The --signaler flag is a deliberate override for one run: a saved setting
+// The --bootstrap flag is a deliberate override for one run: a saved setting
 // must not silently outrank the person who typed the flag, and nobody having
-// said anything must mean the public default rather than a dead address.
+// said anything must mean the public defaults (empty) rather than a dead address.
 func TestWhereRoomsMeetComesFromTheFlagThenTheSetting(t *testing.T) {
 	_ = test.NewApp()
 
 	store := NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
-	if err := store.Save(Settings{Signaler: "ws://saved/"}); err != nil {
+	if err := store.Save(Settings{Bootstrap: "ma://saved/"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	client := api.New("http://127.0.0.1:1", "test-token")
 
-	flagged, _ := newWindow(client, "peer", store, WindowOptions{Signaler: "ws://flag/"})
-	if got := flagged.signaler(); got != "ws://flag/" {
+	flagged, _ := newWindow(client, "peer", store, WindowOptions{Bootstrap: "ma://flag/"})
+	if got := flagged.rendezvous(); got != "ma://flag/" {
 		t.Errorf("the flag was not the one used: got %q", got)
 	}
 
 	saved, _ := newWindow(client, "peer", store, WindowOptions{})
-	if got := saved.signaler(); got != "ws://saved/" {
-		t.Errorf("the saved signaler was not used: got %q", got)
+	if got := saved.rendezvous(); got != "ma://saved/" {
+		t.Errorf("the saved rendezvous was not used: got %q", got)
 	}
 
 	def, _ := newWindow(client, "peer", nil, WindowOptions{})
-	if got := def.signaler(); got != DefaultSignaler {
-		t.Errorf("nobody chose a signaler and the window chose %q", got)
+	if got := def.rendezvous(); got != "" {
+		t.Errorf("nobody chose rendezvous and the window chose %q", got)
+	}
+}
+
+// The --relays flag follows the same precedence as --bootstrap: a run that
+// says nothing must read as DHT discovery (empty), not as a dead address.
+func TestFallbackRelaysComeFromTheFlagThenTheSetting(t *testing.T) {
+	_ = test.NewApp()
+
+	store := NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
+	if err := store.Save(Settings{Relays: "ma://saved-relay/"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	client := api.New("http://127.0.0.1:1", "test-token")
+
+	flagged, _ := newWindow(client, "peer", store, WindowOptions{Relays: "ma://flag-relay/"})
+	if got := flagged.fallbackRelays(); got != "ma://flag-relay/" {
+		t.Errorf("the flag was not the one used: got %q", got)
+	}
+
+	saved, _ := newWindow(client, "peer", store, WindowOptions{})
+	if got := saved.fallbackRelays(); got != "ma://saved-relay/" {
+		t.Errorf("the saved relays were not used: got %q", got)
+	}
+
+	def, _ := newWindow(client, "peer", nil, WindowOptions{})
+	if got := def.fallbackRelays(); got != "" {
+		t.Errorf("nobody chose relays and the window chose %q", got)
+	}
+}
+
+// The host repeats its position every five seconds even when nothing moved:
+// a follower that drifted silently must converge without waiting for the
+// next seek — while a real seek still travels immediately, and the first
+// sample adopts rather than broadcasts.
+func TestTheHostSendsAHeartbeatBetweenSeeks(t *testing.T) {
+	if hostSeekDue(0, 100, 10) {
+		t.Error("the first sample adopts the position, it does not broadcast it")
+	}
+	if hostSeekDue(100, 100.4, 3) {
+		t.Error("drift inside the smoothing boundary is not a seek and it is not heartbeat time either")
+	}
+	if !hostSeekDue(100, 100.4, 10) {
+		t.Error("the 10th tick repeats a steady position: that is the heartbeat")
+	}
+	if !hostSeekDue(100, 100.4, 20) {
+		t.Error("the heartbeat repeats every ten ticks, not just once")
+	}
+	if !hostSeekDue(100, 150, 3) {
+		t.Error("a real seek jump travels on its own tick, heartbeat or not")
+	}
+	if !hostSeekDue(150, 100, 7) {
+		t.Error("a backward jump is a seek too")
+	}
+}
+
+// The preparing line reports the playing download and nothing else: no
+// torrent, a finished one, or one the backend dropped read as an empty line,
+// and an unknown backend status shows as it arrived rather than as a blank.
+func TestThePreparingLineReportsThePlayingDownload(t *testing.T) {
+	tr := func(key string) string { return catalog.Lookup(catalog.English, key) }
+
+	if got := preparingText(tr, nil); got != "" {
+		t.Errorf("no torrent playing must read as no line, got %q", got)
+	}
+	done := &Torrent{ID: "a", Name: "Film.mkv", Progress: 1, Status: "seeding"}
+	if got := preparingText(tr, done); got != "" {
+		t.Errorf("a finished download must read as no line, got %q", got)
+	}
+	half := &Torrent{ID: "a", Name: "Film.mkv", Progress: 0.42, Status: "downloading"}
+	if got, want := preparingText(tr, half), "Fetching Film.mkv — 42% (Downloading)"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	strange := &Torrent{ID: "a", Name: "Film.mkv", Progress: 0.1, Status: "mystery"}
+	if got, want := preparingText(tr, strange), "Fetching Film.mkv — 10% (mystery)"; got != want {
+		t.Errorf("an unknown status must show as it arrived, got %q, want %q", got, want)
+	}
+
+	list := []Torrent{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}}
+	if got := playingTorrent(list, "b"); got == nil || got.Name != "B" {
+		t.Errorf("the playing torrent must be found by id")
+	}
+	if playingTorrent(list, "gone") != nil {
+		t.Error("a torrent the backend dropped must read as not playing")
+	}
+	if playingTorrent(list, "") != nil {
+		t.Error("no selection must read as not playing")
+	}
+}
+
+// The roster line already shows who is here; these notices say what changed.
+// A first roster is a baseline rather than an arrival burst, self is silent,
+// and departures read in a stable order no matter how the map iterates.
+func TestTheRosterChangesAreNoticed(t *testing.T) {
+	tr := func(key string) string { return catalog.Lookup(catalog.English, key) }
+
+	if got := rosterNotices(tr, nil, []rtc.Peer{{PeerID: "a", UserID: "u-a"}}, "me"); len(got) != 0 {
+		t.Errorf("the first roster baselines, it does not announce: %q", got)
+	}
+	prev := rosterSnapshot([]rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}})
+
+	if got := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}, {PeerID: "b", UserID: "u-b"}}, "me"); len(got) != 1 || got[0] != "u-b joined" {
+		t.Errorf("a join must notice exactly the joiner, got %q", got)
+	}
+	if got := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}}, "me"); len(got) != 0 {
+		t.Errorf("no change must read as silence, got %q", got)
+	}
+	left := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}}, "me")
+	if len(left) != 1 || left[0] != "u-a left" {
+		t.Errorf("a departure must notice exactly the leaver, got %q", left)
+	}
+	withSelf := rosterNotices(tr, map[string]string{}, []rtc.Peer{{PeerID: "me", UserID: "u-me"}}, "me")
+	if len(withSelf) != 0 {
+		t.Errorf("self arrival is answered by the room opening, got %q", withSelf)
 	}
 }
 

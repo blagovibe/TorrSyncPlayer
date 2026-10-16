@@ -22,9 +22,10 @@ const (
 	StorageDisk = "disk"
 )
 
-// DefaultSignaler is where rooms meet unless a flag or a setting says
-// otherwise: weron's public signaler, the same one Multiplex uses.
-const DefaultSignaler = "wss://weron.up.railway.app/"
+// ExampleBootstrap shows the bootstrap field's format: comma-separated
+// multiaddrs with /p2p/. It is one of libp2p's public bootstrap nodes, shown
+// as a placeholder — an empty field already means the public defaults.
+const ExampleBootstrap = "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"
 
 // Settings are the choices a person makes that should survive a restart.
 //
@@ -57,9 +58,16 @@ type Settings struct {
 	GatewayPass   string `json:"gatewayPass,omitempty"`
 	GatewayCACert string `json:"gatewayCaCert,omitempty"`
 
-	// Signaler is where rooms meet. Empty means the public default; the
-	// --signaler flag overrides it for one launch.
-	Signaler string `json:"signaler,omitempty"`
+	// Bootstrap is DHT rendezvous as comma-separated multiaddrs with /p2p/.
+	// Empty means the public defaults; the --bootstrap flag overrides it for
+	// one launch.
+	Bootstrap string `json:"bootstrap,omitempty"`
+
+	// Relays are the owner's fallback relay candidates as comma-separated
+	// multiaddrs with /p2p/. Empty means DHT discovery only: autorelay finds
+	// candidates by walking the DHT, and nothing is configured. The --relays
+	// flag overrides it for one launch.
+	Relays string `json:"relays,omitempty"`
 }
 
 // UsesDiskStorage reports whether pieces go to disk.
@@ -86,17 +94,25 @@ func (s Settings) Problem() string {
 	return ""
 }
 
-// EffectiveSignaler resolves where rooms meet: the flag, then the setting,
-// then the public default. The flag is a deliberate override for one launch,
-// and a saved setting must not silently outrank it.
-func EffectiveSignaler(flagValue, setting string) string {
+// EffectiveBootstrap resolves where rooms meet: the flag, then the setting,
+// then empty, which the mesh reads as the public defaults. The flag is a
+// deliberate override for one launch, and a saved setting must not silently
+// outrank it.
+func EffectiveBootstrap(flagValue, setting string) string {
 	if flagValue != "" {
 		return flagValue
 	}
-	if setting != "" {
-		return setting
+	return setting
+}
+
+// EffectiveRelays resolves the fallback relays: the flag, then the setting,
+// then empty, which the mesh reads as DHT discovery only. Same precedence
+// shape as rendezvous: one launch override must outrank the saved choice.
+func EffectiveRelays(flagValue, setting string) string {
+	if flagValue != "" {
+		return flagValue
 	}
-	return DefaultSignaler
+	return setting
 }
 
 // ExpandPath turns a leading ~ into this user's home directory, so a typed

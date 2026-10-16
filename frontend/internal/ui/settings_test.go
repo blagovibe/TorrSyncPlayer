@@ -87,7 +87,7 @@ func TestSettingsDefaultPathIsPerApplication(t *testing.T) {
 }
 
 // The dialog edits more than a language and a colour scheme now: storage, the
-// gateway and the signaler all live here. A field that is written and read
+// gateway and rendezvous all live here. A field that is written and read
 // back wrongly is a setting that looks like it works, which is the exact shape
 // of the mpv bug the file's other tests exist for.
 func TestSettingsRememberEverythingTheDialogEdits(t *testing.T) {
@@ -104,7 +104,7 @@ func TestSettingsRememberEverythingTheDialogEdits(t *testing.T) {
 		GatewayUser:   "friend",
 		GatewayPass:   "secret",
 		GatewayCACert: "/etc/ca.pem",
-		Signaler:      "ws://127.0.0.1:1337/",
+		Bootstrap:     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
 	}
 	require.NoError(t, store.Save(written))
 
@@ -156,10 +156,18 @@ func TestTheGatewayNeedsBothHalvesOfItsLogin(t *testing.T) {
 // Where rooms meet: the flag is a deliberate override for one launch, so it
 // wins; then the setting; then the public address. Getting the order wrong
 // silently ignores the person who typed the flag.
-func TestTheSignalerPrecedence(t *testing.T) {
-	assert.Equal(t, "ws://flag/", EffectiveSignaler("ws://flag/", "ws://setting/"))
-	assert.Equal(t, "ws://setting/", EffectiveSignaler("", "ws://setting/"))
-	assert.Equal(t, DefaultSignaler, EffectiveSignaler("", ""))
+func TestTheBootstrapPrecedence(t *testing.T) {
+	assert.Equal(t, "ma://flag/", EffectiveBootstrap("ma://flag/", "ma://setting/"))
+	assert.Equal(t, "ma://setting/", EffectiveBootstrap("", "ma://setting/"))
+	assert.Equal(t, "", EffectiveBootstrap("", ""))
+}
+
+// The fallback relays follow the same precedence: flag, setting, then empty,
+// which the mesh reads as DHT discovery only.
+func TestTheRelaysPrecedence(t *testing.T) {
+	assert.Equal(t, "ma://flag/", EffectiveRelays("ma://flag/", "ma://setting/"))
+	assert.Equal(t, "ma://setting/", EffectiveRelays("", "ma://setting/"))
+	assert.Equal(t, "", EffectiveRelays("", ""))
 }
 
 // A typed ~ has to mean the same directory the form would have prefilled, or

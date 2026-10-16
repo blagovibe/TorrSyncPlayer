@@ -34,7 +34,8 @@ import (
 func main() {
 	var (
 		clientID  = flag.String("c", "client-id", "Client identifier for P2P room (auto-generated if not provided)")
-		signaler  = flag.String("signaler", "", "Weron signaler where rooms meet (empty: the saved setting, then the public one)")
+		bootstrap = flag.String("bootstrap", "", "DHT rendezvous as comma-separated multiaddrs (empty: the saved setting, then the public defaults)")
+		relays    = flag.String("relays", "", "Fallback relay candidates as comma-separated multiaddrs (empty: the saved setting, then DHT discovery)")
 		lang      = flag.String("lang", "", "Interface language: ru, en")
 		noTray    = flag.Bool("no-tray", false, "Don't use system tray")
 		darkTheme = flag.Bool("dark-theme", false, "Use dark theme")
@@ -46,7 +47,8 @@ func main() {
 		Language:  *lang,
 		NoTray:    *noTray,
 		DarkTheme: *darkTheme,
-		Signaler:  *signaler,
+		Bootstrap: *bootstrap,
+		Relays:    *relays,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "TorrSyncPlayer:", err)
 		os.Exit(1)
@@ -58,7 +60,8 @@ type runOptions struct {
 	Language  string
 	NoTray    bool
 	DarkTheme bool
-	Signaler  string
+	Bootstrap string
+	Relays    string
 }
 
 // backendLaunch turns the saved choices into the child's launch description.
@@ -152,8 +155,9 @@ func run(opts runOptions) error {
 
 	window := a.NewWindow("TorrSyncPlayer")
 	window.SetContent(ui.NewWindow(client, clientID, store, ui.WindowOptions{
-		Language: opts.Language,
-		Signaler: opts.Signaler,
+		Language:  opts.Language,
+		Bootstrap: opts.Bootstrap,
+		Relays:    opts.Relays,
 	}))
 	window.Resize(fyne.NewSize(1100, 700))
 
