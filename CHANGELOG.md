@@ -101,7 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   established `#nosec -- reason` pattern) and two dead struct fields in a
   recording fake (deleted). Verified with the same linter version locally:
   0 issues. The in-flight v0.1.0 artifacts are unaffected: the release
-  workflow runs no lint, and the findings were test-only.
+  workflow runs no lint, and the findings were test-only. Follow-up in the
+  same job: `go mod tidy` demotes the stale direct require
+  `golang.org/x/crypto` (nothing imports it anymore) and the job's
+  tidy-check failed on the diff — committed as tidied.
 
 - Autorelay with a peer source (idea-0087, accepted and transferred; card
   removed). Bare `EnableAutoRelay()` panics without candidates, so the node
