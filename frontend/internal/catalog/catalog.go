@@ -96,6 +96,11 @@ var catalog = map[string]string{
 	"action.open":         "Open",
 	"action.quit":         "Quit",
 	"action.ok":           "OK",
+	"action.shortcuts":    "Shortcuts",
+	"shortcuts.title":     "Keyboard shortcuts",
+	"shortcut.focus":      "Focus the magnet field",
+	"shortcut.refresh":    "Refresh the torrent list",
+	"shortcut.settings":   "Open settings",
 	"field.invite":        "paste the invitation code",
 
 	// The track choosers. Their keys existed in the window but not in the
@@ -204,6 +209,11 @@ var Russian = Strings{
 	"action.open":                   "Открыть",
 	"action.quit":                   "Выход",
 	"action.ok":                     "ОК",
+	"action.shortcuts":              "Шорткаты",
+	"shortcuts.title":               "Горячие клавиши",
+	"shortcut.focus":                "Фокус в поле magnet-ссылки",
+	"shortcut.refresh":              "Обновить список торрентов",
+	"shortcut.settings":             "Открыть настройки",
 	"field.invite":                  "вставьте код приглашения",
 	"track.audio":                   "Аудио",
 	"track.sub":                     "Субтитры",

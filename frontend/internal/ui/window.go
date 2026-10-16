@@ -194,11 +194,27 @@ type WindowOptions struct {
 }
 
 // NewWindow builds the main window around a client and starts its loops.
-func NewWindow(client *api.Client, clientID string, store *SettingsStore, opts WindowOptions) fyne.CanvasObject {
+// NewWindow builds the main window around a client and starts its loops.
+// It hands back a stop function beside the content: quitting must put the
+// player down, because an mpv nobody closed stays running idle with its
+// window open and its control socket behind.
+func NewWindow(client *api.Client, clientID string, store *SettingsStore, opts WindowOptions) (fyne.CanvasObject, func()) {
 	w, content := newWindow(client, clientID, store, opts)
 	go w.poll()
 	go w.watchPlayer()
-	return content
+	return content, w.stopPlayer
+}
+
+// stopPlayer puts the player down: without it the application exits and
+// the film window stays, playing to nobody.
+func (w *window) stopPlayer() {
+	w.mu.Lock()
+	mpv := w.mpv
+	w.mpv = nil
+	w.mu.Unlock()
+	if mpv != nil {
+		mpv.Close()
+	}
 }
 
 // newWindow builds the window and its contents, and starts nothing: the
@@ -256,6 +272,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		w.addButton,
 		widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
 		layout.NewSpacer(),
+		widget.NewButtonWithIcon(w.tr("action.shortcuts"), theme.InfoIcon(), w.showShortcuts),
 		widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), w.showSettings),
 	)
 
@@ -370,6 +387,8 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			return mpv.Position(ctx)
 		},
 	})
+
+	w.bindShortcuts()
 
 	return w, container.NewStack(body)
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
@@ -288,6 +289,24 @@ func TestAFailureInterruptsAndPersists(t *testing.T) {
 	if got := w2.events.Text; got != "boom" {
 		t.Errorf("a failure with a parent window must still reach the event line, got %q", got)
 	}
+}
+
+// Quitting must take the player with it: an mpv nobody closed keeps its
+// window open playing to nobody, which is exactly what exiting past it did.
+func TestQuittingPutsThePlayerDown(t *testing.T) {
+	_ = test.NewApp()
+	client := api.New("http://127.0.0.1:1", "test-token")
+
+	w, _ := newWindow(client, "peer-test", nil, WindowOptions{})
+	if w.mpv != nil {
+		t.Fatal("a fresh window has no player to put down")
+	}
+	w.mpv = &player.Player{}
+	w.stopPlayer()
+	if w.mpv != nil {
+		t.Error("stopPlayer must detach the player so nothing drives it after quit")
+	}
+	w.stopPlayer()
 }
 
 // The roster line already shows who is here; these notices say what changed.

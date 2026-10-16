@@ -322,3 +322,19 @@ func waitFor(t *testing.T, within time.Duration, done func() bool) {
 	}
 	t.Fatal("condition was not met in time")
 }
+
+// A killed mpv cannot remove its own control socket, so Close removes it:
+// every playback session otherwise leaves one torrsync-<pid>.sock behind
+// in /tmp, proven by killing a real mpv and watching the file stay.
+func TestCloseRemovesTheControlSocket(t *testing.T) {
+	path := testSocketPath(t, "close")
+	if err := os.WriteFile(path, []byte("stale"), 0o600); err != nil {
+		t.Fatalf("setting up a stale socket: %v", err)
+	}
+	p := &Player{sock: path}
+	p.Close()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Close left the control socket behind: %s", path)
+	}
+	p.Close()
+}

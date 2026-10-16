@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -241,10 +242,16 @@ func (p *Player) Duration(ctx context.Context) (float64, error) {
 // Close stops mpv.
 func (p *Player) Close() {
 	p.closeOnce.Do(func() {
-		if p.cmd.Process != nil {
+		if p.cmd != nil && p.cmd.Process != nil {
 			_ = p.cmd.Process.Kill()
 			_, _ = p.cmd.Process.Wait()
 		}
+		// A killed process cannot remove its own control socket, so the
+		// socket is ours to take: without this every playback session
+		// leaves one torrsync-<pid>.sock behind in /tmp. The path is
+		// tagged with this process's pid, so no other player's file can
+		// be meant; a missing file is silence, not an error.
+		_ = os.Remove(p.sock)
 	})
 }
 

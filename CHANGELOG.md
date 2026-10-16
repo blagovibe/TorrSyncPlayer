@@ -66,6 +66,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block, the shared-rendezvous check and the event line — and the settings
   field is named `Бутстрап`, not `Рандеву`, as the old text claimed.
   Verified by reading against the layout, the catalogue and the poll.
+- Player teardown on quit (bug-0104, card removed). Quitting left mpv
+  running idle with its window open, and every playback session left one
+  `torrsync-<pid>.sock` in /tmp — a killed mpv cannot remove its own
+  socket, proven by killing a real one and watching the file stay. Now
+  `Player.Close` takes the socket with the process (the path is pid-tagged,
+  so only ever its own; a missing file is silence), `NewWindow` hands back
+  a stop function, and `main` defers it. The same pass nil-guarded `Close`
+  against a missing command, which the new test tripped over. Verified:
+  `go test ./internal/player/ ./internal/ui/` green, including the socket
+  removal and the quit-detaches-player pins.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two

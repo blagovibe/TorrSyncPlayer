@@ -154,12 +154,14 @@ func run(opts runOptions) error {
 	}
 
 	window := a.NewWindow("TorrSyncPlayer")
-	window.SetContent(ui.NewWindow(client, clientID, store, ui.WindowOptions{
+	content, stopPlayer := ui.NewWindow(client, clientID, store, ui.WindowOptions{
 		Language:  opts.Language,
 		Bootstrap: opts.Bootstrap,
 		Relays:    opts.Relays,
 		Parent:    window,
-	}))
+	})
+	defer stopPlayer()
+	window.SetContent(content)
 	window.Resize(fyne.NewSize(1100, 700))
 
 	// The first-launch storage question goes up with the window. It does
