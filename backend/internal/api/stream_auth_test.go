@@ -148,6 +148,7 @@ func (s *servedTorrent) CanRead(_ context.Context, _ string, _ string) bool {
 func (s *servedTorrent) ServeFile(w http.ResponseWriter, _ *http.Request, _ string, userID string) {
 	s.servedAs = userID
 	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- test double writes its own fixture bytes, not user input
 	_, _ = w.Write([]byte(s.body))
 }
 

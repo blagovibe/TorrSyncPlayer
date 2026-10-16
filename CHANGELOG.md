@@ -94,6 +94,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   argument on release day; the `/api/v1` path prefix is unrelated and
   untouched.
 
+- Lint Backend red on the release pipeline (trivial fix, no card: one
+  package, test files only, no goal/way/interface change). golangci-lint
+  v2.14.0 brought new checks the tree never saw: gosec G705 taint on two
+  test doubles writing fixture bytes (suppressed with reason, the
+  established `#nosec -- reason` pattern) and two dead struct fields in a
+  recording fake (deleted). Verified with the same linter version locally:
+  0 issues. The in-flight v0.1.0 artifacts are unaffected: the release
+  workflow runs no lint, and the findings were test-only.
+
 - Autorelay with a peer source (idea-0087, accepted and transferred; card
   removed). Bare `EnableAutoRelay()` panics without candidates, so the node
   carries its own: the owner's static relays first (`--relays` flag,

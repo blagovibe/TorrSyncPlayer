@@ -175,6 +175,7 @@ func (s *servedSubtitles) ServeSubtitles(w http.ResponseWriter, _ *http.Request,
 	s.servedTorrent = torrentID
 	s.servedIndex = fileIndex
 	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- test double writes its own fixture bytes, not user input
 	_, _ = w.Write([]byte(s.body))
 }
 

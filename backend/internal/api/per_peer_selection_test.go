@@ -59,8 +59,6 @@ type recordingTorrentService struct {
 	// нет, и раздача молча не происходит.
 	magnet    string
 	magnetErr error
-	name      string
-	selected  int
 }
 
 func newRecordingTorrentService() *recordingTorrentService {
