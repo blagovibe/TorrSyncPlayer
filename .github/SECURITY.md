@@ -92,14 +92,14 @@ desktop app, so the media bytes are handled by the server. Pieces are held in
 memory by default, or on disk under `--data-dir` with `--disk-storage`.
 
 **Playback synchronisation does not.** Play, pause, seek and buffering reports
-travel a WebRTC data channel between the participants' own applications; the
-server never sees them, has no endpoint for them, and keeps no state about
-them (idea-0064). What the server operator can reconstruct about viewing ends
+travel encrypted libp2p streams between the participants' own applications;
+the server never sees them, has no endpoint for them, and keeps no state about
+them (idea-0086). What the server operator can reconstruct about viewing ends
 at the media their own backend fetched.
 
 **Room membership does not either.** There are no rooms, names, hosts or
-passwords on this server and nothing persists them. What the *signaler* sees
-instead is below, under Threat Model — it is a different machine with a
+passwords on this server and nothing persists them. What the DHT rendezvous
+sees instead is below, under Threat Model — it is a different machine with a
 different view.
 
 **The access token.** One token per process, printed to stdout at startup unless
@@ -129,13 +129,15 @@ commands and positions never reach it: a room is not a server resource anymore,
 so "which rooms exist" is not a question this machine can answer. What it can
 reconstruct is which torrents its owner fetched — the media itself, as before.
 
-**The signaler is the new party who sees something.** Whoever runs it — by
-default someone else's public service — sees peer IP addresses and community
-membership: who met whom, and in which room. It does not see commands or
-positions: the introductions are encrypted with the invite key, and the data
-channel runs under DTLS. Treat the default signaler as an introducer that
-knows the guest list, not as a participant. `--signaler` points at another
-one; running your own removes even that view.
+**The DHT rendezvous is the party that sees something.** Whoever runs the
+bootstrap nodes — by default someone else's public nodes — sees peer IP
+addresses and provider records: who looked for which rendezvous key, and who
+announced. It does not see commands or positions: streams run under Noise/TLS,
+and admission needs the password on top. A relay, when one carries a harsh-NAT
+pair, sees encrypted traffic between two peer IDs and nothing above that.
+Treat the default bootstrap as an introducer that knows the guest list, not as
+a participant. `--bootstrap` points at other nodes; running your own removes
+even that view, as long as every participant points at it.
 
 **Possession of the access token means full API access — to one backend.**
 There is one token per process and no per-user identity. Anyone holding it
@@ -152,11 +154,13 @@ access control.
 
 **The invite code is the room's only secret, and it is shared by copying.**
 Community, password and key travel one line from host to guest, by hand or by
-messenger. Anyone holding it can watch — and, holding the key, can also speak
-on the data channel, which is why strangers' commands are ignored and only the
-host's are obeyed. There is no attempt limit and no revocation: a leaked code
-cannot be unshared short of opening a new room. A room created without care
-around the code is joinable by anyone who can guess its community — which, for
-a random nine-character string, means anyone who is told it.
+messenger. Anyone holding it can watch — and, holding the key, can also open
+streams, which is why strangers' commands are ignored and only the host's are
+obeyed. There is no attempt limit and no revocation: a leaked code cannot be
+unshared short of opening a new room. The community alone finds the room's
+provider records — they are public by DHT construction — but finding is not
+joining: without the key there is no connection, without the password no
+stream. A room created without care around the code is joinable by anyone who
+is told it, which, for a random nine-character community, means exactly that.
 
 Thank you for helping keep TorrSyncPlayer secure!

@@ -7,6 +7,261 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- PSK swarm gate removed before it reached production (idea-0091, accepted
+  and transferred to the goal and the way; card removed). Slices 1–2 gated
+  the whole swarm by the invite key (`libp2p.PrivateNetwork`), while the ADR
+  promised rendezvous over the public DHT and public relays for harsh NAT —
+  a combination that cannot work: the protector wraps every connection, so a
+  room-keyed node could talk to neither public bootstrap nodes nor public
+  relays, and `Join` would fail on first contact in production. The tests
+  stayed green only because the testbed shares one invite. Per the owner's
+  decision the gate is gone and the key keeps a real job: `deriveAuthKey`
+  now stretches the password and key pair, so admission proves knowledge of
+  both and the invite format `community:password:key` is unchanged.
+  `CONCEPT.md#Доступ без лишних хлопот`, `DEV.md` (invite section and ADR)
+  and `README.md#Что защищено` say what is now true: a stranger may open a
+  transport connection, but gets no stream and hears no message. Tests:
+  `TestDeriveSwarmKey` replaced by `TestDeriveAuthKey` (pair matters both
+  ways, either half empty refuses), `TestDifferentKeyCannotConnect` re-pinned
+  on handshake refusal instead of transport isolation. Verified:
+  `go vet ./internal/rtc/` clean, `FYNE_DRIVER=offscreen go test
+  ./internal/rtc/` green, `-race` clean. Side effect, intended: idea-0087
+  (autorelay) is unblocked as specified — public relays are dialable again.
+
+- Node listened on loopback only (bug-0092, card removed). `NewNode` bound
+  `/ip4/127.0.0.1`, so no inter-machine direct connection could ever exist
+  while the goal promises direct dialing and hole punching; the tests stayed
+  green because every peer lived on one machine. It listens on `0.0.0.0`
+  (TCP+QUIC) now. Verified by the existing DHT suite, which dials peers by
+  their advertised addresses: `go test ./internal/rtc/` green, `-race`
+  clean.
+
+- Position heartbeat (idea-0093, accepted and transferred to the goal and
+  the way; card removed). The goal said sync is event-only — a follower 30
+  seconds behind waited for the host's next command. Now the host repeats
+  its position every 5 seconds unconditionally (every 10th 500 ms
+  `watchPlayer` tick), and followers converge through the ordinary
+  `Position` + `SmoothSeek` path: no new message type, no teleports, pause
+  still travels on change only. `CONCEPT.md#Синхронные комнаты` and
+  `DEV.md#Сглаживание перемотки и heartbeat` (renamed section; no card
+  referenced the old anchor) say the new model. The period decision lives in
+  the testable `hostSeekDue`, not buried in the loop. Verified:
+  `FYNE_DRIVER=offscreen go test ./internal/ui/` green. Also fixed a stale
+  comment left by idea-0091 (`Invite`: the key admits in the handshake pair,
+  it encrypts nothing).
+
+### Added
+
+- Legal-confirm dialog rejected (idea-0096, rejected; card removed). The
+  owner decided against a rights-confirmation screen before playback: an
+  extra click before every film, copyright texts to write and maintain in
+  two languages, while the choice of source already lies with the viewer
+  and the project ships no DRM and no catalogues. Playback keeps starting
+  on file selection, as now.
+
+- Download-visibility line (idea-0094, accepted and transferred; card
+  removed). Playback starts before the download finishes, but no widget said
+  so: the list shows names only, and progress lived in no UI at all. The
+  window now carries a preparing line above the lists — name, percent and
+  backend status of the playing torrent from the existing 2-second poll, no
+  new endpoints. Empty when nothing is playing or the download finished; an
+  unknown backend status shows as it arrived. Decisions live in testable
+  `preparingText`/`playingTorrent`/`torrentStatusWord`, catalogue keys
+  `status.preparing` and `torrent.*` in both languages. Verified:
+  `FYNE_DRIVER=offscreen go test ./internal/ui/ ./internal/catalog/`
+  green (the catalogue-usage gate covers the new keys).
+
+- Roster arrivals and departures are noticed (idea-0095, accepted and
+  transferred; card removed). The room line showed who is here but the
+  moment of change passed silently. `OnRoster` hands the whole roster, so
+  the window keeps the previous one by peer id and reports one status line
+  per arrival and departure, arrivals in roster order. The first roster
+  after joining baselines instead of announcing, and self stays silent.
+  Catalogue keys `status.peerJoined`/`status.peerLeft` in both languages.
+  Verified: `FYNE_DRIVER=offscreen go test ./internal/ui/
+  ./internal/catalog/` green.
+
+- Tags and releases cleaned, version line rolled back to 0.x (owner
+  decision, no card — repo hygiene, not goal/way/code). Deleted: all 114
+  tags (~55 `push-*` CI noise from a dead Qt-era workflow plus phantom
+  v0.x/v1.0.x–v1.1.x that never shipped — no GitHub releases, no changelog
+  entries, red pipeline at the time) and the 4 stale draft `v1.2.0-rc`
+  prereleases. No published release ever existed, so no public promise was
+  broken; the old `[v1.1.5]`/`[1.0.0]` journal sections stay as history.
+  The next release number will be chosen by the `make release VERSION=`
+  argument on release day; the `/api/v1` path prefix is unrelated and
+  untouched.
+
+- Autorelay with a peer source (idea-0087, accepted and transferred; card
+  removed). Bare `EnableAutoRelay()` panics without candidates, so the node
+  carries its own: the owner's static relays first (`--relays` flag,
+  `relays` setting, `MeshOptions.Relays` — empty means DHT discovery only),
+  then random DHT walks capped at `maxRelayWalks`. Room streams open over
+  relayed connections (`WithAllowLimitedConn` in `DialRoom` — a relayed
+  connection is constrained, and without it every reserved path stays shut).
+  Three tests, all green: a magnet round-trip over a forced circuit address
+  (the caller knows no direct address, so the byte travelled the relay),
+  DHT walks yielding candidates, and the setting's shape (empty/duplicates/
+  undialable). The loopback-only listen is gone with it (bug-0092): the node
+  binds `0.0.0.0`, otherwise direct dialing between machines could not exist.
+  Verified: `go vet ./...` clean, `FYNE_DRIVER=offscreen go test
+  ./internal/rtc/` green, `-race` clean, `./internal/ui/` and
+  `./internal/catalog/` green (flag→setting→mesh precedence pinned both
+  ways).
+
+- Slice 1 of the libp2p transplant (idea-0086): `frontend/internal/rtc/p2p.go`
+  with `Node` — one participant's libp2p host. The swarm is gated by the
+  invite key (PSK protector derived by domain-separated SHA-256: without the
+  key there is no connection at all), streams are admitted by the invite
+  password (challenge-response HMAC before a single protocol byte flows;
+  constant-time compare on verify), peers rendezvous over the DHT (provider
+  records under `torrsync-room-v1` + community). Admitted streams speak the
+  unchanged `protocol.go` messages, newline-delimited. Five tests, all green:
+  key derivation, rendezvous determinism, host/guest DHT rendezvous with a
+  magnet round-trip, wrong-password rejection, wrong-key isolation — the last
+  three against an in-process three-node DHT testbed (a stable bootstrap
+  node, mirroring production where bootstrappers are long-lived DHT
+  servers). No `-race` warning from the new code; the only `-race` failures
+  left in the package are the known weron ones in the old tests, which slice
+  2 removes with the transport.
+- Two findings the slice settled, recorded so the next one does not rediscover
+  them: `Bootstrap` must not fall back to the public default bootstrappers
+  when given no peers (hermetic tests must not dial out), and the routing
+  table fills on its own once identify reports kad speakers — a forced crawl
+  on an empty table errors instead of helping, so `WaitReady` waits rather
+  than pushes. A peer met before its DHT existed is admitted on the next
+  contact, which is why the testbed stands its bootstrap node up first.
+
+- `DEV.md#Хранение данных` documents the registry and the ownership now
+  (idea-0059, accepted): what survives a restart, why the registry keeps the
+  source rather than a metadata summary, and why ownerless torrents stay open.
+  One paragraph in the existing section, no duplication, no new sections —
+  as the card proposed and the owner confirmed. The card is removed; no code
+  changed, nothing to run.
+
+- Subtitles, slice A: the endpoint (idea-0080, variant 2).
+  `GET /api/v1/torrents/{id}/subtitles/{fileIndex}/{fileName}` serves any
+  torrent file by index with the `/stream` gates (access-token header,
+  client id, room-scoped read access) but no selection requirement: subtitle
+  tracks live next to the film. The trailing name is mpv's, not the server's
+  — sub-add reads the subtitle format off the URL's extension and refuses an
+  extensionless one (proven against the real binary), so the client repeats
+  the file name and the server ignores it. `TorrentService` grew
+  `ServeSubtitles`; the Swagger spec is regenerated (CI freshness gate
+  holds). Nine service/API tests plus index-routing and name-ignoring pins.
+- Subtitles, slice B: the player and the window. `Player.AddSubtitles`
+  (sub-add with reply check) and `RemoveExternalSubtitles` (sub-remove over
+  external tracks only; `Track` grew `External`), a "Sub file" chooser next
+  to the track choosers fed by the torrent listing (`.srt/.vtt/.ass/.ssa/
+  .sub`, off by default), and `Client.SubtitlesURL` building the endpoint URL
+  with the file name escaped. Proven against the real mpv over authenticated
+  HTTP, and end to end: a real seeder, a real swarm, the endpoint serving
+  real bytes (401 without the token), mpv listing the external track.
+- idea-0080 closed: container tracks (done earlier) plus torrent-file
+  subtitles (here) cover both halves; the card is removed.
+- Critical fix found by slice B (bug-0089, card removed): mpv fetched with
+  the token alone and no `X-Client-ID`, so since the ownership gate it has
+  been user "" against real owners — 403 on every `/stream` and `/subtitles`
+  fetch. Fixed by sending the owner's identity too, in one comma-joined
+  `--http-header-fields`: repeated flags do not accumulate in mpv, the last
+  flag wins and the earlier headers never leave the machine (proven against
+  the real binary). `Args` joins into one flag, `FormatHeader` additionally
+  rejects commas, `mpvHeaders` builds the pair. Anonymous flows (empty client
+  id) are unchanged.
+
+### Changed
+
+- Room transport moves from weron to go-libp2p (idea-0086, accepted and
+  transferred to the goal and the way). weron is frozen — no push in 18
+  months, a bugfix PR open for 2 years — and holds two detector-proven races
+  (`wrtcsgl` client map, `wrtcconn` `done` flag) that cannot be worked around
+  from our code: the client race sits on the `Close` path itself, and Go's
+  race runtime ignores `TSAN_OPTIONS=suppressions`, so no suppression file can
+  silence it. A GitHub-wide search confirmed there is no maintained drop-in
+  replacement; go-libp2p is the only live popular P2P stack, and writing our
+  own pion client was rejected as ~100× the cost for the same result.
+- `CONCEPT.md#Синхронные комнаты`: rendezvous is the public DHT (IPFS
+  bootstrap nodes + Kademlia), commands travel encrypted libp2p streams,
+  autorelay covers harsh NAT, invite format `community:password:key` keeps its
+  roles (rendezvous key, password handshake, signaling key).
+- `DEV.md`: new ADR (2026-10-16, replaces the weron ADR), `internal/rtc`
+  retargeted at libp2p, stack pins go-libp2p v0.50.0 (needs Go 1.26 — our
+  toolchain), scenario tests run against a local DHT testbed, principle 6
+  reworded. Decisions confirmed by the owner: public DHT bootstrap, password
+  handshake admission, autorelay on, whole-swap rollout behind green scenario
+  tests.
+- Audit: bug-0084 removed as moot — both races die with the library instead
+  of being fixed. Its out-of-process helper (`testsignaler`, `TestMain`
+  build) never reached `main` and is reverted from the tree. libp2p stays the
+  recorded fallback direction only in the sense that re-evaluation, if ever
+  needed, starts from idea-0086's rejected options.
+- Slice 2 landed the code: `Mesh` runs on `Node`, the `Transport` interface
+  `Room` talks through untouched, so roster, host authority, takeover and
+  seek smoothing moved over byte-identical. `MeshOptions.Signaler` became
+  `MeshOptions.Bootstrap` (comma-separated multiaddrs with /p2p/, empty means
+  the public defaults); duplicate streams to one peer resolve first-wins,
+  since sends are keyed by ID and either survivor carries the same traffic;
+  late joiners converge through a 15 s rediscovery loop.
+- Settings and flags follow the transport: `--signaler` is `--bootstrap`,
+  the saved `signaler` key is `bootstrap`, the form label and both catalogue
+  languages say rendezvous. An old saved weron URL is dropped, not migrated —
+  it could never be a bootstrap address. Empty still means the public
+  defaults; the placeholder shows an example multiaddr instead of a URL.
+- The stranger rule changed shape with the transport and is pinned as such:
+  presence publishes for everyone (presence is not authority), but no
+  handshake passes either way — the stranger never sees a peer, never hears
+  traffic, the room never sees it, and the room keeps working around it.
+- Still open after slice 2, owned by the next step: README and SECURITY.md
+  describe the weron arrangement (bug-0088). Code, goal and way agree; those
+  two documents lag one slice behind.
+
+### Removed
+
+- weron, entirely: `signaler_test.go`, the `wrtcconn`/`wrtcsgl` imports in
+  mesh, pipe and integration tests, and the dependency itself (`go mod tidy`
+  confirms zero mentions in go.mod/go.sum). The in-process test signaler is
+  replaced by a DHT testbed built on the exported `Node` API.
+- idea-0087 opened for what slice 2 deliberately leaves out: autorelay needs
+  a peer source or static relays (bare `EnableAutoRelay()` panics), so only
+  direct connections plus hole punching ship — parity with weron, no
+  regression, the promised relay gain pending.
+
+### Verified (slice 2)
+
+- `go test ./...` green across all frontend packages; `go test -race
+  ./internal/rtc/` green with **zero** warnings — the detector class bug-0084
+  was opened for is gone with the library, proven by the detector itself.
+- `TestARoomWithoutAServer` passes end to end on the new transport: real
+  backends, real torrent swarm, magnet, adoption, pause fan-out, takeover.
+
+### Fixed
+
+- README described the removed server-brokered architecture instead of the
+  P2P mesh (bug-0085). The rooms bullet, the "watch together" flow, the
+  "what is protected" paragraph, the troubleshooting section, the API table
+  and the limitations all assumed REST rooms, SSE event streams and stream
+  tickets — none of which exist since idea-0064: rooms meet over the weron
+  signaler, commands travel the WebRTC data channel, `/stream` checks the
+  ordinary `X-Access-Token` header, and the ticket machinery is gone
+  entirely. The table now lists the real routes from `router.go`, and the
+  invite code `community:password:key` is documented where the room password
+  used to be. Reconciliation: zone was empty (last commit touched this file,
+  tree clean), backend `go test ./...` green, frontend
+  `FYNE_DRIVER=offscreen go test ./...` green; one finding, fixed, card
+  removed.
+- README and SECURITY.md describe the libp2p arrangement instead of weron
+  (bug-0088). README named the signaler, fixed a "WebRTC connection" and sent
+  the reader to `--signaler`, which no longer exists; SECURITY threat-modeled
+  a party that no longer exists. Now: rendezvous over the public DHT with
+  `--bootstrap`, the swarm gated by the key, streams admitted by the password
+  handshake, and the DHT/bootstrap/relay view spelled out as the party that
+  sees something. The relay paragraph is conditional on autorelay (idea-0087):
+  direct connections plus hole punching are what ships, and the limitation
+  says exactly that. Card removed; no code changed, no tests to run beyond
+  the prose itself.
+
 ### Added
 
 - **A room can be opened from the application.** `Session.Create` existed, was
