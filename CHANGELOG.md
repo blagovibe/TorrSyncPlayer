@@ -39,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it takes a live run — keys and OSC buttons against a real window. The
   flag is not removed blind: its intent is unknown, and silent behavior
   change beats a card.
+- Modal error dialogs (idea-0090, UX parity slice). Failures of the
+  person's own action — paste, join, add, files, select, mpv start, play —
+  now interrupt with a modal dialog (`dialog.error` title, `action.ok`
+  dismiss, both languages) on top of the event line. Poll and
+  room-background failures stay on the line only: a modal every two seconds
+  for an unreachable backend would be the poll shouting. The parent window
+  arrives via `WindowOptions`; without one (tests) the line is the whole
+  report. Pinned by `TestAFailureInterruptsAndPersists` for both shapes.
+  Verified: `./internal/ui/` and `./internal/catalog/` green.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two

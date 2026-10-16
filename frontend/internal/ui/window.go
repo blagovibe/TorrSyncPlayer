@@ -24,6 +24,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -52,6 +53,10 @@ type window struct {
 	clientID string
 	settings Settings
 	store    *SettingsStore
+	// parent is the application window error dialogs hang off. Tests build
+	// windows without one; then failures still reach the event line, just
+	// without the modal.
+	parent fyne.Window
 
 	list     *widget.List
 	fileList *widget.List
@@ -183,6 +188,9 @@ type WindowOptions struct {
 	Bootstrap string
 	// Relays is the --relays value.
 	Relays string
+	// Parent is the application window dialogs hang off. Empty in tests,
+	// where there is no window to hang one off.
+	Parent fyne.Window
 }
 
 // NewWindow builds the main window around a client and starts its loops.
@@ -201,6 +209,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		client:          client,
 		clientID:        clientID,
 		store:           store,
+		parent:          opts.Parent,
 		bootstrapFlag:   opts.Bootstrap,
 		relaysFlag:      opts.Relays,
 		socketPath:      playerSocketPath(os.Getpid()),
@@ -373,7 +382,7 @@ func (w *window) onJoinPressed() {
 // onPasteCodePressed reads the invitation code pasted into the field.
 func (w *window) onPasteCodePressed() {
 	if _, err := rtc.ParseInviteCode(w.inviteEntry.Text); err != nil {
-		w.notify(err.Error())
+		w.fail(err.Error())
 		return
 	}
 	w.notify(w.tr("status.codeRead"))
@@ -510,13 +519,13 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 func (w *window) joinRoom(code string) {
 	invite, err := rtc.ParseInviteCode(strings.TrimSpace(code))
 	if err != nil {
-		w.notify(err.Error())
+		w.fail(err.Error())
 		return
 	}
 
 	go func() {
 		if _, err := w.joinMesh(invite, false); err != nil {
-			w.notify(w.trf("status.joinFail", err.Error()))
+			w.fail(w.trf("status.joinFail", err.Error()))
 			return
 		}
 		w.notify(w.tr("status.joined"))
@@ -759,11 +768,11 @@ func (w *window) play(t *Torrent) {
 			Files []fileEntry `json:"files"`
 		}
 		if err := w.client.Get(ctx, "/api/v1/torrents/"+t.ID+"/files", &listed); err != nil {
-			w.notify(w.trf("status.torrentReadFail", err.Error()))
+			w.fail(w.trf("status.torrentReadFail", err.Error()))
 			return
 		}
 		if len(listed.Files) == 0 {
-			w.notify(w.tr("status.torrentNoFiles"))
+			w.fail(w.tr("status.torrentNoFiles"))
 			return
 		}
 
@@ -804,7 +813,7 @@ func (w *window) playFile(f fileEntry) {
 		}
 		body := map[string]int{"fileIndex": f.Index}
 		if err := w.client.Post(ctx, "/api/v1/torrents/"+torrent.ID+"/select", body, &selected); err != nil {
-			w.notify(w.trf("status.fileSelectFail", err.Error()))
+			w.fail(w.trf("status.fileSelectFail", err.Error()))
 			return
 		}
 		w.mu.Lock()
@@ -813,12 +822,12 @@ func (w *window) playFile(f fileEntry) {
 
 		p, err := w.startPlayer()
 		if err != nil {
-			w.notify(w.trf("status.mpvStartFail", err.Error()))
+			w.fail(w.trf("status.mpvStartFail", err.Error()))
 			return
 		}
 
 		if err := p.Play(ctx, w.client.StreamURL(torrent.ID)); err != nil {
-			w.notify(w.trf("status.playFail", err.Error()))
+			w.fail(w.trf("status.playFail", err.Error()))
 			return
 		}
 		w.notify(w.trf("status.playing", f.Name))
@@ -1061,7 +1070,7 @@ func (w *window) addTorrent() {
 		var out Torrent
 		body := map[string]string{"magnetUri": magnet}
 		if err := w.client.Post(ctx, "/api/v1/torrents", body, &out); err != nil {
-			w.notify(w.trf("status.couldNot", err.Error()))
+			w.fail(w.trf("status.couldNot", err.Error()))
 			return
 		}
 		onMain(func() { w.entry.SetText("") })
@@ -1238,6 +1247,24 @@ func (w *window) setStatus(text string) {
 // here; the two-second counters stay on status.
 func (w *window) notify(text string) {
 	onMain(func() { w.events.SetText(text) })
+}
+
+// fail reports a failure of the person's own action: the event line keeps
+// it past the next poll, and a modal dialog interrupts for it. Poll and
+// room-background failures stay on the line only — a modal every two
+// seconds for an unreachable backend would be the poll shouting, not
+// reporting. Without a parent window (tests) the dialog has nowhere to
+// hang, and the line is the whole report.
+func (w *window) fail(text string) {
+	w.notify(text)
+	if w.parent == nil {
+		return
+	}
+	parent := w.parent
+	message := text
+	onMain(func() {
+		dialog.NewCustom(w.tr("dialog.error"), w.tr("action.ok"), widget.NewLabel(message), parent).Show()
+	})
 }
 
 // The icons are Fyne's own. Shipping a parallel set would be a second thing to

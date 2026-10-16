@@ -78,6 +78,7 @@ var catalog = map[string]string{
 	"status.peerLeft":        "%s left",
 	"status.connReady":       "DHT ready — %d peers (%d direct, %d relayed), you %s",
 	"status.connWaiting":     "Finding the room — DHT not ready yet",
+	"dialog.error":           "Error",
 
 	"room.label":          "In the room: %s",
 	"room.host":           "(host)",
@@ -94,6 +95,7 @@ var catalog = map[string]string{
 	"action.copy":         "Copy code",
 	"action.open":         "Open",
 	"action.quit":         "Quit",
+	"action.ok":           "OK",
 	"field.invite":        "paste the invitation code",
 
 	// The track choosers. Their keys existed in the window but not in the
@@ -185,6 +187,7 @@ var Russian = Strings{
 	"status.peerLeft":               "Ушёл: %s",
 	"status.connReady":              "DHT готов — пиров: %d (напрямую %d, через реле %d), вы %s",
 	"status.connWaiting":            "Ищем комнату — DHT пока не готов",
+	"dialog.error":                  "Ошибка",
 	"room.label":                    "В комнате: %s",
 	"room.host":                     "(хост)",
 	"room.buffering":                "буферизация",
@@ -200,6 +203,7 @@ var Russian = Strings{
 	"action.copy":                   "Скопировать код",
 	"action.open":                   "Открыть",
 	"action.quit":                   "Выход",
+	"action.ok":                     "ОК",
 	"field.invite":                  "вставьте код приглашения",
 	"track.audio":                   "Аудио",
 	"track.sub":                     "Субтитры",

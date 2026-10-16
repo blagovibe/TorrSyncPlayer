@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
@@ -262,6 +263,30 @@ func TestEventsSurviveThePoll(t *testing.T) {
 	}
 	if got := w.status.Text; got == "boom" {
 		t.Errorf("events must not leak into the poll counter line, got %q", got)
+	}
+}
+
+// A failure of the person's own action interrupts twice: the event line
+// keeps it past the next poll, and a modal dialog stops for it. Poll and
+// background failures stay on the line — a modal every two seconds would be
+// the poll shouting. Without a parent window the dialog has nowhere to hang,
+// so the line alone must still carry the message.
+func TestAFailureInterruptsAndPersists(t *testing.T) {
+	_ = test.NewApp()
+	client := api.New("http://127.0.0.1:1", "test-token")
+
+	w, _ := newWindow(client, "peer-test", nil, WindowOptions{})
+	w.fail("boom")
+	if got := w.events.Text; got != "boom" {
+		t.Errorf("a failure must reach the event line even with no parent window, got %q", got)
+	}
+
+	parent := test.NewWindow(widget.NewLabel("parent"))
+	defer parent.Close()
+	w2, _ := newWindow(client, "peer-test", nil, WindowOptions{Parent: parent})
+	w2.fail("boom")
+	if got := w2.events.Text; got != "boom" {
+		t.Errorf("a failure with a parent window must still reach the event line, got %q", got)
 	}
 }
 

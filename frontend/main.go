@@ -158,6 +158,7 @@ func run(opts runOptions) error {
 		Language:  opts.Language,
 		Bootstrap: opts.Bootstrap,
 		Relays:    opts.Relays,
+		Parent:    window,
 	}))
 	window.Resize(fyne.NewSize(1100, 700))
 
