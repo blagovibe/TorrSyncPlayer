@@ -52,6 +52,22 @@ func TestStreamURLIsBuiltFromTheLocalBackend(t *testing.T) {
 		c.StreamURL("abc123"))
 }
 
+func TestSubtitlesURLIsBuiltFromTheLocalBackend(t *testing.T) {
+	c := New("http://127.0.0.1:5555", "")
+
+	assert.Equal(t,
+		"http://127.0.0.1:5555/api/v1/torrents/abc123/subtitles/2/film.srt",
+		c.SubtitlesURL("abc123", 2, "film.srt"))
+}
+
+func TestSubtitlesURLEscapesTheFileName(t *testing.T) {
+	c := New("http://127.0.0.1:5555", "")
+
+	assert.Equal(t,
+		"http://127.0.0.1:5555/api/v1/torrents/abc123/subtitles/2/subs%2Ffilm%20RU.srt",
+		c.SubtitlesURL("abc123", 2, "subs/film RU.srt"))
+}
+
 func TestAPIErrorNamesWhatFailed(t *testing.T) {
 	// "the request failed" is not actionable. The path and status are.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

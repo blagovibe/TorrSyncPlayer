@@ -410,6 +410,49 @@ paths:
       summary: Stream file
       tags:
       - torrents
+  /api/v1/torrents/{id}/subtitles/{fileIndex}/{fileName}:
+    get:
+      description: Serves one torrent file by index for mpv --sub-file, with the ordinary
+        access-token header and room-scoped read access. The trailing file name is
+        for mpv's format detection and is ignored.
+      parameters:
+      - description: Torrent ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File index within the torrent
+        in: path
+        name: fileIndex
+        required: true
+        type: integer
+      - description: File name, repeated for mpv's format detection
+        in: path
+        name: fileName
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse'
+      summary: Fetch subtitles
+      tags:
+      - torrents
 securityDefinitions:
   BearerAuth:
     description: The access token printed by the server at startup. Same value for

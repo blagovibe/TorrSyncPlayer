@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -72,6 +73,21 @@ func (c *Client) Token() string { return c.token }
 // its own copy, which is the exact thing the goal forbids.
 func (c *Client) StreamURL(torrentID string) string {
 	return fmt.Sprintf("%s/api/v1/torrents/%s/stream", c.baseURL, torrentID)
+}
+
+// SubtitlesURL builds the subtitle-file URL for mpv's --sub-file.
+//
+// Same backend as the stream — a guest that assembled it from the host's
+// address would fetch another backend's files, which the ownership gate
+// would refuse anyway, but the address must still never be borrowed.
+//
+// The file name rides along for mpv's format detection: sub-add reads the
+// extension off the URL and refuses an extensionless one, so the index alone
+// is not a URL mpv accepts. The server ignores the name — the index is
+// authoritative.
+func (c *Client) SubtitlesURL(torrentID string, fileIndex int, fileName string) string {
+	return fmt.Sprintf("%s/api/v1/torrents/%s/subtitles/%d/%s",
+		c.baseURL, torrentID, fileIndex, url.PathEscape(fileName))
 }
 
 // Get performs a GET and decodes the JSON body into out.

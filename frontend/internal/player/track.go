@@ -28,6 +28,10 @@ const (
 // language, a rip carries a language and no title, and a track with neither is
 // only a number. That is why the naming lives in Label() rather than in the
 // caller's format string.
+//
+// External marks tracks mpv loaded from outside the file — sub-add, not the
+// container. Only those can have come from this application, so only those
+// are ever removed by it.
 type Track struct {
 	ID       int    `json:"id"`
 	Type     string `json:"type"`
@@ -36,6 +40,7 @@ type Track struct {
 	Codec    string `json:"codec"`
 	Selected bool   `json:"selected"`
 	Default  bool   `json:"default"`
+	External bool   `json:"external"`
 }
 
 // Label is how this track is shown to a person.
@@ -73,6 +78,7 @@ func (p *Player) Tracks(ctx context.Context, kind TrackKind) ([]Track, error) {
 			Codec    string `json:"codec"`
 			Selected bool   `json:"selected"`
 			Default  bool   `json:"default"`
+			External bool   `json:"external"`
 		} `json:"data"`
 	}
 	if err := p.request(ctx, []any{"get_property", "track-list"}, &reply); err != nil {
@@ -99,6 +105,7 @@ func (p *Player) Tracks(ctx context.Context, kind TrackKind) ([]Track, error) {
 			Codec:    t.Codec,
 			Selected: t.Selected,
 			Default:  t.Default,
+			External: t.External,
 		})
 	}
 	return tracks, nil

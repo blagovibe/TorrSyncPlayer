@@ -37,6 +37,9 @@ type TorrentService interface {
 	// ServeFile streams the file selected by the calling user.
 	// userID is extracted from the request context (set by TokenMiddleware).
 	ServeFile(w http.ResponseWriter, r *http.Request, torrentID, userID string)
+	// ServeSubtitles serves any file of the torrent by index, with no
+	// selection required (idea-0080): subtitle tracks live next to the film.
+	ServeSubtitles(w http.ResponseWriter, r *http.Request, torrentID, userID string, fileIndex int)
 	UpdateBufferPosition(ctx context.Context, torrentID string, position int64) error
 	GetBufferInfo(ctx context.Context, userID, torrentID string) (*models.BufferInfo, error)
 	Close() error

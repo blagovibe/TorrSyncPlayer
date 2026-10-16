@@ -44,6 +44,29 @@ func TestArgsCarryNoHeaderWhenThereIsNone(t *testing.T) {
 	}
 }
 
+// TestArgsJoinHeadersIntoOneFlag pins the shape mpv actually honors: repeated
+// --http-header-fields do not accumulate, the last flag wins and the earlier
+// headers never leave the machine. Two headers must ride one comma-joined
+// flag, or the backend answers 401 to a player that was given everything
+// (bug-0089). Proven against the real binary.
+func TestArgsJoinHeadersIntoOneFlag(t *testing.T) {
+	args := Args("/tmp/mpv.sock", []string{"X-Access-Token: tok", "X-Client-ID: peer-7"})
+
+	count := 0
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "--http-header-fields") {
+			continue
+		}
+		count++
+		if arg != "--http-header-fields=X-Access-Token: tok,X-Client-ID: peer-7" {
+			t.Fatalf("mpv was told %q, not both headers in one flag", arg)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("mpv was told %d header flags, wanted exactly one", count)
+	}
+}
+
 func TestFormatHeaderRejectsANewlineInTheValue(t *testing.T) {
 	// A newline would split one header into two, and the second half would be
 	// sent as a header of its own — the client's own doing, unaudited.
@@ -52,6 +75,9 @@ func TestFormatHeaderRejectsANewlineInTheValue(t *testing.T) {
 	}
 	if _, err := FormatHeader("", "abc"); err == nil {
 		t.Fatal("an empty header name was accepted")
+	}
+	if _, err := FormatHeader("X-Client-ID", "a,b"); err == nil {
+		t.Fatal("a value with a comma was accepted, and mpv would split it into two headers")
 	}
 	got, err := FormatHeader("X-Access-Token", "abc123")
 	if err != nil {

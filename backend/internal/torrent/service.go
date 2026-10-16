@@ -949,6 +949,51 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request, torrentID, u
 	s.backend.ServeStream(w, r, handle, fileIndex)
 }
 
+// ServeSubtitles serves any file of a torrent by index — the subtitle track
+// lives next to the film rather than in it, so unlike ServeFile it needs no
+// selection: a peer that never selected anything still reads the subtitles
+// of what the room watches. Every other gate is ServeFile's: the torrent
+// must exist and be readable (flat 404 otherwise), the index must name a
+// file. mpv fetches the answer over HTTP with the same access-token header,
+// so no ticket machinery is involved.
+func (s *Service) ServeSubtitles(w http.ResponseWriter, r *http.Request, torrentID, userID string, fileIndex int) {
+	if !s.canRead(r.Context(), userID, torrentID) {
+		logger.Warn("Torrent: subtitles refused, peer may not read this torrent",
+			"torrentID", torrentID, "userID", userID)
+		http.Error(w, "Torrent not found", http.StatusNotFound)
+		return
+	}
+
+	s.mu.RLock()
+	handle, exists := s.torrents[torrentID]
+	if !exists {
+		s.mu.RUnlock()
+		logger.Warn("Torrent: torrent not found for subtitles", "torrentID", torrentID, "userID", userID)
+		http.Error(w, "Torrent not found", http.StatusNotFound)
+		return
+	}
+
+	if fileIndex < 0 || fileIndex >= handle.FileCount() {
+		total := handle.FileCount()
+		s.mu.RUnlock()
+		logger.Warn("Torrent: invalid file index for subtitles",
+			"torrentID", torrentID,
+			"userID", userID,
+			"fileIndex", fileIndex,
+			"totalFiles", total,
+		)
+		http.Error(w, "Invalid file index", http.StatusBadRequest)
+		return
+	}
+
+	s.streamWG.Add(1)
+	s.mu.RUnlock()
+
+	defer s.streamWG.Done()
+
+	s.backend.ServeStream(w, r, handle, fileIndex)
+}
+
 // Close closes the torrent service with graceful shutdown.
 // Stops the torrent client and releases resources.
 // Uses a context with timeout for waiting on active downloads.

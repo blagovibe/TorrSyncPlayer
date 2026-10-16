@@ -91,6 +91,7 @@ func NewRouter(config RouterConfig) http.Handler {
 				r.Get("/{id}/files", GetFiles(config.TorrentSvc))
 				r.Post("/{id}/select", SelectFile(config.TorrentSvc))
 				r.Get("/{id}/magnet", GetMagnet(config.TorrentSvc))
+				r.Get("/{id}/subtitles/{fileIndex}/*", SubtitlesFile(config.TorrentSvc, config.AuthService))
 				// NOTE: /{id}/stream is served outside this group, with its own
 				// rate limit; it authenticates with the access-token header, which
 				// the media player sends on its own fetches.

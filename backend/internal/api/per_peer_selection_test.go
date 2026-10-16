@@ -112,6 +112,10 @@ func (s *recordingTorrentService) ServeFile(w http.ResponseWriter, _ *http.Reque
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *recordingTorrentService) ServeSubtitles(w http.ResponseWriter, _ *http.Request, _, _ string, _ int) {
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *recordingTorrentService) CanRead(context.Context, string, string) bool {
 	return true // recording service allows everything by default
 }

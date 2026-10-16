@@ -435,6 +435,67 @@
                     }
                 }
             }
+        },
+        "/api/v1/torrents/{id}/subtitles/{fileIndex}/{fileName}": {
+            "get": {
+                "description": "Serves one torrent file by index for mpv --sub-file, with the ordinary access-token header and room-scoped read access. The trailing file name is for mpv's format detection and is ignored.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "torrents"
+                ],
+                "summary": "Fetch subtitles",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Torrent ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "File index within the torrent",
+                        "name": "fileIndex",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File name, repeated for mpv's format detection",
+                        "name": "fileName",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_blagovibe_TorrSyncPlayer_backend_internal_models.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {

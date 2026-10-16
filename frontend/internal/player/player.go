@@ -340,21 +340,33 @@ func Args(socketPath string, headers []string, extra ...string) []string {
 		"--no-input-default-bindings",
 		"--input-ipc-server=" + socketPath,
 	}
-	for _, header := range headers {
-		args = append(args, "--http-header-fields="+header)
+	// One flag, comma-joined — not one flag per header. mpv does not
+	// accumulate repeated --http-header-fields: the last flag wins and the
+	// earlier headers never leave the machine, which reads exactly like a
+	// 401 from a backend that was given everything (bug-0089). Proven
+	// against the real binary, not the manual: two flags send only the
+	// second, one comma-joined flag sends both.
+	if len(headers) > 0 {
+		args = append(args, "--http-header-fields="+strings.Join(headers, ","))
 	}
 	return append(args, extra...)
 }
 
 // FormatHeader renders one "Name: value" pair the way mpv's list option wants
 // it. A newline inside a value would split it into two headers, so it is
-// rejected rather than silently mangled.
+// rejected rather than silently mangled. A comma would do the same one level
+// down: headers ride one comma-joined flag, and a comma in a value would
+// split it into two headers at mpv's parsing — the client's own doing,
+// unaudited.
 func FormatHeader(name, value string) (string, error) {
 	if name == "" {
 		return "", errors.New("player: empty header name")
 	}
 	if strings.ContainsAny(value, "\r\n") {
 		return "", fmt.Errorf("player: header %q value contains a newline", name)
+	}
+	if strings.Contains(value, ",") {
+		return "", fmt.Errorf("player: header %q value contains a comma", name)
 	}
 	return name + ": " + value, nil
 }

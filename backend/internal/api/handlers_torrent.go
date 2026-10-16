@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -370,6 +371,73 @@ func StreamFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) h
 		}
 
 		torrentSvc.ServeFile(w, r, torrentID, userID)
+	}
+}
+
+// SubtitlesFile handler for fetching one subtitle file of a torrent by index
+// (idea-0080, variant 2: the file travels an endpoint, mpv fetches it with
+// --sub-file and the ordinary header). Unlike /stream it needs no selection:
+// subtitle tracks live next to the film. The gates are /stream's: the
+// access-token header, the client id, and the room-scoped read access.
+//
+// The trailing file name is mpv's, not ours: sub-add detects the subtitle
+// format from the URL's extension and refuses an extensionless one, so the
+// client repeats the file name after the index. The server ignores it — the
+// index is authoritative — and it must not be trusted for anything else.
+//
+// @Summary      Fetch subtitles
+// @Description  Serves one torrent file by index for mpv --sub-file, with the ordinary access-token header and room-scoped read access. The trailing file name is for mpv's format detection and is ignored.
+// @Tags         torrents
+// @Produce      octet-stream
+// @Param        id         path      string  true  "Torrent ID"
+// @Param        fileIndex  path      int     true  "File index within the torrent"
+// @Param        fileName   path      string  true  "File name, repeated for mpv's format detection"
+// @Success      200  {file}    binary
+// @Failure      400  {object}  models.ErrorResponse
+// @Failure      403  {object}  models.ErrorResponse
+// @Failure      404  {object}  models.ErrorResponse
+// @Router       /api/v1/torrents/{id}/subtitles/{fileIndex}/{fileName} [get]
+func SubtitlesFile(torrentSvc internal.TorrentService, authSvc *auth.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := chi.URLParam(r, "id")
+		if torrentID == "" {
+			WriteError(w, http.StatusBadRequest, "Torrent ID is required")
+			return
+		}
+
+		if err := validation.ValidateTorrentID(torrentID); err != nil {
+			WriteError(w, http.StatusBadRequest, "Invalid torrent ID")
+			return
+		}
+
+		index, err := strconv.Atoi(chi.URLParam(r, "fileIndex"))
+		if err != nil || index < 0 {
+			WriteError(w, http.StatusBadRequest, "Invalid file index")
+			return
+		}
+
+		token := r.Header.Get(auth.HeaderAccessToken)
+		if token == "" {
+			WriteError(w, http.StatusUnauthorized, "missing access token")
+			return
+		}
+
+		userID, ok := authSvc.ValidateAccessTokenForClient(token, r.Header.Get(auth.HeaderClientID))
+		if !ok {
+			WriteError(w, http.StatusUnauthorized, "invalid or missing access token")
+			return
+		}
+
+		// Room-scoped read access (bug-0049 / deviation-0039), same as
+		// /stream: a subtitle file is torrent bytes like any other.
+		if canRead, ok := torrentSvc.(interface {
+			CanRead(context.Context, string, string) bool
+		}); ok && !canRead.CanRead(r.Context(), userID, torrentID) {
+			WriteError(w, http.StatusForbidden, "access denied")
+			return
+		}
+
+		torrentSvc.ServeSubtitles(w, r, torrentID, userID, index)
 	}
 }
 
