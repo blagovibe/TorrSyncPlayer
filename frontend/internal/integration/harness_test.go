@@ -104,19 +104,16 @@ func repoRoot(t *testing.T) string {
 	return ""
 }
 
-// freePort asks the kernel for a port nobody is using — on both protocols.
+// freePort asks the kernel for a port nobody is listening on.
 //
-// The backend takes one number for two listeners: TCP for HTTP and UDP for
-// libp2p. Windows reserves whole ranges of UDP ports for its own use, and
-// binding inside one of those fails with "an attempt was made to access a
-// socket in a way forbidden by its access permissions" — not with "already in
-// use" — so a port found free for TCP can still be unusable. That is how the
-// Windows job went red on a backend that never came up (bug-0118). Holding both
-// protocols at once is the only honest answer: while they are bound, nothing
-// else can take the number, and the probe ends where the real listener begins.
+// The backend serves HTTP on this number, and HTTP is TCP. The torrent client
+// inside the backend listens on UDP with a number of its own, chosen there and
+// checked on both protocols (bug-0118) — so this is the only port the test has
+// to find.
 //
-// It used to shell out to python3 to ask the same question about TCP alone,
-// which also made the suite depend on python being installed on the runner.
+// It used to shell out to python3 to ask the same question, which made the
+// suite depend on python being installed on the runner; a runner without it
+// failed with "find a free port", which says nothing about what is wrong.
 func freePort(t *testing.T) int {
 	t.Helper()
 
@@ -124,26 +121,17 @@ func freePort(t *testing.T) int {
 	// port is useless without a backend to listen on it.
 	_ = backendBinary(t)
 
-	for attempt := 0; attempt < 12; attempt++ {
-		tcp, err := net.Listen("tcp", ":0")
-		if err != nil {
-			continue
-		}
-		port := tcp.Addr().(*net.TCPAddr).Port
-
-		// The shape the backend binds, not a narrower one: a UDP port that is
-		// free on loopback may still be reserved everywhere.
-		udp, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
-		_ = tcp.Close()
-		if err != nil {
-			continue
-		}
-		_ = udp.Close()
-		return port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("find a free port: %v", err)
 	}
+	defer func() { _ = listener.Close() }()
 
-	t.Fatal("no port was free for both TCP and UDP")
-	return 0
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("unexpected listener address %T", listener.Addr())
+	}
+	return addr.Port
 }
 
 // server is a running backend.
@@ -212,8 +200,9 @@ func startServerWith(t *testing.T, clientID, dataDir string, disk bool) *server 
 		}
 		_ = logFile.Close()
 		if t.Failed() {
-			t.Logf("backend log (%s):\n%s", logPath, tailFile(logPath, 40))
-			t.Logf("port %d from this process's point of view:\n%s", port, portVerdict(t, port))
+			log := tailFile(logPath, 40)
+			t.Logf("backend log (%s):\n%s", logPath, log)
+			t.Logf("what this process can do with the ports in play:\n%s", portVerdict(t, log, port))
 		}
 	})
 
@@ -321,24 +310,35 @@ func TestAFreePortIsFreeForBothListeners(t *testing.T) {
 // one; if this process binds it happily, the refusal is something the backend
 // itself does with the socket, and choosing another port would change nothing.
 // A red job that says which one is worth more than another guess (bug-0118).
-func portVerdict(t *testing.T, port int) string {
+func portVerdict(t *testing.T, log string, httpPort int) string {
 	t.Helper()
 
 	var out strings.Builder
 
+	// The number the backend actually refused is in its own log; the port the
+	// test handed out is a different one, and it is the refused number that
+	// matters.
+	refused := refusedPort(log)
+	fmt.Fprintf(&out, "  HTTP port given to the backend: %d\n", httpPort)
+	fmt.Fprintf(&out, "  port the backend refused: %d\n", refused)
+
+	port := httpPort
+	if refused != 0 {
+		port = refused
+	}
 	tcp, terr := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if terr != nil {
-		fmt.Fprintf(&out, "  TCP bind: %v\n", terr)
+		fmt.Fprintf(&out, "  TCP bind on %d: %v\n", port, terr)
 	} else {
 		_ = tcp.Close()
-		out.WriteString("  TCP bind: fine\n")
+		fmt.Fprintf(&out, "  TCP bind on %d: fine\n", port)
 	}
 	udp, uerr := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
 	if uerr != nil {
-		fmt.Fprintf(&out, "  UDP bind: %v\n", uerr)
+		fmt.Fprintf(&out, "  UDP bind on %d: %v\n", port, uerr)
 	} else {
 		_ = udp.Close()
-		out.WriteString("  UDP bind: fine\n")
+		fmt.Fprintf(&out, "  UDP bind on %d: fine\n", port)
 	}
 
 	if runtime.GOOS == "windows" {
@@ -349,7 +349,9 @@ func portVerdict(t *testing.T, port int) string {
 		if text, err := netsh.CombinedOutput(); err == nil {
 			if rows := reservedUDPRanges(string(text)); len(rows) > 0 {
 				fmt.Fprintf(&out, "  UDP reserved ranges: %s\n", describeRanges(rows))
-				fmt.Fprintf(&out, "  port %d is %s\n", port, inRanges(port, rows))
+				if refused != 0 {
+					fmt.Fprintf(&out, "  refused port %d is %s\n", refused, inRanges(refused, rows))
+				}
 			}
 		}
 	}
@@ -392,4 +394,28 @@ func inRanges(port int, ranges [][2]int) string {
 		}
 	}
 	return "not inside any reserved range"
+}
+
+// refusedPort reads the number the backend was refused on out of its log.
+//
+// The log says it in one line: "subsequent listen: listen udp4 :63515: bind:
+// ...". The number is what decides the question — whether the machine refused
+// it or the backend did something with the socket — and the log is where the
+// number is.
+func refusedPort(log string) int {
+	for _, line := range strings.Split(log, "\n") {
+		idx := strings.Index(line, "listen udp4 :")
+		if idx < 0 {
+			continue
+		}
+		rest := line[idx+len("listen udp4 :"):]
+		end := strings.IndexAny(rest, " :")
+		if end < 0 {
+			continue
+		}
+		if port, err := strconv.Atoi(rest[:end]); err == nil {
+			return port
+		}
+	}
+	return 0
 }

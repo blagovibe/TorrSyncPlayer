@@ -68,46 +68,26 @@ func GenerateToken() (string, error) {
 // A fixed port is what a backend used to take: a second instance on the same
 // machine failed to bind and then quietly talked to somebody else's server.
 //
-// The number has to be free for two protocols, not one. The backend serves
-// HTTP over TCP and runs libp2p over UDP on the same port, and Windows keeps
-// whole ranges of UDP ports for itself: binding inside one of those is
-// refused with WSAEACCES — "an attempt was made to access a socket in a way
-// forbidden by its access permissions" — which says nothing about what is
-// wrong to whoever reads it. A machine with WSL or Hyper-V behind it (so, most
-// machines with a development setup) hits this without warning, and the
-// application then fails to start for a reason visible only in the log
-// (bug-0118).
+// This number is for the backend's HTTP only, and HTTP is TCP: the torrent
+// client inside the backend listens on UDP with a number of its own, chosen
+// there and checked on both protocols (bug-0118). The two used to be confused
+// for one port, and the confusion cost a Windows job and an afternoon.
 func PickFreePort() (int, error) {
 	// 127.0.0.1, not ":0": a free port is wanted, not a listener on every
 	// interface. gosec G102 is right about the original — ":0" really does
 	// bind all of them, and this port travels in a URL to mpv on the same
 	// machine, so it should never have been reachable from outside it.
-	for attempt := 0; attempt < 12; attempt++ {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return 0, fmt.Errorf("pick a free port: %w", err)
-		}
-
-		addr, ok := listener.Addr().(*net.TCPAddr)
-		if !ok {
-			_ = listener.Close()
-			return 0, fmt.Errorf("unexpected listener address %T", listener.Addr())
-		}
-
-		// The shape libp2p will bind — every interface — and not a narrower
-		// one: a UDP port free on loopback can still be reserved everywhere.
-		// Both are held while the other is checked, so nothing can take the
-		// number in between, and both are closed before returning.
-		udp, err := net.ListenPacket("udp", fmt.Sprintf(":%d", addr.Port))
-		_ = listener.Close()
-		if err != nil {
-			continue
-		}
-		_ = udp.Close()
-		return addr.Port, nil
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("pick a free port: %w", err)
 	}
+	defer func() { _ = listener.Close() }()
 
-	return 0, fmt.Errorf("no port was free for both TCP and UDP")
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("unexpected listener address %T", listener.Addr())
+	}
+	return addr.Port, nil
 }
 
 // CandidatePaths lists where an already-built backend may live, given the

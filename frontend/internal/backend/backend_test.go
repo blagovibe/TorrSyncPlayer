@@ -5,7 +5,6 @@
 package backend
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -240,30 +239,4 @@ var _ = strconv.Itoa
 // listenAny binds a port on every interface, the way the backend itself binds.
 func listenAny(port int) (net.Listener, error) {
 	return net.Listen("tcp", ":"+strconv.Itoa(port))
-}
-
-// The picked port has to be free for two listeners, not one: the backend serves
-// HTTP over TCP and runs libp2p over UDP on the same number. Windows reserves
-// whole ranges of UDP ports for itself, and binding one of those is refused
-// with "access is forbidden" rather than "already in use" — which leaves the
-// application unable to start, with the reason visible only in its log
-// (bug-0118). Asking for a free UDP port as well is what stops that, and this
-// is the only test that can say the answer is a number both listeners accept.
-func TestPickedPortIsFreeForBothListeners(t *testing.T) {
-	port, err := PickFreePort()
-	if err != nil {
-		t.Fatalf("pick a port: %v", err)
-	}
-
-	tcp, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		t.Fatalf("port %d was picked and will not bind for TCP: %v", port, err)
-	}
-	defer func() { _ = tcp.Close() }()
-
-	udp, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		t.Fatalf("port %d was picked and will not bind for UDP: %v", port, err)
-	}
-	_ = udp.Close()
 }

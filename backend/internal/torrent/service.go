@@ -51,6 +51,11 @@ const (
 // Provides methods for adding, removing and streaming torrents.
 // Thread-safe thanks to sync.RWMutex.
 type Service struct {
+	// listenPort is the number the torrent client was given. The service
+	// chose it (see pickListenPort) and knows it, because a client that picks
+	// its own can pick one Windows will not let it bind (bug-0118).
+	listenPort int
+
 	mu       sync.RWMutex
 	backend  TorrentBackend
 	torrents map[string]TorrentHandle
@@ -439,16 +444,47 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 	// Torrent client's default listen port is a fixed 42069. Every participant
 	// runs their own backend, so two instances on one machine is ordinary — and
 	// the second one died with "address already in use" and took the whole
-	// server down with it. Port 0 makes anacrolix pick a free port and share it
-	// across TCP and uTP, which is what every other library here does by
-	// default. An explicitly configured port still wins.
-	if opts.ListenPort != 0 {
-		cfg.ListenPort = opts.ListenPort
-	} else {
-		cfg.ListenPort = 0
+	// server down with it. So the port is not fixed, and it is not left to the
+	// client either: the client binds TCP on a random number and then binds
+	// UDP on that same number, which Windows refuses for a reserved range of
+	// UDP ports, and the client retries only a "port taken" refusal. The
+	// number is therefore chosen here, on both protocols at once, and the
+	// client is given a number it can hold (bug-0118).
+	//
+	// An explicitly configured port still wins — the operator asked for it, and
+	// a port that cannot be held is their news, not ours to second-guess.
+	chosen := opts.ListenPort
+	if chosen == 0 {
+		port, err := pickListenPort()
+		if err != nil {
+			logger.Error("Torrent: could not pick a listen port", "error", err)
+			return nil, err
+		}
+		chosen = port
 	}
 
-	backend, err := newLocalBackend(cfg)
+	svc.listenPort = chosen
+
+	var backend *localBackend
+	var err error
+	// A number that was free a moment ago can be taken by the time the client
+	// binds it. The client does not retry that — it retries only while the
+	// port was dynamic — so the retry is ours: another number, tried again.
+	for attempt := 0; attempt < 3; attempt++ {
+		cfg.ListenPort = chosen
+		backend, err = newLocalBackend(cfg)
+		if err == nil {
+			break
+		}
+		if opts.ListenPort != 0 {
+			break
+		}
+		port, perr := pickListenPort()
+		if perr != nil {
+			break
+		}
+		chosen = port
+	}
 	if err != nil {
 		logger.Error("Torrent: failed to create torrent client", "error", err)
 		return nil, fmt.Errorf("failed to create torrent client: %w", err)
@@ -991,6 +1027,15 @@ func (s *Service) ServeSubtitles(w http.ResponseWriter, r *http.Request, torrent
 // Stops the torrent client and releases resources.
 // Uses a context with timeout for waiting on active downloads.
 // After calling Close, the service cannot be used.
+// ListenPort is the port the torrent client listens on, or zero when the
+// service has no client of its own (a gateway stands in for it).
+func (s *Service) ListenPort() int {
+	if s == nil {
+		return 0
+	}
+	return s.listenPort
+}
+
 func (s *Service) Close() error {
 	// Flush before taking the lock. SaveRegistry reads the state under
 	// s.mu.RLock, so calling it with s.mu already held deadlocks: RWMutex is
