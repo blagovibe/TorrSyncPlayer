@@ -5,6 +5,21 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **On Windows a busy pipe failed the command instead of waiting for it.**
+  mpv's IPC is a named pipe there, and a named pipe hands out one instance at a
+  time: the window polls several times a second, each poll with its own
+  connection, and the pipe can still be releasing the previous one when the
+  next arrives. Our hand-rolled `CreateFile` turned that moment into an instant
+  `All pipe instances are busy` — Go waits this out for its own pipes, a
+  hand-written call does not. The Windows job caught it on
+  `TestRealMpvOpensItsSocket` and `TestRealMpvListsAndSwitchesTracks`, and it
+  was never only about tests: a failed position read hands the room the start of
+  the film (bug-0117).
+
 ## [v0.3.2] - 2026-10-17
 
 ### Fixed

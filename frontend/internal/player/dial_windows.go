@@ -7,6 +7,7 @@
 package player
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -35,14 +36,46 @@ func dial(address string) (net.Conn, error) {
 		openExisting = 3
 	)
 
-	handle, err := syscall.CreateFile(name, readWrite, noSharing, nil, openExisting, 0, 0)
+	// A named pipe hands out one instance at a time. The window here polls
+	// mpv several times a second, each poll its own connection, and the pipe
+	// can still be handing the previous one back to the system when the next
+	// arrives — CreateFile then fails at once with ERROR_PIPE_BUSY, and the
+	// position read that follows is not a position. Go's own pipe dialing
+	// waits this out; a hand-rolled CreateFile does not, which is how the
+	// Windows job went red on a test that had passed on every run before it
+	// (bug-0117).
+	var file *os.File
+	err = retryWhileBusy(func() error {
+		handle, herr := syscall.CreateFile(name, readWrite, noSharing, nil, openExisting, 0, 0)
+		if herr != nil {
+			return herr
+		}
+		file = os.NewFile(uintptr(handle), `\\.\pipe\`+address)
+		return nil
+	}, isPipeBusy, pipeBusyWait, pipeBusyStep)
 	if err != nil {
 		return nil, fmt.Errorf("player: open pipe %s: %w", address, err)
 	}
 
-	file := os.NewFile(uintptr(handle), `\\.\pipe\`+address)
 	return newPipeConn(file, address), nil
 }
+
+// errPipeBusy is ERROR_PIPE_BUSY: the pipe exists and the server has no free
+// instance for this client right now. It is a "come back in a moment", not a
+// refusal, and it arrives with no error string to lean on — the wording comes
+// from Go's own table for system errors.
+const errPipeBusy = syscall.Errno(231)
+
+func isPipeBusy(err error) bool { return errors.Is(err, errPipeBusy) }
+
+// pipeBusyWait is how long a busy pipe is waited out. Go uses the same shape
+// for its own named pipes: a tenth of a second at a time, two seconds in all.
+// The window's poll asks mpv every 200ms, so anything shorter than that would
+// simply move the failure into the next question.
+const (
+	pipeBusyWait = 2 * time.Second
+	pipeBusyStep = 100 * time.Millisecond
+)
 
 // pipeConn adapts a connected pipe handle to net.Conn.
 //
