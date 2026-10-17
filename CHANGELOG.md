@@ -5,6 +5,32 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The tray icon had never existed.** The application called
+  `systray.RunWithExternalLoop` and dropped the start hook it returns; nothing
+  ever started, so there was no icon, no menu, and `Running()` was always
+  false — which also meant closing the window ended the application, the one
+  thing the tray exists to prevent. The tray is now Fyne's, which starts it at
+  the right moment on each platform; the direct `fyne.io/systray` dependency
+  is gone. Proved three ways: a probe with and without the hook, the released
+  v0.3.1 AppImage owning no `org.kde.StatusNotifierItem-*` on a machine with a
+  desktop, and the new build owning one and serving its menu over DBus
+  (bug-0116, open — the icon on macOS and Windows remains unverified).
+- **Two exits in one tray menu.** The toolkit appends an exit of its own unless
+  the last item is marked `IsQuit`, and it decides that by comparing the label
+  with its own translation of «Quit» — which «Выход» cannot match in Russian.
+  Read off a live tray. Our item is marked now; the menu serves one exit.
+
+### Added
+
+- **Settings in the tray menu** (owner's decision, idea-0112). Closing the
+  window hides it, so the tray is the only way back — and the settings lived
+  only in the window that might be the thing that is closed. The menu is now
+  Open, Settings, separator, Quit.
+
 ## [v0.3.1] - 2026-10-17
 
 ### Fixed

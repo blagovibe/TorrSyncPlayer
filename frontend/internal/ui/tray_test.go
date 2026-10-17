@@ -8,7 +8,10 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"strings"
 	"testing"
+
+	"fyne.io/fyne/v2/test"
 )
 
 // The tray is the one part of the application no unit test can see: there is no
@@ -34,30 +37,69 @@ func TestCloseToTrayDecision(t *testing.T) {
 	}
 }
 
-// TestTrayRunningIsFalseForAMissingTray is the same statement about the
-// predicate the decision reads, including the nil tray that --no-tray and a
-// desktop refusing tray icons both produce.
-func TestTrayRunningIsFalseForAMissingTray(t *testing.T) {
-	var missing *Tray
-	if missing.Running() {
-		t.Error("a tray that was never created reported itself as running")
+// TestTheTrayMenuCarriesOpenSettingsAndQuit pins what the menu says. The tray
+// is the only way back into a closed window, so the settings the window carries
+// have to be reachable from it too (owner's decision, idea-0112): a menu with
+// only Open and Quit hides half the application exactly when the window is gone.
+func TestTheTrayMenuCarriesOpenSettingsAndQuit(t *testing.T) {
+	menu := trayMenu("en", func() {}, func() {}, func() {})
+
+	var labels []string
+	for _, item := range menu.Items {
+		if item.IsSeparator {
+			labels = append(labels, "---")
+			continue
+		}
+		labels = append(labels, item.Label)
 	}
-	if (&Tray{}).Running() {
-		t.Error("a tray whose platform gave it no icon reported itself as running")
+	want := []string{"Open", "Settings", "---", "Quit"}
+	if strings.Join(labels, "|") != strings.Join(want, "|") {
+		t.Fatalf("the tray menu is %v, want %v", labels, want)
 	}
-	if !(&Tray{running: true}).Running() {
-		t.Error("a tray with an icon on screen reported itself as absent")
+
+	// The toolkit appends an exit of its own unless the last item says it is
+	// the exit, which it decides by comparing the label with its own
+	// translation — a comparison «Выход» cannot pass in Russian. Proven off a
+	// running tray, where two exits sat one under the other.
+	last := menu.Items[len(menu.Items)-1]
+	if !last.IsQuit {
+		t.Error("the last tray item is not marked as the exit, so a second one will appear")
 	}
 }
 
-// TestTrayShutdownIsAlwaysSafe covers the cleanup path. It is deferred, so a
-// panic there would replace whatever actually went wrong with a confusing
-// crash — and it runs on the exit that follows a failure, which is the worst
-// moment to add one.
-func TestTrayShutdownIsAlwaysSafe(t *testing.T) {
-	var missing *Tray
-	missing.Shutdown()
-	(&Tray{}).Shutdown()
+// TestTheTrayMenuOpensTheSettingsRatherThanTheWindow says the two top items do
+// different things. One that opened the window as well would make Settings a
+// slower way to reach the same place, and a person who closed the window on
+// purpose would have to open it again to change anything.
+func TestTheTrayMenuOpensTheSettingsRatherThanTheWindow(t *testing.T) {
+	var opened, settings int
+	menu := trayMenu("en",
+		func() { opened++ },
+		func() { settings++ },
+		func() {})
+
+	for _, item := range menu.Items {
+		if item.Label == "Settings" {
+			item.Action()
+		}
+	}
+	if settings != 1 {
+		t.Errorf("choosing Settings from the tray called it %d times", settings)
+	}
+	if opened != 0 {
+		t.Errorf("choosing Settings from the tray also opened the window %d times", opened)
+	}
+}
+
+// TestInstallTrayReportsNoTrayWhereThereIsNone covers the answer the close
+// decision is built on. Fyne's test driver has no tray at all, and neither has
+// --no-tray; a tray that claimed otherwise would leave a hidden window with no
+// way back, which is the one outcome worse than quitting (bug-0116).
+func TestInstallTrayReportsNoTrayWhereThereIsNone(t *testing.T) {
+	test.NewTempApp(t)
+	if InstallTray("en", func() {}, func() {}, func() {}) {
+		t.Error("a driver with no tray accepted one")
+	}
 }
 
 // TestTrayIconIsDrawable checks the icon is a real PNG with a disc in the middle

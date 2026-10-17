@@ -159,7 +159,7 @@ func run(opts runOptions) error {
 	}
 
 	window := a.NewWindow("TorrSyncPlayer")
-	content, stopPlayer := ui.NewWindow(client, clientID, store, ui.WindowOptions{
+	content, openSettings, stopPlayer := ui.NewWindow(client, clientID, store, ui.WindowOptions{
 		Language:  opts.Language,
 		Bootstrap: opts.Bootstrap,
 		Relays:    opts.Relays,
@@ -175,22 +175,29 @@ func run(opts runOptions) error {
 	// says the answer applies at the next launch.
 	ui.AskAboutStorage(store, window)
 
-	// Closing the window hides it while the tray is there: the backend is a
-	// child process, so downloads continue whether or not anyone is looking.
-	// Without a tray there would be no way back to the window, so closing it
-	// really does end the application.
+	// The mark, drawn in code (see ui/icon.go), given to the toolkit once so
+	// both the window and the tray show the same thing.
+	if icon := ui.TrayIcon(); len(icon) > 0 {
+		a.SetIcon(fyne.NewStaticResource("TorrSyncPlayer.png", icon))
+	}
+
+	// The tray is the way back into a closed window: closing the window hides
+	// it, because the backend is a child process and downloads continue whether
+	// or not anyone is looking. Settings sit in it for the same reason — the
+	// window that carries them may be the thing that is closed.
 	//
 	// --no-tray is honoured rather than merely accepted: a flag that does
 	// nothing is worse than a missing one, because the person reading --help
 	// believes it did something.
-	var tray *ui.Tray
+	showWindow := func() { window.Show(); window.RequestFocus() }
+	trayRunning := false
 	if !opts.NoTray {
-		tray = ui.NewTray(ui.PreferredLanguage(opts.Language, settings.Language),
-			func() { window.Show(); window.RequestFocus() },
+		trayRunning = ui.InstallTray(ui.PreferredLanguage(opts.Language, settings.Language),
+			showWindow,
+			func() { showWindow(); openSettings(window) },
 			a.Quit)
-		defer tray.Shutdown()
 	}
-	ui.CloseToTray(window, tray)
+	ui.CloseToTray(window, trayRunning)
 
 	go func() {
 		// Quit when the backend dies on its own: a window whose backend is

@@ -8,84 +8,81 @@ import (
 	"sync"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/systray"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
 )
 
-// Tray is the system-tray presence.
+// The tray is the application's way back into itself when the window is closed.
 //
-// It is a convenience, not behaviour: an application whose window is closed and
-// which has no tray icon is simply gone. The tray is also what keeps the
-// download going while the window is shut — the backend is a child process, so
-// closing the window must not end it.
+// Closing the window hides it rather than ending the application — the backend
+// is a child process, so a download should not stop because someone tidied their
+// taskbar — which makes the tray the only way to bring the window back. That is
+// also why settings belong in the tray menu and not only in the window: the
+// window may be the thing that is closed.
 //
-// Every platform call is best effort. A desktop that forbids tray icons, and a
-// headless session, both leave the application running with its window, which is
-// what they did before the tray existed.
-type Tray struct {
-	language string
+// The toolkit owns the tray, not this package. It was ours, and the tray never
+// appeared: systray.RunWithExternalLoop hands back a start hook, to be called
+// once the toolkit's event loop is up, and the hook was dropped on the floor —
+// proven by calling it and watching the difference (bug-0116). Fyne starts and
+// stops the tray itself, at the right moment on each platform, so the menu is
+// handed over and the answer to "is there a tray" comes from the driver.
 
-	// running is set once systray has actually presented an icon. systray.Run
-	// reports nothing about failure, so the flag is how the caller learns that
-	// there is no tray to talk to.
-	running bool
+// trayDriver is the part of Fyne's desktop driver that owns the tray.
+//
+// Fyne keeps this interface unexported, so a type assertion is the only way in.
+// It is also the whole reason this is safe: the driver refuses to start a tray
+// before its own loop is running, which is the mistake bug-0116 was.
+type trayDriver interface {
+	SetSystemTrayMenu(*fyne.Menu)
 }
 
-// NewTray attaches a tray icon.
+// InstallTray hands the system-tray menu to the toolkit.
 //
-// It returns a Tray whose Running reports false when the platform has no usable
-// tray. That is not an error worth refusing to start over.
-func NewTray(language string, onOpen, onQuit func()) *Tray {
-	t := &Tray{language: language}
-
-	systray.RunWithExternalLoop(func() {
-		t.running = true
-
-		systray.SetTooltip(t.tr("app.title"))
-		if icon := trayIcon(); icon != nil {
-			systray.SetIcon(icon)
-		}
-
-		open := systray.AddMenuItem(t.tr("action.open"), "")
-		quit := systray.AddMenuItem(t.tr("action.quit"), "")
-		systray.AddSeparator()
-
-		go func() {
-			for {
-				select {
-				case <-open.ClickedCh:
-					if onOpen != nil {
-						onOpen()
-					}
-				case <-quit.ClickedCh:
-					if onQuit != nil {
-						onQuit()
-					}
-					systray.Quit()
-					return
-				}
-			}
-		}()
-	}, func() {})
-
-	return t
-}
-
-// Running reports whether an icon is actually on screen.
-func (t *Tray) Running() bool { return t != nil && t.running }
-
-// Shutdown removes the icon.
-func (t *Tray) Shutdown() {
-	if t == nil || !t.running {
-		return
+// It reports whether the driver took it. False means there is no tray to talk
+// to — --no-tray, the test driver, or a driver without tray support — and the
+// caller must not pretend otherwise: closing the window with no tray ends the
+// application, because there would be no way back.
+func InstallTray(language string, onOpen, onSettings, onQuit func()) bool {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return false
 	}
-	systray.Quit()
+	d, ok := app.Driver().(trayDriver)
+	if !ok {
+		// Said out loud because the alternative is invisible: the window would
+		// quit on close as it always did, and the tray the owner was promised
+		// by the flag's very existence would simply never appear (bug-0116).
+		fyne.LogError("no tray on this driver: closing the window will end the application", nil)
+		return false
+	}
+	d.SetSystemTrayMenu(trayMenu(language, onOpen, onSettings, onQuit))
+	return true
 }
 
-func (t *Tray) tr(key string) string {
-	return catalog.Lookup(t.language, key)
+// trayMenu is the menu itself, without a driver to put it on, so that what it
+// contains can be looked at without a desktop (tray_test.go).
+func trayMenu(language string, onOpen, onSettings, onQuit func()) *fyne.Menu {
+	tr := func(key string) string { return catalog.Lookup(language, key) }
+	quit := fyne.NewMenuItem(tr("action.quit"), onQuit)
+	// IsQuit is what tells the toolkit this is the way out. Without it Fyne
+	// looks at the last item's label, compares it with its own translation of
+	// "Quit" and, not finding a match in Russian, appends a second exit of its
+	// own — read off a running tray over DBus, which is where «Выход» and
+	// «Выйти» sat one under the other.
+	quit.IsQuit = true
+	return fyne.NewMenu("",
+		fyne.NewMenuItem(tr("action.open"), onOpen),
+		fyne.NewMenuItem(tr("action.settings"), onSettings),
+		fyne.NewMenuItemSeparator(),
+		quit,
+	)
 }
+
+// TrayIcon is the application's mark as PNG bytes, for the toolkit to show in
+// the tray and on the window.
+//
+// Encoded once: it never changes, and re-encoding it per call is waste.
+func TrayIcon() []byte { return trayIcon() }
 
 // CloseToTray hides the window instead of ending the application.
 //
@@ -99,9 +96,9 @@ func (t *Tray) tr(key string) string {
 // The window is hidden rather than destroyed so it comes back instantly, and
 // the application keeps running: the backend is a child process and downloads
 // continue whether or not anyone is looking.
-func CloseToTray(window fyne.Window, tray *Tray) {
+func CloseToTray(window fyne.Window, tray bool) {
 	window.SetCloseIntercept(func() {
-		if hideOnClose(tray.Running()) {
+		if hideOnClose(tray) {
 			window.Hide()
 			return
 		}
@@ -132,8 +129,6 @@ func hideOnClose(trayRunning bool) bool {
 // and there is only one icon to draw: the application's own mark — a disc with
 // a play triangle on it. See icon.go, which draws the same mark at any size
 // because packaging needs it as a file too.
-//
-// Encoded once: the icon never changes, and re-encoding it per call is waste.
 var trayIcon = sync.OnceValue(func() []byte {
 	icon, err := IconPNG(trayIconSize)
 	if err != nil {

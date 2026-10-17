@@ -4,7 +4,6 @@ go 1.26.0
 
 require (
 	fyne.io/fyne/v2 v2.8.2
-	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4
 	github.com/ipfs/go-cid v0.6.2
 	github.com/libp2p/go-libp2p v0.50.0
 	github.com/libp2p/go-libp2p-kad-dht v0.42.2
@@ -16,6 +15,7 @@ require (
 require (
 	filippo.io/bigmod v0.1.1-0.20260103110540-f8a47775ebe5 // indirect
 	filippo.io/keygen v1.0.0 // indirect
+	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/FyshOS/fancyfs v0.0.1 // indirect
 	github.com/anthonynsimon/bild v0.14.0 // indirect

@@ -205,16 +205,34 @@ type WindowOptions struct {
 	Parent fyne.Window
 }
 
+// OpenSettings opens the settings form over the given window.
+//
+// Handed back by NewWindow because the tray menu has no widget tree of its own:
+// a click there arrives with nothing to hang a dialog on, while the settings
+// read and write the window's own store. Safe to call from any goroutine —
+// the tray's clicks do not arrive on the main one.
+type OpenSettings func(parent fyne.Window)
+
 // NewWindow builds the main window around a client and starts its loops.
-// NewWindow builds the main window around a client and starts its loops.
+//
 // It hands back a stop function beside the content: quitting must put the
 // player down, because an mpv nobody closed stays running idle with its
-// window open and its control socket behind.
-func NewWindow(client *api.Client, clientID string, store *SettingsStore, opts WindowOptions) (fyne.CanvasObject, func()) {
+// window open and its control socket behind. The settings opener is there for
+// the tray, which is the only way back into a window the owner has closed.
+func NewWindow(client *api.Client, clientID string, store *SettingsStore, opts WindowOptions) (fyne.CanvasObject, OpenSettings, func()) {
 	w, content := newWindow(client, clientID, store, opts)
 	go w.poll()
 	go w.watchPlayer()
-	return content, w.stopPlayer
+	return content, w.openSettingsFromAnywhere, w.stopPlayer
+}
+
+// openSettingsFromAnywhere is OpenSettings on the main thread.
+//
+// A dialog built off it would be built on the wrong one: the tray's clicks
+// arrive on systray's goroutine, and every widget change in this package
+// already goes through onMain for the same reason (bug-0111).
+func (w *window) openSettingsFromAnywhere(parent fyne.Window) {
+	onMain(func() { w.ShowSettings(parent) })
 }
 
 // stopPlayer puts the player down: without it the application exits and
