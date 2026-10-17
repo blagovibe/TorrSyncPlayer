@@ -165,7 +165,7 @@ func (h *localHandle) Complete() bool        { return h.t.Complete().Bool() }
 // ActivePeers counts live connections, not discovered addresses: a peer
 // that never connected sends no bytes, and the window must not show it.
 func (h *localHandle) ActivePeers() int { return h.t.Stats().ActivePeers }
-func (h *localHandle) FileCount() int        { return len(h.t.Files()) }
+func (h *localHandle) FileCount() int   { return len(h.t.Files()) }
 
 func (h *localHandle) FileName(index int) string {
 	files := h.t.Files()

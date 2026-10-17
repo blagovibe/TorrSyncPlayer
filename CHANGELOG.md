@@ -116,6 +116,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   room sees only by polling is unwanted. Reason recorded in `DEV.md` and
   beside the flag in `Args`; no behavior changed, nothing to run beyond
   the untouched suites.
+- A dropped stream never left the room (bug-0106, card removed). The roster
+  lives in `Room`, the connections in `Mesh`, and the room learned of
+  departures **only** from a `bye` — so a stream that ended on its own (a
+  crash, a kill, a cut cable) left the peer in every roster forever, and a
+  host that vanished that way never handed over. `byeGracePeriod` is one
+  second, so a loaded machine crosses it routinely and the farewell never
+  goes out. `readLoop` now manufactures the bye on the listening side,
+  dropped rather than waited for: a room that has stopped reading is gone,
+  and blocking on it would turn a departed peer into a stuck goroutine.
+  `Room` is untouched — its existing `onBye` was always the whole answer.
+  Found by the release checklist: `TestARoomWithoutAServer` red on a full
+  frontend run, green alone and on all three recent commits. Three tests,
+  the first verified to fail without the fix. Verified: `-race` on
+  `./internal/rtc/` green, the whole frontend suite green, and the
+  scenario test green three times running.
 - Direction umbrella closed (idea-0090, card removed). Every item ended
   somewhere on record: transplant, heartbeat, preparing, roster, release
   v0.1.0, packaging, diagnostics, megabytes, peers, event line, dialogs,

@@ -491,6 +491,19 @@ func (m *Mesh) readLoop(mp *meshPeer) {
 			delete(m.peers, mp.id)
 		}
 		m.mu.Unlock()
+
+		// The room learns of departures only from a bye. A stream that ends
+		// on its own — a crash, a kill, a cut cable — therefore left the peer
+		// in every roster forever, and a host that vanished that way never
+		// handed over (bug-0106). The farewell the departed side would have
+		// sent is manufactured here, on the side still listening. It is
+		// dropped rather than waited for: a room that has stopped reading is
+		// gone, and blocking on it would turn a departed peer into a stuck
+		// goroutine.
+		select {
+		case m.incoming <- incomingMessage{from: mp.id, msg: NewBye(mp.id)}:
+		default:
+		}
 	}()
 
 	// Line framing, one JSON document per line: streams are byte-oriented,
