@@ -123,7 +123,19 @@ type window struct {
 	// next to the room line because that is where "who is here" is answered —
 	// "how am I connected" belongs beside it.
 	connLabel *widget.Label
-	buffer    *room.BufferReporter
+	// Playback controls: the window's remote over the same mpv the room
+	// drives. Widgets live here; their decisions live in controls.go.
+	playBtn                  *widget.Button
+	elapsedLbl, remainingLbl *widget.Label
+	mediaLbl                 *widget.Label
+	seekSlider, volSlider    *widget.Slider
+	fsBtn                    *widget.Button
+	hasSeek                  bool
+	seekPos                  float64
+	seekAt                   time.Time
+	ctlPaused                bool
+	ctlOn                    bool
+	buffer                   *room.BufferReporter
 
 	// preparingLine shows the playing torrent's download state: name, percent
 	// and backend status from the 2-second list poll. Playback starts before
@@ -357,9 +369,10 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	)
 
 	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
+	controls := w.buildControls()
 	body := container.NewBorder(
 		toolbar, container.NewVBox(w.events, w.status), nil, nil,
-		container.NewVBox(w.roomLabel, w.connLabel, w.preparing, roomPanel, tracks, lists),
+		container.NewVBox(w.roomLabel, w.connLabel, w.preparing, roomPanel, tracks, controls, lists),
 	)
 
 	w.buffer = room.NewBufferReporter(room.ReporterOptions{
@@ -552,14 +565,16 @@ func (w *window) joinRoom(code string) {
 }
 
 // watchPlayer broadcasts what the local player does, when this peer is the
-// host, and reports stalls for any member.
+// host, and reports stalls for any member. It also reconciles the window's
+// own playback row with the player, room or no room: the row drives the same
+// mpv either window shows, and this loop translates player state into room
+// commands regardless of which window was pressed.
 //
-// The host has no send button: it drives mpv's own window, and this loop turns
-// state changes into room commands. Play and pause travel on change; a position
-// travels on a seek jump — and every five seconds regardless, so a follower
-// that drifted silently converges instead of waiting for the next seek.
-// Guests poll too but never broadcast playback: a guest's pause is its own
-// business until the host moves.
+// Play and pause travel on change; a position travels on a seek jump — and
+// every five seconds regardless, so a follower that drifted silently
+// converges instead of waiting for the next seek. Guests poll too but never
+// broadcast playback: a guest's pause is its own business until the host
+// moves.
 func (w *window) watchPlayer() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -574,8 +589,14 @@ func (w *window) watchPlayer() {
 		mpv := w.mpv
 		room := w.rtcRoom
 		w.mu.RUnlock()
-		if mpv == nil || room == nil {
+		if mpv == nil {
 			lastPaused, lastPosition, lastStalled = nil, 0, nil
+			w.setControlsOn(false)
+			continue
+		}
+		w.setControlsOn(true)
+		w.updateControls(mpv)
+		if room == nil {
 			continue
 		}
 

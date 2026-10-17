@@ -98,6 +98,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audit: the DEV edit touched bug-0101's section, so the card went
   `needs_review` and back to `open` after reading — the new paragraph is
   about control IPC, the suspicion about input bindings, nothing shared.
+- Playback row in the window (idea-0105, slice 2). Play/pause, elapsed,
+  seeker, remaining, fullscreen on top; volume with the media line beneath.
+  Drags commit after a 400 ms quiet delay instead of spraying the room;
+  programmatic redraws detach the handler first, so the poll never seeks on
+  its own behalf. Decisions live in `formatClock`, `seekReady`,
+  `mediaInfoText` and `setSliderValue`, all pinned; the row greys out with
+  no player behind it. Volume round-tripped against a real headless mpv.
+  Verified: `./internal/player/ ./internal/ui/ ./internal/catalog/` green.
+  idea-0105 is fully landed.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two

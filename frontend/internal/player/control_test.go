@@ -7,6 +7,7 @@ package player
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // The window's remote needs three verbs mpv already speaks: read the
@@ -74,5 +75,25 @@ func TestToggleFullscreenCyclesTheProperty(t *testing.T) {
 		}
 	case <-timeAfter():
 		t.Fatal("the fake mpv never saw the command")
+	}
+}
+
+// Against a real mpv, headless: set the loudness, read it back. The fake
+// pins the wire shape; only the binary proves the property exists.
+func TestRealMpvVolumeRoundTrip(t *testing.T) {
+	p := startRealPlayer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := p.SetVolume(ctx, 33); err != nil {
+		t.Fatalf("mpv did not take the volume: %v", err)
+	}
+	volume, err := p.Volume(ctx)
+	if err != nil {
+		t.Fatalf("mpv did not report the volume: %v", err)
+	}
+	if volume != 33 {
+		t.Errorf("mpv reports %v after being set to 33", volume)
 	}
 }
