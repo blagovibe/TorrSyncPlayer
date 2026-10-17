@@ -76,6 +76,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against a missing command, which the new test tripped over. Verified:
   `go test ./internal/player/ ./internal/ui/` green, including the socket
   removal and the quit-detaches-player pins.
+- Three platforms proven (idea-0063, card removed). The card waited on a
+  native build and run per platform; CI now gives it: `Test Frontend` green
+  on ubuntu-22.04, macos-latest and windows-latest, backend builds green on
+  all three, and the v0.1.0 release shipped AppImage/zip/DMG from those very
+  runners. No goal or way change — the promise stood in the goal all along.
+- CI note, not a finding: `Mutation Testing` is red on main (45.43% vs the
+  49% floor), but the run predates the mutant-killing commit `6a12eb4` and
+  the untracked validation edge tests — the measurement is stale, the fix is
+  already in the tree. The next pipeline run is the verdict; a still-red
+  gate gets its own card then, not now.
+- Window owns the remote (idea-0105, accepted and transferred to the goal
+  and the way; card removed). Seeker/volume/fullscreen/media-info live in
+  our window and command mpv over IPC — the owner's call against leaving it
+  all to mpv's OSC. `CONCEPT.md#Границы проекта` and the mpv section of
+  `DEV.md` say the new model; warnings stay declined and translations stay
+  hand-kept, both recorded decisions. Slice 1 landed here: `Volume`,
+  `SetVolume` (clamped, not refused), `ToggleFullscreen` on the existing
+  command/request primitives, pinned against the fake-mpv wire shape.
+  Slice 2 (controls row + media info in the window) is next.
+- Audit: the DEV edit touched bug-0101's section, so the card went
+  `needs_review` and back to `open` after reading — the new paragraph is
+  about control IPC, the suspicion about input bindings, nothing shared.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two
