@@ -7,14 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Verified
+### Fixed
 
-- CI on the v0.3.1 tree: every workflow green. The one red was
-  `Test Frontend (macos-latest)` failing on a live mpv that had already
-  died (`Broken pipe`) — the same job was green on the three previous runs
-  and green again when the red job was re-run with no code change, so the
-  macOS runner's mpv is flaky, not the code (bug-0115, open, recorded
-  rather than papered over: a blind fix would be worse than the knowledge).
+- **The external-subtitles test blamed our code for mpv's death.**
+  `TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP` reported
+  «mpv refused the external subtitles: error running command» when the real
+  story was `[ipc_1] Write error (Broken pipe)` — a write into a socket
+  whose process was already gone. It reddened `macos-latest`, then
+  `ubuntu-22.04`, and reproduced locally in roughly one run out of seven,
+  so it was never a runner quirk. The test now asks mpv whether it is still
+  there before the command and, if it is not, says so — with mpv's own log —
+  instead of naming a refusal mpv never delivered. A live mpv that really
+  refuses still fails: feeding the test rubbish in place of subtitles fails
+  the run, it does not skip it (bug-0115, open — the cause of the death is
+  still unknown, and 26 identical runs outside the test never produced one).
 
 ## [v0.3.0] - 2026-10-17
 

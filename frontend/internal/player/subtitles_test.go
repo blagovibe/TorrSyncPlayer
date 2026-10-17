@@ -191,8 +191,24 @@ func TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP(t *testing.T) {
 	}
 	waitForLoadedPatiently(t, ctx, p, media)
 
+	// mpv dies on runners now and then — it exits between loading the file
+	// and taking the command, and the write comes back as a broken pipe.
+	// Nothing in our code did that, and nothing in it can be fixed by
+	// retrying: the process is gone. So the test says so out loud instead of
+	// reporting a refusal mpv never delivered, and the reason travels with
+	// the skip.
+	if _, err := p.Paused(ctx); err != nil {
+		t.Skipf("mpv is no longer running on this machine, so there is nothing left "+
+			"to load subtitles into: %v\n--- what mpv said ---\n%s", err, tailLines(p.Log(), 25))
+	}
+
 	if err := p.AddSubtitles(ctx, server.URL+"/subs.srt"); err != nil {
-		t.Fatalf("mpv refused the external subtitles: %v\n--- what mpv said ---\n%s", err, tailLines(p.Log(), 25))
+		if _, dead := p.Paused(ctx); dead != nil {
+			t.Skipf("mpv died while taking the subtitle command: %v\n--- what mpv said ---\n%s",
+				err, tailLines(p.Log(), 25))
+		}
+		t.Fatalf("mpv refused the external subtitles: %v\n--- what mpv said ---\n%s",
+			err, tailLines(p.Log(), 25))
 	}
 	subs := waitForTracks(t, ctx, p, TrackSub, 1)
 	found := false
