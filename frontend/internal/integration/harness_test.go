@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -212,6 +213,7 @@ func startServerWith(t *testing.T, clientID, dataDir string, disk bool) *server 
 		_ = logFile.Close()
 		if t.Failed() {
 			t.Logf("backend log (%s):\n%s", logPath, tailFile(logPath, 40))
+			t.Logf("port %d from this process's point of view:\n%s", port, portVerdict(t, port))
 		}
 	})
 
@@ -308,4 +310,86 @@ func TestAFreePortIsFreeForBothListeners(t *testing.T) {
 		t.Fatalf("the port %d was handed out and cannot be bound for UDP: %v", port, err)
 	}
 	_ = udp.Close()
+}
+
+// portVerdict says what this process can do with the port the backend was given,
+// and what the machine says about it.
+//
+// The backend died on `listen udp4 :P: bind: ... access permissions` on Windows,
+// and the two explanations call for opposite fixes: if this process cannot bind
+// it either, the machine is refusing the number and the answer is a different
+// one; if this process binds it happily, the refusal is something the backend
+// itself does with the socket, and choosing another port would change nothing.
+// A red job that says which one is worth more than another guess (bug-0118).
+func portVerdict(t *testing.T, port int) string {
+	t.Helper()
+
+	var out strings.Builder
+
+	tcp, terr := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if terr != nil {
+		fmt.Fprintf(&out, "  TCP bind: %v\n", terr)
+	} else {
+		_ = tcp.Close()
+		out.WriteString("  TCP bind: fine\n")
+	}
+	udp, uerr := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
+	if uerr != nil {
+		fmt.Fprintf(&out, "  UDP bind: %v\n", uerr)
+	} else {
+		_ = udp.Close()
+		out.WriteString("  UDP bind: fine\n")
+	}
+
+	if runtime.GOOS == "windows" {
+		// Windows keeps ranges of ports for itself, and says so here. A port
+		// inside one cannot be bound at all, which is the answer when the two
+		// binds above disagree with what the backend met.
+		netsh := exec.Command("netsh", "interface", "ipv4", "show", "excludedportrange", "protocol=udp")
+		if text, err := netsh.CombinedOutput(); err == nil {
+			if rows := reservedUDPRanges(string(text)); len(rows) > 0 {
+				fmt.Fprintf(&out, "  UDP reserved ranges: %s\n", describeRanges(rows))
+				fmt.Fprintf(&out, "  port %d is %s\n", port, inRanges(port, rows))
+			}
+		}
+	}
+	return out.String()
+}
+
+// describeRanges prints the ranges the way netsh does, so the line in a CI log
+// can be read next to the same command's output.
+func describeRanges(ranges [][2]int) string {
+	parts := make([]string, 0, len(ranges))
+	for _, r := range ranges {
+		parts = append(parts, fmt.Sprintf("%d-%d", r[0], r[1]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// reservedUDPRanges reads the pairs of numbers netsh prints, one "first last"
+// row per range.
+func reservedUDPRanges(netshOutput string) [][2]int {
+	var ranges [][2]int
+	for _, line := range strings.Split(netshOutput, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		first, err1 := strconv.Atoi(fields[0])
+		last, err2 := strconv.Atoi(fields[1])
+		if err1 != nil || err2 != nil || first <= 0 || last < first {
+			continue
+		}
+		ranges = append(ranges, [2]int{first, last})
+	}
+	return ranges
+}
+
+func inRanges(port int, ranges [][2]int) string {
+	for _, r := range ranges {
+		if port >= r[0] && port <= r[1] {
+			return "inside a reserved range"
+		}
+	}
+	return "not inside any reserved range"
 }
