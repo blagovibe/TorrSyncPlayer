@@ -20,6 +20,11 @@ const (
 	// TrackSub is a subtitle track. Zero means "none", which mpv spells as no
 	// track at all.
 	TrackSub TrackKind = "sub"
+	// TrackVideo is the picture. Nothing here switches it, so it exists for
+	// one question: is mpv past loading? A video track is the proof, since a
+	// file being demuxed has none yet and mpv refuses commands that need one
+	// without saying why.
+	TrackVideo TrackKind = "video"
 )
 
 // Track is one track of the file being played.

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -191,22 +192,15 @@ func TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP(t *testing.T) {
 	}
 	waitForLoadedPatiently(t, ctx, p, media)
 
-	// mpv dies on runners now and then — it exits between loading the file
-	// and taking the command, and the write comes back as a broken pipe.
-	// Nothing in our code did that, and nothing in it can be fixed by
-	// retrying: the process is gone. So the test says so out loud instead of
-	// reporting a refusal mpv never delivered, and the reason travels with
-	// the skip.
-	if _, err := p.Paused(ctx); err != nil {
-		t.Skipf("mpv is no longer running on this machine, so there is nothing left "+
-			"to load subtitles into: %v\n--- what mpv said ---\n%s", err, tailLines(p.Log(), 25))
-	}
+	// Being in the playlist is not being loaded. mpv answers sub-add before
+	// the file is open with "error running command" and says nothing else —
+	// no log line, no hint — so a test that fires the command as soon as the
+	// playlist count is right fails roughly one run in seven on a laptop and
+	// reddened both the macOS and the Linux job on CI. A track is the proof
+	// that mpv is past that point, which is the state sub-add needs.
+	waitForTracks(t, ctx, p, TrackVideo, 1)
 
 	if err := p.AddSubtitles(ctx, server.URL+"/subs.srt"); err != nil {
-		if _, dead := p.Paused(ctx); dead != nil {
-			t.Skipf("mpv died while taking the subtitle command: %v\n--- what mpv said ---\n%s",
-				err, tailLines(p.Log(), 25))
-		}
 		t.Fatalf("mpv refused the external subtitles: %v\n--- what mpv said ---\n%s",
 			err, tailLines(p.Log(), 25))
 	}
@@ -263,5 +257,36 @@ func waitForLoadedPatiently(t *testing.T, ctx context.Context, p *Player, media 
 				media, tailLines(p.Log(), 25))
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// mpv answers "error running command" for a sub-add sent before a file is
+// loaded, and adds nothing to its log to say so — proven against the real
+// binary, which is why this message once cost a CI run on two platforms. The
+// person choosing a subtitle track sees the error verbatim in the window's
+// status line, so the sentence has to carry the reason itself.
+func TestAddSubtitlesSaysWhenThereIsNoFileToAttachThemTo(t *testing.T) {
+	if !mpvAvailable() {
+		t.Skip("no mpv on PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	p, err := Start(ctx, Options{
+		Binary:     "mpv",
+		SocketPath: testSocketPath(t, "nofile"),
+		ExtraArgs:  []string{"--vo=null", "--ao=null"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	err = p.AddSubtitles(ctx, "http://127.0.0.1:1/subs.srt")
+	if err == nil {
+		t.Fatal("mpv took subtitles with no file loaded, which is what this pins")
+	}
+	if !strings.Contains(err.Error(), "no file loaded") {
+		t.Fatalf("the error does not say what is wrong: %v", err)
 	}
 }

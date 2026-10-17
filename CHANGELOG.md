@@ -9,18 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The external-subtitles test blamed our code for mpv's death.**
-  `TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP` reported
-  «mpv refused the external subtitles: error running command» when the real
-  story was `[ipc_1] Write error (Broken pipe)` — a write into a socket
-  whose process was already gone. It reddened `macos-latest`, then
-  `ubuntu-22.04`, and reproduced locally in roughly one run out of seven,
-  so it was never a runner quirk. The test now asks mpv whether it is still
-  there before the command and, if it is not, says so — with mpv's own log —
-  instead of naming a refusal mpv never delivered. A live mpv that really
-  refuses still fails: feeding the test rubbish in place of subtitles fails
-  the run, it does not skip it (bug-0115, open — the cause of the death is
-  still unknown, and 26 identical runs outside the test never produced one).
+- **mpv answers `sub-add` with a shrug, and the subtitle test took it
+  personally.** `TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP`
+  failed as «mpv refused the external subtitles: error running command» on
+  macOS, then on Ubuntu, and locally in about one run out of seven. Proved
+  against the real binary: mpv refuses `sub-add` **silently** when no file
+  is loaded yet — no log line, no hint — while a URL it cannot open gets the
+  same refusal plus a `Failed to open` line. The test waited for the file to
+  be in the playlist, which is not the same as loaded. It now waits for the
+  video track, the state the command actually needs (bug-0115, open — the
+  silence is mpv's own).
+- **That error reached the window verbatim.** Choosing a subtitle track puts
+  the error text into the status line, and «player: error running command»
+  explains nothing to a person watching. `AddSubtitles` now says when there is
+  no file loaded to attach subtitles to; the new
+  `TestAddSubtitlesSaysWhenThereIsNoFileToAttachThemTo` fails on the old code.
 
 ## [v0.3.0] - 2026-10-17
 
