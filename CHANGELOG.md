@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The live volume test failed on CI after the release (bug-0108, card
+  removed). `TestRealMpvVolumeRoundTrip` is green on mpv 0.41 and red on
+  the ubuntu-22.04 runner, whose mpv is 0.34.1 with no sound card: the
+  volume is set and never lands, because there is no audio chain to apply
+  it to. The mismatch now decides, not the machine's mood — the reason is
+  asked of mpv itself (`current-ao`) and travels with the skip, so a green
+  run never means "checked" when it means "skipped", and an output that
+  does exist keeps the failure. Verified: skip path exercised locally
+  (forced mismatch), full frontend suite green. The wire shape stays
+  pinned by the three deterministic tests beside it.
+
 ### Verified
 
 - CI verdict on the v0.2.0 tree, as the release entry predicted: mutation
