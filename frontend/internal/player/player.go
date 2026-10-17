@@ -341,6 +341,10 @@ func Args(socketPath string, headers []string, extra ...string) []string {
 		"--no-config",
 		"--idle=yes",
 		"--keep-open=yes",
+		// The player window is a screen, not a remote: this kills the
+		// builtin bindings and the script ones (OSC included — the manual
+		// says so), so every keypress travels through our window and the
+		// room sees it. See DEV.md#mpv как внешний процесс.
 		"--no-input-default-bindings",
 		"--input-ipc-server=" + socketPath,
 	}

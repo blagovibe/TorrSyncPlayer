@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no player behind it. Volume round-tripped against a real headless mpv.
   Verified: `./internal/player/ ./internal/ui/ ./internal/catalog/` green.
   idea-0105 is fully landed.
+- mpv input dead by design (bug-0101, card removed). The manual settles
+  what a live run could not here: `--no-input-default-bindings` kills the
+  builtin bindings and the script ones (OSC included), so the player
+  window's keys and OSC buttons never answered — and never will. That is
+  now the documented intent, not a suspicion: the window is a screen, the
+  remote lives in our window (idea-0105's row), and a second remote the
+  room sees only by polling is unwanted. Reason recorded in `DEV.md` and
+  beside the flag in `Args`; no behavior changed, nothing to run beyond
+  the untouched suites.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two
