@@ -5,6 +5,17 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Verified
+
+- CI on the v0.3.1 tree: every workflow green. The one red was
+  `Test Frontend (macos-latest)` failing on a live mpv that had already
+  died (`Broken pipe`) — the same job was green on the three previous runs
+  and green again when the red job was re-run with no code change, so the
+  macOS runner's mpv is flaky, not the code (bug-0115, open, recorded
+  rather than papered over: a blind fix would be worse than the knowledge).
+
 ## [v0.3.0] - 2026-10-17
 
 ### Fixed
