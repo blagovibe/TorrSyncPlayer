@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The window looked flat and nothing in it had a rank (owner's words:
+  «интерфейс ужасно выглядит, там ничего не понятно»). Seven strips of
+  equal weight in one column were rebuilt as four named zones with
+  hairlines under each heading: «Сейчас играет», «Звук и субтитры»,
+  «Торренты и файлы», «Смотрим вместе». What it fixed, found by rendering
+  the window offscreen and looking at it:
+
+  - the magnet field was clipped to «маг» and the invite field to «вста:» —
+    they sat in a border's `left`, which is handed its minimum width; they
+    are now the border's object, the only thing that stretches;
+  - both lists were a thin strip with the window empty below, because a
+    zone in a `VBox` row gets its minimum height; the library is the
+    border's centre now;
+  - `widget.NewSeparator` drew as a fat grey band that read as a patch over
+    the window, so the rules are one-pixel rectangles in the separator
+    colour;
+  - empty labels kept their height, leaving holes under their headings;
+    `setLine` hides a line with nothing to say and the four start hidden.
+
+  Verified by rendering the window offscreen at 1100×700 and by two tests:
+  the zones are named and distinct, a line with text shows and an empty one
+  disappears. Full frontend suite green. Replacing the toolkit was refused
+  earlier on purpose (idea-0063): GTK4 would cost macOS and Windows.
 - The live volume test failed on CI after the release (bug-0108, card
   removed). `TestRealMpvVolumeRoundTrip` is green on mpv 0.41 and red on
   the ubuntu-22.04 runner, whose mpv is 0.34.1 with no sound card: the

@@ -80,11 +80,19 @@ var catalog = map[string]string{
 	"status.connWaiting":     "Finding the room — DHT not ready yet",
 	"dialog.error":           "Error",
 
-	"room.label":          "In the room: %s",
-	"room.host":           "(host)",
-	"room.buffering":      "buffering",
-	"room.defaultName":    "Room",
-	"media.info":          "%s · %s · %s",
+	"room.label":       "In the room: %s",
+	"room.host":        "(host)",
+	"room.buffering":   "buffering",
+	"room.defaultName": "Room",
+	"media.info":       "%s · %s · %s",
+
+	// The zones of the window. Named so the eye knows where it is: what
+	// plays, what it needs, the library, and the room — the last one being
+	// about several people and the rest about one.
+	"zone.playback":       "Now playing",
+	"zone.tracks":         "Audio and subtitles",
+	"zone.library":        "Torrents and files",
+	"zone.room":           "Watch together",
 	"torrent.loading":     "Loading",
 	"torrent.downloading": "Downloading",
 	"torrent.seeding":     "Seeding",
@@ -199,6 +207,10 @@ var Russian = Strings{
 	"room.buffering":                "буферизация",
 	"room.defaultName":              "Комната",
 	"media.info":                    "%s · %s · %s",
+	"zone.playback":                 "Сейчас играет",
+	"zone.tracks":                   "Звук и субтитры",
+	"zone.library":                  "Торренты и файлы",
+	"zone.room":                     "Смотрим вместе",
 	"torrent.loading":               "Загрузка",
 	"torrent.downloading":           "Скачивание",
 	"torrent.seeding":               "Раздача",

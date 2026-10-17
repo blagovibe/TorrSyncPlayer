@@ -359,3 +359,49 @@ func TestTheLanguageFlagReachesTheWindow(t *testing.T) {
 		t.Errorf("without the flag the window ignored the saved language: %q", saved.language)
 	}
 }
+
+// The window is a screen, not a settings page: its zones are named and
+// ruled, and the one list that grows is the border's centre rather than a
+// row that would be handed its minimum height. The owner's complaint was
+// that nothing in it had a rank — so the zones are pinned here.
+func TestTheWindowIsComposedOfNamedZones(t *testing.T) {
+	_ = test.NewApp()
+	client := api.New("http://127.0.0.1:1", "test-token")
+
+	w, _ := newWindow(client, "peer-test", nil, WindowOptions{})
+	tr := func(key string) string { return catalog.Lookup(catalog.English, key) }
+
+	for _, key := range []string{"zone.playback", "zone.tracks", "zone.library", "zone.room"} {
+		if tr(key) == "" {
+			t.Errorf("the zone %q has no English text — a heading that says nothing "+
+				"names nothing", key)
+		}
+	}
+	if tr("zone.playback") == tr("zone.room") {
+		t.Error("two zones share a heading, which tells the reader nothing")
+	}
+
+	// The lines start hidden: an empty label is a hole in a ruled zone.
+	for name, label := range map[string]*widget.Label{
+		"room": w.roomLabel, "connection": w.connLabel, "preparing": w.preparing,
+	} {
+		if label.Visible() {
+			t.Errorf("the %s line is visible before it has anything to say", name)
+		}
+	}
+}
+
+// An empty line must leave no hole. A label that keeps its height reads as a
+// zone with something missing rather than as nothing to say.
+func TestAnEmptyLineDisappears(t *testing.T) {
+	_ = test.NewApp()
+	label := widget.NewLabel("")
+	setLine(label, "something")
+	if !label.Visible() || label.Text != "something" {
+		t.Fatal("a line with text must be shown")
+	}
+	setLine(label, "")
+	if label.Visible() {
+		t.Error("an empty line must be hidden, or it leaves a hole in the zone")
+	}
+}

@@ -87,6 +87,7 @@ func (w *window) buildControls() fyne.CanvasObject {
 	w.volSlider.Step = 1
 	w.volSlider.OnChanged = w.onVolumeMoved
 	w.mediaLbl = widget.NewLabel("")
+	w.mediaLbl.Hide()
 	volRow := container.NewHBox(
 		widget.NewIcon(theme.VolumeUpIcon()),
 		w.volSlider,
@@ -219,7 +220,7 @@ func (w *window) updateControls(mpv *player.Player) {
 		if volumeErr == nil {
 			setSliderValue(w.volSlider, w.onVolumeMoved, clamp(volume, 0, 100))
 		}
-		w.mediaLbl.SetText(mediaInfoText(w.tr, name, size, duration))
+		setLine(w.mediaLbl, mediaInfoText(w.tr, name, size, duration))
 	})
 }
 

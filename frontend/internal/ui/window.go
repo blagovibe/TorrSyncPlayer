@@ -279,13 +279,21 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	)
 	w.list.OnSelected = func(id widget.ListItemID) { w.play(w.item(id)) }
 
-	toolbar := container.NewHBox(
-		w.entry,
+	// The magnet field takes the room it needs: in a plain row it was
+	// clipped to a few characters, which made the one field everything
+	// starts from look like a leftover.
+	// The magnet field is the border's object, not its left panel: a side
+	// panel is handed its minimum width, which clipped the one field
+	// everything starts from down to a few characters.
+	toolbar := container.NewBorder(nil, nil,
 		w.addButton,
-		widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
-		layout.NewSpacer(),
-		widget.NewButtonWithIcon(w.tr("action.shortcuts"), theme.InfoIcon(), w.showShortcuts),
-		widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), w.showSettings),
+		container.NewHBox(
+			widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
+			layout.NewSpacer(),
+			widget.NewButtonWithIcon(w.tr("action.shortcuts"), theme.InfoIcon(), w.showShortcuts),
+			widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), w.showSettings),
+		),
+		w.entry,
 	)
 
 	// The file list sits next to the torrent list: picking a torrent answers
@@ -332,9 +340,14 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	// The room line sits above the lists: who is watching with you is a
 	// one-line answer that belongs where it is always visible. The preparing
 	// line sits beside it: what is still downloading while you watch.
+	// All three start hidden: they carry nothing before a room or a film
+	// exists, and an empty label is a gap in a ruled zone (see setLine).
 	w.roomLabel = widget.NewLabel("")
 	w.connLabel = widget.NewLabel("")
 	w.preparing = widget.NewLabel("")
+	w.roomLabel.Hide()
+	w.connLabel.Hide()
+	w.preparing.Hide()
 
 	// Joining takes an invite code, not a room id and a password: the room has
 	// no server to ask, so there is nothing to look up. The triple carries the
@@ -355,10 +368,10 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			widget.NewButtonWithIcon(w.tr("action.join"), theme.MediaRecordIcon(), w.onJoinPressed),
 			w.createRoom,
 		),
-		container.NewHBox(
-			w.inviteEntry,
+		container.NewBorder(nil, nil,
 			widget.NewButtonWithIcon(w.tr("action.paste"), theme.ContentPasteIcon(), w.onPasteCodePressed),
 			widget.NewButtonWithIcon(w.tr("action.copy"), theme.ContentCopyIcon(), w.onCopyCodePressed),
+			w.inviteEntry,
 		),
 	)
 
@@ -368,11 +381,41 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		widget.NewLabel(w.tr("track.subfile")), w.subFileSelect,
 	)
 
-	lists := container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList))
 	controls := w.buildControls()
+
+	// The zones, in the order a person meets them: what plays, what it
+	// needs, what it is still fetching, and the room — which is about
+	// several people and therefore its own block. Everything above it is
+	// about one person watching alone.
+	//
+	// The toolbar and the zones share the top row, and the library is the
+	// border's centre: a zone in a VBox row is handed its minimum height
+	// and leaves the window empty below, so the one list that grows grows
+	// here. Its heading goes with it — a heading over an empty strip tells
+	// the reader nothing.
 	body := container.NewBorder(
-		toolbar, container.NewVBox(w.events, w.status), nil, nil,
-		container.NewVBox(w.roomLabel, w.connLabel, w.preparing, roomPanel, tracks, controls, lists),
+		container.NewVBox(toolbar, contentStack(
+			section(w.zoneHeading("zone.playback"), controls),
+			section(w.zoneHeading("zone.tracks"), tracks),
+			w.preparing,
+			section(w.zoneHeading("zone.room"),
+				roomPanel,
+				w.roomLabel,
+				w.connLabel,
+			),
+		)),
+		container.NewVBox(w.events, w.status),
+		nil,
+		nil,
+		// The heading goes in the nested border's top, not in a VBox with the
+		// split: a VBox hands its child the minimum height, which left the two
+		// lists a thin strip with the window empty below them.
+		container.NewBorder(
+			w.zoneHeading("zone.library"),
+			rule(),
+			nil, nil,
+			container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList)),
+		),
 	)
 
 	w.buffer = room.NewBufferReporter(room.ReporterOptions{
@@ -451,8 +494,8 @@ func (w *window) leaveRoom() {
 		_ = mesh.Close()
 	}
 	onMain(func() {
-		w.roomLabel.SetText("")
-		w.connLabel.SetText("")
+		setLine(w.roomLabel, "")
+		setLine(w.connLabel, "")
 	})
 }
 
@@ -519,7 +562,7 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 			w.lastRoster = rosterSnapshot(peers)
 			w.mu.Unlock()
 			onMain(func() {
-				w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
+				setLine(w.roomLabel, w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
 			})
 			for _, line := range lines {
 				w.notify(line)
@@ -751,7 +794,7 @@ func (w *window) showRoster() {
 	}
 	peers := room.Peers()
 	onMain(func() {
-		w.roomLabel.SetText(w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
+		setLine(w.roomLabel, w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
 	})
 }
 
@@ -1145,7 +1188,7 @@ func (w *window) refresh() {
 	if mesh != nil {
 		conn = connStatusText(w.tr, mesh.ConnStatus())
 	}
-	onMain(func() { w.connLabel.SetText(conn) })
+	onMain(func() { setLine(w.connLabel, conn) })
 
 	var out struct {
 		Torrents []Torrent `json:"torrents"`
@@ -1165,7 +1208,7 @@ func (w *window) refresh() {
 
 	onMain(w.list.Refresh)
 	preparing := preparingText(w.tr, playingTorrent(out.Torrents, playing))
-	onMain(func() { w.preparing.SetText(preparing) })
+	onMain(func() { setLine(w.preparing, preparing) })
 	w.setStatus(w.trf("status.torrents", strconv.Itoa(len(out.Torrents))))
 
 	w.adoptTheRoomsFile()
