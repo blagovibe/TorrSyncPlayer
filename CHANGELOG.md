@@ -116,6 +116,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   room sees only by polling is unwanted. Reason recorded in `DEV.md` and
   beside the flag in `Args`; no behavior changed, nothing to run beyond
   the untouched suites.
+- Direction umbrella closed (idea-0090, card removed). Every item ended
+  somewhere on record: transplant, heartbeat, preparing, roster, release
+  v0.1.0, packaging, diagnostics, megabytes, peers, event line, dialogs,
+  shortcuts, own remote, teardown, README, platforms — done; legal dialog,
+  Winget, warnings — declined; field test — cancelled by the owner;
+  translations — hand-kept. Nothing hangs without a decision. The board is
+  empty.
 - Event line beside the status line (idea-0090, UX parity slice). Every
   failure, arrival and one-shot confirmation travelled through the status
   line — which the 2-second poll rewrites, so a reported error lived two
