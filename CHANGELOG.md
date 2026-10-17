@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A live run of the built application found two defects the suite could not:
+  the Russian interface filled the log with `Translation failure … not found
+  in language "ru"`, and quitting on the backend's death called `a.Quit()`
+  from a goroutine, which Fyne 2.8 flags and says the next major release will
+  refuse outright (bug-0110, bug-0111, both cards removed).
+
+  - Every `widget.NewSelect` asks Fyne for `(Select one)` in its
+    constructor — before a placeholder of ours can be set — and the bundle
+    Fyne ships carries neither `ru` nor our wording. `InstallFyneTranslations`
+    registers the string once at startup. Setting our own placeholder as well
+    was not enough, and did not need to be: the question is asked in the
+    constructor, not at draw time.
+  - `fyne.Do(a.Quit)` for the same reason every widget change already goes
+    through `onMain`.
+
+  Verified by building the pair, running it offscreen and reading the log:
+  zero translation failures, zero call-thread errors, the poll answering
+  200, and the application exiting cleanly when the backend child is
+  killed.
 - The window looked flat and nothing in it had a rank (owner's words:
   «интерфейс ужасно выглядит, там ничего не понятно»). Seven strips of
   equal weight in one column were rebuilt as four named zones with

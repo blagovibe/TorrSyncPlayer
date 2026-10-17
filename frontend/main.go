@@ -147,6 +147,11 @@ func run(opts runOptions) error {
 		return err
 	}
 
+	// Before any widget exists: Fyne resolves its own strings in widget
+	// constructors, and a missing translation is logged as an error there
+	// (bug-0110).
+	ui.InstallFyneTranslations()
+
 	a := app.NewWithID("com.blagovibe.torrsyncplayer")
 	a.Settings().SetTheme(theme.LightTheme())
 	if opts.DarkTheme || settings.DarkTheme {
@@ -194,7 +199,10 @@ func run(opts runOptions) error {
 		// on its own explains nothing.
 		<-child.Exited()
 		fmt.Fprintln(os.Stderr, backend.DescribeExit(child.ExitError()))
-		a.Quit()
+		// Fyne marks a call made off the main thread and says the next
+		// major release will refuse it outright: quitting from here is a
+		// today-warning and a tomorrow-crash (bug-0111).
+		fyne.Do(a.Quit)
 	}()
 
 	window.ShowAndRun()

@@ -327,13 +327,21 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 
 	// The choosers start hidden: most films have one voice, and a row of
 	// empty selectors teaches a person that the app has nothing to offer.
+	// The choosers get their placeholder from the catalogue, not from Fyne's
+	// default: that default is an English string looked up in translations
+	// the build does not carry, and the failure is logged on every redraw —
+	// a person running the Russian interface got a log full of somebody
+	// else's error (bug-0110).
 	w.audioSelect = widget.NewSelect(nil, nil)
+	w.audioSelect.PlaceHolder = w.tr("track.none")
 	w.audioSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackAudio, choice) }
 	w.subSelect = widget.NewSelect(nil, nil)
+	w.subSelect.PlaceHolder = w.tr("track.none")
 	w.subSelect.OnChanged = func(choice string) { w.chooseTrack(player.TrackSub, choice) }
 	w.audioSelect.Hide()
 	w.subSelect.Hide()
 	w.subFileSelect = widget.NewSelect(nil, nil)
+	w.subFileSelect.PlaceHolder = w.tr("track.none")
 	w.subFileSelect.OnChanged = func(choice string) { w.chooseSubFile(choice) }
 	w.subFileSelect.Hide()
 

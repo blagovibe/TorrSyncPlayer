@@ -85,6 +85,7 @@ var catalog = map[string]string{
 	"room.buffering":   "buffering",
 	"room.defaultName": "Room",
 	"media.info":       "%s · %s · %s",
+	"track.none":       "None",
 
 	// The zones of the window. Named so the eye knows where it is: what
 	// plays, what it needs, the library, and the room — the last one being
@@ -207,6 +208,7 @@ var Russian = Strings{
 	"room.buffering":                "буферизация",
 	"room.defaultName":              "Комната",
 	"media.info":                    "%s · %s · %s",
+	"track.none":                    "Нет",
 	"zone.playback":                 "Сейчас играет",
 	"zone.tracks":                   "Звук и субтитры",
 	"zone.library":                  "Торренты и файлы",
