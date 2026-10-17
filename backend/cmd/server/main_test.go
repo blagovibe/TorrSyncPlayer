@@ -253,3 +253,25 @@ func TestReadStdinTokenRefusesAnEmptySecret(t *testing.T) {
 		}
 	}
 }
+
+// The first run of the desktop application greets the owner with this log
+// line, so it must not sound like a verdict on what they are doing: the
+// backend listens on loopback by default and every byte on it is their own.
+// The warning belongs to someone who put the server on a network.
+func TestTheTLSWarningOnlyFiresOffLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		addr string
+		warn bool
+	}{
+		{"127.0.0.1:8889", false},
+		{"localhost:8889", false},
+		{"[::1]:8889", false},
+		{":8889", true},             // every interface
+		{"0.0.0.0:8889", true},      // every interface, named
+		{"192.168.1.10:8889", true}, // a network
+	} {
+		if got := isLoopbackAddr(tc.addr); got == tc.warn {
+			t.Errorf("%q: loopback = %v, want %v", tc.addr, got, !tc.warn)
+		}
+	}
+}

@@ -31,7 +31,10 @@ func TestArgsPassThePortAndTheToken(t *testing.T) {
 	// among the arguments at all.
 	args := Args(Launch{Port: 1234, Token: "secret"})
 
-	want := []string{"--port", "1234", "--token-stdin", "--data-dir", ""}
+	// The address is loopback, not a bare port: a bare port made the backend
+	// bind every interface, which put a torrent client on the local network
+	// on every launch (bug-0114).
+	want := []string{"--addr", "127.0.0.1:1234", "--token-stdin", "--data-dir", ""}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("got %v, want %v", args, want)
 	}

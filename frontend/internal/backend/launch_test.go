@@ -57,12 +57,12 @@ func TestLaunchArgumentsCarryNoSecret(t *testing.T) {
 // keep nothing on disk at all.
 func TestLaunchArgumentsCarryTheStorageChoice(t *testing.T) {
 	memory := strings.Join(Args(Launch{Port: 8889, DataDir: ""}), " ")
-	if memory != "--port 8889 --data-dir " {
+	if memory != "--addr 127.0.0.1:8889 --data-dir " {
 		t.Fatalf("memory storage produced %q", memory)
 	}
 
 	disk := strings.Join(Args(Launch{Port: 8889, DiskStorage: true, DataDir: "/pieces"}), " ")
-	if disk != "--port 8889 --data-dir /pieces --disk-storage" {
+	if disk != "--addr 127.0.0.1:8889 --data-dir /pieces --disk-storage" {
 		t.Fatalf("disk storage produced %q", disk)
 	}
 }

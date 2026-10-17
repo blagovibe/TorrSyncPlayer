@@ -409,8 +409,15 @@ func validateConfig(config Config) error {
 		return fmt.Errorf("memory-capacity exceeds maximum: %d > %d", config.MemoryStorageCapacity, constants.MaxMemoryStorageCapacity)
 	}
 
-	if !config.UseTLS {
-		logger.Warn("Running without TLS — all data is transmitted in plain text. Do not use in production!")
+	// No TLS is the normal case, not a warning about production: the backend
+	// listens on loopback and every byte on it is the owner's own. The old
+	// wording — "Do not use in production!" — is a verdict on a listener
+	// nobody deploys that way, and it greeted the first run of the desktop
+	// application with a sentence that reads as "you are doing this wrong".
+	// Someone who did put this on a network is the one who should hear it.
+	if !config.UseTLS && !isLoopbackAddr(config.ListenAddr) {
+		logger.Warn("Serving without TLS on a non-loopback address — traffic is not encrypted. " +
+			"Add --tls-cert and --tls-key, or bind to 127.0.0.1.")
 	}
 
 	// Gateway validation
@@ -705,4 +712,28 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// isLoopbackAddr answers whether the listen address keeps the server on the
+// owner's own machine. An empty address means "every interface", which is
+// exactly the case the warning is about.
+func isLoopbackAddr(addr string) bool {
+	if addr == "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = strings.Trim(addr, "[]")
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	// A hostname (including "localhost") counts: either it resolves here or
+	// the address was never usable anyway, and warning about the name the
+	// owner typed helps nobody.
+	return true
 }

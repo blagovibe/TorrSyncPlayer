@@ -173,8 +173,13 @@ type Launch struct {
 // shell can stand in for the choice made in the window. The empty directory
 // passed in memory mode is on purpose — it is the backend's documented way to
 // keep nothing on disk.
+// The listen address is loopback, not just a port. `--port` alone made the
+// backend bind every interface, so the desktop application opened a torrent
+// client to the local network on every launch: proved by the newcomer audit
+// answering /health from the machine's LAN address, no token (bug-0114). The
+// window is the only client, and the window is on this machine.
 func Args(l Launch) []string {
-	args := []string{"--port", fmt.Sprint(l.Port)}
+	args := []string{"--addr", fmt.Sprintf("127.0.0.1:%d", l.Port)}
 	if l.Token != "" {
 		// An empty token would pin the backend to an empty secret instead of
 		// letting it generate a random one, which is the failure being fixed.

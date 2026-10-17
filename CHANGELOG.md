@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The desktop application opened a torrent client to the local network.**
+  The newcomer audit asked the running build from its own LAN address and
+  got `{"status":"ok"}` with no token: the client launched the backend with
+  `--port`, which binds every interface, so every launch exposed a torrent
+  client to the network. The client now passes `--addr 127.0.0.1:<port>` —
+  the window is the only client and it is on this machine (bug-0114,
+  card removed). Two existing tests pinned the old behaviour and failed
+  first; `TestTheTLSWarningOnlyFiresOffLoopback` is new. Verified on a live
+  build: `ss` shows `127.0.0.1:<port>`, the LAN address does not answer, the
+  loopback does.
+- **The TLS warning greeted every normal run** with "Do not use in
+  production!" — about a listener whose traffic never leaves the owner's
+  machine. It now fires only when the backend really listens off loopback,
+  and says what to do instead. Same audit, same release.
+- **A newcomer had nowhere to read what to download** (bug-0113, card
+  removed). README had no installation section at all: "Быстрый старт" was
+  `go run ./cmd/build`, which is instructions for a developer. It now leads
+  with the three release artifacts, how to run each one, and that `mpv`
+  ships inside — then keeps the source build below as what it is. The stale
+  limitation about eyeballing connections is corrected to point at the
+  connection block that has existed since idea-0100.
 - **The settings dialog arrived collapsed — the fields did not stretch.**
   The owner's screenshot showed headings and placeholders floating in an
   otherwise empty window; my audit had missed it because it rendered the
