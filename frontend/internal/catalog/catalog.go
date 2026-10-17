@@ -127,6 +127,8 @@ var catalog = map[string]string{
 	// restart that did not happen.
 	"action.settings":               "Settings",
 	"settings.title":                "Settings",
+	"settings.zone.look":            "Appearance and player",
+	"settings.zone.rendezvous":      "Rooms and connections",
 	"settings.note":                 "Theme and rendezvous apply at once; the other choices apply at the next launch.",
 	"settings.language":             "Interface language",
 	"settings.languageSystem":       "System language",
@@ -237,6 +239,8 @@ var Russian = Strings{
 	"track.off":                     "Выкл.",
 	"action.settings":               "Настройки",
 	"settings.title":                "Настройки",
+	"settings.zone.look":            "Вид и плеер",
+	"settings.zone.rendezvous":      "Комнаты и соединения",
 	"settings.note":                 "Тема и рандеву применяются сразу, остальное — при следующем запуске.",
 	"settings.language":             "Язык интерфейса",
 	"settings.languageSystem":       "Системный язык",

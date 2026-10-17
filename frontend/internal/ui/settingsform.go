@@ -264,40 +264,6 @@ func (f *settingsForm) apply(current Settings) Settings {
 	return s
 }
 
-// content assembles the form. It is tall, so it scrolls: a settings dialog
-// whose bottom half is off the screen hides exactly the fields nobody looks
-// for twice.
-func (f *settingsForm) content(parent fyne.Window) fyne.CanvasObject {
-	rows := container.NewVBox(
-		widget.NewLabel(f.tr("settings.note")),
-		widget.NewSeparator(),
-		labelRow(f.tr("settings.language"), f.language),
-		f.dark,
-		labelRow(f.tr("settings.mpv"), container.NewBorder(nil, nil, nil,
-			chooseFileButton(f.tr, parent, f.mpv.SetText), f.mpv)),
-		widget.NewSeparator(),
-		widget.NewLabel(f.tr("settings.storage")),
-		f.storage.group,
-		f.storage.row,
-		widget.NewSeparator(),
-		widget.NewLabel(f.tr("settings.gateway")),
-		labelRow(f.tr("settings.gatewayURL"), f.gatewayURL),
-		labelRow(f.tr("settings.gatewayUser"), f.gatewayUser),
-		labelRow(f.tr("settings.gatewayPass"), f.gatewayPass),
-		labelRow(f.tr("settings.gatewayCACert"), container.NewBorder(nil, nil, nil,
-			chooseFileButton(f.tr, parent, f.gatewayCACert.SetText), f.gatewayCACert)),
-		widget.NewSeparator(),
-		labelRow(f.tr("settings.bootstrap"), f.bootstrap),
-		labelRow(f.tr("settings.relays"), f.relays),
-	)
-	return container.NewVScroll(rows)
-}
-
-// labelRow puts a label beside a control, the shape the whole form uses.
-func labelRow(label string, control fyne.CanvasObject) fyne.CanvasObject {
-	return container.NewBorder(nil, nil, widget.NewLabel(label), nil, control)
-}
-
 // showSettings opens the settings form over the main window.
 func (w *window) showSettings() {
 	if w.store == nil {

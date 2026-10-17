@@ -1185,6 +1185,10 @@ func (w *window) refresh() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// The floor comes first and needs no network: a window dragged below it
+	// puts the library back in order before anything else is measured.
+	w.ensureMinSize()
+
 	// The connection block updates on the same tick as the lists: DHT
 	// readiness and peer arrivals change without roster events, and a second
 	// poll keeps the line honest without a second ticker. It runs even when

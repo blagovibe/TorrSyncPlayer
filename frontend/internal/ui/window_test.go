@@ -405,3 +405,21 @@ func TestAnEmptyLineDisappears(t *testing.T) {
 		t.Error("an empty line must be hidden, or it leaves a hole in the zone")
 	}
 }
+
+// The floor exists because Fyne has no minimum window size and nothing
+// stopped the window from being dragged until the library collapsed to a
+// strip. A window that fits is left alone — including a maximised one.
+func TestTheWindowHasAMinimumSize(t *testing.T) {
+	if !windowIsTooSmall(400, 400) {
+		t.Error("a window this small cannot hold the zones")
+	}
+	if !windowIsTooSmall(minWindowWidth, 300) {
+		t.Error("a window this short cannot hold the zones")
+	}
+	if windowIsTooSmall(minWindowWidth, minWindowHeight) {
+		t.Error("a window exactly at the floor is allowed")
+	}
+	if windowIsTooSmall(4000, 3000) {
+		t.Error("a large window must be left alone")
+	}
+}

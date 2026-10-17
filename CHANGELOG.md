@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Interface audit by rendering each surface offscreen and looking at it,
+  not by reading the code (owner's words: «меню настроек проверь, там
+  тоже нихрена не понятно. проведи полный аудит интерфейса»). What the
+  renders showed:
+
+  - **Rendezvous and relays sat inside the gateway block.** The two most
+    technical fields on the form read as four more htorrent fields, while
+    they are the room network — the worst confusion on the form, and it is
+    gone: it has a heading, «Комнаты и соединения», of its own. The form
+    is now four named zones — «Вид и плеер», «Кус��и торрентов»,
+    «Комнаты и соединения», «Шлюз htorrent» — bold-headed and ruled, same
+    face as the window's zones (`canvasTextBold`, so the two look like one
+    application).
+  - The form's separators were the same fat bands the window had; they are
+    hairlines now, shared with the window.
+  - The note about when each choice takes effect was the only hint about
+    it and sat as small print; it is now italic and first, before anything
+    is changed rather than discovered after.
+  - **The window had no minimum size**, and nothing stopped a drag until
+    the library collapsed to a strip. Fyne cannot express one —
+    `SetFixedSize` pins a size and refuses to change it, which is worse
+    than a floor — so the poll the window already runs puts it back above
+    800×560.
+
+  Checked and found sound, so left alone: the first-launch question reads
+  clearly; the shortcuts dialog does render line breaks (the suspected
+  `Label` limitation is not there); the tray menu is two items that need no
+  explanation. Verified by re-rendering every surface, by a live run of the
+  built pair (log clean), and by two tests pinning the zones and the floor.
 - A live run of the built application found two defects the suite could not:
   the Russian interface filled the log with `Translation failure … not found
   in language "ru"`, and quitting on the backend's death called `a.Quit()`
