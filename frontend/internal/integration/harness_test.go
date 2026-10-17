@@ -18,6 +18,7 @@ import (
 	stdbase64 "encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -102,24 +103,46 @@ func repoRoot(t *testing.T) string {
 	return ""
 }
 
-// freePort asks the kernel for a port nobody is using.
+// freePort asks the kernel for a port nobody is using — on both protocols.
+//
+// The backend takes one number for two listeners: TCP for HTTP and UDP for
+// libp2p. Windows reserves whole ranges of UDP ports for its own use, and
+// binding inside one of those fails with "an attempt was made to access a
+// socket in a way forbidden by its access permissions" — not with "already in
+// use" — so a port found free for TCP can still be unusable. That is how the
+// Windows job went red on a backend that never came up (bug-0118). Holding both
+// protocols at once is the only honest answer: while they are bound, nothing
+// else can take the number, and the probe ends where the real listener begins.
+//
+// It used to shell out to python3 to ask the same question about TCP alone,
+// which also made the suite depend on python being installed on the runner.
 func freePort(t *testing.T) int {
 	t.Helper()
 
-	backend := backendBinary(t)
-	_ = backend
+	// Asking for the binary here keeps its one-time build in one place: the
+	// port is useless without a backend to listen on it.
+	_ = backendBinary(t)
 
-	cmd := exec.Command("sh", "-c", "python3 -c \"import socket;s=socket.socket();s.bind(('',0));print(s.getsockname()[1]);s.close()\"")
-	output, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("find a free port: %v", err)
+	for attempt := 0; attempt < 12; attempt++ {
+		tcp, err := net.Listen("tcp", ":0")
+		if err != nil {
+			continue
+		}
+		port := tcp.Addr().(*net.TCPAddr).Port
+
+		// The shape the backend binds, not a narrower one: a UDP port that is
+		// free on loopback may still be reserved everywhere.
+		udp, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
+		_ = tcp.Close()
+		if err != nil {
+			continue
+		}
+		_ = udp.Close()
+		return port
 	}
 
-	var port int
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &port); err != nil {
-		t.Fatalf("free port output was %q", output)
-	}
-	return port
+	t.Fatal("no port was free for both TCP and UDP")
+	return 0
 }
 
 // server is a running backend.
@@ -264,4 +287,25 @@ func tailFile(path string, lines int) string {
 func encodeTorrent(t *testing.T, raw []byte) string {
 	t.Helper()
 	return base64Std.EncodeToString(raw)
+}
+
+// TestAFreePortIsFreeForBothListeners says what the backend is about to be told,
+// on the platforms that differ. A port free for TCP is the old promise and it is
+// not enough: the same number has to be bindable for UDP too, or the torrent
+// client inside the backend refuses to start and the test waits for a server
+// that will never answer (bug-0118).
+func TestAFreePortIsFreeForBothListeners(t *testing.T) {
+	port := freePort(t)
+
+	tcp, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		t.Fatalf("the port %d was handed out and cannot be bound for TCP: %v", port, err)
+	}
+	defer func() { _ = tcp.Close() }()
+
+	udp, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		t.Fatalf("the port %d was handed out and cannot be bound for UDP: %v", port, err)
+	}
+	_ = udp.Close()
 }

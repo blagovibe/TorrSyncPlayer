@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TestRealMpvOpensItsSocket` and `TestRealMpvListsAndSwitchesTracks`, and it
   was never only about tests: a failed position read hands the room the start of
   the film (bug-0117).
+- **The port was chosen for TCP alone, and on Windows the application could
+  fail to start.** The backend takes one number for two listeners — HTTP over
+  TCP, libp2p over UDP — but the port was asked of the kernel as a free TCP
+  port only. Windows reserves whole ranges of UDP ports for itself (WSL,
+  Hyper-V, Docker Desktop) and refuses a bind inside one with WSAEACCES,
+  which reads like nothing at all: «an attempt was made to access a socket in
+  a way forbidden by its access permissions». The Windows job caught it on
+  `TestARoomWithoutAServer`; on a person's machine it is an application that
+  does not open, with the reason only in its log. Both the application and the
+  test harness now hold TCP and UDP on one number at once (bug-0118), and the
+  harness no longer asks python for it.
 
 ## [v0.3.2] - 2026-10-17
 
