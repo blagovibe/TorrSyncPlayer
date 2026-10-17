@@ -131,6 +131,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the first verified to fail without the fix. Verified: `-race` on
   `./internal/rtc/` green, the whole frontend suite green, and the
   scenario test green three times running.
+- Release check turned up a gate that had never run against the new code
+  (bug-0107, card removed): `Lint Backend` red on two gosec G304 in
+  `persistence_edge_test.go`, a file committed unverified inside 096215c —
+  `go vet` does not see it, gosec does. Both suppressed with the reason
+  (t.TempDir() plus a fixed name, nothing external) by the established
+  `#nosec` pattern. Verified with the same linter as CI, v2.14.0: whole
+  backend 0 issues, contract vet clean, package green.
 - Direction umbrella closed (idea-0090, card removed). Every item ended
   somewhere on record: transplant, heartbeat, preparing, roster, release
   v0.1.0, packaging, diagnostics, megabytes, peers, event line, dialogs,

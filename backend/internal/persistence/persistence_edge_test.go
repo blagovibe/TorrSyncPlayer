@@ -26,6 +26,8 @@ func TestVersionIsStampedOnSave(t *testing.T) {
 			Owners: map[string]string{"abc123": "user-1"},
 		}))
 
+		// #nosec G304 -- the path is t.TempDir() plus a fixed name; nothing
+		// here comes from outside the test.
 		raw, err := os.ReadFile(filepath.Join(tmpDir, "torrents.json"))
 		require.NoError(t, err)
 		var onDisk map[string]any
@@ -43,6 +45,7 @@ func TestVersionIsStampedOnSave(t *testing.T) {
 			Torrents: map[string]TorrentInfo{"abc123": {InfoHash: "abc123"}},
 		}))
 
+		// #nosec G304 -- as above: t.TempDir() plus a fixed name.
 		raw, err := os.ReadFile(filepath.Join(tmpDir, "torrents_registry.json"))
 		require.NoError(t, err)
 		var onDisk map[string]any
