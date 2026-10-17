@@ -37,7 +37,7 @@ func (w *window) shortcutSpecs() []shortcutSpec {
 		}},
 		{"Ctrl+R", "shortcut.refresh", &desktop.CustomShortcut{KeyName: fyne.KeyR, Modifier: fyne.KeyModifierControl}, func() { w.refresh() }},
 		{"Ctrl+,", "shortcut.settings", &desktop.CustomShortcut{KeyName: fyne.KeyComma, Modifier: fyne.KeyModifierControl}, func() {
-			w.showSettings()
+			w.ShowSettings(w.parentWindow())
 		}},
 	}
 }

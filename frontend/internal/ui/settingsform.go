@@ -264,13 +264,19 @@ func (f *settingsForm) apply(current Settings) Settings {
 	return s
 }
 
-// showSettings opens the settings form over the main window.
-func (w *window) showSettings() {
-	if w.store == nil {
-		return
-	}
-	parent := mainWindow()
-	if parent == nil {
+// settingsDialogSize is the size of the settings window. It is applied after
+// Show, because Fyne resets a dialog to its content's minimum on the way
+// out.
+var settingsDialogSize = fyne.NewSize(640, 620)
+
+// ShowSettings opens the settings form over a given window.
+//
+// The parent is an argument rather than looked up inside: the dialog is the
+// one surface whose size and contents the audit had to check by rendering,
+// and a lookup hidden in the middle of the function is exactly what makes
+// that check impossible.
+func (w *window) ShowSettings(parent fyne.Window) {
+	if w.store == nil || parent == nil {
 		return
 	}
 
@@ -316,8 +322,12 @@ func (w *window) showSettings() {
 
 	cancel := widget.NewButton(w.tr("settings.cancel"), func() { d.Hide() })
 	d.SetButtons([]fyne.CanvasObject{cancel, save})
-	d.Resize(fyne.NewSize(640, 620))
+	// Show first, then size. Fyne sizes a custom dialog to its content's
+	// minimum on Show(), and a size set beforehand is overwritten by it —
+	// which left the form collapsed to one heading and the rest of the
+	// dialog empty (the audit found it as a screenshot, not as a failure).
 	d.Show()
+	d.Resize(settingsDialogSize)
 }
 
 // AskAboutStorage shows the first-launch question about where torrent pieces
@@ -389,4 +399,14 @@ func newStorageQuestion(store *SettingsStore, settings Settings, parent fyne.Win
 	question.dialog.Resize(fyne.NewSize(560, 320))
 
 	return question
+}
+
+// parentWindow is the window dialogs hang off. A window built without a
+// parent — which is how tests build one — has none, and a dialog with
+// nowhere to hang is not shown rather than shown somewhere odd.
+func (w *window) parentWindow() fyne.Window {
+	if w.parent != nil {
+		return w.parent
+	}
+	return mainWindow()
 }

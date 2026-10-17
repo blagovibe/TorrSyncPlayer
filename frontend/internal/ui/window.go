@@ -291,7 +291,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
 			layout.NewSpacer(),
 			widget.NewButtonWithIcon(w.tr("action.shortcuts"), theme.InfoIcon(), w.showShortcuts),
-			widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), w.showSettings),
+			widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), func() { w.ShowSettings(w.parentWindow()) }),
 		),
 		w.entry,
 	)

@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The settings dialog arrived collapsed — the fields did not stretch.**
+  The owner's screenshot showed headings and placeholders floating in an
+  otherwise empty window; my audit had missed it because it rendered the
+  form directly instead of the dialog. Cause: a `VScroll` around the form,
+  which hands its children an unbounded box, so each field row was stretched
+  to the whole scroll area and the fields collapsed — the same was true in
+  v0.3.0, which is why the report was about stretching and not about a new
+  change.
+
+  - The scroll container is gone. The form fits the dialog it opens at; if
+    that ever stops being true, the fix is a taller dialog, not a scroll
+    around a broken layout.
+  - The dialog is sized **after** `Show`: Fyne resets a custom dialog to its
+    content's minimum on the way out, so a size set beforehand was
+    overwritten.
+  - The rules under the headings are `canvas.Line`, not filled rectangles —
+    a rectangle is stretched to its row and painted over the fields below,
+    which the screenshot showed as a grey band through every input.
+  - Zone gaps are transparent: the dialog paints over the window's canvas
+    and its background is a different colour, so a themed gap showed up as
+    the very band it was meant to remove.
+
+  `ShowSettings` takes the parent window as an argument instead of looking it
+  up inside — the dialog is the one surface that had to be checked by
+  rendering, and a hidden lookup is what made that check impossible. Pinned
+  by a measurement rather than a picture: the form must ask for at least
+  400 px on both axes, so a layout that starves it again fails the suite
+  instead of shipping an empty dialog. Full frontend suite green, and a
+  live run of the built pair logs nothing.
 - Interface audit by rendering each surface offscreen and looking at it,
   not by reading the code (owner's words: «меню настроек проверь, там
   тоже нихрена не понятно. проведи полный аудит интерфейса»). What the

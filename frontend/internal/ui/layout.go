@@ -35,8 +35,12 @@ func (w *window) zoneHeading(key string) fyne.CanvasObject {
 // the separator colour, not a separator widget: those render as a fat grey
 // band that reads as a patch over the window rather than as a border.
 func rule() fyne.CanvasObject {
-	line := canvas.NewRectangle(theme.Color(theme.ColorNameSeparator))
-	line.SetMinSize(fyne.NewSize(0, 1))
+	// A line, not a filled rectangle: a rectangle is stretched to the row it
+	// sits in and paints over whatever is below it — which is what the audit
+	// screenshot showed, a grey band cutting through every input. A Line
+	// keeps its stroke no matter how far the row grows.
+	line := canvas.NewLine(theme.Color(theme.ColorNameSeparator))
+	line.StrokeWidth = 1
 	return line
 }
 

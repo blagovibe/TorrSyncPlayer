@@ -167,3 +167,23 @@ func TestAnAnsweredQuestionIsNotAskedAgain(t *testing.T) {
 
 	assert.Empty(t, parent.Canvas().Overlays().List(), "the answered question came back")
 }
+
+// The settings dialog used to arrive collapsed: a scroll container around
+// the form handed the fields an unbounded box, so everything but the
+// placeholders vanished, and the form's minimum height collapsed with it.
+// The bug the owner reported as "the fields do not stretch" was this.
+//
+// A screenshot found it, so the pin is a measurement: the form must ask for
+// a real height. If a layout change ever starves it again, the dialog goes
+// blank in the field and this fails.
+func TestTheSettingsFormAsksForARealHeight(t *testing.T) {
+	form := newSettingsForm(Settings{}, func(key string) string { return key }, nil)
+	size := form.content(nil).MinSize()
+	if size.Height < 400 {
+		t.Errorf("the form asks for %v of height — a dialog sized to that shows "+
+			"headings and nothing else", size.Height)
+	}
+	if size.Width < 400 {
+		t.Errorf("the form asks for %v of width — its fields cannot stretch", size.Width)
+	}
+}
