@@ -5,6 +5,17 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Verified
+
+- CI verdict on the v0.2.0 tree, as the release entry predicted: mutation
+  testing measures **66.25%** against the 49% floor (210 passed, 107 failed
+  of 317), where the stale run before `6a12eb4` read 45.43%. The gate is
+  green and the number is real — no floor was touched. Every workflow green:
+  lint, backend tests, frontend tests on all three platforms, backend builds
+  on all three, contract, fuzzing, load, ZAP, CodeQL.
+
 ## [v0.2.0] - 2026-10-17
 
 ### Added
