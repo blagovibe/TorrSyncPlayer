@@ -10,10 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
+	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
 )
 
 // The last untested seam in "watching together": the room's callbacks reach
@@ -189,4 +191,77 @@ func waitFor(t *testing.T, within time.Duration, what string, cond func() bool) 
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("timed out after %s waiting for %s", within, what)
+}
+
+// fakeRoom is a room transport that records what was sent and says nothing
+// back: the test needs a room that remembers a state, not a conversation.
+type fakeRoom struct {
+	mu   sync.Mutex
+	sent []any
+}
+
+func (f *fakeRoom) Send(ctx context.Context, msg any) error {
+	f.mu.Lock()
+	f.sent = append(f.sent, msg)
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeRoom) Next(ctx context.Context) (string, any, bool) {
+	<-ctx.Done()
+	return "", nil, false
+}
+
+func (f *fakeRoom) Peers() []string { return nil }
+func (f *fakeRoom) SelfID() string  { return "host-peer" }
+func (f *fakeRoom) Close() error    { return nil }
+
+// TestTheFollowerComesBackToTheRoomsPlayState is the room leading, as decided.
+//
+// The play state travels only when it changes, so a pause can be lost: it
+// arrives while the file is still loading, and the load overwrites it. The
+// room keeps what it last heard, and the follower comes back to it — on the
+// heartbeat, the same beat on which the host repeats its position, so a pause
+// meant for a moment survives a few seconds and does not fight the person who
+// pressed it.
+func TestTheFollowerComesBackToTheRoomsPlayState(t *testing.T) {
+	if !mpvOnPath(t) {
+		t.Skip("no mpv on PATH")
+	}
+	media := followerMedia(t)
+	p := startFollowerPlayer(t, "converge", media)
+	w := &window{mpv: p}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	waitFor(t, 10*time.Second, "the file to be open", func() bool {
+		tracks, err := p.Tracks(ctx, player.TrackVideo)
+		return err == nil && len(tracks) > 0
+	})
+
+	// The room says the room is paused — as it would after a pause it
+	// broadcast and remembered.
+	room := rtc.NewRoom(&fakeRoom{}, "host-peer", "host-user", true, nil)
+	if err := room.Pause(ctx); err != nil {
+		t.Fatalf("the room could not pause: %v", err)
+	}
+	paused, known := room.PlayState()
+	if !known || !paused {
+		t.Fatalf("the room does not remember that it is paused: %v %v", paused, known)
+	}
+
+	// The follower is playing, because the pause was lost while its file was
+	// loading.
+	waitFor(t, 10*time.Second, "the player to be playing", func() bool {
+		paused, err := p.Paused(ctx)
+		return err == nil && !paused
+	})
+
+	// And the window's convergence brings it back to the room.
+	w.convergeToRoomState(room, false, nil)
+	waitFor(t, 10*time.Second, "the player to come back to the room's state", func() bool {
+		paused, err := p.Paused(ctx)
+		return err == nil && paused
+	})
 }

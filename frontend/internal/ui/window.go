@@ -688,6 +688,19 @@ func (w *window) watchPlayer() {
 		if !room.IsHost() {
 			lastPaused = boolPtr(paused, pausedErr)
 			lastPosition = positionOr(position, positionErr, lastPosition)
+			// The room decides the play state, and a follower comes back to it
+			// on the heartbeat — the same beat on which the host repeats its
+			// position. A pause that was lost (it arrived while the file was
+			// loading, and the load overwrote it) is heard again from the
+			// room's own memory, and a local pause that was meant for a moment
+			// ends when the room says the room is playing (bug-0120).
+			//
+			// The tick counts for the follower too: the heartbeat is a beat of
+			// the room, not of the host's role.
+			tick++
+			if tick%heartbeatEvery == 0 {
+				w.convergeToRoomState(room, paused, pausedErr)
+			}
 			continue
 		}
 
@@ -741,6 +754,39 @@ func hostSeekDue(lastPosition, position float64, tick uint64) bool {
 		return true
 	}
 	return tick%heartbeatEvery == 0
+}
+
+// convergeToRoomState brings the local player back to the room's play state.
+//
+// The room is what decides: the host leads, and the rest follow. A follower
+// whose player disagrees with the room — because the pause was lost while the
+// file was loading, or because it paused itself for a moment — is brought
+// back, and the room's memory is the authority (bug-0120).
+func (w *window) convergeToRoomState(room *rtc.Room, paused bool, pausedErr error) {
+	if pausedErr != nil {
+		return
+	}
+	roomPaused, known := room.PlayState()
+	if !known || roomPaused == paused {
+		return
+	}
+
+	w.mu.RLock()
+	mpv := w.mpv
+	w.mu.RUnlock()
+	if mpv == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if roomPaused {
+			_ = mpv.Pause(ctx)
+		} else {
+			_ = mpv.Resume(ctx)
+		}
+	}()
 }
 
 // showRoster renders the membership line.

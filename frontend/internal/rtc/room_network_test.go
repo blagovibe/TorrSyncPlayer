@@ -148,7 +148,7 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	meshes := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
+	meshes, _ := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
 	host, guest := meshes[0], meshes[1]
 
 	hostEvents := newRoomEvents()
@@ -217,7 +217,7 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 // The meshes are built here rather than borrowed from joinMesh, because that
 // helper leaves the identity out — and a room whose peers are nameless is
 // exactly what this test exists to catch.
-func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) []*Mesh {
+func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([]*Mesh, string) {
 	t.Helper()
 
 	inv := testInvite()
@@ -256,7 +256,7 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) []
 		}
 		return true
 	})
-	return meshes
+	return meshes, bootstrap
 }
 
 // TestAHostLeavingHandsTheRoomToTheSmallestLivingID is the rule the concept
@@ -271,7 +271,7 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	meshes := joinIdentifiedMeshes(t, ctx, "host-user", "guest-one", "guest-two")
+	meshes, _ := joinIdentifiedMeshes(t, ctx, "host-user", "guest-one", "guest-two")
 	host, guestOne, guestTwo := meshes[0], meshes[1], meshes[2]
 
 	hostEvents := newRoomEvents()
@@ -320,4 +320,65 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 	if !winnerRoom.IsHost() {
 		t.Errorf("the new host %s does not hold the role", winner)
 	}
+}
+
+// The room's play state is remembered, and a newcomer is told it.
+//
+// The state travels only when it changes, so a pause that was lost — it
+// arrived while the file was still loading, and the load overwrote it — is
+// never sent again. The room keeps what it last heard, and a guest that
+// joins a paused room must not start playing on its own (bug-0120).
+func TestTheRoomRemembersThePlayStateAndTellsANewcomer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	meshes, bootstrap := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
+	host, guest := meshes[0], meshes[1]
+
+	hostEvents := newRoomEvents()
+	guestEvents := newRoomEvents()
+	hostRoom := NewRoom(host, host.SelfID(), "host-user", true, hostEvents.callbacks())
+	guestRoom := NewRoom(guest, guest.SelfID(), "guest-user", false, guestEvents.callbacks())
+
+	go hostRoom.Run(ctx)
+	go guestRoom.Run(ctx)
+
+	// The host pauses: the room remembers, and the guest hears.
+	require.NoError(t, hostRoom.Pause(ctx))
+	waitFor(t, 30*time.Second, "the guest to be told to pause", func() bool {
+		p := guestEvents.pauseSeen()
+		return p != nil && *p
+	})
+
+	paused, known := hostRoom.PlayState()
+	if !known || !paused {
+		t.Errorf("the host's room does not remember that the room is paused: %v %v", paused, known)
+	}
+	paused, known = guestRoom.PlayState()
+	if !known || !paused {
+		t.Errorf("the guest's room does not remember that the room is paused: %v %v", paused, known)
+	}
+
+	// And the guest that joins later is told the state in the answer to its
+	// hello: a newcomer that missed the change must not start playing.
+	late := NewMesh(MeshOptions{
+		Community: testInvite().Community,
+		Password:  testInvite().Password,
+		Key:       testInvite().Key,
+		Bootstrap: bootstrap,
+		UserID:    "late-user",
+	})
+	if err := late.Join(ctx, false); err != nil {
+		t.Fatalf("the late guest did not join: %v", err)
+	}
+	t.Cleanup(func() { _ = late.Close() })
+
+	lateEvents := newRoomEvents()
+	lateRoom := NewRoom(late, late.SelfID(), "late-user", false, lateEvents.callbacks())
+	go lateRoom.Run(ctx)
+
+	waitFor(t, 30*time.Second, "the late guest to be told the room is paused", func() bool {
+		p := lateEvents.pauseSeen()
+		return p != nil && *p
+	})
 }

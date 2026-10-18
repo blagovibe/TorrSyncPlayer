@@ -70,6 +70,13 @@ type Room struct {
 	peers    map[string]*Peer
 	hostPeer string
 	magnet   *Magnet
+
+	// paused is the room's play state and pausedKnown says whether it is
+	// known at all. The state travels only on a change — a pause that is
+	// lost never comes again — so the room keeps what it last heard, and a
+	// follower can come back to it (bug-0120).
+	paused      bool
+	pausedKnown bool
 }
 
 // NewRoom builds a room driver. isHost seeds the role the local peer claims in
@@ -108,6 +115,27 @@ func (r *Room) HostPeer() string {
 	return r.hostPeer
 }
 
+// PlayState is the room's play state — whether the room is paused — and
+// whether it is known.
+//
+// The room is what the state comes from: the host decides it, everyone else
+// follows. A follower that drifted away from it — because the pause arrived
+// while the file was still loading and the load overwrote it — comes back to
+// it, rather than staying out of step for the rest of the film (bug-0120).
+func (r *Room) PlayState() (bool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.paused, r.pausedKnown
+}
+
+// rememberPause keeps the room's play state.
+func (r *Room) rememberPause(paused bool) {
+	r.mu.Lock()
+	r.paused = paused
+	r.pausedKnown = true
+	r.mu.Unlock()
+}
+
 // Peers returns the roster as the room currently sees it.
 func (r *Room) Peers() []Peer {
 	r.mu.RLock()
@@ -137,11 +165,13 @@ func (r *Room) Run(ctx context.Context) {
 // but every participant sends through the same call so that "I pressed play"
 // and "the room is playing" do not become different beliefs.
 func (r *Room) Play(ctx context.Context) error {
+	r.rememberPause(false)
 	return r.transport.Send(ctx, NewPause(false))
 }
 
 // Pause broadcasts a stop.
 func (r *Room) Pause(ctx context.Context) error {
+	r.rememberPause(true)
 	return r.transport.Send(ctx, NewPause(true))
 }
 
@@ -178,6 +208,7 @@ func (r *Room) handle(from string, msg any) {
 		r.onMagnet(from, m)
 	case Pause:
 		if r.shouldFollow(from) {
+			r.rememberPause(m.Pause)
 			if r.cb.OnPause != nil {
 				r.cb.OnPause(m.Pause)
 			}
@@ -227,6 +258,13 @@ func (r *Room) onHello(from string, m Hello) {
 			_ = r.transport.Send(ctx, NewMagnet(*magnet))
 		}
 		_ = r.transport.Send(ctx, NewHost(r.selfID))
+		// The play state travels with the answer. A newcomer that joined a
+		// paused room must not start playing on its own: the state is only
+		// broadcast on a change, and the change happened before the newcomer
+		// was there (bug-0120).
+		if paused, known := r.PlayState(); known {
+			_ = r.transport.Send(ctx, NewPause(paused))
+		}
 	}
 }
 

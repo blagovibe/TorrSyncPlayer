@@ -5,6 +5,21 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A pause could be lost for good, and the room never noticed.** The play
+  state travels only when it changes, so a pause that arrived while the file
+  was still loading was overwritten by the load itself and never sent again:
+  the guest watched on while the room was paused, and nothing said so. The
+  room now keeps what it last heard, tells a newcomer the state when it
+  answers their greeting, and a follower comes back to it on the heartbeat —
+  the beat on which the host repeats its position, so a pause meant for a
+  moment survives a few seconds instead of being cancelled under the
+  person's finger. A guest who paused for themselves is brought back too:
+  the room leads (bug-0120, owner's decision).
+
 ## [v0.3.5] - 2026-10-18
 
 ### Fixed
