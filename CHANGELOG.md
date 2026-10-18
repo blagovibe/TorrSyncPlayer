@@ -5,6 +5,22 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The torrent client could not always take its own port on Windows.** It
+  listens on TCP and on UDP with one number, and the number was left to the
+  kernel: the client bound TCP on a random one and then bound UDP on the same
+  number. Windows reserves whole ranges of UDP ports for itself (WSL, Hyper-V,
+  Docker Desktop) and refuses a bind inside one with WSAEACCES, whose wording
+  says nothing about the cause — and the client retries only a «port taken»
+  refusal, so the backend simply did not start, about one run in three. The
+  Windows job caught it on `TestARoomWithoutAServer` and
+  `TestSubtitlesTravelTheEndpoint`. The number is now chosen in the backend
+  and checked on both protocols at once, and another is tried if the client
+  still cannot take it (bug-0118).
+
 ## [v0.3.3] - 2026-10-17
 
 ### Fixed
