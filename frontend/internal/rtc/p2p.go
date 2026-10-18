@@ -97,7 +97,7 @@ type Node struct {
 	authKey      []byte
 	key          cid.Cid
 
-	admitted chan network.Stream
+	admitted chan *roomStream
 }
 
 // NewNode starts a node on all interfaces: a room peer must be dialable
@@ -147,7 +147,7 @@ func NewNode(opts NodeOptions) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("rtc: start node: %w", err)
 	}
-	n = &Node{host: h, staticRelays: opts.StaticRelays, authKey: authKey, key: key, admitted: make(chan network.Stream, 16)}
+	n = &Node{host: h, staticRelays: opts.StaticRelays, authKey: authKey, key: key, admitted: make(chan *roomStream, 16)}
 	h.SetStreamHandler(syncProtocolID, n.serveHandshake)
 	return n, nil
 }
@@ -346,7 +346,7 @@ func (n *Node) Discover(ctx context.Context) (<-chan peer.AddrInfo, error) {
 // prove the password, and only then speak protocol. Room streams allow
 // limited connections: a relayed connection is constrained by construction,
 // and refusing it would make every path autorelay reserves unusable.
-func (n *Node) DialRoom(ctx context.Context, info peer.AddrInfo) (network.Stream, error) {
+func (n *Node) DialRoom(ctx context.Context, info peer.AddrInfo) (*roomStream, error) {
 	if err := n.host.Connect(ctx, info); err != nil {
 		return nil, fmt.Errorf("rtc: connect to room peer: %w", err)
 	}
@@ -355,15 +355,16 @@ func (n *Node) DialRoom(ctx context.Context, info peer.AddrInfo) (network.Stream
 	if err != nil {
 		return nil, fmt.Errorf("rtc: open room stream: %w", err)
 	}
-	if err := provePassword(s, n.authKey); err != nil {
+	rw, err := provePassword(s, n.authKey)
+	if err != nil {
 		_ = s.Reset()
 		return nil, err
 	}
-	return s, nil
+	return &roomStream{Stream: s, r: rw}, nil
 }
 
 // WaitAdmitted blocks until a peer passes the handshake on an inbound stream.
-func (n *Node) WaitAdmitted(ctx context.Context) (network.Stream, error) {
+func (n *Node) WaitAdmitted(ctx context.Context) (*roomStream, error) {
 	select {
 	case s := <-n.admitted:
 		return s, nil
@@ -415,44 +416,69 @@ func (n *Node) serveHandshake(s network.Stream) {
 		return
 	}
 	select {
-	case n.admitted <- s:
+	case n.admitted <- &roomStream{Stream: s, r: rw}:
 	default:
 		_ = s.Reset()
 	}
 }
 
+// roomStream is an admitted room stream together with whatever the handshake
+// already read into its buffer.
+//
+// The handshake reads through a bufio.Reader, and a bufio.Reader reads ahead:
+// the peer's first protocol message very often arrives in the same segment as
+// the handshake's verdict, because the other side writes them back to back. A
+// reader that is thrown away after the handshake takes that message with it —
+// and the message is the presence greeting. The peer then never learns that
+// anyone is there: no roster, no host, and a follower who follows nobody
+// (bug-0119).
+//
+// So the reader travels with the stream: whatever it already holds is read
+// first, and nothing is lost between the handshake and the first protocol
+// line.
+type roomStream struct {
+	network.Stream
+	r *bufio.Reader
+}
+
+// Read serves the handshake's leftovers before the socket itself.
+func (s *roomStream) Read(p []byte) (int, error) { return s.r.Read(p) }
+
 // provePassword is the dialer side: answer the challenge, await the verdict.
-func provePassword(s network.Stream, authKey []byte) error {
+//
+// It hands back the reader it used: the verdict and the peer's first message
+// can arrive together, and the message must not be lost with the reader.
+func provePassword(s network.Stream, authKey []byte) (*bufio.Reader, error) {
 	if err := s.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-		return fmt.Errorf("rtc: handshake deadline: %w", err)
+		return nil, fmt.Errorf("rtc: handshake deadline: %w", err)
 	}
 	rw := bufio.NewReader(s)
 	line, err := rw.ReadBytes('\n')
 	if err != nil {
-		return fmt.Errorf("rtc: read handshake challenge: %w", err)
+		return nil, fmt.Errorf("rtc: read handshake challenge: %w", err)
 	}
 	raw, ok := strings.CutPrefix(strings.TrimSpace(string(line)), "challenge ")
 	if !ok {
-		return fmt.Errorf("rtc: bad handshake challenge")
+		return nil, fmt.Errorf("rtc: bad handshake challenge")
 	}
 	challenge, err := hex.DecodeString(raw)
 	if err != nil || len(challenge) != 32 {
-		return fmt.Errorf("rtc: bad handshake challenge")
+		return nil, fmt.Errorf("rtc: bad handshake challenge")
 	}
 	mac := hmac.New(sha256.New, authKey)
 	mac.Write(challenge)
 	if _, err := fmt.Fprintf(s, "proof %s\n", hex.EncodeToString(mac.Sum(nil))); err != nil {
-		return fmt.Errorf("rtc: send handshake proof: %w", err)
+		return nil, fmt.Errorf("rtc: send handshake proof: %w", err)
 	}
 	verdict, err := rw.ReadBytes('\n')
 	if err != nil {
-		return fmt.Errorf("rtc: admission rejected: %w", err)
+		return nil, fmt.Errorf("rtc: admission rejected: %w", err)
 	}
 	if strings.TrimSpace(string(verdict)) != "ok" {
-		return fmt.Errorf("rtc: admission rejected")
+		return nil, fmt.Errorf("rtc: admission rejected")
 	}
 	if err := s.SetDeadline(time.Time{}); err != nil {
-		return fmt.Errorf("rtc: clear handshake deadline: %w", err)
+		return nil, fmt.Errorf("rtc: clear handshake deadline: %w", err)
 	}
-	return nil
+	return rw, nil
 }

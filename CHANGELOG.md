@@ -5,6 +5,28 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The handshake swallowed the peer's first message, and the room never
+  learned who was in it.** The password handshake reads through a buffered
+  reader, and a buffered reader reads ahead: the peer's presence greeting
+  usually arrives in the same segment as the handshake's verdict, because the
+  other side writes them back to back. The reader was thrown away with it.
+  The greeting is what carries the roster and the host role, so the guest's
+  roster stayed empty, the host was unknown, and a follower who follows
+  nobody obeys no command — in the application, «watching together» did not
+  work. The admitted stream now carries the handshake's reader, so nothing is
+  lost between the handshake and the first protocol line. Proven by a new
+  end-to-end test over a real network — two participants, a local testbed,
+  real meshes and real rooms — which fails on the old code and passes on the
+  new (bug-0119).
+- **The presence greeting carried no name.** Every row of the room roster was
+  blank, and so was every «joined» notice: the window draws the peer's user
+  id, and the greeting left it empty. The identity is in the mesh options now,
+  and the window passes the same id it gives the room (bug-0119).
+
 ## [v0.3.4] - 2026-10-18
 
 ### Fixed

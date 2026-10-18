@@ -555,6 +555,11 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 		Community: invite.Community,
 		Password:  invite.Password,
 		Key:       invite.Key,
+		// The identity the room shows people by. It must be the same value
+		// the room below is given: the greeting is the only thing a peer hears
+		// about anyone, and a greeting without a name leaves the roster a list
+		// of blank rows (bug-0119).
+		UserID: w.clientID,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

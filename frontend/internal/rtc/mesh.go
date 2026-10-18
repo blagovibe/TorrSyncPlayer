@@ -70,6 +70,14 @@ type MeshOptions struct {
 	// Relays are the owner's fallback relay candidates, same shape as
 	// Bootstrap. Empty means DHT discovery only.
 	Relays string
+	// UserID is who this peer is, as the room will show it. It travels in
+	// the presence greeting, because that greeting is the only thing a peer
+	// hears about anyone: without it the roster is a list of nameless rows
+	// and a person cannot tell who they are watching with (bug-0119).
+	UserID string
+	// Username is the name to show, when there is one. Empty means the user
+	// id is the label.
+	Username string
 }
 
 // NewMesh builds an unjoined mesh peer.
@@ -475,7 +483,7 @@ func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser) {
 
 	// Announce presence at once: the roster is whoever said hello, and a peer
 	// that waits to be asked is a roster entry that never appears.
-	_ = m.sendTo(mp, NewHello(selfID, "", "", isHost))
+	_ = m.sendTo(mp, NewHello(selfID, m.opts.UserID, m.opts.Username, isHost))
 }
 
 func (m *Mesh) sendTo(mp *meshPeer, msg any) error {
