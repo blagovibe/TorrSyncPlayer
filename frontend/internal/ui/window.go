@@ -1470,12 +1470,13 @@ func connStatusText(tr func(string) string, st rtc.ConnStatus) string {
 			direct++
 		}
 	}
-	return fmt.Sprintf(tr("status.connReady"), len(st.Peers), direct, len(st.Peers)-direct, shortPeerID(st.SelfID))
+	return fmt.Sprintf(tr("status.connReady"), len(st.Peers), direct, len(st.Peers)-direct, shortID(st.SelfID))
 }
 
-// shortPeerID keeps the self id readable: a full peer ID is dozens of base58
-// characters, and the line needs the fact of identity, not its entirety.
-func shortPeerID(id string) string {
+// shortID keeps an identifier readable: a full peer ID is dozens of base58
+// characters and a client id is 32 of hex, and a line needs the fact of
+// identity, not its entirety.
+func shortID(id string) string {
 	if len(id) > 8 {
 		return id[:8]
 	}
@@ -1506,7 +1507,7 @@ func rosterNotices(tr func(string) string, prev map[string]string, next []rtc.Pe
 			continue
 		}
 		if _, known := prev[p.PeerID]; !known {
-			lines = append(lines, fmt.Sprintf(tr("status.peerJoined"), p.UserID))
+			lines = append(lines, fmt.Sprintf(tr("status.peerJoined"), shortID(p.UserID)))
 		}
 	}
 	inNext := make(map[string]struct{}, len(next))
@@ -1519,7 +1520,7 @@ func rosterNotices(tr func(string) string, prev map[string]string, next []rtc.Pe
 			continue
 		}
 		if _, still := inNext[id]; !still {
-			left = append(left, fmt.Sprintf(tr("status.peerLeft"), user))
+			left = append(left, fmt.Sprintf(tr("status.peerLeft"), shortID(user)))
 		}
 	}
 	sort.Strings(left)
@@ -1530,7 +1531,9 @@ func rosterNotices(tr func(string) string, prev map[string]string, next []rtc.Pe
 func describeRoster(peers []rtc.Peer) []string {
 	labels := make([]string, 0, len(peers))
 	for _, peer := range peers {
-		label := peer.UserID
+		// The short form, because the full one is a wall of hex: the roster
+		// is a line, and a line of 32-character ids says nothing at a glance.
+		label := shortID(peer.UserID)
 		if peer.IsHost {
 			// The host is an ordinary row with a flag. Saying so is what lets a
 			// person understand who is driving playback.

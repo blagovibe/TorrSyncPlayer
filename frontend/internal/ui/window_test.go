@@ -236,7 +236,7 @@ func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
 	if got, want := connStatusText(tr, ready), "DHT ready — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if got := shortPeerID("abc"); got != "abc" {
+	if got := shortID("abc"); got != "abc" {
 		t.Errorf("a short id must survive intact, got %q", got)
 	}
 }
@@ -421,5 +421,30 @@ func TestTheWindowHasAMinimumSize(t *testing.T) {
 	}
 	if windowIsTooSmall(4000, 3000) {
 		t.Error("a large window must be left alone")
+	}
+}
+
+// The roster says who is in the room, so a row must carry a name. It used to
+// be blank: the presence greeting that fills the roster left the identity
+// empty, and the window drew exactly what the greeting said (bug-0119).
+func TestTheRosterNamesEveryoneInTheRoom(t *testing.T) {
+	peers := []rtc.Peer{
+		{PeerID: "peer-a", UserID: "a3f9c2d1e4b7a6c5d8e0f1a2b3c4d5e6"},
+		{PeerID: "peer-b", UserID: "1122334455667788aabbccddeeff0011", IsHost: true},
+	}
+
+	rows := describeRoster(peers)
+	if len(rows) != 2 {
+		t.Fatalf("the roster has %d rows for %d peers", len(rows), len(peers))
+	}
+	for i, row := range rows {
+		if strings.TrimSpace(row) == "" {
+			t.Errorf("row %d is blank: %q", i, row)
+		}
+	}
+	// And short enough to read: a full client id is 32 hex characters, and
+	// the roster is one line.
+	if len(rows[0]) > 16 {
+		t.Errorf("the row is %d characters long: %q", len(rows[0]), rows[0])
 	}
 }

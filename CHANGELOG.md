@@ -25,7 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The presence greeting carried no name.** Every row of the room roster was
   blank, and so was every «joined» notice: the window draws the peer's user
   id, and the greeting left it empty. The identity is in the mesh options now,
-  and the window passes the same id it gives the room (bug-0119).
+  and the window passes the same id it gives the room. A roster row shows the
+  short form, the way the window already showed its own id: a full client id
+  is 32 hex characters, and the roster is one line (bug-0119).
 
 ## [v0.3.4] - 2026-10-18
 
