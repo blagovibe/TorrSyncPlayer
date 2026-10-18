@@ -33,6 +33,7 @@ type roomEvents struct {
 	roster    []Peer
 	magnet    *Magnet
 	paused    *bool
+	seek      *float64
 	buffering map[string]bool
 	host      string
 }
@@ -57,6 +58,11 @@ func (e *roomEvents) callbacks() *Callbacks {
 		OnPause: func(paused bool) {
 			e.mu.Lock()
 			e.paused = &paused
+			e.mu.Unlock()
+		},
+		OnSeek: func(seconds float64) {
+			e.mu.Lock()
+			e.seek = &seconds
 			e.mu.Unlock()
 		},
 		OnBuffering: func(peerID string, buffering bool) {
@@ -95,6 +101,21 @@ func (e *roomEvents) pauseSeen() *bool {
 	return e.paused
 }
 
+func (e *roomEvents) seekSeen() (float64, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.seek == nil {
+		return 0, false
+	}
+	return *e.seek, true
+}
+
+func (e *roomEvents) hostChanged() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.host
+}
+
 func (e *roomEvents) bufferingOf(id string) (bool, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -127,7 +148,8 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	host, guest := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
+	meshes := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
+	host, guest := meshes[0], meshes[1]
 
 	hostEvents := newRoomEvents()
 	guestEvents := newRoomEvents()
@@ -175,53 +197,127 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 		b, ok := hostEvents.bufferingOf(guest.SelfID())
 		return ok && b
 	})
+
+	// 5. And the recovery is heard too. A guest whose stream caught up must be
+	//    able to say so — otherwise the room stays paused for everyone, and it
+	//    is stuck on a stall that ended. The concept says exactly this: any
+	//    participant may report, not only the host.
+	require.NoError(t, guestRoom.ReportBuffering(ctx, false))
+	waitFor(t, 30*time.Second, "the host to hear that the guest caught up", func() bool {
+		b, ok := hostEvents.bufferingOf(guest.SelfID())
+		return ok && !b
+	})
 }
 
-// joinIdentifiedMeshes puts two participants in the same room over a local
+// joinIdentifiedMeshes puts participants in the same room over a local
 // testbed, each with the identity the application gives its mesh: the room
-// shows people by that identity, so the greeting has to carry it.
+// shows people by that identity, so the greeting has to carry it. The first
+// one is the host; the rest are guests.
 //
 // The meshes are built here rather than borrowed from joinMesh, because that
 // helper leaves the identity out — and a room whose peers are nameless is
 // exactly what this test exists to catch.
-func joinIdentifiedMeshes(t *testing.T, ctx context.Context, hostUser, guestUser string) (*Mesh, *Mesh) {
+func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) []*Mesh {
 	t.Helper()
 
 	inv := testInvite()
 	bed := startTestbed(t, ctx, inv)
 	bootstrap := addrsToStrings(t, bed.AddrInfo())
 
-	host := NewMesh(MeshOptions{
-		Community: inv.Community,
-		Password:  inv.Password,
-		Key:       inv.Key,
-		Bootstrap: bootstrap,
-		UserID:    hostUser,
-	})
-	if err := host.Join(ctx, true); err != nil {
-		_ = host.Close()
-		t.Fatalf("the host did not join: %v", err)
-	}
-
-	guest := NewMesh(MeshOptions{
-		Community: inv.Community,
-		Password:  inv.Password,
-		Key:       inv.Key,
-		Bootstrap: bootstrap,
-		UserID:    guestUser,
-	})
-	if err := guest.Join(ctx, false); err != nil {
-		_ = host.Close()
-		_ = guest.Close()
-		t.Fatalf("the guest did not join: %v", err)
+	meshes := make([]*Mesh, 0, len(users))
+	for i, user := range users {
+		mesh := NewMesh(MeshOptions{
+			Community: inv.Community,
+			Password:  inv.Password,
+			Key:       inv.Key,
+			Bootstrap: bootstrap,
+			UserID:    user,
+		})
+		if err := mesh.Join(ctx, i == 0); err != nil {
+			for _, m := range meshes {
+				_ = m.Close()
+			}
+			_ = mesh.Close()
+			t.Fatalf("participant %d did not join: %v", i, err)
+		}
+		meshes = append(meshes, mesh)
 	}
 	t.Cleanup(func() {
-		_ = host.Close()
-		_ = guest.Close()
+		for _, m := range meshes {
+			_ = m.Close()
+		}
 	})
 
-	waitFor(t, 30*time.Second, "the two participants to meet", func() bool {
-		return len(host.Peers()) > 0 && len(guest.Peers()) > 0
+	waitFor(t, 30*time.Second, "the participants to meet", func() bool {
+		for _, m := range meshes {
+			if len(m.Peers()) < len(meshes)-1 {
+				return false
+			}
+		}
+		return true
 	})
-	return host, guest
+	return meshes
+}
+
+// TestAHostLeavingHandsTheRoomToTheSmallestLivingID is the rule the concept
+// states: a host that goes away without a transfer hands the role to the
+// smallest living peer ID — deterministic, no election, no chatter.
+//
+// It is tested over a real network with three participants, because the rule
+// only means something when the peers know each other: the winner is
+// computed from the peer set each side sees, and the announcement that
+// follows has to reach the peer that did not win.
+func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	meshes := joinIdentifiedMeshes(t, ctx, "host-user", "guest-one", "guest-two")
+	host, guestOne, guestTwo := meshes[0], meshes[1], meshes[2]
+
+	hostEvents := newRoomEvents()
+	guestOneEvents := newRoomEvents()
+	guestTwoEvents := newRoomEvents()
+	hostRoom := NewRoom(host, host.SelfID(), "host-user", true, hostEvents.callbacks())
+	guestOneRoom := NewRoom(guestOne, guestOne.SelfID(), "guest-one", false, guestOneEvents.callbacks())
+	guestTwoRoom := NewRoom(guestTwo, guestTwo.SelfID(), "guest-two", false, guestTwoEvents.callbacks())
+
+	go hostRoom.Run(ctx)
+	go guestOneRoom.Run(ctx)
+	go guestTwoRoom.Run(ctx)
+
+	// Both guests know the host before it leaves, or there is nobody to hand
+	// the role to.
+	waitFor(t, 30*time.Second, "both guests to know the host", func() bool {
+		_, hostKnown := guestOneEvents.peerNamed(host.SelfID())
+		_, hostKnownToo := guestTwoEvents.peerNamed(host.SelfID())
+		return hostKnown && hostKnownToo
+	})
+
+	// The host's position reaches both guests: this is what keeps a follower
+	// in step, and it only counts if the guest believes the host is the host.
+	require.NoError(t, hostRoom.Seek(ctx, 42.5))
+	waitFor(t, 30*time.Second, "both guests to receive the host's position", func() bool {
+		one, okOne := guestOneEvents.seekSeen()
+		two, okTwo := guestTwoEvents.seekSeen()
+		return okOne && okTwo && one == 42.5 && two == 42.5
+	})
+
+	// The host leaves without handing over.
+	require.NoError(t, host.Close())
+
+	// The smallest living peer ID takes the role — and says so, so the other
+	// guest converges on the same answer from the same peer set.
+	winner := TakeoverHost([]string{guestOne.SelfID(), guestTwo.SelfID()})
+	waitFor(t, 30*time.Second, "the guests to agree on the new host", func() bool {
+		return guestOneEvents.hostChanged() == winner && guestTwoEvents.hostChanged() == winner
+	})
+
+	// And the winner really holds the role.
+	winnerRoom := guestOneRoom
+	if winner == guestTwo.SelfID() {
+		winnerRoom = guestTwoRoom
+	}
+	if !winnerRoom.IsHost() {
+		t.Errorf("the new host %s does not hold the role", winner)
+	}
 }
