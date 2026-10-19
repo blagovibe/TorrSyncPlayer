@@ -255,6 +255,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   idea is carried into the goal or the way and its card is deleted. Nothing
   was lost: the audit and both decisions live in this journal.
 
+- **That change did not make rooms meet more reliably, and the numbers got
+  worse.** Nine measured runs against the public DHT now stand at four
+  meetings and five non-meetings; four measured runs before the retry existed
+  were three meetings and one non-meeting. Every measured remedy has now been
+  tried and has not moved it: our own seed list, a wide announce after the
+  narrow one, re-publishing the narrow record every twenty seconds, and
+  retrying the wide one. What is proven is narrower than it looked — the
+  rendezvous works, the protocol works, and against a local testbed two
+  participants meet in 0.4s — but roughly half of all meetings over the
+  public DHT do not assemble at all inside five and a half minutes. That is
+  filed as bug-0129 rather than folded into the "minutes are the price"
+  decision, because half of all outcomes is not a price. Every measurement
+  here comes from a single machine, which is itself the next thing worth
+  checking before any infrastructure is changed.
+
 ### Verified
 
 - The room over the real public DHT was measured five times after these
@@ -286,7 +301,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.3.6] - 2026-10-18
 
-### Fixed
+- **A wide announce that failed was costing the room half an hour.** The
+  publish that puts a room in front of the DHT's closest peers is slow by
+  nature — measured at two and a half minutes against the public DHT — and it
+  was attempted exactly once at announce, with the next attempt half an hour
+  later. Losing that first race therefore made the room invisible for half an
+  hour. It now retries every ninety seconds until it actually lands, and only
+  then settles into the long refresh that keeps it out there.
+
 
 - **A pause could be lost for good, and the room never noticed.** The play
   state travels only when it changes, so a pause that arrived while the file

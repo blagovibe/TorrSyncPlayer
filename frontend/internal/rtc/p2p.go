@@ -494,30 +494,62 @@ func (n *Node) Announce(ctx context.Context) error {
 // guest's provider lookup returned the guest's own record and the host's
 // nothing — not once in two minutes of lookups. "Closest" is not one fixed
 // set, so a room that means to be found publishes wide.
-func (n *Node) widenAnnouncement() {
-	publish := func(broadcast bool, budget time.Duration) {
-		d := n.getDHT()
-		if d == nil {
-			return
-		}
-		// The wide publish is allowed to be slow — that is what it is — but it
-		// still gets a bound, so a wedged DHT cannot leak a goroutine.
-		ctx, cancel := context.WithTimeout(n.ctx, budget)
-		_ = d.Provide(ctx, n.key, broadcast)
-		cancel()
-	}
+// announceWideningRetry is how long to wait before publishing again while the
+// room is still not out there. A minute and a half: long enough that the DHT
+// is not being hammered, short enough that a room which lost the first race is
+// invisible for a minute rather than for half an hour.
+const announceWideningRetry = 90 * time.Second
 
-	publish(announceWideningBroadcast, announceWideningRepublishes)
-	ticker := time.NewTicker(announceWideningRepublishes)
-	defer ticker.Stop()
+// announceWideningBudget bounds one wide publish. It is generous because the
+// publish is slow by nature against a large DHT — measured at two and a half
+// minutes — and it is a bound because a wedged DHT must not leak a goroutine.
+const announceWideningBudget = 5 * time.Minute
+
+// widePublishDelay is how long until the next wide publish: soon while the
+// room is still invisible, and the long refresh once it is out there.
+func widePublishDelay(published bool) time.Duration {
+	if published {
+		return announceWideningRepublishes
+	}
+	return announceWideningRetry
+}
+
+func (n *Node) widenAnnouncement() {
+	published := n.publishWide()
+
+	timer := time.NewTimer(widePublishDelay(published))
+	defer timer.Stop()
 	for {
 		select {
 		case <-n.ctx.Done():
 			return
-		case <-ticker.C:
-			publish(announceWideningBroadcast, announceWideningRepublishes)
+		case <-timer.C:
 		}
+
+		if n.publishWide() {
+			published = true
+		}
+		timer.Reset(widePublishDelay(published))
 	}
+}
+
+// publishWide puts the room in front of the peers the DHT considers closest to
+// its key, and reports whether it landed.
+//
+// Whether it landed is the whole point. A provider write against the public
+// DHT is a walk that competes with everyone else's, and against this project's
+// own key it completed once in under two minutes and twice did not land inside
+// five and a half. Treating one attempt as the answer meant a room could sit
+// invisible for half an hour; the caller now decides what to do about a false
+// answer.
+func (n *Node) publishWide() bool {
+	d := n.getDHT()
+	if d == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(n.ctx, announceWideningBudget)
+	defer cancel()
+	return d.Provide(ctx, n.key, announceWideningBroadcast) == nil
 }
 
 func (n *Node) setPublished(published bool) {
