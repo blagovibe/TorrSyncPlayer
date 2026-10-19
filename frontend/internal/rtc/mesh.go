@@ -203,15 +203,38 @@ func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
 	ctx, cancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
 	defer cancel()
 	s, err := node.DialRoom(ctx, info)
+	if err == nil {
+		m.addPeer(info.ID.String(), s, m.selfID)
+		return
+	}
+
+	// The address did not work. The code named the peer all the same, and the
+	// DHT can find a node by its id: a routing lookup, which is a different
+	// and much steadier thing than looking for a provider record, which is
+	// where the "closest peers" of the two sides stop matching
+	// (bug-0129, bug-0133).
+	fallbackCtx, fallbackCancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
+	defer fallbackCancel()
+	found, ferr := node.FindPeer(fallbackCtx, info.ID)
+	if ferr != nil {
+		m.markInviteFailed()
+		return
+	}
+	s, err = node.DialRoom(fallbackCtx, found)
 	if err != nil {
-		// A failed dial is remembered: the room is then on the fallback path
-		// alone, and the window says so rather than waiting in silence.
-		m.mu.Lock()
-		m.inviteFailed = true
-		m.mu.Unlock()
+		m.markInviteFailed()
 		return
 	}
 	m.addPeer(info.ID.String(), s, m.selfID)
+}
+
+// markInviteFailed remembers that the address in the code did not work. The
+// room is then on the fallback path alone, and the window says so rather than
+// waiting in silence.
+func (m *Mesh) markInviteFailed() {
+	m.mu.Lock()
+	m.inviteFailed = true
+	m.mu.Unlock()
 }
 
 // DialHint reaches the peers the room's address book named. It is the mesh

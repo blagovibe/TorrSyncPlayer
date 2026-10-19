@@ -167,13 +167,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it promises. No rendezvous, no lookup, no waiting: the check is three
   participants against a rendezvous that cannot answer, and the two guests
   reach each other in 0.22s (bug-0136).
+- **An address that stopped working is no longer the end of it.** The goal
+  says the room assembles always, and an address that has gone stale — a
+  changed one, a code kept from last week — is exactly the case where it
+  used not to. The code named the peer all the same, and the DHT can find a
+  node by its id: a routing lookup, where the provider record is a search the
+  two sides answer differently. That is why the fallback is worth having: the
+  "closest peers" of a publisher and of a seeker are not the same set, and the
+  routing table does not have that problem. Pinned on both sides — a room
+  with a dead address in its code still meets (0.32s), and a node that never
+  announced anything is still found by its id.
 - **What this pass did not do, and where it is written down.** The first
   promise of the project — that playback starts before the download finishes —
   is still held by a byte-level test alone, with no `mpv` started on a partial
   torrent (bug-0138). The fallback path itself is still the old one, announce
   included: the no-op publish is recorded as bug-0133 and is not fixed here,
   which is what the public DHT measurements (bug-0129) and the meeting that
-  sometimes does not happen (bug-0130) are about. The room's own book carries
+  sometimes does not happen (bug-0130) are about. And the measurement itself
+  still measures the old path: it runs two participants with no address in the
+  code, which is the legacy rendezvous and not the fallback the room now
+  uses. The series has to be re-aimed at the fallback before its numbers mean
+  anything (bug-0129). The room's own book carries
   the addresses as they were when the greeting was sent, so a peer whose public
   address arrived later is in the book with its local address only; the
   rendezvous still finds it in the end, but the mesh waits for that.

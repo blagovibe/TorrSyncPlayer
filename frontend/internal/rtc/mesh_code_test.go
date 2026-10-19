@@ -226,3 +226,80 @@ func waitForRoster(t *testing.T, ctx context.Context, room *Room, want int, msg 
 	}
 	t.Fatalf("%s: %d in the roster, want %d", msg, len(room.Peers()), want)
 }
+
+// TestTheRoomFindsThePeerWhenTheAddressDoesNotWork is the fallback the goal
+// promises: the room assembles always, and an address that stopped working —
+// a changed one, a stale code — is not the end of it. The code named the
+// peer, and the DHT can find a node by its id: a routing lookup, where the
+// provider record is a search that the two sides answer differently.
+func TestTheRoomFindsThePeerWhenTheAddressDoesNotWork(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	invite := testInvite()
+	bed := startTestbed(t, ctx, invite)
+	bootstrap := addrsToStrings(t, bed.AddrInfo())
+
+	host := NewMesh(MeshOptions{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Bootstrap: bootstrap, UserID: "host",
+	})
+	t.Cleanup(func() { _ = host.Close() })
+	if err := host.Join(ctx, true); err != nil {
+		t.Fatalf("the host could not join: %v", err)
+	}
+
+	// A code that names the right peer at an address that cannot answer: the
+	// port is closed, so the direct dial has nowhere to go.
+	code := Invite{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Addrs: []string{fmt.Sprintf("/ip4/127.0.0.1/tcp/1/p2p/%s", host.SelfID())},
+	}.Encode()
+	parsed, err := ParseInviteCode(code)
+	if err != nil {
+		t.Fatalf("the host's own code does not parse: %v", err)
+	}
+
+	guest := NewMesh(MeshOptions{
+		Community: parsed.Community, Password: parsed.Password, Key: parsed.Key,
+		Addrs: parsed.Addrs, Bootstrap: bootstrap, UserID: "guest",
+	})
+	t.Cleanup(func() { _ = guest.Close() })
+	if err := guest.Join(ctx, false); err != nil {
+		t.Fatalf("the guest could not join: %v", err)
+	}
+
+	waitForPeers(t, ctx, guest, 1, "the guest never reached the host")
+}
+
+// TestANodeThatNeverAnnouncedIsStillFindableByItsID pins the property the
+// fallback leans on. The provider record is a search the two sides answer
+// differently — that is bug-0129 and bug-0133 — while the routing table is
+// not: a node that never announced anything is in nobody's provider list, and
+// is still found by its id.
+func TestANodeThatNeverAnnouncedIsStillFindableByItsID(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	inv := testInvite()
+	bed := startTestbed(t, ctx, inv)
+	quiet := startNode(t, inv)
+	if err := quiet.Bootstrap(ctx, []peer.AddrInfo{bed.AddrInfo()}); err != nil {
+		t.Fatalf("the node could not reach the testbed: %v", err)
+	}
+	if err := quiet.WaitReady(ctx); err != nil {
+		t.Fatalf("the node's routing table stayed empty: %v", err)
+	}
+	// The node never announced: it published no provider record anywhere.
+
+	found, err := bed.FindPeer(ctx, quiet.ID())
+	if err != nil {
+		t.Fatalf("a node that never announced was not found by its id: %v", err)
+	}
+	if found.ID != quiet.ID() {
+		t.Errorf("found %s, want %s", found.ID, quiet.ID())
+	}
+	if len(found.Addrs) == 0 {
+		t.Error("the node was found with no address to reach it at")
+	}
+}

@@ -484,6 +484,19 @@ const (
 // minute of silence.
 const announceTimeout = 15 * time.Second
 
+// FindPeer looks a node up in the DHT by its id. It is the fallback for an
+// address that did not work: the invite code named the peer, and a routing
+// lookup finds a node by its id — a different and much steadier thing than
+// looking for a provider record, which is where the "closest peers" of the two
+// sides stop matching (bug-0129, bug-0133).
+func (n *Node) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
+	d := n.getDHT()
+	if d == nil {
+		return peer.AddrInfo{}, fmt.Errorf("rtc: DHT is not bootstrapped")
+	}
+	return d.FindPeer(ctx, id)
+}
+
 // Announce publishes this node's provider record under the community key:
 // "this room is watched here". A failed announce is reported, never fatal to
 // the join: the room is already open, peers already inside are found by
