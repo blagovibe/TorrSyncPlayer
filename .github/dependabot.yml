@@ -1,0 +1,24 @@
+# The dependencies are watched, because a dependency nobody watches is a
+# dependency nobody updates — and the version that ships is the version
+# somebody looked at.
+#
+# Two Go modules and the actions the workflows use. The intervals are
+# weekly: the project's own rule is that a check which can be skipped proves
+# nothing, and a security update that arrives two months late proves the
+# same about the gate it went through.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /frontend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
