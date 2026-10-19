@@ -230,6 +230,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   difference between a room that gathered in a second and one that gathered in
   a minute. The three paths are the goal's own list, and the window says
   exactly them (bug-0139).
+- **The series has somewhere to live, and the threshold has teeth.** The
+  measurement ran every six hours and wrote what it saw into a job summary with
+  a fourteen-day life, and nobody read it — the threshold was a sentence in the
+  documentation that no run ever checked. Now the run appends a row to
+  `measurements/rendezvous.md` and opens a pull request; the threshold is
+  checked against the last twenty rows, and a breach writes a card on the board
+  with the next free number, computed from the board and the journal. The
+  mechanics live in `.github/scripts/rendezvous-series.sh` rather than in YAML,
+  so they can be run against a real series locally — and they were: twenty rows
+  with five good ones produce the card and the breach, and the comparison is
+  numeric rather than alphabetical, which is the sort of thing that looks right
+  and counts the wrong way.
 - **What this pass did not do, and where it is written down.** The fallback path itself is still the old one, announce
   included: the no-op publish is recorded as bug-0133 and is not fixed here,
   which is what the public DHT measurements (bug-0129) and the meeting that

@@ -27,7 +27,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # The series lives in the repository: a measurement that lives in a job
+  # summary for fourteen days is a measurement nobody reads, and the threshold
+  # below means something only if the runs are kept.
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: rendezvous-measurement
@@ -74,14 +78,59 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Rendezvous over the public DHT"
+            echo "## The room over the public network"
             echo
             echo '```'
-            grep -E '^(outcome|waited|attempts):' rendezvous.log || echo "(the run produced no reading)"
+            grep -E '^(outcome|waited|waitedSeconds|attempts):' rendezvous.log || echo "(the run produced no reading)"
             echo '```'
             echo
             echo "Runs automatically every six hours; it decides nothing by design."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The series is a table in the repository, one row per run, and the
+      # threshold is written down: no fewer than 90% of the last 20 runs met
+      # within 90 seconds. Below it, a card is opened on the board — the board
+      # is files, so a card is a file, and a number nobody chose.
+      - name: Record the run in the series
+        shell: bash
+        run: .github/scripts/rendezvous-series.sh record frontend/rendezvous.log measurements/rendezvous.md
+
+      - name: Check the series against its threshold
+        id: threshold
+        shell: bash
+        run: |
+          # A measurement never fails the run: the breach opens a card, and the
+          # card is what a person reads.
+          if .github/scripts/rendezvous-series.sh check measurements/rendezvous.md "$GITHUB_WORKSPACE"; then
+            echo "breached=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "breached=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::the rendezvous series is below its threshold; a card was written for the board"
+          fi
+
+      - name: Publish the series
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          branch="measurements/series"
+          git fetch origin "$branch" || true
+          git checkout -B "$branch" "origin/$branch" 2>/dev/null || git checkout -B "$branch"
+          git add measurements/rendezvous.md .project-board
+          if git diff --cached --quiet; then
+            echo "the series has nothing new"
+            exit 0
+          fi
+          git commit -m "the room over the public network: one more run"
+          git push --force origin "$branch"
+
+          if gh pr list --head "$branch" --state open | grep -q .; then
+            echo "the series pull request is already open"
+          else
+            gh pr create --head "$branch" --base main --title "The room over the public network: the series" --body "The measured series of meetings in the public network. The threshold is written down in DEV.md; a breach opens a card on the board."
+          fi
 
       - name: Keep the log
         if: always()

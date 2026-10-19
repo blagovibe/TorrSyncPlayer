@@ -7,6 +7,7 @@ package integration
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -52,6 +53,9 @@ func TestARoomMeetsOverThePublicDHT(t *testing.T) {
 		"outcome":  outcomeOf(err),
 		"waited":   waited.String(),
 		"attempts": "three, each on a fresh host",
+		// The number of seconds, so that the series can be checked by a
+		// machine and not only read by a person.
+		"waitedSeconds": strconv.Itoa(int(waited.Seconds())),
 	})
 	t.Logf("public network meeting: %s after %s\n%s\n%s", outcomeOf(err), waited, hostOut, guestOut)
 
@@ -73,7 +77,7 @@ func outcomeOf(err error) string {
 func report(t *testing.T, title string, fields map[string]string) {
 	t.Helper()
 	t.Logf("── %s ──", title)
-	for _, k := range []string{"outcome", "waited", "attempts"} {
+	for _, k := range []string{"outcome", "waited", "waitedSeconds", "attempts"} {
 		if v, ok := fields[k]; ok {
 			t.Logf("%-9s %s", k+":", v)
 		}
