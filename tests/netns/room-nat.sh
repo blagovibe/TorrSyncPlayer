@@ -14,6 +14,10 @@
 #   sudo tests/netns/room-nat.sh down    # remove everything
 #   sudo tests/netns/room-nat.sh status  # addresses, for a human
 #
+# On a machine that cannot be root, tests/netns/room-nat-local.sh runs the
+# whole scenario in a user namespace: the same namespaces, the same rules,
+# the same test, and it takes seconds instead of a CI cycle.
+#
 # The script fails loudly. A scenario that quietly set up nothing and passed is
 # the exact failure this repository keeps having to undo.
 
