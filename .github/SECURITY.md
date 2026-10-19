@@ -4,7 +4,11 @@
 
 | Version | Supported          | Security Updates Until |
 | ------- | ------------------ | ---------------------- |
-| 1.x     | :white_check_mark: | December 2026          |
+| 0.3.x   | :white_check_mark: | December 2026          |
+
+The supported line is the one the project is on: `0.3.x` is where releases
+are published, and a table listing a version that does not exist protects
+nothing while reading as though something does.
 
 ## Reporting a Vulnerability
 

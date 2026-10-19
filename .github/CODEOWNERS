@@ -10,5 +10,9 @@
 # CI/CD
 /.github/ @blagovibe
 
-# Documentation
-/docs/ @blagovibe
+# Documentation — the files that are documentation, wherever they live
+/CONCEPT.md @blagovibe
+/DEV.md @blagovibe
+/README.md @blagovibe
+/CONTRIBUTING.md @blagovibe
+/.project-board/ @blagovibe

@@ -25,6 +25,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 )
 
@@ -96,6 +97,12 @@ type Node struct {
 	staticRelays []peer.AddrInfo
 	authKey      []byte
 	key          cid.Cid
+	published    bool
+	// ctx lives as long as the node: work that must outlive the join — the
+	// wide publish below — cannot hang off the join's own context, which is
+	// cancelled the moment Join returns.
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	admitted chan *roomStream
 }
@@ -147,13 +154,27 @@ func NewNode(opts NodeOptions) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("rtc: start node: %w", err)
 	}
-	n = &Node{host: h, staticRelays: opts.StaticRelays, authKey: authKey, key: key, admitted: make(chan *roomStream, 16)}
+	nodeCtx, nodeCancel := context.WithCancel(context.Background())
+	n = &Node{
+		host: h, staticRelays: opts.StaticRelays, authKey: authKey, key: key,
+		admitted: make(chan *roomStream, 16),
+		ctx:      nodeCtx, cancel: nodeCancel,
+	}
 	h.SetStreamHandler(syncProtocolID, n.serveHandshake)
 	return n, nil
 }
 
 // ID is this node's peer ID.
 func (n *Node) ID() peer.ID { return n.host.ID() }
+
+// Published reports whether this room announced itself to the rendezvous. The
+// window polls it from its own goroutine while an announce writes it, so it is
+// read under the same lock that writes it.
+func (n *Node) Published() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.published
+}
 
 // AddrInfo is this node's address for out-of-band exchange (tests).
 func (n *Node) AddrInfo() peer.AddrInfo {
@@ -162,6 +183,7 @@ func (n *Node) AddrInfo() peer.AddrInfo {
 
 // Close leaves the swarm.
 func (n *Node) Close() error {
+	n.cancel()
 	n.host.RemoveStreamHandler(syncProtocolID)
 	if d := n.getDHT(); d != nil {
 		_ = d.Close()
@@ -244,12 +266,50 @@ func (n *Node) relayPeerSource(ctx context.Context, numPeers int) <-chan peer.Ad
 	return out
 }
 
-// defaultBootstrap is the public DHT rendezvous: libp2p's default bootstrap
-// peers. Empty settings resolve here; an entry that lost its /p2p/ part is
-// skipped rather than trusted.
-func defaultBootstrap() []peer.AddrInfo {
+// seedDialTimeout bounds one rendezvous dial. A seed that does not answer
+// must cost that seed, not the join: without a bound, one dead address can
+// spend the whole join budget on its own (bug-0121).
+const seedDialTimeout = 10 * time.Second
+
+// ownSeedAddrs is the project's own rendezvous list: public DHT servers, named
+// by a DNS name that carries A records and reached over TCP, which is the
+// transport that is open most often. These are the same long-lived nodes
+// libp2p's default list points at — but libp2p reaches them through
+// /dnsaddr/bootstrap.libp2p.io, and that name publishes no SRV records, so
+// four of its five entries cannot be dialled at all. Owning the list is what
+// makes the difference: an address we can dial cannot rot under a name we do
+// not control.
+//
+// Measured from this project against the public DHT (bug-0121): these nodes
+// answer, and they fill a routing table on first contact, which is what a
+// room needs to find other rooms' participants.
+var ownSeedAddrs = []string{
+	"/dns4/sing-1.bootstrap.ipni.io/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+	"/dns4/chic-1.bootstrap.ipni.io/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+	"/dns4/mars.i.ipfs.io/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+}
+
+// ownSeeds is the project's own rendezvous list, parsed. An entry that does
+// not parse is skipped rather than fatal: a typo in a list of addresses must
+// not take every room down with it, and the tests read the raw list so the
+// typo cannot hide.
+func ownSeeds() []peer.AddrInfo {
+	addrs := make([]multiaddr.Multiaddr, 0, len(ownSeedAddrs))
+	for _, raw := range ownSeedAddrs {
+		addr, err := multiaddr.NewMultiaddr(raw)
+		if err != nil {
+			continue
+		}
+		addrs = append(addrs, addr)
+	}
+	return resolveAddrInfos(addrs)
+}
+
+// resolveAddrInfos turns multiaddrs into dialable peers, skipping any entry
+// that lost its /p2p/ part rather than trusting it.
+func resolveAddrInfos(addrs []multiaddr.Multiaddr) []peer.AddrInfo {
 	var out []peer.AddrInfo
-	for _, addr := range dht.DefaultBootstrapPeers {
+	for _, addr := range addrs {
 		info, err := peer.AddrInfoFromP2pAddr(addr)
 		if err != nil {
 			continue
@@ -259,11 +319,40 @@ func defaultBootstrap() []peer.AddrInfo {
 	return out
 }
 
+// defaultBootstrap is the rendezvous list for an empty setting: the project's
+// own seeds first, then whatever libp2p's default list still offers, one entry
+// per peer and ours winning. The library list is kept as the tail on purpose —
+// it costs nothing when it does not answer, and it is the way a node the
+// project has not heard of yet still gets reached.
+func defaultBootstrap() []peer.AddrInfo {
+	own := ownSeeds()
+	seen := make(map[peer.ID]struct{}, len(own))
+	out := make([]peer.AddrInfo, 0, len(own))
+	for _, info := range own {
+		seen[info.ID] = struct{}{}
+		out = append(out, info)
+	}
+	for _, info := range resolveAddrInfos(dht.DefaultBootstrapPeers) {
+		if _, dup := seen[info.ID]; dup {
+			continue
+		}
+		seen[info.ID] = struct{}{}
+		out = append(out, info)
+	}
+	return out
+}
+
 // Bootstrap wires the DHT through the given peers. In tests the peers are
-// each other; in production they are the public bootstrap nodes. It returns
+// each other; in production they are the project's rendezvous list. It returns
 // once the DHT runs; use Refresh to wait until the routing table fills —
 // that needs the other side to have its DHT up, which simultaneous bring-up
 // cannot guarantee yet.
+//
+// A seed that does not answer is skipped, never fatal: the room loses that
+// seed, not the join. Only when not one of them answers does the join stop,
+// and then it says in those words that the rendezvous is unreachable — the
+// goal is that nobody has to guess whether the room or their network is at
+// fault.
 func (n *Node) Bootstrap(ctx context.Context, peers []peer.AddrInfo) error {
 	d, err := dht.New(n.host, dht.Mode(dht.ModeServer), dht.BootstrapPeers(peers...))
 	if err != nil {
@@ -272,19 +361,18 @@ func (n *Node) Bootstrap(ctx context.Context, peers []peer.AddrInfo) error {
 	n.mu.Lock()
 	n.dht = d
 	n.mu.Unlock()
-	for _, p := range peers {
-		if err := n.host.Connect(ctx, p); err != nil {
+
+	// No peers means no wider table to join — a bare DHT server, as the
+	// testbed runs. Skipping the dials also skips the fallback to the
+	// public default bootstrappers: hermetic tests must not dial out.
+	if len(peers) > 0 {
+		if n.dialSeeds(ctx, peers) == 0 {
 			_ = d.Close()
 			n.mu.Lock()
 			n.dht = nil
 			n.mu.Unlock()
-			return fmt.Errorf("rtc: connect to bootstrap peer: %w", err)
+			return fmt.Errorf("rtc: rendezvous unreachable: none of the %d rendezvous nodes answered", len(peers))
 		}
-	}
-	// No peers means no wider table to join — a bare DHT server, as the
-	// testbed runs. Skipping Bootstrap also skips the fallback to the
-	// public default bootstrappers: hermetic tests must not dial out.
-	if len(peers) > 0 {
 		if err := d.Bootstrap(ctx); err != nil {
 			_ = d.Close()
 			n.mu.Lock()
@@ -294,6 +382,34 @@ func (n *Node) Bootstrap(ctx context.Context, peers []peer.AddrInfo) error {
 		}
 	}
 	return nil
+}
+
+// dialSeeds connects to as many rendezvous nodes as answer, each under its own
+// bound, and reports how many did. Dialling in parallel matters: sequential
+// dials made the join wait out every dead address in turn, which is how one
+// unroutable seed once turned a working room into a minute of silence.
+func (n *Node) dialSeeds(ctx context.Context, peers []peer.AddrInfo) int {
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		answered int
+	)
+	for _, p := range peers {
+		wg.Add(1)
+		go func(p peer.AddrInfo) {
+			defer wg.Done()
+			dialCtx, cancel := context.WithTimeout(ctx, seedDialTimeout)
+			defer cancel()
+			if err := n.host.Connect(dialCtx, p); err != nil {
+				return
+			}
+			mu.Lock()
+			answered++
+			mu.Unlock()
+		}(p)
+	}
+	wg.Wait()
+	return answered
 }
 
 // WaitReady blocks until the routing table is non-empty: only then can the
@@ -319,17 +435,95 @@ func (n *Node) WaitReady(ctx context.Context) error {
 	return nil
 }
 
+// announceOnJoinBroadcast is false: the announce that runs during the join
+// writes the room's provider record to the closest peers only.
+//
+// announceWideningBroadcast is true: the follow-up publish reaches every peer
+// the DHT considers closest to the room key.
+//
+// Both are measured, not preferred. The wide form of this exact key took 2m16s
+// against the public DHT — past the 60s join budget, which is how a room
+// became impossible to enter (bug-0121). The narrow form is instant but
+// insufficient on its own: with the record on the single closest peer, a guest
+// that looked in the same period did not find the room, because "the closest
+// peers" is not one fixed set — a lookup asks the peers closest to *its own*
+// view. So the join publishes quickly and the wide publish follows off the
+// join path, where minutes cost nobody.
+const (
+	announceOnJoinBroadcast     = false
+	announceWideningBroadcast   = true
+	announceWideningRepublishes = 30 * time.Minute
+)
+
+// announceTimeout bounds the announce the join waits for, whatever budget the
+// caller handed in. A rendezvous that needs longer than this is not slow, it
+// is not there, and the join must learn that in seconds rather than in a
+// minute of silence.
+const announceTimeout = 15 * time.Second
+
 // Announce publishes this node's provider record under the community key:
-// "this room is watched here".
+// "this room is watched here". A failed announce is reported, never fatal to
+// the join: the room is already open, peers already inside are found by
+// discovery all the same, and the window shows the room as not published, so
+// nobody sits waiting for a guest who was never told.
 func (n *Node) Announce(ctx context.Context) error {
 	d := n.getDHT()
 	if d == nil {
 		return fmt.Errorf("rtc: DHT is not bootstrapped")
 	}
-	if err := d.Provide(ctx, n.key, true); err != nil {
+	announceCtx, cancel := context.WithTimeout(ctx, announceTimeout)
+	defer cancel()
+
+	if err := d.Provide(announceCtx, n.key, announceOnJoinBroadcast); err != nil {
+		n.setPublished(false)
 		return fmt.Errorf("rtc: announce room: %w", err)
 	}
+	n.setPublished(true)
+
+	go n.widenAnnouncement()
 	return nil
+}
+
+// widenAnnouncement publishes the room to the whole closest set, off the join
+// path, and keeps doing so for as long as the node lives: a room that has
+// widened once still expires as the DHT's provider records expire, and a room
+// whose record went stale is a room a guest cannot find.
+//
+// The first widening is immediate, not deferred to the next tick. Measured
+// against the public DHT: with the room left on the closest peer alone, a
+// guest's provider lookup returned the guest's own record and the host's
+// nothing — not once in two minutes of lookups. "Closest" is not one fixed
+// set, so a room that means to be found publishes wide.
+func (n *Node) widenAnnouncement() {
+	publish := func(broadcast bool, budget time.Duration) {
+		d := n.getDHT()
+		if d == nil {
+			return
+		}
+		// The wide publish is allowed to be slow — that is what it is — but it
+		// still gets a bound, so a wedged DHT cannot leak a goroutine.
+		ctx, cancel := context.WithTimeout(n.ctx, budget)
+		_ = d.Provide(ctx, n.key, broadcast)
+		cancel()
+	}
+
+	publish(announceWideningBroadcast, announceWideningRepublishes)
+	ticker := time.NewTicker(announceWideningRepublishes)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-n.ctx.Done():
+			return
+		case <-ticker.C:
+			publish(announceWideningBroadcast, announceWideningRepublishes)
+		}
+	}
+}
+
+func (n *Node) setPublished(published bool) {
+	n.mu.Lock()
+	n.published = published
+	n.mu.Unlock()
 }
 
 // Discover looks the community key up in the DHT. The channel closes when the

@@ -559,7 +559,8 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 		// the room below is given: the greeting is the only thing a peer hears
 		// about anyone, and a greeting without a name leaves the roster a list
 		// of blank rows (bug-0119).
-		UserID: w.clientID,
+		UserID:   w.clientID,
+		Username: w.settings.DisplayName,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -590,10 +591,10 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 		OnRoster: func(peers []rtc.Peer) {
 			w.mu.Lock()
 			lines := rosterNotices(w.tr, w.lastRoster, peers, w.selfPeerID)
-			w.lastRoster = rosterSnapshot(peers)
+			w.lastRoster = rosterSnapshot(w.tr, peers)
 			w.mu.Unlock()
 			onMain(func() {
-				setLine(w.roomLabel, w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
+				setLine(w.roomLabel, w.trf("room.label", strings.Join(describeRoster(w.tr, peers), ", ")))
 			})
 			for _, line := range lines {
 				w.notify(line)
@@ -871,7 +872,7 @@ func (w *window) showRoster() {
 	}
 	peers := room.Peers()
 	onMain(func() {
-		setLine(w.roomLabel, w.trf("room.label", strings.Join(describeRoster(peers), ", ")))
+		setLine(w.roomLabel, w.trf("room.label", strings.Join(describeRoster(w.tr, peers), ", ")))
 	})
 }
 
@@ -1499,16 +1500,21 @@ func torrentStatusWord(tr func(string) string, status string) string {
 }
 
 // connStatusText renders the compact connection diagnostics for the room
-// window: DHT readiness, the room peer count split into direct and relayed,
-// and a short self id. Empty outside a room — nothing joined, nothing to
-// report. An unready DHT says so instead of going blank: a missing line would
-// hide a broken rendezvous.
+// window: DHT readiness, whether the room announced itself, the room peer
+// count split into direct and relayed, and a short self id. Empty outside a
+// room — nothing joined, nothing to report. An unready DHT says so instead of
+// going blank: a missing line would hide a broken rendezvous, and so does a
+// room that never reached the network — that one looks joined and is not,
+// which is worse than looking broken (bug-0121).
 func connStatusText(tr func(string) string, st rtc.ConnStatus) string {
 	if st.SelfID == "" {
 		return ""
 	}
 	if !st.DHTReady {
 		return tr("status.connWaiting")
+	}
+	if !st.Published {
+		return tr("status.connUnannounced")
 	}
 	direct := 0
 	for _, p := range st.Peers {
@@ -1529,13 +1535,30 @@ func shortID(id string) string {
 	return id
 }
 
-// rosterSnapshot records a roster by peer id for the next diff.
-func rosterSnapshot(peers []rtc.Peer) map[string]string {
+// rosterSnapshot records a roster by peer id for the next diff, storing the
+// label rather than the raw id: a departure notice has to say the same thing
+// the roster said while the person was still here, and by then the peer object
+// is gone.
+func rosterSnapshot(tr func(string) string, peers []rtc.Peer) map[string]string {
 	out := make(map[string]string, len(peers))
 	for _, p := range peers {
-		out[p.PeerID] = p.UserID
+		out[p.PeerID] = peerLabel(tr, p)
 	}
 	return out
+}
+
+// peerLabel is how one participant is named to the people in the room: their
+// name when they set one, and otherwise their device, said to be a device.
+// The fallback is labelled rather than bare because a line of short hex ids
+// reads as names until someone asks who is who, and by then the film is
+// already rolling (idea-0125).
+func peerLabel(tr func(string) string, p rtc.Peer) string {
+	if name := strings.TrimSpace(p.Username); name != "" {
+		return name
+	}
+	// The short form, because the full one is a wall of hex: the roster is a
+	// line, and a line of 32-character ids says nothing at a glance.
+	return fmt.Sprintf(tr("room.device"), shortID(p.UserID))
 }
 
 // rosterNotices diffs the previous roster against the new one and renders one
@@ -1553,7 +1576,7 @@ func rosterNotices(tr func(string) string, prev map[string]string, next []rtc.Pe
 			continue
 		}
 		if _, known := prev[p.PeerID]; !known {
-			lines = append(lines, fmt.Sprintf(tr("status.peerJoined"), shortID(p.UserID)))
+			lines = append(lines, fmt.Sprintf(tr("status.peerJoined"), peerLabel(tr, p)))
 		}
 	}
 	inNext := make(map[string]struct{}, len(next))
@@ -1574,12 +1597,10 @@ func rosterNotices(tr func(string) string, prev map[string]string, next []rtc.Pe
 }
 
 // describeRoster renders the membership line.
-func describeRoster(peers []rtc.Peer) []string {
+func describeRoster(tr func(string) string, peers []rtc.Peer) []string {
 	labels := make([]string, 0, len(peers))
 	for _, peer := range peers {
-		// The short form, because the full one is a wall of hex: the roster
-		// is a line, and a line of 32-character ids says nothing at a glance.
-		label := shortID(peer.UserID)
+		label := peerLabel(tr, peer)
 		if peer.IsHost {
 			// The host is an ordinary row with a flag. Saying so is what lets a
 			// person understand who is driving playback.

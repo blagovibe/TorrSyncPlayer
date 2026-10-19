@@ -105,6 +105,22 @@ func TestMeshConnStatusBeforeJoinIsEmpty(t *testing.T) {
 	assert.Empty(t, st.Peers)
 }
 
+// TestMeshConnStatusSaysWhetherTheRoomAnnouncedItself pins the one piece of
+// connection state the window needs to keep a person from waiting: a room
+// that never announced itself will never be found by a guest who is not here
+// yet, and "rendezvous ready" on its own would not say so (bug-0121).
+func TestMeshConnStatusSaysWhetherTheRoomAnnouncedItself(t *testing.T) {
+	inv := testInvite()
+	m := NewMesh(MeshOptions{Community: inv.Community, Password: inv.Password, Key: inv.Key})
+	assert.False(t, m.ConnStatus().Published, "a mesh that never joined has published nothing")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	host, _ := joinMesh(t, ctx, 0)
+	assert.True(t, host.ConnStatus().Published, "a joined room has announced itself")
+}
+
 // TestMeshConnStatusListsRoomPeers pins the window's input end to end: a
 // joined mesh reports itself, a ready DHT, and its room peer as direct.
 func TestMeshConnStatusListsRoomPeers(t *testing.T) {

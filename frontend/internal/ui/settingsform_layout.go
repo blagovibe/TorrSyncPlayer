@@ -51,6 +51,10 @@ func (f *settingsForm) content(parent fyne.Window) fyne.CanvasObject {
 		),
 
 		container.NewVBox(headings("settings.zone.rendezvous"), ruleHere(),
+			// The name comes first in this zone for the same reason bootstrap
+			// follows it: both are what a room needs to find you, and both are
+			// about the room rather than about the network.
+			labelRow(f.tr("settings.name"), f.name),
 			// Rendezvous is where rooms meet, not a gateway setting. Its own
 			// heading is what stops it reading as one.
 			labelRow(f.tr("settings.bootstrap"), f.bootstrap),

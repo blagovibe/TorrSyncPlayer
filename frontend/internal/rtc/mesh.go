@@ -20,7 +20,16 @@ import (
 
 // rediscoverInterval re-runs DHT discovery for late joiners: presence is
 // announced once, but nobody is owed an introduction at a particular moment.
-const rediscoverInterval = 15 * time.Second
+//
+// Five seconds, measured: on a loopback testbed two participants meet in
+// 0.2s when discovery finds them on the first query, and in one whole interval
+// when it does not — which is most of the time, because both announce in the
+// same second and neither is in the other's provider store yet. At fifteen
+// seconds a room spent most of its life waiting for a discovery tick, and the
+// gap is exactly what a person waiting for a guest experiences as silence.
+// The cost is one provider lookup per tick per peer, which is what the lookup
+// is for.
+const rediscoverInterval = 5 * time.Second
 
 // Mesh is a room without a server: peers find each other over the DHT
 // rendezvous and exchange the protocol messages over libp2p streams.
@@ -53,7 +62,14 @@ type meshPeer struct {
 	id   string
 	conn io.ReadWriteCloser
 	enc  *json.Encoder
-	mu   sync.Mutex
+	// initiator is the peer whose dial opened this stream: this node for a
+	// dial we made, the remote peer for one we admitted. Two participants
+	// discover each other in the same second and therefore dial each other in
+	// the same second, so a mesh regularly ends up with two streams to one
+	// peer — and the rule for which one survives has to be one both ends can
+	// compute without talking.
+	initiator string
+	mu        sync.Mutex
 }
 
 // MeshOptions configures one peer's place in the mesh.
@@ -92,10 +108,16 @@ func NewMesh(opts MeshOptions) *Mesh {
 }
 
 // Join publishes this peer's presence and starts meeting the room: accepting
-// inbound streams and dialing discovered ones. It returns once the presence
-// is published; the peers knowing each other takes discovery on top, so a
-// send before convergence lands nowhere — convergence is part of joining
-// here, not an afterthought in each caller.
+// inbound streams and dialing discovered ones. It returns once the node is on
+// the rendezvous; the peers knowing each other takes discovery on top, so a
+// send before convergence lands nowhere — convergence is part of joining here,
+// not an afterthought in each caller. Against the public DHT that convergence
+// is measured in minutes, not seconds (see p2p.go: the wide publish is slow
+// and runs off this path), so a caller that expects an immediate roster is
+// wrong about the network, not about this function.
+//
+// A failed announce does not fail the join — the room is open either way, and
+// the node remembers whether it announced itself for the window to show.
 func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 	bootstrap, err := resolveBootstrap(m.opts.Bootstrap)
 	if err != nil {
@@ -121,10 +143,12 @@ func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 		_ = node.Close()
 		return err
 	}
-	if err := node.Announce(ctx); err != nil {
-		_ = node.Close()
-		return err
-	}
+	// A failed announce does not stop the join. The room is open, discovery
+	// runs either way, and peers already inside are still found — refusing
+	// entry here is what turned a weak rendezvous into "could not join" with
+	// nothing to look at (bug-0121). The window shows the room as not
+	// published instead, so the state is visible rather than silently wrong.
+	_ = node.Announce(ctx)
 
 	m.mu.Lock()
 	m.node = node
@@ -386,7 +410,7 @@ func (m *Mesh) acceptLoop() {
 			_ = s.Close()
 			continue
 		}
-		m.addPeer(remote, s)
+		m.addPeer(remote, s, remote)
 	}
 }
 
@@ -442,7 +466,7 @@ func (m *Mesh) discoverLoop() {
 				if err != nil {
 					return
 				}
-				m.addPeer(id, s)
+				m.addPeer(id, s, m.selfID)
 			}(info)
 		}
 	}
@@ -462,22 +486,39 @@ func (m *Mesh) discoverLoop() {
 	}
 }
 
-// addPeer plugs a connected peer into the mesh. The first stream for an ID
-// wins and later ones close: dials and admissions race each other, and two
-// streams to one peer would only waste connections — sends are keyed by ID,
-// so either survivor carries the same traffic.
-func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser) {
+// addPeer plugs a connected peer into the mesh, keyed by the peer that opened
+// the stream.
+//
+// Two streams to one peer is the normal case, not a rare one: discovery is
+// symmetric, so both sides dial in the same second. "First one wins" is not a
+// rule both ends can compute — it is decided by who got there first, and each
+// side gets a different answer. The loser is then closed, which closes a
+// stream the *other* side may have been the one reading, and that side's read
+// loop ends and drops the peer from its roster. The room keeps meeting and
+// goes silent, which is exactly what the public-DHT scenario caught.
+//
+// So the surviving stream is the one the peer with the smaller id opened: the
+// same rule the room already uses to decide who hosts after a host leaves. Both
+// ends compute it, so both keep the same stream and neither tears down the
+// connection the other is using.
+func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser, initiator string) {
 	m.mu.Lock()
-	if _, exists := m.peers[id]; exists {
+	existing, exists := m.peers[id]
+	if exists && existing.initiator <= initiator {
 		m.mu.Unlock()
 		_ = conn.Close()
 		return
 	}
-	mp := &meshPeer{id: id, conn: conn, enc: json.NewEncoder(conn)}
+	mp := &meshPeer{id: id, conn: conn, enc: json.NewEncoder(conn), initiator: initiator}
 	m.peers[id] = mp
 	selfID := m.selfID
 	isHost := m.isHost
 	m.mu.Unlock()
+
+	if exists {
+		// Replaced, not added: the old stream is the loser of the rule above.
+		_ = existing.conn.Close()
+	}
 
 	go m.readLoop(mp)
 
@@ -495,10 +536,19 @@ func (m *Mesh) sendTo(mp *meshPeer, msg any) error {
 func (m *Mesh) readLoop(mp *meshPeer) {
 	defer func() {
 		m.mu.Lock()
-		if m.peers[mp.id] == mp {
+		current := m.peers[mp.id] == mp
+		if current {
 			delete(m.peers, mp.id)
 		}
 		m.mu.Unlock()
+
+		if !current {
+			// This stream lost the race to another stream to the same peer and
+			// the entry has already been replaced. Nobody left: announcing a
+			// departure here would drop a member who is still in the room, and
+			// the roster would be wrong about people who are watching.
+			return
+		}
 
 		// The room learns of departures only from a bye. A stream that ends
 		// on its own — a crash, a kill, a cut cable — therefore left the peer

@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025-2026 TorrSyncPlayer contributors
+// See LICENSE file for full license text
+
+// Package cicontract pins the CI workflow against the code it is supposed to
+// be checking. It holds no production code on purpose: what it guards is the
+// agreement between the pipeline and the repository, and that agreement has
+// rotted three times — a mutation scope naming packages deleted with the room
+// broker, a coverage filter excluding a package the backend never had, and a
+// C++ mutation step that echoed «placeholder» and went green. None of them
+// failed a build, because a green step and a working step look identical from
+// the outside.
+//
+// DEV.md, «Проверки должны уметь краснеть», is the rule these tests exist for:
+// every check here fails on the state it was written against.
+package cicontract
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	workflow   = "../../../.github/workflows/ci.yml"
+	moduleRoot = "../.."
+)
+
+// packageExists resolves a package pattern against the backend module, from
+// the module root: a pattern like `./internal/validation` means nothing from
+// the directory the test happens to run in.
+func packageExists(t *testing.T, pattern string) bool {
+	t.Helper()
+	cmd := exec.Command("go", "list", pattern)
+	cmd.Dir = moduleRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("go list %s: %v (%s)", pattern, err, strings.TrimSpace(string(out)))
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
+func repoFile(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Clean(path))
+	require.NoError(t, err, "read %s", path)
+	return string(body)
+}
+
+// packageArgRe finds `./internal/...`-style package patterns where a shell
+// command names them, which is where a stale package path hides.
+var packageArgRe = regexp.MustCompile(`\./[A-Za-z0-9_./-]*\.\.\.`)
+
+// packageOf turns a `./internal/validation/...` pattern into the `./…` path
+// `go list` needs. The leading dot is not decoration: without it `go list`
+// reads the name as a standard-library package and fails on it.
+func packageOf(pattern string) string {
+	return strings.TrimSuffix(pattern, "/...")
+}
+
+// TestTheMutationScopeNamesOnlyPackagesThatExist pins the scope of the
+// mutation gate. It ran against ./internal/sync and ./internal/p2p for days
+// after both were deleted with the room broker: the gate stayed green, the
+// score it printed was not the score its own comment claimed, and nothing in
+// the repository could tell. A package pattern that names nothing is the
+// quietest way to shrink a gate.
+func TestTheMutationScopeNamesOnlyPackagesThatExist(t *testing.T) {
+	body := repoFile(t, workflow)
+
+	scope := mutationScope(t, body)
+	require.NotEmpty(t, scope, "the workflow must still run mutation testing")
+
+	for _, pattern := range packageArgRe.FindAllString(scope, -1) {
+		pkg := packageOf(pattern)
+		assert.True(t, packageExists(t, pkg),
+			"%s is in the mutation scope of ci.yml but the module has no such package — "+
+				"the gate is measuring something other than what it claims", pkg)
+	}
+}
+
+// TestTheCoverageStepMeasuresTheWholeModule pins the second rot: the backend
+// coverage step filtered out a package named `integration`, which the backend
+// has never had since the room moved to the frontend. The filter looked like
+// it was excluding something and excluded nothing.
+func TestTheCoverageStepMeasuresTheWholeModule(t *testing.T) {
+	body := repoFile(t, workflow)
+
+	require.Contains(t, body, "coverprofile",
+		"the backend must still produce a coverage profile")
+	assert.NotContains(t, body, "grep -v 'integration'",
+		"the backend has no `integration` package; the filter excluded nothing and hid that")
+
+	// Whatever package patterns the test command names must exist, too.
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.Contains(line, "coverprofile") || !strings.Contains(line, "go test") {
+			continue
+		}
+		for _, pattern := range packageArgRe.FindAllString(line, -1) {
+			// `./...` is the whole module — the point of the step, not a
+			// package that could have gone missing.
+			if pattern == "./..." {
+				continue
+			}
+			pkg := packageOf(pattern)
+			assert.True(t, packageExists(t, pkg),
+				"%s is in the coverage command of ci.yml but the module has no such package", pkg)
+		}
+	}
+}
+
+// TestNoCIJobIsAPlaceholder pins the third rot, and the one that survives the
+// longest: a step that echoes «placeholder for future implementation» and
+// reports success. A step that checks nothing is worse than a missing step,
+// because it is counted as coverage of whatever it was named after.
+func TestNoCIJobIsAPlaceholder(t *testing.T) {
+	body := repoFile(t, workflow)
+	assert.NotContains(t, strings.ToLower(body), "placeholder",
+		"ci.yml still carries a step that says it is a placeholder; a green step must check something")
+}
+
+// mutationScope returns the shell block of the step that runs go-mutesting.
+func mutationScope(t *testing.T, body string) string {
+	t.Helper()
+	for _, step := range strings.Split(body, "      - name: ") {
+		if !strings.Contains(step, "go-mutesting \\") {
+			continue
+		}
+		return step
+	}
+	return ""
+}

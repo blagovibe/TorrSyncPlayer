@@ -175,6 +175,7 @@ type settingsForm struct {
 
 	bootstrap *widget.Entry
 	relays    *widget.Entry
+	name      *widget.Entry
 }
 
 // The language options are not catalogue entries on purpose: each language
@@ -191,7 +192,13 @@ func newSettingsForm(current Settings, tr func(string) string, parent fyne.Windo
 		mpv:       widget.NewEntry(),
 		bootstrap: widget.NewEntry(),
 		relays:    widget.NewEntry(),
+		name:      widget.NewEntry(),
 	}
+
+	// The name is a label for the person, not a login, so it is trimmed on
+	// the way in: a name with stray spaces is a name nobody asked for.
+	f.name.SetPlaceHolder(tr("settings.namePlaceholder"))
+	f.name.SetText(current.DisplayName)
 
 	f.language = widget.NewSelect(
 		[]string{tr("settings.languageSystem"), languageOptionEnglish, languageOptionRussian}, nil)
@@ -260,6 +267,7 @@ func (f *settingsForm) apply(current Settings) Settings {
 
 	s.Bootstrap = strings.TrimSpace(f.bootstrap.Text)
 	s.Relays = strings.TrimSpace(f.relays.Text)
+	s.DisplayName = strings.TrimSpace(f.name.Text)
 
 	return s
 }

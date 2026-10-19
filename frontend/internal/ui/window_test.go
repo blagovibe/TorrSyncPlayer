@@ -228,10 +228,15 @@ func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
 	if got, want := connStatusText(tr, waiting), "Finding the room — DHT not ready yet"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
+	unannounced := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: false}
+	if got, want := connStatusText(tr, unannounced), "The room is open, but it did not reach the network — guests who are not here yet will not find it"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
 	ready := rtc.ConnStatus{
-		SelfID:   "12D3KooWABCDEFGH",
-		DHTReady: true,
-		Peers:    []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
+		SelfID:    "12D3KooWABCDEFGH",
+		DHTReady:  true,
+		Published: true,
+		Peers:     []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
 	}
 	if got, want := connStatusText(tr, ready), "DHT ready — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -318,16 +323,16 @@ func TestTheRosterChangesAreNoticed(t *testing.T) {
 	if got := rosterNotices(tr, nil, []rtc.Peer{{PeerID: "a", UserID: "u-a"}}, "me"); len(got) != 0 {
 		t.Errorf("the first roster baselines, it does not announce: %q", got)
 	}
-	prev := rosterSnapshot([]rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}})
+	prev := rosterSnapshot(tr, []rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}})
 
-	if got := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}, {PeerID: "b", UserID: "u-b"}}, "me"); len(got) != 1 || got[0] != "u-b joined" {
+	if got := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}, {PeerID: "b", UserID: "u-b"}}, "me"); len(got) != 1 || got[0] != "device u-b joined" {
 		t.Errorf("a join must notice exactly the joiner, got %q", got)
 	}
 	if got := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}, {PeerID: "a", UserID: "u-a"}}, "me"); len(got) != 0 {
 		t.Errorf("no change must read as silence, got %q", got)
 	}
 	left := rosterNotices(tr, prev, []rtc.Peer{{PeerID: "me", UserID: "u-me"}}, "me")
-	if len(left) != 1 || left[0] != "u-a left" {
+	if len(left) != 1 || left[0] != "device u left" {
 		t.Errorf("a departure must notice exactly the leaver, got %q", left)
 	}
 	withSelf := rosterNotices(tr, map[string]string{}, []rtc.Peer{{PeerID: "me", UserID: "u-me"}}, "me")
@@ -433,7 +438,7 @@ func TestTheRosterNamesEveryoneInTheRoom(t *testing.T) {
 		{PeerID: "peer-b", UserID: "1122334455667788aabbccddeeff0011", IsHost: true},
 	}
 
-	rows := describeRoster(peers)
+	rows := describeRoster(trEN, peers)
 	if len(rows) != 2 {
 		t.Fatalf("the roster has %d rows for %d peers", len(rows), len(peers))
 	}

@@ -8,8 +8,10 @@ MAIN_FILE=./cmd/server/main.go
 
 # Порог мутационного покрытия (доля 0..1). Держим в одном согласованном
 # значении с .github/workflows/ci.yml (MUTATION_MIN_RATIO). Фактический замер
-# по этой же области пакетов — 0.494964.
-MUTATION_MIN_RATIO ?= 0.49
+# 2026-10-19 по этой же области пакетов — 0.662461 (317 мутантов: 210 убито,
+# 107 выжило). Прежние 0.49 были замерены на области, где два пакета уже не
+# существовали, то есть описывали другой замер, чем тот, который делал гейт.
+MUTATION_MIN_RATIO ?= 0.64
 
 # Версионирование
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -67,6 +69,16 @@ test:
 	@echo "Запуск тестов..."
 	go test ./...
 
+## test-ci-contract: Проверить, что CI описан верно (без кэша результатов)
+#
+# Пакет internal/cicontract читает .github/workflows/ci.yml с диска. Файл,
+# который тест читает, для go test не является входом, поэтому -count=1
+# обязателен: иначе кэш результатов отдаст зелёный ответ, измеренный по
+# вчерашнему файлу.
+test-ci-contract:
+	@echo "Проверка контракта CI..."
+	go test -count=1 ./internal/cicontract/
+
 ## test-verbose: Запустить тесты с подробным выводом
 test-verbose:
 	@echo "Запуск тестов (verbose)..."
@@ -98,12 +110,14 @@ test-mutation:
 	@echo "Запуск мутационного тестирования..."
 	@which go-mutesting > /dev/null || (echo "Installing go-mutesting..." && \
 		go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb)
-	@echo "Scope matches CI: validation, sync, p2p, persistence, utils, buffer."
+	@echo "Scope matches CI: validation, persistence, utils, buffer."
 	@echo "Full ./internal/... takes hours for a number nobody reads."
+	@echo "The scope used to name internal/sync and internal/p2p — packages"
+	@echo "deleted with the room broker — so it measured less than it claimed."
 	@set -o pipefail; \
 	go-mutesting \
-		./internal/validation/... ./internal/sync/... ./internal/p2p/... \
-		./internal/persistence/... ./internal/utils/... ./internal/buffer/... \
+		./internal/validation/... ./internal/persistence/... \
+		./internal/utils/... ./internal/buffer/... \
 		2>&1 | tee mutation.log
 	@MUTATION_SCORE=$$(grep -oiE 'mutation score is [0-9.]+' mutation.log | tail -1 | grep -oE '[0-9.]+$$'); \
 	if [ -z "$$MUTATION_SCORE" ]; then \

@@ -20,13 +20,18 @@ type ConnPeer struct {
 }
 
 // ConnStatus is the compact connection diagnostics the room window shows:
-// whether the DHT rendezvous is usable, who is around, and how each of them
-// is reached. It is built from the node itself — no new protocol, no new
-// messages — so it cannot disagree with what the node can actually do.
+// whether the DHT rendezvous is usable, whether this room announced itself,
+// who is around, and how each of them is reached. It is built from the node
+// itself — no new protocol, no new messages — so it cannot disagree with what
+// the node can actually do.
 type ConnStatus struct {
 	SelfID   string
 	DHTReady bool
-	Peers    []ConnPeer
+	// Published says whether the room announced itself to the DHT. False
+	// means a guest who is not here yet will never be told this room
+	// exists, and a person waiting for that guest needs to know it.
+	Published bool
+	Peers     []ConnPeer
 }
 
 // DHTReady reports whether the DHT rendezvous is usable: created and with a
@@ -69,6 +74,7 @@ func (m *Mesh) ConnStatus() ConnStatus {
 	}
 	st.SelfID = node.ID().String()
 	st.DHTReady = node.DHTReady()
+	st.Published = node.Published()
 	for _, id := range ids {
 		pid, err := peer.Decode(id)
 		if err != nil {

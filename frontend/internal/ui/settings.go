@@ -40,6 +40,9 @@ type Settings struct {
 	// PlayerBinary lets a person point at a different mpv. Empty means the one
 	// on PATH.
 	PlayerBinary string `json:"playerBinary,omitempty"`
+	// DisplayName is what the room shows for this person. Empty means the room
+	// falls back to the device's short id.
+	DisplayName string `json:"displayName,omitempty"`
 
 	// StorageMode is "memory" or "disk". Empty means memory.
 	StorageMode string `json:"storageMode,omitempty"`

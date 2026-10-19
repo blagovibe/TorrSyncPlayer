@@ -5,6 +5,204 @@ All significant changes to the project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Two people could not watch a film together at all.** The room's whole
+  rendezvous was libp2p's default bootstrap list, and four of its five entries
+  are `/dnsaddr/bootstrap.libp2p.io` — a name that publishes no SRV records
+  (empty answer from 127.0.0.53, 1.1.1.1, 8.8.8.8 and 9.9.9.9 alike). One
+  node answered, and against it the room did not form: the announce of the
+  room key took 2m16s, the window's join budget was 60s, and the guest ended
+  up reading «Could not join: rtc: announce room: context deadline exceeded» —
+  a raw Go string, in a window whose own connection line had said the
+  rendezvous was ready. No test could have caught this: the suite is
+  hermetic by design, and the production path was therefore never run.
+- **The room now meets where it is told to.** The seeds are the project's own
+  (`ownSeedAddrs`), named by DNS names that carry A records and reached over
+  TCP; libp2p's list stays behind them as the way to a node the project has
+  not heard of. A seed that does not answer costs that seed and nothing else —
+  dials run in parallel, each under its own bound — and only when not one
+  answers does the join stop, saying the rendezvous is unreachable rather
+  than reciting one failed dial.
+- **Three CI checks were green and checked nothing.** The mutation gate
+  measured `./internal/sync/...` and `./internal/p2p/...` — packages deleted
+  with the room broker — so the score it printed was not the score its own
+  comment claimed, and nothing could tell. The backend coverage command
+  filtered out a package named `integration`, which the backend has not had
+  since the room moved to the frontend: a filter that looked like it was
+  excluding something and excluded nothing. And the workflow still carried an
+  "Install Mull for C++ mutation testing" step whose whole body was
+  `echo "C++ mutation testing with Mull - placeholder for future
+  implementation"` — a C++ client the project stopped having in idea-0067,
+  reported as passing. All three were the same failure wearing three
+  costumes: a check that cannot go red (bug-0123). The scope is now exactly
+  the four packages DEV.md names, the placeholder step is gone, and the
+  coverage command measures the module.
+- **They cannot come back silently.** `backend/internal/cicontract` is a
+  package with no production code that reads `.github/workflows/ci.yml` and
+  fails on a mutation scope naming a package the module does not have, on a
+  coverage command naming one, and on any step that says it is a placeholder.
+  It was proved against the old workflow: all three tests fail, each with the
+  name of the defect it was written for. It reads a file rather than a
+  variable, so it runs with `-count=1` — a file the test reads is not an input
+  Go knows about, and the result cache would otherwise return a pass measured
+  against yesterday's file.
+- **The mutation floor now sits under the number the job actually produces.**
+  The gate claimed 0.494964 over 695 mutants; re-measured on 2026-10-19 over
+  the four packages that exist, it is 0.662461 over 317 mutants (210 killed,
+  107 survived). The old figure described a scope that no longer existed, so
+  the floor was guarding a measurement nobody was taking. Both the workflow
+  and `backend/Makefile` now carry 0.64 with the real numbers beside them, per
+  the project's own rule: the floor sits just below the measurement, and is
+  never moved without a re-measure.
+- **The contributor docs described a different project.** CONTRIBUTING asked
+  for C++17, Qt 6.5, CMake and Ninja, built the frontend with `cmake .. && ninja`,
+  ran `ctest`, and set rules for Qt-style naming and Qt parent objects — for a
+  client the project has not had since idea-0067, so everything in it was
+  instructions for building something that does not exist. It is rewritten for
+  the Go/Fyne pair it actually describes. `.github/SECURITY.md` supported a
+  `1.x` line the project has never reached while sitting on `0.3.x`, meaning
+  no shipped version was covered by its own security policy; the table now
+  names the line releases are published on. And CODEOWNERS assigned `/docs/`,
+  a directory that has never existed in this repository, to the docs
+  maintainer (bug-0124).
+
+- **The announce waits for nothing and still gets found.** The announce on the
+  join path is narrow and instant; the wide publish follows off that path and
+  repeats every 30 minutes while the node lives. Both halves are measured, and
+  neither alone is enough: a record left on the closest peer only was missed by
+  a guest that looked for two straight minutes, because "closest" is not one
+  fixed set. A failed announce no longer fails the join either — the room is
+  open, and the window now says so in words when it has not reached the
+  network (`ConnStatus.Published`, new `status.connUnannounced` in both
+  languages).
+- Proven on a real machine against the public DHT, which is where the first
+  measurement came from: the host enters in 5.5s, the guest in 8.3s, the two
+  converge after 1m55s over a public relay, and the magnet crosses from host
+  to guest. Hermetically: `rendezvous_test.go` pins the seeds, the dead-seed
+  behaviour, the wording of the unreachable rendezvous and the announce
+  policy; `connstatus_test.go` pins what the window now reads.
+
+### Added
+
+- **The room calls people by name.** The greeting has carried a display name
+  since the roster was built, and the window never filled it in — so every row
+  was a short hex id and the roster answered "which device" where the goal
+  promises "who am I watching with". The name is one field in the settings,
+  asked once; without it the roster says «device a1b2c3» rather than showing a
+  bare identifier that reads as a name. One `peerLabel` now serves the roster
+  line, the arrival and the departure, so nobody leaves the room under their
+  machine's name (idea-0125).
+
+
+- **A scenario for the room behind a NAT.** Every other scenario in this
+  repository puts its participants on one host, where they connect directly no
+  matter what the room does — a different world from the one the ADR bought, and
+  the one the room bugs kept turning up in. `tests/netns/room-nat.sh` builds it:
+  two network namespaces, masquerading to the internet on both sides, and a
+  dropped forward rule between the subnets, verified with a ping that fails —
+  because a scenario that quietly created nothing and passed is the exact
+  failure this repository keeps undoing. `TestARoomAcrossNAT` re-executes the
+  test binary inside each namespace, so the two participants are real processes
+  in real separate networks; the room must meet without a direct path, the
+  magnet must cross, and `ConnStatus` must say the connection is relayed rather
+  than the test assuming it. The CI job is required, and its setup fails the
+  job rather than skipping.
+- **The machinery behind it runs without privileges too.**
+  `TestTheNATParticipantMachineryWorksOnOneHost` puts the same two participants
+  on a single host, where they connect directly, so the re-execution, the
+  participant environment, the concurrent start and the magnet are exercised on
+  every run rather than only on a privileged runner. That test earned its place
+  immediately: it caught the coordinator starting the two participants one
+  after another, which would have made the NAT scenario a pair of rooms that
+  never overlap (idea-0126).
+
+- **A room that met and then went silent.** Discovery is symmetric, so both
+  sides dial in the same second and end up with two streams between them. The
+  mesh kept whichever arrived first and closed the other — a rule each side
+  computes differently — and closing one end kills the stream the other end was
+  reading. The symptom, seen twice against the public DHT: both rosters show
+  the peer, and the host's magnet never arrives. The surviving stream is now the
+  one opened by the peer with the smaller id, the same rule the room already
+  uses to hand over hosting, so both sides keep the same one; and a stream that
+  loses no longer announces a departure, because nobody left.
+- **Five seconds instead of fifteen between discovery rounds.** Measured: two
+  participants on a loopback testbed meet in 0.2s when discovery finds them on
+  the first query, and in one whole interval when it does not — which is most
+  of the time, since both announce in the same second. Before the change a room
+  could spend fifteen seconds waiting for a tick, which is exactly what the
+  person waiting for a guest experiences as silence; six consecutive runs of the
+  participant scenario now finish in 0.43s.
+
+### Changed
+
+- **A fresh reconciliation, and the room turned out not to be joinable at
+  all.** No code changed in this session — the zone since the last recorded
+  entry is empty and both suites are green (backend `make test`, frontend
+  `FYNE_DRIVER=offscreen go test ./...`, 0 failures). What the reconciliation
+  did find is a path no test ever touches: the production rendezvous. Two real
+  participants, real libp2p hosts, empty `--bootstrap` — that is, the public
+  IPFS seeds the application ships with. Four of the five addresses in
+  go-libp2p's default list are `/dnsaddr/bootstrap.libp2p.io`, and that name
+  publishes no SRV records (empty answer from four separate resolvers), so
+  only the one hard-coded IP remains. `Bootstrap` still reports success,
+  `WaitReady` returns in 0s with a routing table holding that single peer, and
+  the join then hangs in `Provide` until its context runs out: the guest waits
+  a minute and reads «Could not join: rtc: announce room: context deadline
+  exceeded» — a raw Go string, in a room whose own status line said the
+  rendezvous was ready (bug-0121). That is the first of the ADR's own review
+  conditions firing, so the rendezvous decision is on the board as its own
+  question rather than a silent patch (idea-0122).
+- **Three more findings from the same pass, none of them code.** The mutation
+  gate measures a scope that names two packages deleted with the broker
+  (`./internal/sync/...`, `./internal/p2p/...`), the CI still carries a C++
+  mutation step that echoes «placeholder», and the backend coverage filter
+  excludes a package that does not exist there — three green checks that
+  check nothing, in a project whose own rule is that a check must be able to
+  go red (bug-0123). `CONTRIBUTING.md` still tells contributors to build a Qt
+  and CMake frontend and run `ctest`, and `SECURITY.md` still supports a 1.x
+  line the project has not reached (bug-0124). And the roster question that
+  bug-0119 promised to file separately is now filed: the room names devices,
+  not people (idea-0125), next to the acceptance run nobody has performed
+  yet — two people, two machines, one torrent, one film (idea-0126).
+- **idea-0112 removed from the board.** The interface audit it described is
+  done — its own discussion carries both of the owner's answers and the
+  settings-in-tray decision shipped in v0.3.2 — but the card was left on the
+  board with `status: done`, which is not a status the board has: an accepted
+  idea is carried into the goal or the way and its card is deleted. Nothing
+  was lost: the audit and both decisions live in this journal.
+
+### Verified
+
+- The room over the real public DHT was measured five times after these
+  changes. It works — the magnet crosses, the connection lands direct or through
+  a public relay — but convergence is minutes and not steady: 1m55s, 3m04s,
+  4m35s, and twice not at all inside five and a half minutes. Frequent
+  narrow re-publishing was tried and did not change it, so it was reverted
+  rather than left in as traffic that buys nothing (bug-0128). The two
+  participant scenarios that run without privileges pass on every run.
+- Fresh reconciliation: zone since the v0.3.6 entry was empty and the working
+  tree clean. Backend and frontend suites run green in full (backend 280 test
+  functions, frontend 227; the frontend suite includes the scenario tests that
+  build and launch the real backend binary, and mpv is installed here, so the
+  real-player gate ran rather than skipped). No findings inside the zone.
+- The NAT scenario's namespace construction could not be run locally — this
+  machine has no `CAP_NET_ADMIN` and no sudo, so `ip netns` fails and veth
+  cannot be created inside a user namespace. Everything else about it was
+  verified here: the participants, the rendezvous, the magnet and the
+  concurrent start all run in the unprivileged test above. The namespaces
+  themselves will first execute on CI, as a required job that goes red rather
+  than skips.
+- The fix for bug-0121 was itself written against that rule: every change is
+  pinned by a test that failed on the old code first, and the only thing it
+  cannot be pinned by is the thing that was broken — the production path —
+  which was measured on a live node instead. Full frontend suite re-run with
+  `-race` after the change; the rendezvous section of DEV.md, the ADR and the
+  flag table were rewritten from those measurements (idea-0122, owner's
+  decision).
+
 ## [v0.3.6] - 2026-10-18
 
 ### Fixed
