@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+- **Three cards closed on evidence rather than on hope.** The last reconciliation
+  found the CI runs on `main` green — every leg, all three platforms — which is
+  exactly what three of the open cards were waiting for. `bug-0115` (mpv
+  refuses `sub-add` in silence, so the subtitle test failed for mpv's reasons
+  and the window showed that raw refusal as a status line) was verified on the
+  macOS leg where it first failed. `bug-0117` (a busy Windows pipe failed the
+  command instead of waiting, handing the room the start of the film when a
+  position read failed) was held "until green CI", and CI is green on the commit
+  carrying the fix. `bug-0119` (the password handshake swallowed the peer's
+  first message, so the roster stayed empty and «watching together» did nothing)
+  was fixed in v0.3.5 and its only remaining question — the roster named
+  devices instead of people — was idea-0125, decided and carried into the goal
+  in this release. Three cards leave the board; their stories stay here.
+
 
 - **Two people could not watch a film together at all.** The room's whole
   rendezvous was libp2p's default bootstrap list, and four of its five entries
@@ -145,6 +158,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   could spend fifteen seconds waiting for a tick, which is exactly what the
   person waiting for a guest experiences as silence; six consecutive runs of the
   participant scenario now finish in 0.43s.
+
+- **Three more cards closed, and the standard written down.** The tray icon
+  (`bug-0116`) had never appeared at all: the toolkit's start hook was dropped,
+  so there was no icon, no menu, and closing the window ended the application —
+  the one thing the tray exists to prevent. It is fixed and proven on Linux
+  against a live tray; the toolkit also adds its own exit item unless the last
+  one is marked, and it decides that by comparing the *label* with its own
+  translation of «Quit», which «Выход» cannot match — hence two exits in a
+  Russian menu. The Windows torrent port (`bug-0118`) is picked and checked on
+  both protocols at once, because Windows reserves whole UDP ranges and refuses
+  a bind inside one with an error that says nothing about the cause: three
+  green Windows runs against three red ones before the fix. The lost room pause
+  (`bug-0120`) is fixed, including the case where a guest paused alone and
+  stayed paused while the room moved on.
+  What none of these can show is a Windows or macOS desktop, and the owner's
+  call is that the evidence available — the fix, the tests that fail without
+  it, and CI green on all three platforms — is what closes a card. So the
+  cards close, and the residual risk is written here instead of being carried
+  silently: if a user reports a missing tray icon on macOS or Windows, or the
+  application failing to start on Windows, that is the report, and it is about
+  the three commits recorded in these entries rather than about the version
+  they shipped in.
+  The same standard closes the acceptance run (`idea-0126`). It did the job it
+  was created for: it is what found a room that met and then went silent
+  (bug-0127 in these entries) — a defect no loopback test could see, because on
+  one host both sides always dial the same way. Its remaining parts are now
+  covered by the NAT scenario that runs in CI, by the follower tests against a
+  real mpv, and by CI on three platforms.
 
 ### Changed
 
