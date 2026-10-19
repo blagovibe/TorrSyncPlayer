@@ -81,7 +81,7 @@ jobs:
             echo "## The room over the public network"
             echo
             echo '```'
-            grep -E '^(outcome|waited|waitedSeconds|attempts):' rendezvous.log || echo "(the run produced no reading)"
+            grep -E '(outcome|waited|waitedSeconds|attempts):' rendezvous.log || echo "(the run produced no reading)"
             echo '```'
             echo
             echo "Runs automatically every six hours; it decides nothing by design."
@@ -118,7 +118,9 @@ jobs:
           branch="measurements/series"
           git fetch origin "$branch" || true
           git checkout -B "$branch" "origin/$branch" 2>/dev/null || git checkout -B "$branch"
-          git add measurements/rendezvous.md .project-board
+          # The board is a directory of cards, and an empty board is not in
+          # git at all — so the paths are added wholesale rather than by name.
+          git add -A
           if git diff --cached --quiet; then
             echo "the series has nothing new"
             exit 0

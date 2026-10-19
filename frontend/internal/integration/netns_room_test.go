@@ -141,6 +141,21 @@ func runNATAttempt(ctx context.Context, t *testing.T, host, guest natParticipant
 		return "", "", err
 	}
 	guest.code = code
+	if host.public {
+		// The two participants of the public measurement share one machine,
+		// so the host's own address is dialable — and the room would gather
+		// over loopback in a fraction of a second, measuring nothing about
+		// the public network. The guest is therefore given the host's
+		// identity with an address that cannot be dialled: it has to find
+		// the host the way a person behind another network does, by the
+		// fallback's lookup of its id. What the run then measures is the
+		// public network.
+		code, err = unreachableAddress(code)
+		if err != nil {
+			return "", "", err
+		}
+		guest.code = code
+	}
 	guestOut, guestErr := startParticipant(ctx, guest.namespace, guest)
 	hostBody, guestBody := <-hostOut, <-guestOut
 	hostDone, guestDone := <-hostErr, <-guestErr
@@ -151,6 +166,26 @@ func runNATAttempt(ctx context.Context, t *testing.T, host, guest natParticipant
 		return hostBody, guestBody, fmt.Errorf("a participant did not finish:\n%s\n%s", hostBody, guestBody)
 	}
 	return hostBody, guestBody, nil
+}
+
+// unreachableAddress rewrites a code's address into one that cannot be
+// dialled, keeping the host's identity. The peer ID is what matters: it is
+// what the fallback looks up.
+func unreachableAddress(code string) (string, error) {
+	parts := strings.SplitN(code, ":", 4)
+	if len(parts) < 4 || parts[3] == "" {
+		return "", fmt.Errorf("the code carries no address: %q", code)
+	}
+	first := strings.Split(parts[3], ",")[0]
+	addr, err := multiaddr.NewMultiaddr(first)
+	if err != nil {
+		return "", fmt.Errorf("the code's address does not parse: %w", err)
+	}
+	id, err := addr.ValueForProtocol(multiaddr.P_P2P)
+	if err != nil {
+		return "", fmt.Errorf("the code's address carries no peer id: %w", err)
+	}
+	return strings.Join([]string{parts[0], parts[1], parts[2], fmt.Sprintf("/ip4/127.0.0.1/tcp/1/p2p/%s", id)}, ":"), nil
 }
 
 // waitForTheHostsCode reads the code the host published. The host is up and
@@ -514,4 +549,27 @@ func waitForRoster(t *testing.T, roster <-chan []rtc.Peer, want int, timeout tim
 		}
 	}
 	return false
+}
+
+// TestTheUnreachableAddressKeepsThePeerAndDropsTheWayIn pins what the
+// public measurement does to the host's code: the identity stays, the address
+// goes. A code that kept the host's own address would be dialled over
+// loopback — the two participants share a machine — and the run would measure
+// nothing but itself.
+func TestTheUnreachableAddressKeepsThePeerAndDropsTheWayIn(t *testing.T) {
+	code := "room-1:secret:key-1:/ip4/192.168.1.5/tcp/4001/p2p/12D3KooWSvgqwZRiS8DgT1bUDS3dpwYQ3YUuaBoapit6SBRzEXXp"
+
+	got, err := unreachableAddress(code)
+	if err != nil {
+		t.Fatalf("the code could not be rewritten: %v", err)
+	}
+	if !strings.Contains(got, "12D3KooWSvgqwZRiS8DgT1bUDS3dpwYQ3YUuaBoapit6SBRzEXXp") {
+		t.Errorf("the peer was lost in the rewrite: %q", got)
+	}
+	if strings.Contains(got, "192.168.1.5") {
+		t.Errorf("the reachable address survived the rewrite: %q", got)
+	}
+	if !strings.HasPrefix(got, "room-1:secret:key-1:") {
+		t.Errorf("the room's secret changed in the rewrite: %q", got)
+	}
 }

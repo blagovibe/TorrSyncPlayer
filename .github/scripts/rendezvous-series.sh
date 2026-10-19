@@ -23,9 +23,14 @@ record() {
   local log=$1 series=$2
   local outcome waited seconds row
 
-  outcome=$(grep -E '^outcome:' "$log" | tail -1 | sed 's/^outcome:[[:space:]]*//' || true)
-  waited=$(grep -E '^waited:' "$log" | tail -1 | sed 's/^waited:[[:space:]]*//' || true)
-  seconds=$(grep -E '^waitedSeconds:' "$log" | tail -1 | sed 's/^waitedSeconds:[[:space:]]*//' || true)
+  # `go test -v` prefixes every line of the test's output with "file:line: ",
+  # so the fields are looked for anywhere in the line, not only at its start.
+  field() {
+    grep -E "$1:" "$log" | tail -1 | sed "s/.*$1:[[:space:]]*//" || true
+  }
+  outcome=$(field outcome)
+  waited=$(field waited)
+  seconds=$(field waitedSeconds)
 
   if [ "$outcome" = "the room met" ] && [ -n "$seconds" ] && [ "$seconds" -le "$THRESHOLD_SECONDS" ]; then
     row="met"
@@ -74,6 +79,7 @@ write_card() {
   local board="$root/.project-board"
   local number slug file
 
+  mkdir -p "$board"
   number=$( {
     ls "$board" 2>/dev/null | grep -oE '^[a-z]+-[0-9]{4}' | grep -oE '[0-9]{4}' || true
     grep -oE '\b(idea|bug|deviation)-[0-9]{4}\b' "$root/CHANGELOG.md" 2>/dev/null | grep -oE '[0-9]{4}' || true
