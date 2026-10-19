@@ -107,9 +107,12 @@ func buildPlayableFile(t *testing.T, ffmpeg string) string {
 	t.Helper()
 
 	media := filepath.Join(t.TempDir(), "film.mp4")
+	// The same ffmpeg the project's other films are built with, plus one
+	// thing: the index goes to the front, so a player can start on the head
+	// of the file without seeking to the end for it.
 	cmd := exec.Command(ffmpeg,
-		"-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=10",
-		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+		"-f", "lavfi", "-i", "testsrc=size=64x64:rate=5:duration=10",
+		"-c:v", "libx264", "-preset", "ultrafast",
 		"-movflags", "+faststart",
 		"-y", media,
 	)
