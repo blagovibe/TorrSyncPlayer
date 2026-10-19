@@ -85,7 +85,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour, the wording of the unreachable rendezvous and the announce
   policy; `connstatus_test.go` pins what the window now reads.
 
-### Added
+- **A room waiting for anyone now says so, and counts.** The connection line
+  read "DHT ready — 0 peers" through the entire wait, which on the public DHT is
+  minutes: four measured runs took 1m55s, 3m04s and 4m35s to meet, and two did
+  not meet inside five and a half minutes. A person waiting for a guest was
+  looking at a line that meant "everything is fine" while the room was still
+  assembling itself — the guessing the goal forbids, only quieter and slower.
+  An announced room with nobody in it now counts the wait, and after thirty
+  seconds says why it is long. The order of the four states is by severity, not
+  by time: an unready rendezvous and a room that never announced itself are
+  different sentences, and neither is ever covered by "still looking" (bug-0128).
+
 
 - **The room calls people by name.** The greeting has carried a display name
   since the roster was built, and the window never filled it in — so every row

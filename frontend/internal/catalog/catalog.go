@@ -81,13 +81,15 @@ var catalog = map[string]string{
 	"status.connUnannounced": "The room is open, but it did not reach the network — guests who are not here yet will not find it",
 	"dialog.error":           "Error",
 
-	"room.label":       "In the room: %s",
-	"room.host":        "(host)",
-	"room.device":      "device %s",
-	"room.buffering":   "buffering",
-	"room.defaultName": "Room",
-	"media.info":       "%s · %s · %s",
-	"track.none":       "None",
+	"room.label":                   "In the room: %s",
+	"room.host":                    "(host)",
+	"room.device":                  "device %s",
+	"status.connWaitingGuests":     "Looking for people in the room — %s",
+	"status.connWaitingGuestsLong": "Looking for people in the room — %s so far; the first meeting can take a couple of minutes",
+	"room.buffering":               "buffering",
+	"room.defaultName":             "Room",
+	"media.info":                   "%s · %s · %s",
+	"track.none":                   "None",
 
 	// The zones of the window. Named so the eye knows where it is: what
 	// plays, what it needs, the library, and the room — the last one being
@@ -213,6 +215,8 @@ var Russian = Strings{
 	"room.label":                    "В комнате: %s",
 	"room.host":                     "(хост)",
 	"room.device":                   "устройство %s",
+	"status.connWaitingGuests":      "Ищем участников комнаты — %s",
+	"status.connWaitingGuestsLong":  "Ищем участников комнаты — прошло %s; первый раз такая сборка может занять пару минут",
 	"room.buffering":                "буферизация",
 	"room.defaultName":              "Комната",
 	"media.info":                    "%s · %s · %s",

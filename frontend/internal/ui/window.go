@@ -110,6 +110,10 @@ type window struct {
 	rtcRoom *rtc.Room
 	roomID  string
 	invite  rtc.Invite
+	// joinedAt is when this room opened. The connection line counts from it,
+	// because on the public DHT the wait for the first guest is minutes and
+	// silence through them reads as "done" (bug-0128).
+	joinedAt time.Time
 	// selfPeerID is this window's mesh peer id, set on join. Roster notices
 	// skip it: my own arrival is answered by the room opening.
 	selfPeerID string
@@ -512,6 +516,7 @@ func (w *window) leaveRoom() {
 	mesh := w.mesh
 	w.mesh, w.rtcRoom = nil, nil
 	w.roomID = ""
+	w.joinedAt = time.Time{}
 	w.invite = rtc.Invite{}
 	w.lastRoster = nil
 	w.mu.Unlock()
@@ -575,6 +580,7 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 
 	w.mu.Lock()
 	w.mesh = mesh
+	w.joinedAt = time.Now()
 	w.rtcRoom = room
 	w.roomID = invite.Community
 	w.invite = invite
@@ -1268,7 +1274,7 @@ func (w *window) refresh() {
 	w.mu.RUnlock()
 	conn := ""
 	if mesh != nil {
-		conn = connStatusText(w.tr, mesh.ConnStatus())
+		conn = connStatusText(w.tr, mesh.ConnStatus(), w.waitedForGuests())
 	}
 	onMain(func() { setLine(w.connLabel, conn) })
 
@@ -1506,7 +1512,7 @@ func torrentStatusWord(tr func(string) string, status string) string {
 // going blank: a missing line would hide a broken rendezvous, and so does a
 // room that never reached the network — that one looks joined and is not,
 // which is worse than looking broken (bug-0121).
-func connStatusText(tr func(string) string, st rtc.ConnStatus) string {
+func connStatusText(tr func(string) string, st rtc.ConnStatus, waited time.Duration) string {
 	if st.SelfID == "" {
 		return ""
 	}
@@ -1516,6 +1522,17 @@ func connStatusText(tr func(string) string, st rtc.ConnStatus) string {
 	if !st.Published {
 		return tr("status.connUnannounced")
 	}
+	if len(st.Peers) == 0 && waited > 0 {
+		// The room is announced and nobody has arrived. Against the public DHT
+		// that is minutes of normal weather, and silence through them reads as
+		// a finished room. So the line says what it is doing, counts it, and
+		// once the wait is long enough to be surprising, says why (bug-0128).
+		elapsed := fmtWaited(waited)
+		if waited >= waitingNeedsExplaining {
+			return fmt.Sprintf(tr("status.connWaitingGuestsLong"), elapsed)
+		}
+		return fmt.Sprintf(tr("status.connWaitingGuests"), elapsed)
+	}
 	direct := 0
 	for _, p := range st.Peers {
 		if !p.Relayed {
@@ -1523,6 +1540,34 @@ func connStatusText(tr func(string) string, st rtc.ConnStatus) string {
 		}
 	}
 	return fmt.Sprintf(tr("status.connReady"), len(st.Peers), direct, len(st.Peers)-direct, shortID(st.SelfID))
+}
+
+// waitedForGuests is how long this room has been open. Zero outside a room,
+// which the connection line reads as "not waiting".
+func (w *window) waitedForGuests() time.Duration {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.joinedAt.IsZero() {
+		return 0
+	}
+	return time.Since(w.joinedAt)
+}
+
+// waitingNeedsExplaining is how long a wait lasts before the line explains
+// itself instead of only counting. Half a minute: short enough that nobody
+// reads it over a conversation, long enough that anything past it is worth a
+// sentence rather than a number.
+const waitingNeedsExplaining = 30 * time.Second
+
+// fmtWaited is a clock a person can read at a glance: minutes and seconds, and
+// no hour, because a room that takes an hour has stopped being a wait and has
+// become the thing bug-0128 is about.
+func fmtWaited(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	total := int(d.Seconds())
+	return fmt.Sprintf("%d:%02d", total/60, total%60)
 }
 
 // shortID keeps an identifier readable: a full peer ID is dozens of base58
