@@ -1522,6 +1522,11 @@ func connStatusText(tr func(string) string, st rtc.ConnStatus, waited time.Durat
 	if !st.Published {
 		return tr("status.connUnannounced")
 	}
+	if len(st.Peers) == 0 && waited >= meetingFailedAfter {
+		// Past the measured worst case. The room is not slow, it did not form,
+		// and a counter that keeps rising is not an answer to anything.
+		return fmt.Sprintf(tr("status.connMeetingFailed"), fmtWaited(waited))
+	}
 	if len(st.Peers) == 0 && waited > 0 {
 		// The room is announced and nobody has arrived. Against the public DHT
 		// that is minutes of normal weather, and silence through them reads as
@@ -1552,6 +1557,13 @@ func (w *window) waitedForGuests() time.Duration {
 	}
 	return time.Since(w.joinedAt)
 }
+
+// meetingFailedAfter is how long a room may stay empty before the window stops
+// calling it a wait. Measured against the public DHT: the longest meeting
+// observed took 4m35s, and two runs did not meet inside five and a half
+// minutes. Six is past every meeting that happened and short of every minute
+// spent watching a counter (bug-0128).
+const meetingFailedAfter = 6 * time.Minute
 
 // waitingNeedsExplaining is how long a wait lasts before the line explains
 // itself instead of only counting. Half a minute: short enough that nobody

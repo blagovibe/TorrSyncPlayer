@@ -187,6 +187,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covered by the NAT scenario that runs in CI, by the follower tests against a
   real mpv, and by CI on three platforms.
 
+- **A room that does not assemble eventually says so.** The wait was counted
+  forever, which is not an answer to anything: measured against the public DHT,
+  the longest meeting took 4m35s and two runs did not meet inside five and a
+  half minutes. After six minutes the counter stops and the line says the room
+  did not form, how long it waited, and what a person can change — their network,
+  or a rendezvous of their own. Six is not a round number, it is past every
+  meeting that actually happened (bug-0128; owner's call on the wording).
+- **What closes a card is now written down.** A bug closes on the fix, on a
+  test that fails without it, and on green CI across all three platforms — not
+  on "verified on one machine" and not on "pending reports from real users".
+  That second kind of residue is not knowledge, it is waiting, and a board that
+  accumulates waiting stops answering what is broken right now. The residual
+  risk is recorded in this journal instead: if a fix turns out wrong on other
+  hardware, the report is about the commits named here, not about the version
+  they shipped in (owner's decision, 2026-10-19).
+
 ### Changed
 
 - **A fresh reconciliation, and the room turned out not to be joinable at
