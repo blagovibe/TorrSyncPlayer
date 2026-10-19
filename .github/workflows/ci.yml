@@ -209,6 +209,9 @@ jobs:
     name: Room Across NAT
     needs: lint-backend
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      issues: write
 
     # The one scenario that needs privileges: two participants, two network
     # namespaces, one masquerade and one dropped forward rule between them. It
@@ -248,18 +251,33 @@ jobs:
           TORRSYNC_NETNS: '1'
         run: go test -v -timeout 12m -run 'TestARoomAcrossNAT' ./internal/integration/... 2>&1 | tee nat.log
 
-      # The log as an artifact, not only in the run's log stream: reading a
-      # failed job's stream needs rights most contributors do not have, and a
-      # failure nobody can read is a failure nobody can fix. This is the one
-      # job in this workflow that runs something the project cannot reproduce
-      # anywhere else, which makes it the one whose output matters most.
-      - name: Keep the log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: nat-room-${{ github.run_id }}
-          path: frontend/nat.log
-          retention-days: 14
+      # The failure has to be readable to be fixable. This job needs root, two
+      # network namespaces and two NAT'd sides — nobody can reproduce it on a
+      # laptop, and reading a failed job's log stream needs rights most
+      # contributors do not have. So when it fails it says so where anyone can
+      # read: an issue, in the open, with the output. A required check that
+      # fails silently into a page you cannot open is worse than no check.
+      - name: Say what happened, where anyone can read it
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          {
+            echo "The room-across-NAT scenario failed on [run ${GITHUB_RUN_ID}](${RUN_URL})."
+            echo
+            echo "The namespaces were created and torn down successfully, so the room itself"
+            echo "did not work across a NAT — or the scenario could not reach it."
+            echo
+            echo '```'
+            tail -c 20000 frontend/nat.log 2>/dev/null || echo "(no log: the step died before writing one)"
+            echo '```'
+          } > /tmp/nat-body.md
+          gh issue create \
+            --title "Room Across NAT failed on run ${GITHUB_RUN_ID}" \
+            --body-file /tmp/nat-body.md \
+            --label "ci" || echo "could not open the issue; the run link is above"
 
       # Always, including after a failure: leaving two namespaces and a
       # masquerade rule behind would shape whatever runs next on the runner.
