@@ -406,6 +406,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with its own translation of «Quit» — which «Выход» cannot match in Russian.
   Read off a live tray. Our item is marked now; the menu serves one exit.
 
+- **A rendezvous measurement that decides nothing, on purpose.** Every gate in
+  this repository runs against a local testbed, and that is right for a gate —
+  a test must not fail for someone else's reasons. It is wrong for a
+  measurement. `.github/workflows/rendezvous.yml` runs the same two participants
+  against the public DHT every six hours, always finishes successfully, and
+  writes what it saw into the job summary. A single run cannot answer "does it
+  usually meet, and how long does it take"; a series can, and a series needs a
+  clock rather than a pull request. It is its own file on purpose: a schedule
+  inside `ci.yml` would run mutation testing by the hour for a measurement that
+  takes twenty minutes (bug-0129).
+- **And the correction it belongs to.** Nine measured runs were written up as
+  "four rooms met, five did not" — and that was wrong. The failures came
+  consecutively and the successes spread across hours: it was the public DHT
+  having a bad afternoon, not a property of this code. Three further runs, all
+  consecutive, met in 1m50s, 2m20s and 2m50s. A number assembled from runs taken
+  at different hours measures the hours, not the software, and the card that
+  reported it has been rewritten to say so.
+- **Every workflow that sets up Go now pins the same one.** The measurement
+  workflow was first written with `${{ env.GO_VERSION }}` and no GO_VERSION
+  beside it; setup-go would have taken its own default, and the job would have
+  failed on its first run. Loud, at least. The quiet version is two workflows
+  disagreeing about the compiler, and both jobs stay green. Either spelling is
+  accepted — the variable or the version written into setup-go — but not two
+  different numbers, and the guard is proved by removing the pin and watching it
+  go red.
+
 ### Added
 
 - **Settings in the tray menu** (owner's decision, idea-0112). Closing the

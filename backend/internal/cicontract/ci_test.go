@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -29,6 +30,7 @@ import (
 
 const (
 	workflow   = "../../../.github/workflows/ci.yml"
+	workflows  = "../../../.github/workflows"
 	moduleRoot = "../.."
 )
 
@@ -135,4 +137,53 @@ func mutationScope(t *testing.T, body string) string {
 		return step
 	}
 	return ""
+}
+
+// goVersionPatterns read the pinned Go version out of a workflow, in either of
+// the two forms the repository uses: a GO_VERSION the workflow declares for
+// itself, or a version written straight into setup-go. Both are fine; what is
+// not fine is a workflow with neither, or two workflows that disagree — one is
+// a job on a compiler nobody chose, the other is two green jobs about different
+// compilers.
+var (
+	goEnvVersionPattern   = regexp.MustCompile(`GO_VERSION:\s*['"]([0-9][^'"]*)['"]`)
+	goSetupVersionPattern = regexp.MustCompile(`go-version:\s*['"]([0-9][^'"]*)['"]`)
+)
+
+func TestEveryWorkflowPinsTheSameGoVersion(t *testing.T) {
+	entries, err := os.ReadDir(workflows)
+	require.NoError(t, err, "read the workflows directory")
+
+	pinned := map[string][]string{}
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") &&
+			!strings.HasSuffix(entry.Name(), ".yaml")) {
+			continue
+		}
+		body := repoFile(t, filepath.Join(workflows, entry.Name()))
+		if !strings.Contains(body, "actions/setup-go") {
+			continue
+		}
+
+		versions := map[string]struct{}{}
+		for _, pattern := range []*regexp.Regexp{goEnvVersionPattern, goSetupVersionPattern} {
+			for _, m := range pattern.FindAllStringSubmatch(body, -1) {
+				versions[m[1]] = struct{}{}
+			}
+		}
+		require.NotEmpty(t, versions,
+			"%s sets Go up without pinning a version: setup-go would take its own default, "+
+				"and the job would build with a compiler nobody chose", entry.Name())
+		for v := range versions {
+			pinned[v] = append(pinned[v], entry.Name())
+		}
+	}
+
+	require.NotEmpty(t, pinned, "no workflow sets Go up, which cannot be right")
+	for version, names := range pinned {
+		sort.Strings(names)
+		t.Logf("Go %s: %s", version, strings.Join(names, ", "))
+	}
+	assert.Len(t, pinned, 1,
+		"workflows pin more than one Go version: a green job about a different compiler is still a lie")
 }

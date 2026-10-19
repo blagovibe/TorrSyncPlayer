@@ -1,0 +1,92 @@
+name: Rendezvous
+
+# A measurement, not a gate.
+#
+# The rendezvous is the one part of this project whose behaviour belongs to
+# someone else's network. Every test that gates a pull request runs against a
+# local testbed, because the project's own rule is that a test must not fail for
+# someone else's reasons — and that rule is right for a gate and wrong for a
+# measurement. This workflow therefore runs the same two participants against
+# the public DHT, on a schedule, always finishes successfully, and writes what
+# it saw into the job summary.
+#
+# A check that goes red half the time teaches everyone to ignore red, so this
+# one does not decide anything. It is a series, and what it is for is to answer
+# questions no single run can: does the room usually meet, how long does it
+# take, and does a stretch of failures belong to the public DHT or to us.
+#
+# It is deliberately its own file rather than a scheduled job inside ci.yml:
+# a schedule there would run mutation testing and the contract suite by the
+# hour, for a measurement that takes twenty minutes.
+
+on:
+  schedule:
+    # Every six hours: often enough to see a bad stretch, rare enough that it
+    # is not a poll.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rendezvous-measurement
+  cancel-in-progress: false
+
+env:
+  # Pinned in every workflow and checked to be the same number everywhere by
+  # backend/internal/cicontract: a workflow that quietly builds with a different
+  # Go is a green job about a different compiler.
+  GO_VERSION: '1.27.2'
+
+jobs:
+  measure:
+    name: One rendezvous against the public DHT
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: frontend/go.sum
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libfontconfig-dev mpv ffmpeg
+
+      # The scenario never fails the run. What it prints is the product.
+      - name: Measure one rendezvous
+        shell: bash
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+          TORRSYNC_PUBLIC: '1'
+        run: go test -v -timeout 30m -run TestARoomMeetsOverThePublicDHT ./internal/integration/... 2>&1 | tee rendezvous.log
+
+      - name: What it saw
+        shell: bash
+        run: |
+          {
+            echo "## Rendezvous over the public DHT"
+            echo
+            echo '```'
+            grep -E '^(outcome|waited|attempts):' rendezvous.log || echo "(the run produced no reading)"
+            echo '```'
+            echo
+            echo "Runs automatically every six hours; it decides nothing by design."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendezvous-${{ github.run_id }}
+          path: frontend/rendezvous.log
+          retention-days: 14

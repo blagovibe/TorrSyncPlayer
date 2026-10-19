@@ -120,10 +120,37 @@ func runNATAttempt(ctx context.Context, t *testing.T, host, guest natParticipant
 	t.Helper()
 
 	inv := rtc.GenerateInvite()
+	if host.public {
+		// No testbed: the production rendezvous, the project's own seed list,
+		// exactly as a person gets it with an empty --bootstrap.
+		host.bootstrap, guest.bootstrap = "", ""
+		host.invite, guest.invite = inv, inv
+		return runParticipantPair(ctx, t, host, guest)
+	}
+
 	bedID, bedPort := startNATTestbed(t, inv)
 	host.bootstrap = p2pAddr(host.bridge, bedPort, bedID)
 	guest.bootstrap = p2pAddr(guest.bridge, bedPort, bedID)
 	host.invite, guest.invite = inv, inv
+
+	hostOut, hostErr := startParticipant(ctx, host.namespace, host)
+	guestOut, guestErr := startParticipant(ctx, guest.namespace, guest)
+	hostBody, guestBody := <-hostOut, <-guestOut
+	hostDone, guestDone := <-hostErr, <-guestErr
+	if hostDone != nil || guestDone != nil {
+		return hostBody, guestBody, fmt.Errorf("a participant failed:\n%s\n%s", hostBody, guestBody)
+	}
+	if !strings.Contains(hostBody, "OK") || !strings.Contains(guestBody, "OK") {
+		return hostBody, guestBody, fmt.Errorf("a participant did not finish:\n%s\n%s", hostBody, guestBody)
+	}
+	return hostBody, guestBody, nil
+}
+
+// runParticipantPair starts both sides and waits for both to finish. A public
+// meeting can take minutes, so the participants' own wait is the window; the
+// coordinator does not add one of its own on top.
+func runParticipantPair(ctx context.Context, t *testing.T, host, guest natParticipant) (string, string, error) {
+	t.Helper()
 
 	hostOut, hostErr := startParticipant(ctx, host.namespace, host)
 	guestOut, guestErr := startParticipant(ctx, guest.namespace, guest)
@@ -235,6 +262,8 @@ type natParticipant struct {
 	namespace string
 	// bridge is the address the host side of that namespace is reachable at.
 	bridge string
+	// public means: no testbed, no relay, the project's own seed list.
+	public bool
 }
 
 // startParticipant launches one participant and hands back its outcome.
