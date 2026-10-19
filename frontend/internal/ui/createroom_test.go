@@ -5,6 +5,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/rtc"
@@ -28,9 +29,12 @@ func TestCreatingARoomNeedsATorrent(t *testing.T) {
 // TestTheInvitationCodeOfANewRoom has the shape a host hands over: community,
 // password and key in one line, generated rather than typed.
 func TestTheInvitationCodeOfANewRoom(t *testing.T) {
-	invite := rtc.Invite{Community: "room-abc", Password: "secret", Key: "key-123"}
+	invite := rtc.Invite{
+		Community: "room-abc", Password: "secret", Key: "key-123",
+		Addrs: []string{"/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWSvgqwZRiS8DgT1bUDS3dpwYQ3YUuaBoapit6SBRzEXXp"},
+	}
 	code := invitationFor(invite)
-	if code != "room-abc:secret:key-123:" {
+	if !strings.HasPrefix(code, "room-abc:secret:key-123:") {
 		t.Errorf("got %q", code)
 	}
 
@@ -40,5 +44,8 @@ func TestTheInvitationCodeOfANewRoom(t *testing.T) {
 	}
 	if parsed.Community != invite.Community || parsed.Password != invite.Password || parsed.Key != invite.Key {
 		t.Errorf("round trip lost something: %+v", parsed)
+	}
+	if len(parsed.Addrs) != 1 {
+		t.Errorf("the address did not survive: %+v", parsed.Addrs)
 	}
 }

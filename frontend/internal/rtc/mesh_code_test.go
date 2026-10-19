@@ -96,13 +96,17 @@ func TestTheInviteCodeRefusesTwoPeers(t *testing.T) {
 	require.Error(t, err, "a code naming two peers was accepted")
 }
 
-// TestALegacyCodeStillNamesARoom is the old shape: three parts, no address.
-// Such a code can only be met through the rendezvous, and the room says so
-// rather than pretending otherwise.
-func TestALegacyCodeStillNamesARoom(t *testing.T) {
-	parsed, err := ParseInviteCode("community:password:key")
-	require.NoError(t, err, "a code without an address must still parse")
-	require.Empty(t, parsed.Addrs, "a code without an address grew one")
+// TestALegacyCodeIsRefusedWithSomethingToDo is the old shape: three parts, no
+// address. A room met through the rendezvous is a room that assembles in
+// minutes and sometimes not at all, so such a code is refused — and the person
+// pasting it is told to ask for a new one, not left with a silent failure.
+func TestALegacyCodeIsRefusedWithSomethingToDo(t *testing.T) {
+	_, err := ParseInviteCode("community:password:key")
+	require.Error(t, err, "a code without an address must not parse")
+	require.Contains(t, err.Error(), "older version",
+		"the refusal must say what the code is: %v", err)
+	require.Contains(t, err.Error(), "new code",
+		"the refusal must say what to do: %v", err)
 }
 
 // waitForPeers waits until the mesh sees the wanted number of peers. The

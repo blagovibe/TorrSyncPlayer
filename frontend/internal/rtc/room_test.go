@@ -303,12 +303,18 @@ func TestInviteCodeRoundTrips(t *testing.T) {
 		if invite.Community == "" || invite.Password == "" || invite.Key == "" {
 			t.Fatalf("a generated invite has an empty part: %+v", invite)
 		}
+		// The code carries the host's addresses, so a code that does not
+		// parse back would be a code a guest cannot use.
+		invite.Addrs = []string{p2pAddr(t, "/ip4/127.0.0.1/tcp/4001")}
 		parsed, err := ParseInviteCode(invite.Encode())
 		if err != nil {
 			t.Fatalf("a generated code does not parse back: %v", err)
 		}
 		if parsed.Community != invite.Community || parsed.Password != invite.Password || parsed.Key != invite.Key {
 			t.Fatalf("a code round-tripped into something else: %+v", parsed)
+		}
+		if len(parsed.Addrs) != 1 || parsed.Addrs[0] != invite.Addrs[0] {
+			t.Fatalf("the address came back changed: %+v", parsed.Addrs)
 		}
 	}
 }

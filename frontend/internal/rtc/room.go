@@ -503,12 +503,17 @@ func (in Invite) Encode() string {
 // ParseInviteCode parses community:password:key:addrs. The first three parts
 // are separated by colons and contain none, so the split is by the first
 // three colons and the rest — which is where the addresses live, colons and
-// all — stays in one piece. A code without addresses still parses: that is a
-// room that can only be met through the rendezvous.
+// all — stays in one piece.
+//
+// The addresses are not optional. A code without them is a code from an older
+// build, and a room met through the rendezvous is a room that assembles in
+// minutes and sometimes not at all — the very thing the address in the code
+// was put there to stop. Such a code is refused, and the person pasting it is
+// told what to do about it.
 func ParseInviteCode(code string) (Invite, error) {
 	parts := strings.SplitN(code, ":", 4)
-	if len(parts) < 3 {
-		return Invite{}, fmt.Errorf("rtc: an invite is community:password:key:addrs, got %d parts", len(parts))
+	if len(parts) < 4 {
+		return Invite{}, fmt.Errorf("rtc: this invite has no address in it: it is from an older version of the app. Ask the host for a new code")
 	}
 	for _, part := range parts[:3] {
 		if part == "" {
@@ -516,9 +521,6 @@ func ParseInviteCode(code string) (Invite, error) {
 		}
 	}
 	invite := Invite{Community: parts[0], Password: parts[1], Key: parts[2]}
-	if len(parts) < 4 {
-		return invite, nil
-	}
 	for _, raw := range strings.Split(parts[3], ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -528,6 +530,9 @@ func ParseInviteCode(code string) (Invite, error) {
 			return Invite{}, fmt.Errorf("rtc: an invite address is not a multiaddr: %w", err)
 		}
 		invite.Addrs = append(invite.Addrs, raw)
+	}
+	if len(invite.Addrs) == 0 {
+		return Invite{}, fmt.Errorf("rtc: this invite has no address in it: it is from an older version of the app. Ask the host for a new code")
 	}
 	return invite, nil
 }

@@ -177,6 +177,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routing table does not have that problem. Pinned on both sides — a room
   with a dead address in its code still meets (0.32s), and a node that never
   announced anything is still found by its id.
+- **A code from an older build is refused, and says what to do.** The address
+  in the code is not decoration: a room met through the rendezvous is a room
+  that assembles in minutes and sometimes not at all, which is the very thing
+  the address was put there to stop. So an invite without an address no longer
+  parses, and the refusal says what it is and what to do about it: "this
+  invite has no address in it: it is from an older version of the app. Ask the
+  host for a new code". A silent half-meeting is worse than a clear refusal.
 - **What this pass did not do, and where it is written down.** The first
   promise of the project — that playback starts before the download finishes —
   is still held by a byte-level test alone, with no `mpv` started on a partial
@@ -187,7 +194,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still measures the old path: it runs two participants with no address in the
   code, which is the legacy rendezvous and not the fallback the room now
   uses. The series has to be re-aimed at the fallback before its numbers mean
-  anything (bug-0129). The room's own book carries
+  anything (bug-0129).
+  And with the legacy path refused, the machinery only it used — the provider
+  record, the wide publish, the provider lookup — is dead weight now, and it
+  is written down as the next slice (idea-0139). The room's own book carries
   the addresses as they were when the greeting was sent, so a peer whose public
   address arrived later is in the book with its local address only; the
   rendezvous still finds it in the end, but the mesh waits for that.
