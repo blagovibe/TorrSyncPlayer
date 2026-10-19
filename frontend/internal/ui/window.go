@@ -1601,14 +1601,40 @@ func connStatusText(tr func(string) string, st rtc.ConnStatus, host bool) string
 		}
 		return withFallback(tr, st, tr("status.connConnecting"))
 	}
-	direct := 0
-	for _, p := range st.Peers {
-		if !p.Relayed {
+	line := fmt.Sprintf(tr("status.connReady"), len(st.Peers), connectionPaths(tr, st.Peers), shortID(st.SelfID))
+	return withFallback(tr, st, line)
+}
+
+// connectionPaths says how the room's peers are connected: directly, through a
+// relay, or found by the fallback's lookup of their id. The three are the goal's
+// own list, and the third is the one worth watching — a peer that had to be
+// looked up is a peer the fast path did not reach.
+func connectionPaths(tr func(string) string, peers []rtc.ConnPeer) string {
+	var direct, relayed, byFallback int
+	for _, p := range peers {
+		switch {
+		case p.Relayed:
+			relayed++
+		case p.Via == rtc.PathRendezvous:
+			byFallback++
+		default:
 			direct++
 		}
 	}
-	line := fmt.Sprintf(tr("status.connReady"), len(st.Peers), direct, len(st.Peers)-direct, shortID(st.SelfID))
-	return withFallback(tr, st, line)
+	parts := make([]string, 0, 3)
+	if direct > 0 {
+		parts = append(parts, fmt.Sprintf(tr("status.connPathDirect"), direct))
+	}
+	if relayed > 0 {
+		parts = append(parts, fmt.Sprintf(tr("status.connPathRelay"), relayed))
+	}
+	if byFallback > 0 {
+		parts = append(parts, fmt.Sprintf(tr("status.connPathFallback"), byFallback))
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // withFallback says the fallback rendezvous is not up, and only then: it is

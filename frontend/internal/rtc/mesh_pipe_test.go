@@ -48,7 +48,7 @@ func pipePeer(t *testing.T, m *Mesh, peerID string) net.Conn {
 		helloed <- nil
 	}()
 	// A pipe stands in for an admitted stream, so the remote peer opened it.
-	m.addPeer(peerID, local, peerID)
+	m.addPeer(peerID, local, peerID, PathInbound)
 	if err := <-helloed; err != nil {
 		t.Fatalf("no hello from the mesh: %v", err)
 	}

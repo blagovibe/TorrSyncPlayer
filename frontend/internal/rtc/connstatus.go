@@ -17,7 +17,27 @@ import (
 type ConnPeer struct {
 	ID      string
 	Relayed bool
+	// Via is how this node reached the peer. The window says it, because
+	// "the room gathered" and "the room gathered through the fallback" are
+	// different facts, and the second one is the one worth watching.
+	Via PeerPath
 }
+
+// PeerPath is how a peer was reached: by the address in the invite code, by
+// the fallback's lookup of its id, or by the peer dialling us.
+type PeerPath string
+
+const (
+	// PathInvite: this node dialled the peer by the address the invite code
+	// carried.
+	PathInvite PeerPath = "invite"
+	// PathRendezvous: this node found the peer by looking its id up in the
+	// DHT — the address did not work.
+	PathRendezvous PeerPath = "rendezvous"
+	// PathInbound: the peer dialled this node; how it found the room is
+	// known to the peer, not here.
+	PathInbound PeerPath = "inbound"
+)
 
 // ConnStatus is the compact connection diagnostics the room window shows:
 // whether the DHT rendezvous is usable, whether this room announced itself,
@@ -82,7 +102,7 @@ func (m *Mesh) ConnStatus() ConnStatus {
 		if err != nil {
 			continue
 		}
-		st.Peers = append(st.Peers, ConnPeer{ID: id, Relayed: node.PeerRelayed(pid)})
+		st.Peers = append(st.Peers, ConnPeer{ID: id, Relayed: node.PeerRelayed(pid), Via: m.peerPath(id)})
 	}
 	sort.Slice(st.Peers, func(i, j int) bool { return st.Peers[i].ID < st.Peers[j].ID })
 	return st

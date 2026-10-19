@@ -68,6 +68,9 @@ type meshPeer struct {
 	id   string
 	conn io.ReadWriteCloser
 	enc  *json.Encoder
+	// via is how this node reached the peer: by the address in the invite
+	// code, by the fallback's lookup of its id, or by the peer dialling us.
+	via PeerPath
 	// initiator is the peer whose dial opened this stream: this node for a
 	// dial we made, the remote peer for one we admitted. Two participants
 	// discover each other in the same second and therefore dial each other in
@@ -209,7 +212,7 @@ func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
 		m.markInviteFailed()
 		return
 	}
-	m.addPeer(info.ID.String(), s, m.selfID)
+	m.addPeer(info.ID.String(), s, m.selfID, PathInvite)
 }
 
 // markInviteFailed remembers that the address in the code did not work. The
@@ -259,7 +262,7 @@ func (m *Mesh) DialHint(peers []PeerAddr) {
 			if err != nil {
 				return
 			}
-			m.addPeer(id, s, m.selfID)
+			m.addPeer(id, s, m.selfID, PathRendezvous)
 		}(p.PeerID, info)
 	}
 }
@@ -368,6 +371,16 @@ func (m *Mesh) SelfID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.selfID
+}
+
+// peerPath is how this node reached the peer.
+func (m *Mesh) peerPath(id string) PeerPath {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if p, ok := m.peers[id]; ok {
+		return p.via
+	}
+	return ""
 }
 
 // Addrs are this peer's dialable addresses, each carrying its peer ID. They
@@ -554,7 +567,7 @@ func (m *Mesh) acceptLoop() {
 			_ = s.Close()
 			continue
 		}
-		m.addPeer(remote, s, remote)
+		m.addPeer(remote, s, remote, PathInbound)
 	}
 }
 
@@ -638,7 +651,7 @@ func (m *Mesh) discoverLoop() {
 			if err != nil {
 				return
 			}
-			m.addPeer(id, s, m.selfID)
+			m.addPeer(id, s, m.selfID, PathRendezvous)
 		}()
 	}
 
@@ -684,7 +697,7 @@ func (m *Mesh) wakeDiscovery() {
 // same rule the room already uses to decide who hosts after a host leaves. Both
 // ends compute it, so both keep the same stream and neither tears down the
 // connection the other is using.
-func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser, initiator string) {
+func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser, initiator string, via PeerPath) {
 	m.mu.Lock()
 	existing, exists := m.peers[id]
 	if exists && existing.initiator <= initiator {
@@ -692,7 +705,7 @@ func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser, initiator string) {
 		_ = conn.Close()
 		return
 	}
-	mp := &meshPeer{id: id, conn: conn, enc: json.NewEncoder(conn), initiator: initiator}
+	mp := &meshPeer{id: id, conn: conn, enc: json.NewEncoder(conn), initiator: initiator, via: via}
 	m.peers[id] = mp
 	selfID := m.selfID
 	isHost := m.isHost

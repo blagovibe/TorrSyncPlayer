@@ -28,9 +28,12 @@ func TestTheLineSaysWhatIsHappening(t *testing.T) {
 	connected := rtc.ConnStatus{
 		SelfID:   "12D3KooWABCDEFGH",
 		DHTReady: true,
-		Peers:    []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
+		Peers: []rtc.ConnPeer{
+			{ID: "a", Via: rtc.PathInvite},
+			{ID: "b", Relayed: true, Via: rtc.PathInvite},
+		},
 	}
-	assert.Equal(t, "Connected — 2 peers (1 direct, 1 relayed), you 12D3KooW",
+	assert.Equal(t, "Connected — 2 peers (direct 1, through a relay 1), you 12D3KooW",
 		connStatusText(trEN, connected, false))
 
 	failed := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", InviteFailed: true}
@@ -86,4 +89,30 @@ func TestTheConnectionLineIsTranslated(t *testing.T) {
 
 	assert.Equal(t, "Подключаемся…", connStatusText(tr, joined, false))
 	assert.Contains(t, connStatusText(tr, joined, true), "ждём, кто подключится")
+}
+
+// TestTheLineSaysHowEachPeerWasReached pins the paths the goal promises: how a
+// peer is connected is a different fact from whether it is connected at all,
+// and the one worth watching is the fallback — a peer that had to be looked up
+// by its id is a peer the fast path did not reach.
+//
+// The three paths are the goal's own list: direct, through a relay, and
+// through the DHT fallback. A peer that dialled us is a direct connection —
+// how it found the room is its business, not ours.
+func TestTheLineSaysHowEachPeerWasReached(t *testing.T) {
+	room := rtc.ConnStatus{
+		SelfID:   "12D3KooWABCDEFGH",
+		DHTReady: true,
+		Peers: []rtc.ConnPeer{
+			{ID: "a", Via: rtc.PathInvite},
+			{ID: "b", Via: rtc.PathRendezvous},
+			{ID: "c", Via: rtc.PathInbound},
+			{ID: "d", Relayed: true, Via: rtc.PathInvite},
+		},
+	}
+
+	got := connStatusText(trEN, room, false)
+	assert.Contains(t, got, "direct 2", "the directly connected peers must be counted: %q", got)
+	assert.Contains(t, got, "via the fallback 1", "the peer found by the id must be counted: %q", got)
+	assert.Contains(t, got, "through a relay 1", "the relayed peer must be counted: %q", got)
 }

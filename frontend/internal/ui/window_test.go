@@ -231,9 +231,12 @@ func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
 	ready := rtc.ConnStatus{
 		SelfID:   "12D3KooWABCDEFGH",
 		DHTReady: true,
-		Peers:    []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
+		Peers: []rtc.ConnPeer{
+			{ID: "a", Via: rtc.PathInvite},
+			{ID: "b", Relayed: true, Via: rtc.PathInvite},
+		},
 	}
-	if got, want := connStatusText(tr, ready, false), "Connected — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
+	if got, want := connStatusText(tr, ready, false), "Connected — 2 peers (direct 1, through a relay 1), you 12D3KooW"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	if got := shortID("abc"); got != "abc" {

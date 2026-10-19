@@ -220,6 +220,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   goes red. The player needed no change for it — mpv plays what has arrived
   with its own defaults, and the claim was waiting for a proof, not for a fix
   (bug-0138).
+- **The window says how the room's peers are connected.** The goal promised it
+  — "which way, directly, through a relay or through the DHT fallback" — and
+  the window showed only the transport: direct or relayed, for the whole room
+  at once. Now each peer carries the path it was reached by, and the line
+  counts them: "Connected — 3 peers (direct 1, through a relay 1, via the
+  fallback 1)". The third is the one worth watching: a peer that had to be
+  looked up by its id is a peer the fast path did not reach, and it is the
+  difference between a room that gathered in a second and one that gathered in
+  a minute. The three paths are the goal's own list, and the window says
+  exactly them (bug-0139).
 - **What this pass did not do, and where it is written down.** The fallback path itself is still the old one, announce
   included: the no-op publish is recorded as bug-0133 and is not fixed here,
   which is what the public DHT measurements (bug-0129) and the meeting that
