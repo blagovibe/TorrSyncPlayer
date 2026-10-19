@@ -246,7 +246,20 @@ jobs:
           FYNE_DRIVER: offscreen
           CGO_ENABLED: '1'
           TORRSYNC_NETNS: '1'
-        run: go test -v -timeout 12m -run 'TestARoomAcrossNAT' ./internal/integration/...
+        run: go test -v -timeout 12m -run 'TestARoomAcrossNAT' ./internal/integration/... 2>&1 | tee nat.log
+
+      # The log as an artifact, not only in the run's log stream: reading a
+      # failed job's stream needs rights most contributors do not have, and a
+      # failure nobody can read is a failure nobody can fix. This is the one
+      # job in this workflow that runs something the project cannot reproduce
+      # anywhere else, which makes it the one whose output matters most.
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nat-room-${{ github.run_id }}
+          path: frontend/nat.log
+          retention-days: 14
 
       # Always, including after a failure: leaving two namespaces and a
       # masquerade rule behind would shape whatever runs next on the runner.
