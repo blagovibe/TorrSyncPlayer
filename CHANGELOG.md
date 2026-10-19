@@ -270,6 +270,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   here comes from a single machine, which is itself the next thing worth
   checking before any infrastructure is changed.
 
+- **The NAT job is still red, and this is the third distinct reason it was
+  red.** The first was a lint exemption, the second that a test process cannot
+  enter a namespace created by root without privileges of its own, the third the
+  missing role above. Each was found by reading a failure that had been made
+  readable — the job now opens an issue with its output, because a required
+  check whose failure nobody can read is not a check. What is left unproven on a
+  real runner is the room itself across a NAT: that is what the job is for, and
+  it has not got there yet.
+- **Separately, and hermetically: two participants sometimes never meet.**
+  On a loopback testbed, with no foreign network involved, the machinery test
+  passes in 0.43s and fails roughly once in five, both sides reporting a ready
+  DHT, a published room and zero peers. Four remedies were tried and none
+  helped. It is recorded as bug-0130 with the measurements and the next
+  measurement to take, rather than as another guess.
+
 ### Verified
 
 - The room over the real public DHT was measured five times after these
@@ -322,6 +337,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the room leads (bug-0120, owner's decision).
 
 ## [v0.3.5] - 2026-10-18
+
+- **The coordinator was starting its participants without a role.** Three runs
+  of the NAT job on a real runner produced two children that started happily and
+  reported that they were not participants: the role had never been set, having
+  been dropped when the coordinator was rewritten as a retry loop. Nothing local
+  could see it, because the scenario skips without namespaces — and it skips
+  everywhere except the one machine where it matters. A participant with no
+  role now refuses to start rather than skipping itself and reporting success.
+- **The participant's role travels on the command line, not the environment.**
+  The first symptom of the above was that the role did not reach the children at
+  all; environment variables turned out to be the wrong channel to trust
+  through a privilege wrapper and a namespace. Go's testing package parses the
+  command line before any test runs and refuses what it does not know, so the
+  arguments are taken out in `TestMain` and handed to the participant from
+  there. Verified locally: the same machinery still meets in half a second.
+- **The scenario's retries are real now.** They shared one context with the
+  test, so the first two attempts spent the whole participant window each and
+  the third had nothing left — three attempts that were one attempt and two
+  time-outs. Each participant is told how long it should wait, the loopback
+  machinery asks for a minute so three attempts fit, and the NAT scenario keeps
+  the three minutes a real rendezvous costs.
+- **A slow lookup no longer delays the next one.** Discovery runs on a ticker,
+  but the walk it started was ranged over to the end, so a lookup that found
+  nothing — which walks the network until it gives up — pushed every following
+  lookup back by however long it took. The walk now runs in its own goroutine
+  and the ticker keeps its interval; one walk at a time, since a second would
+  only compete for the same DHT. This did not fix the remaining failure
+  (bug-0130) and is not claimed to.
 
 ### Fixed
 

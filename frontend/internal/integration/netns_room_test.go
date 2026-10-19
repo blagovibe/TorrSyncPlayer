@@ -90,8 +90,14 @@ func TestARoomAcrossNAT(t *testing.T) {
 	// way. The relay is created once — it is infrastructure, not state.
 	for attempt := 1; attempt <= 3; attempt++ {
 		hostOut, guestOut, err := runNATAttempt(ctx, t,
-			natParticipant{namespace: natHostNS, bridge: natHostBridge, relay: natRelayFor(natHostBridge, relayInfo), expectRelay: "1"},
-			natParticipant{namespace: natGuestNS, bridge: natGuestBridge, relay: natRelayFor(natGuestBridge, relayInfo), expectRelay: "1"},
+			natParticipant{
+				role: "host", namespace: natHostNS, bridge: natHostBridge,
+				relay: natRelayFor(natHostBridge, relayInfo), expectRelay: "1",
+			},
+			natParticipant{
+				role: "guest", namespace: natGuestNS, bridge: natGuestBridge,
+				relay: natRelayFor(natGuestBridge, relayInfo), expectRelay: "1",
+			},
 		)
 		if err == nil {
 			assert.Contains(t, hostOut, "OK", "the participant behind the first namespace did not finish:\n%s", hostOut)
@@ -124,6 +130,11 @@ func runNATAttempt(ctx context.Context, t *testing.T, host, guest natParticipant
 	guest.bootstrap = p2pAddr(guest.bridge, bedPort, bedID)
 	host.invite, guest.invite = inv, inv
 
+	// Both at once. Staggering them looks like a closer imitation of how a room
+	// forms — someone opens it, someone else walks in — and it is exactly
+	// wrong here: the host meets the guest, announces its film and finishes,
+	// while the guest is still starting up and waits three minutes for someone
+	// who has already gone. Tried, measured, reverted.
 	hostOut, hostErr := startParticipant(ctx, host.namespace, host)
 	guestOut, guestErr := startParticipant(ctx, guest.namespace, guest)
 	hostBody, guestBody := <-hostOut, <-guestOut
@@ -171,7 +182,11 @@ func TestNATParticipant(t *testing.T) {
 		t.Skip("not a participant: run me through the coordinator, not directly")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	wait, err := time.ParseDuration(natFlag("-nat-wait"))
+	if err != nil || wait <= 0 {
+		wait = participantWaitDefault
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait+time.Minute)
 	defer cancel()
 
 	parts := strings.Split(natFlag("-nat-invite"), ":")
@@ -208,8 +223,10 @@ func TestNATParticipant(t *testing.T) {
 	// reasonable: against the public DHT a room takes about two minutes to
 	// converge, because the wide publish that makes it findable is itself
 	// measured in minutes. A test that gives up sooner would be measuring its
-	// own impatience — and the product's, which is the thing under test.
-	if !waitForMeshWithin(t, mesh, 1, 3*time.Minute) {
+	// own impatience — and the product's, which is the thing under test. The
+	// coordinator may ask for less, which is how the same machinery gets three
+	// real attempts out of one budget instead of one and two that ran out of it.
+	if !waitForMeshWithin(t, mesh, 1, wait) {
 		t.Fatalf("the room never met with no direct path open (status %+v)", mesh.ConnStatus())
 	}
 
@@ -255,7 +272,14 @@ type natParticipant struct {
 	bridge string
 	// public means: no testbed, no relay, the project's own seed list.
 	public bool
+	// wait is how long this participant waits for the room to meet. Zero means
+	// the default, which is sized for a real rendezvous.
+	wait time.Duration
 }
+
+// participantWaitDefault is the window when nobody asks for one: the two
+// minutes it takes a room to meet over the public DHT, plus room to spare.
+const participantWaitDefault = 3 * time.Minute
 
 // startParticipant launches one participant and hands back its outcome.
 // Re-executing the binary is what puts a real second participant in a real
@@ -287,6 +311,18 @@ func waitForParticipant(t *testing.T, out <-chan string, done <-chan error, what
 // runParticipant runs this test binary inside a namespace and returns its
 // output.
 func runParticipant(ctx context.Context, namespace string, p natParticipant) (string, error) {
+	// A participant with no role is a process that starts, skips itself and
+	// reports success — which is how this scenario spent two runs on a real
+	// runner saying "did not meet" for a reason nobody could see. The mistake
+	// was a coordinator literal that simply omitted the role, and the child
+	// had no way to object. It objects here instead.
+	if strings.TrimSpace(p.role) == "" {
+		return "", fmt.Errorf("a participant needs a role; %q was given none", p.namespace)
+	}
+	if strings.TrimSpace(p.invite.Community) == "" {
+		return "", fmt.Errorf("a participant needs an invite; %q was given none", p.role)
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("the test binary must be executable: %w", err)
@@ -310,6 +346,7 @@ func runParticipant(ctx context.Context, namespace string, p natParticipant) (st
 		"-nat-bootstrap", p.bootstrap,
 		"-nat-relay", p.relay,
 		"-nat-expect-relay", p.expectRelay,
+		"-nat-wait", p.wait.String(),
 	}
 	var cmd *exec.Cmd
 	if namespace != "" && namespace != "self" {

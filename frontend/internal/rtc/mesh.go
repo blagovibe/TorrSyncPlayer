@@ -418,6 +418,12 @@ func (m *Mesh) acceptLoop() {
 // introducer: presence is announced once, discovery runs for the session.
 // One flight per peer: a dial already in flight is not started twice, and a
 // failed dial frees the peer for the next round.
+//
+// One lookup at a time, never two: a provider lookup that finds nothing walks
+// the network until it gives up, which can take far longer than the interval,
+// and a walk still running when the next tick comes would mean two of them at
+// once. One flight per peer already keeps a second dial of the same peer from
+// being started, and that is the rule that matters here.
 func (m *Mesh) discoverLoop() {
 	m.mu.RLock()
 	node := m.node
@@ -433,42 +439,62 @@ func (m *Mesh) discoverLoop() {
 		cancel()
 	}()
 
+	// The walk runs in its own goroutine, so a slow one cannot swallow the
+	// interval: a lookup that finds nothing walks the network until it gives
+	// up, and a walk still running when the next tick came meant the next one
+	// waited behind it. Measured on a loopback testbed, two participants
+	// sometimes needed more than a minute to find each other with nothing but
+	// that delay in the way.
+	walking := make(chan struct{}, 1)
 	discover := func() {
-		ch, err := node.Discover(ctx)
-		if err != nil {
+		select {
+		case walking <- struct{}{}:
+		default:
+			// A walk is still going. A second would only compete with it for
+			// the same DHT and make both slower.
 			return
 		}
-		for info := range ch {
-			if info.ID == node.ID() {
-				continue
-			}
-			id := info.ID.String()
-			m.mu.Lock()
-			_, known := m.peers[id]
-			_, flying := m.dialing[id]
-			if !known && !flying {
-				m.dialing[id] = struct{}{}
-			} else {
-				m.mu.Unlock()
-				continue
-			}
-			m.mu.Unlock()
 
-			go func(info peer.AddrInfo) {
-				defer func() {
-					m.mu.Lock()
-					delete(m.dialing, id)
-					m.mu.Unlock()
-				}()
-				dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
-				defer dialCancel()
-				s, err := node.DialRoom(dialCtx, info)
-				if err != nil {
-					return
+		go func() {
+			defer func() { <-walking }()
+
+			ch, err := node.Discover(ctx)
+			if err != nil {
+				return
+			}
+			for info := range ch {
+				if info.ID == node.ID() {
+					continue
 				}
-				m.addPeer(id, s, m.selfID)
-			}(info)
-		}
+				id := info.ID.String()
+
+				m.mu.Lock()
+				_, known := m.peers[id]
+				_, flying := m.dialing[id]
+				if !known && !flying {
+					m.dialing[id] = struct{}{}
+				} else {
+					m.mu.Unlock()
+					continue
+				}
+				m.mu.Unlock()
+
+				go func(info peer.AddrInfo) {
+					defer func() {
+						m.mu.Lock()
+						delete(m.dialing, id)
+						m.mu.Unlock()
+					}()
+					dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
+					defer dialCancel()
+					s, err := node.DialRoom(dialCtx, info)
+					if err != nil {
+						return
+					}
+					m.addPeer(id, s, m.selfID)
+				}(info)
+			}
+		}()
 	}
 
 	discover()

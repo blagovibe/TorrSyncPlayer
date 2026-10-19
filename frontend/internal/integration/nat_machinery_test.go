@@ -26,7 +26,11 @@ import (
 // the magnet. What it deliberately does not claim is NAT: that is
 // TestARoomAcrossNAT's job, and only a separated pair can do it.
 func TestTheNATParticipantMachineryWorksOnOneHost(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	// A room on one host meets in half a second, or does not meet at all: a
+	// minute is already generous, and three minutes of it would eat the whole
+	// budget and leave the retries nothing to retry with. Against a NAT the
+	// window is the other way round, and that scenario asks for its own.
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
 	// No relay: one would have to listen on the namespace bridges, which do not
