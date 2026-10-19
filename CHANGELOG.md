@@ -244,6 +244,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with five good ones produce the card and the breach, and the comparison is
   numeric rather than alphabetical, which is the sort of thing that looks right
   and counts the wrong way.
+- **The scenario across the namespaces blamed the room for its own address.**
+  The relay in that scenario listened on two ports — one per bridge — and the
+  participants were each told the port of the *other* bridge. Nothing was
+  listening where they were sent, so the guest could never reach the relay,
+  and the symptom was three minutes of silence in a log nobody could read.
+  The relay now listens on one port that both namespaces reach, and a
+  participant checks the relay is there before it waits for anything: an
+  unreachable relay now says so in a sentence instead of in three minutes.
+  The scenario passes in 0.13 seconds, and it can be run locally, in a user
+  namespace, without a CI cycle of twenty-five minutes.
 - **The relay was never reserved, so the way in did not exist.** Across a NAT
   the peer's own address cannot be dialled — that is the whole point of the
   scenario — and the relay was supposed to be the way in. It was not: the

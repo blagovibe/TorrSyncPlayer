@@ -7,6 +7,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -237,6 +238,16 @@ func TestNATParticipant(t *testing.T) {
 		inv = parsed
 	}
 
+	// A relay nobody can reach is a room that never gathers, and the symptom
+	// of that is three minutes of silence in a log nobody can read. The relay
+	// is named in this participant's own arguments, so it can be checked
+	// before anything waits for anything: this scenario was red for a long
+	// time because the participants were handed an address nothing listened
+	// on, and the room was blamed for it.
+	if relay := natFlag("-nat-relay"); relay != "" {
+		require.NoError(t, theRelayAnswers(relay), "the relay %s is not reachable from here", relay)
+	}
+
 	mesh := rtc.NewMesh(rtc.MeshOptions{
 		Bootstrap: natFlag("-nat-bootstrap"),
 		Relays:    natFlag("-nat-relay"),
@@ -452,6 +463,30 @@ func runParticipant(ctx context.Context, namespace string, p natParticipant) (st
 	return string(out), err
 }
 
+// theRelayAnswers opens a TCP connection to the address in a relay setting
+// and closes it again. The connection is not the point: whether the relay is
+// there at all is.
+func theRelayAnswers(setting string) error {
+	first := strings.Split(setting, ",")[0]
+	addr, err := multiaddr.NewMultiaddr(first)
+	if err != nil {
+		return fmt.Errorf("the relay address does not parse: %w", err)
+	}
+	ip, err := addr.ValueForProtocol(multiaddr.P_IP4)
+	if err != nil {
+		return fmt.Errorf("the relay address carries no ip: %w", err)
+	}
+	port, err := addr.ValueForProtocol(multiaddr.P_TCP)
+	if err != nil {
+		return fmt.Errorf("the relay address carries no port: %w", err)
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("the relay at %s does not answer: %w", first, err)
+	}
+	return conn.Close()
+}
+
 // natRelay is a relay the participants can reach, and the port it listens on
 // in each namespace's own subnet.
 type natRelayInfo struct {
@@ -465,11 +500,13 @@ type natRelayInfo struct {
 func startNATRelay(t *testing.T) natRelayInfo {
 	t.Helper()
 
+	// One listener, one port. The participants are told where the relay is
+	// by their own bridge, and that address has to carry the port the relay
+	// really listens on: two listeners mean two ports, and half the
+	// participants are then handed an address nothing listens on — which is
+	// exactly how this scenario stayed red while everybody blamed the room.
 	h, err := libp2p.New(
-		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/%s/tcp/0", natHostBridge),
-			fmt.Sprintf("/ip4/%s/tcp/0", natGuestBridge),
-		),
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
 	)
 	require.NoError(t, err, "the relay must start")
 	t.Cleanup(func() { _ = h.Close() })
