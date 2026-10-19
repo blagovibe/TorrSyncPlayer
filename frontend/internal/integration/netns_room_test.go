@@ -63,20 +63,11 @@ import (
 // a quietly skipped scenario.
 
 const (
-	natEnvSetup  = "TORRSYNC_NETNS"
-	natEnvRole   = "TORRSYNC_PARTICIPANT"
-	natEnvInvite = "TORRSYNC_NAT_INVITE"
-	natEnvBoot   = "TORRSYNC_NAT_BOOTSTRAP"
-	natEnvRelay  = "TORRSYNC_NAT_RELAY"
-	// The relayed assertion is this scenario's own claim. The coordinator
-	// switches it on; everywhere else it stays off, so the helper can be
-	// exercised on a single host — where peers do connect directly —
-	// without that path pretending to be a NAT it is not.
-	natEnvExpectRelay = "TORRSYNC_NAT_EXPECT_RELAY"
-	natHostNS         = "ts-host"
-	natGuestNS        = "ts-guest"
-	natHostBridge     = "10.77.1.1"
-	natGuestBridge    = "10.77.2.1"
+	natEnvSetup    = "TORRSYNC_NETNS"
+	natHostNS      = "ts-host"
+	natGuestNS     = "ts-guest"
+	natHostBridge  = "10.77.1.1"
+	natGuestBridge = "10.77.2.1"
 )
 
 // TestARoomAcrossNAT runs one participant in each namespace and asks both to
@@ -175,21 +166,21 @@ func natRelayFor(bridge string, r natRelayInfo) string {
 // once per side. It is a test like any other and fails the way one fails: by
 // not reaching the end.
 func TestNATParticipant(t *testing.T) {
-	role := os.Getenv(natEnvRole)
+	role := natFlag("-nat-role")
 	if role == "" {
-		t.Skip("not a participant; set " + natEnvRole)
+		t.Skip("not a participant: run me through the coordinator, not directly")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
-	parts := strings.Split(os.Getenv(natEnvInvite), ":")
+	parts := strings.Split(natFlag("-nat-invite"), ":")
 	require.Len(t, parts, 3, "the invite must be community:password:key")
 	inv := rtc.Invite{Community: parts[0], Password: parts[1], Key: parts[2]}
 
 	mesh := rtc.NewMesh(rtc.MeshOptions{
-		Bootstrap: os.Getenv(natEnvBoot),
-		Relays:    os.Getenv(natEnvRelay),
+		Bootstrap: natFlag("-nat-bootstrap"),
+		Relays:    natFlag("-nat-relay"),
 		Community: inv.Community,
 		Password:  inv.Password,
 		Key:       inv.Key,
@@ -224,7 +215,7 @@ func TestNATParticipant(t *testing.T) {
 
 	st := mesh.ConnStatus()
 	require.Len(t, st.Peers, 1, "the participant must see exactly one peer")
-	if os.Getenv(natEnvExpectRelay) == "1" {
+	if natFlag("-nat-expect-relay") == "1" {
 		assert.True(t, st.Peers[0].Relayed,
 			"the peer connected directly: the namespaces are not actually separated, so this proves nothing")
 	}
@@ -301,25 +292,34 @@ func runParticipant(ctx context.Context, namespace string, p natParticipant) (st
 		return "", fmt.Errorf("the test binary must be executable: %w", err)
 	}
 
+	// Everything the participant needs travels as arguments rather than as
+	// environment variables. The first run of this scenario on a real runner
+	// found that out the hard way: the children started, and reported that
+	// they were not participants — the role had not reached them. Nothing
+	// between here and there should be able to drop a value quietly, and a
+	// command line is the one channel that survives a privilege wrapper.
+	//
 	// "self" means no namespace at all: the coordinator names one, and a local
 	// smoke run of the helper itself names this.
-	args := []string{"-test.run", "^TestNATParticipant$", "-test.v", "-test.timeout", "7m"}
+	args := []string{
+		"-test.run", "^TestNATParticipant$",
+		"-test.v",
+		"-test.timeout", "7m",
+		"-nat-role", p.role,
+		"-nat-invite", strings.Join([]string{p.invite.Community, p.invite.Password, p.invite.Key}, ":"),
+		"-nat-bootstrap", p.bootstrap,
+		"-nat-relay", p.relay,
+		"-nat-expect-relay", p.expectRelay,
+	}
 	var cmd *exec.Cmd
 	if namespace != "" && namespace != "self" {
 		cmd = exec.CommandContext(ctx, "ip", append([]string{"netns", "exec", namespace, exe}, args...)...)
 	} else {
 		cmd = exec.CommandContext(ctx, exe, args...)
 	}
-	cmd.Env = append(os.Environ(),
-		natEnvRole+"="+p.role,
-		natEnvInvite+"="+strings.Join([]string{p.invite.Community, p.invite.Password, p.invite.Key}, ":"),
-		natEnvBoot+"="+p.bootstrap,
-		natEnvRelay+"="+p.relay,
-		natEnvExpectRelay+"="+p.expectRelay,
-		// Fyne would otherwise look for a display in a namespace that has
-		// none; the participant draws nothing, but the toolkit is linked in.
-		"FYNE_DRIVER=offscreen",
-	)
+	// The environment is only the toolchain's: a display for Fyne that this
+	// namespace certainly has not got, and nothing else worth carrying.
+	cmd.Env = append(os.Environ(), "FYNE_DRIVER=offscreen")
 
 	out, err := cmd.CombinedOutput()
 	return string(out), err
