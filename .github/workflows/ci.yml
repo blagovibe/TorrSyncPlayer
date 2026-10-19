@@ -274,10 +274,21 @@ jobs:
             tail -c 20000 frontend/nat.log 2>/dev/null || echo "(no log: the step died before writing one)"
             echo '```'
           } > /tmp/nat-body.md
+          {
+            echo "### What the room did, or did not, do"
+            echo
+            echo '```'
+            tail -c 20000 frontend/nat.log 2>/dev/null || echo "(no log: the step died before writing one)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # No label, and no swallowing the error: `gh issue create --label`
+          # fails outright when the label does not exist, and a step that
+          # reports a failure by quietly failing to report it is the same
+          # failure one layer up.
           gh issue create \
             --title "Room Across NAT failed on run ${GITHUB_RUN_ID}" \
-            --body-file /tmp/nat-body.md \
-            --label "ci" || echo "could not open the issue; the run link is above"
+            --body-file /tmp/nat-body.md
 
       # Always, including after a failure: leaving two namespaces and a
       # masquerade rule behind would shape whatever runs next on the runner.
