@@ -12,6 +12,14 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    ignore:
+      # The v6 line of go-libp2p is not newer than the v0.4x the project
+      # uses: it is the same library from before it changed its module path,
+      # and "upgrading" to it moves every import and breaks the build. The
+      # number is larger, so the updater tries it; the build says no. It
+      # says no here instead, once, with the reason written down.
+      - dependency-name: github.com/libp2p/go-libp2p
+        versions: ["6.x"]
 
   - package-ecosystem: gomod
     directory: /backend
