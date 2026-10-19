@@ -242,14 +242,34 @@ jobs:
       - name: Set up the namespaces
         run: sudo tests/netns/room-nat.sh up
 
+      # The very first thing the test would otherwise discover for itself, in
+      # three identical attempts and forty seconds: the namespaces exist, and
+      # the process cannot enter them. Cheap to check, and it turns a confusing
+      # permission error into a sentence about permissions.
+      - name: Check that a test could enter them
+        run: |
+          sudo env "PATH=$PATH" ip netns exec ts-host true
+
+      # As root, like the setup. Not a preference: the namespaces are created
+      # by root, and entering a network namespace is setns, which needs
+      # CAP_SYS_ADMIN over the namespace's owner. The first run of this job
+      # failed with «setting the network namespace "ts-host" failed: Operation
+      # not permitted» on every attempt — the namespaces were fine, the room
+      # never got the chance to be wrong.
+      #
+      # HOME is passed through so root reuses the runner's module and build
+      # caches instead of downloading the world again under /root.
       - name: Run the room across the NAT
         shell: bash
         working-directory: frontend
-        env:
-          FYNE_DRIVER: offscreen
-          CGO_ENABLED: '1'
-          TORRSYNC_NETNS: '1'
-        run: go test -v -timeout 12m -run 'TestARoomAcrossNAT' ./internal/integration/... 2>&1 | tee nat.log
+        run: |
+          sudo env \
+            "PATH=$PATH" \
+            "HOME=$HOME" \
+            FYNE_DRIVER=offscreen \
+            CGO_ENABLED=1 \
+            TORRSYNC_NETNS=1 \
+            go test -v -timeout 12m -run TestARoomAcrossNAT ./internal/integration/... 2>&1 | tee nat.log
 
       # The failure has to be readable to be fixable. This job needs root, two
       # network namespaces and two NAT'd sides — nobody can reproduce it on a
