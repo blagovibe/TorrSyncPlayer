@@ -25,6 +25,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
+	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 )
@@ -437,6 +438,38 @@ func (n *Node) WaitReady(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ReserveAt holds a reservation at each of the given relays. The relays the
+// application was told to use are the ones it reserves at: autorelay finds
+// candidates of its own, but it will not use a relay whose address is
+// private — and the relays a person is told to use are often exactly that.
+//
+// A reservation is what a relay needs to forward a hop to this node, and
+// without it the relay path does not exist: the peer's own address cannot be
+// dialled across a NAT, and the relay is the way in.
+func (n *Node) ReserveAt(ctx context.Context, relays []peer.AddrInfo) error {
+	var firstErr error
+	for _, relay := range relays {
+		if len(relay.Addrs) == 0 {
+			continue
+		}
+		if _, err := client.Reserve(ctx, n.host, relay); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+	}
+	return firstErr
+}
+
+// Relays are the relays this node was told to use, if any. They are the way
+// in when the peer's own address cannot be dialled.
+func (n *Node) Relays() []peer.AddrInfo {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]peer.AddrInfo(nil), n.staticRelays...)
 }
 
 func (n *Node) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {

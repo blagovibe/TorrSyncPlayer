@@ -188,6 +188,17 @@ func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 // join, and a rendezvous that dies with it is no rendezvous at all.
 func (m *Mesh) startRendezvous(node *Node, bootstrap []peer.AddrInfo) {
 	ctx := node.Lifetime()
+
+	// The relays this node was told to use are reserved at right away: the
+	// reservation is what makes the relay path exist, and a peer whose own
+	// address cannot be dialled has no other way in.
+	if err := node.ReserveAt(ctx, node.Relays()); err != nil {
+		// The relays could not be reserved. The room is still reachable
+		// by its address; the relay path is not there, and the window will
+		// show the connection as the one it is.
+		_ = err
+	}
+
 	if err := node.Bootstrap(ctx, bootstrap); err != nil {
 		return
 	}
@@ -208,11 +219,53 @@ func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
 	ctx, cancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
 	defer cancel()
 	s, err := node.DialRoom(ctx, info)
-	if err != nil {
-		m.markInviteFailed()
+	if err == nil {
+		m.addPeer(info.ID.String(), s, m.selfID, PathInvite)
 		return
 	}
-	m.addPeer(info.ID.String(), s, m.selfID, PathInvite)
+
+	// The address in the code did not work. There are networks where it
+	// cannot: a NAT between the two, a dropped forward rule, a symmetric NAT
+	// that answers from a different port. The relay is the way in, and the
+	// peer's id — which the code carries — is all that is needed to use it.
+	if s, err := m.dialThroughRelays(node, info.ID); err == nil {
+		m.addPeer(info.ID.String(), s, m.selfID, PathInvite)
+		return
+	}
+	m.markInviteFailed()
+}
+
+// dialThroughRelays reaches a peer through one of the relays this node was
+// told to use.
+func (m *Mesh) dialThroughRelays(node *Node, id peer.ID) (*roomStream, error) {
+	for _, relay := range node.Relays() {
+		addr, err := circuitAddress(relay, id)
+		if err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
+		s, err := node.DialRoom(ctx, peer.AddrInfo{ID: id, Addrs: []multiaddr.Multiaddr{addr}})
+		cancel()
+		if err == nil {
+			return s, nil
+		}
+
+	}
+	return nil, fmt.Errorf("rtc: the peer could not be reached through any relay")
+}
+
+// circuitAddress is the way to a peer through a relay: the relay's own
+// address, then the relay's id, then the hop, then the peer's id.
+func circuitAddress(relay peer.AddrInfo, target peer.ID) (multiaddr.Multiaddr, error) {
+	if len(relay.Addrs) == 0 {
+		return nil, fmt.Errorf("rtc: the relay has no address")
+	}
+	return multiaddr.NewMultiaddr(strings.Join([]string{
+		relay.Addrs[0].String(),
+		"/p2p/" + relay.ID.String(),
+		"/p2p-circuit",
+		"/p2p/" + target.String(),
+	}, ""))
 }
 
 // markInviteFailed remembers that the address in the code did not work. The
@@ -641,13 +694,24 @@ func (m *Mesh) discoverLoop() {
 				m.mu.Unlock()
 			}()
 
+			// The relay first: it is local, it is cheap, and it is the way
+			// in where the peer's own address cannot be dialled. The peer's
+			// reservation at the relay may not be ready yet, which is why
+			// this runs on every tick and not once.
+			if s, err := m.dialThroughRelays(node, invited.ID); err == nil {
+				m.addPeer(id, s, m.selfID, PathRendezvous)
+				return
+			}
+
+			// And the DHT's answer, for the networks where no relay is
+			// configured.
 			found, err := node.FindPeerWhenReady(ctx, invited.ID)
 			if err != nil {
 				return
 			}
 			dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
-			defer dialCancel()
 			s, err := node.DialRoom(dialCtx, found)
+			dialCancel()
 			if err != nil {
 				return
 			}

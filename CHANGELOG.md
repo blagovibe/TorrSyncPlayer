@@ -244,6 +244,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with five good ones produce the card and the breach, and the comparison is
   numeric rather than alphabetical, which is the sort of thing that looks right
   and counts the wrong way.
+- **The relay was never reserved, so the way in did not exist.** Across a NAT
+  the peer's own address cannot be dialled — that is the whole point of the
+  scenario — and the relay was supposed to be the way in. It was not: the
+  reservation is what lets a relay forward a hop, and nobody took it.
+  Autorelay takes reservations of its own choosing and will not use a relay
+  with a private address, which is exactly the kind of relay a person is told
+  to use. The node now reserves at the relays it was given itself.
+  And the path exists end to end: when the address in the code does not
+  answer, the peer is dialled through the relay — the code carries the peer's
+  id, and an id is all a relay needs to forward a hop to it. Both are pinned
+  without a network namespace: a room whose code carries an address that
+  cannot be dialled still gathers, through the relay, in 0.82 seconds.
 - **What this pass did not do, and where it is written down.** The fallback path itself is still the old one, announce
   included: the no-op publish is recorded as bug-0133 and is not fixed here,
   which is what the public DHT measurements (bug-0129) and the meeting that

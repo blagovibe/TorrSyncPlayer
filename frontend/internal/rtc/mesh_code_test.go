@@ -307,3 +307,83 @@ func TestANodeThatNeverAnnouncedIsStillFindableByItsID(t *testing.T) {
 		t.Error("the node was found with no address to reach it at")
 	}
 }
+
+// TestTheFallbackFindsTheHostWhenTheAddressDoesNotWork is the fallback's own
+// check, and the one the NAT scenario needs before it can be trusted: the
+// address in the code is dead, and the room must still gather — because the
+// peer can be found by its id, and that is the path a person behind another
+// network takes.
+//
+// The host is not told where the guest is and does not look for it: the guest
+// finds the host. That is the whole of the fallback, and it is what the
+// scenario across the namespaces exercises for real.
+func TestTheFallbackFindsTheHostWhenTheAddressDoesNotWork(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	invite := testInvite()
+	bed := startTestbed(t, ctx, invite)
+	bootstrap := addrsToStrings(t, bed.AddrInfo())
+
+	host := NewMesh(MeshOptions{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Bootstrap: bootstrap, UserID: "host",
+	})
+	t.Cleanup(func() { _ = host.Close() })
+	if err := host.Join(ctx, true); err != nil {
+		t.Fatalf("the host could not join: %v", err)
+	}
+
+	// A code that names the host and an address that cannot be dialled.
+	dead := fmt.Sprintf("/ip4/127.0.0.1/tcp/1/p2p/%s", host.SelfID())
+	guest := NewMesh(MeshOptions{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Addrs: []string{dead}, Bootstrap: bootstrap, UserID: "guest",
+	})
+	t.Cleanup(func() { _ = guest.Close() })
+	if err := guest.Join(ctx, false); err != nil {
+		t.Fatalf("the guest could not join: %v", err)
+	}
+
+	waitForPeers(t, ctx, guest, 1, "the guest never found the host by its id")
+	waitForPeers(t, ctx, host, 1, "the host never saw the guest")
+}
+
+// TestTheRelayIsTheWayInWhenTheAddressCannotBeDialled is the path the
+// scenario across the namespaces needs: the address in the code cannot be
+// dialled — a NAT, a dropped forward rule, a symmetric NAT — and the peer is
+// still reached, through the relay the application was told to use.
+//
+// The relay is not a guess: the code carries the peer's id, and an id is all a
+// relay needs to forward a hop to it.
+func TestTheRelayIsTheWayInWhenTheAddressCannotBeDialled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	invite := testInvite()
+	relay := startRelay(t)
+	relaySetting := addrsToStrings(t, peer.AddrInfo{ID: relay.ID(), Addrs: relay.Addrs()})
+
+	host := NewMesh(MeshOptions{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Relays: relaySetting, UserID: "host",
+	})
+	t.Cleanup(func() { _ = host.Close() })
+	if err := host.Join(ctx, true); err != nil {
+		t.Fatalf("the host could not join: %v", err)
+	}
+
+	// The code names the host and an address that cannot be dialled.
+	dead := fmt.Sprintf("/ip4/127.0.0.1/tcp/1/p2p/%s", host.SelfID())
+	guest := NewMesh(MeshOptions{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Addrs: []string{dead}, Relays: relaySetting, UserID: "guest",
+	})
+	t.Cleanup(func() { _ = guest.Close() })
+	if err := guest.Join(ctx, false); err != nil {
+		t.Fatalf("the guest could not join: %v", err)
+	}
+
+	waitForPeers(t, ctx, guest, 1, "the guest never reached the host through the relay")
+	waitForPeers(t, ctx, host, 1, "the host never saw the guest")
+}
