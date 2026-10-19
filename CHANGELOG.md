@@ -601,6 +601,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concurrent start all run in the unprivileged test above. The namespaces
   themselves will first execute on CI, as a required job that goes red rather
   than skips.
+- The NAT scenario runs locally after all, and the way it runs is now in the
+  repository: `tests/netns/room-nat-local.sh` puts the whole scenario in a
+  user namespace, where the process has the capabilities it needs over the
+  namespaces it creates. The claim above — that it could not be run on this
+  machine — was true when it was written and stopped being true, and it was
+  worth finding out: the scenario had been red because the relay listened on
+  two ports and each participant was told the other's, and nobody could have
+  found that out without a machine that runs the scenario in seconds rather
+  than in a CI cycle of twenty-five minutes. It passes there in 0.13 seconds.
 - The fix for bug-0121 was itself written against that rule: every change is
   pinned by a test that failed on the old code first, and the only thing it
   cannot be pinned by is the thing that was broken — the production path —
