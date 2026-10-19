@@ -24,6 +24,7 @@ type fakeTransport struct {
 	peers    []string
 	incoming chan incomingMessage
 	closed   bool
+	dialed   []PeerAddr
 }
 
 func newFakeTransport(self string, peers ...string) *fakeTransport {
@@ -54,6 +55,15 @@ func (f *fakeTransport) Peers() []string {
 }
 
 func (f *fakeTransport) SelfID() string { return f.self }
+
+// DialHint records where the room was told to reach. The transport is a fake
+// and cannot dial, but what it was asked to dial is the point of the room's
+// address book.
+func (f *fakeTransport) DialHint(peers []PeerAddr) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dialed = append(f.dialed, peers...)
+}
 
 func (f *fakeTransport) Close() error {
 	f.mu.Lock()
@@ -100,7 +110,7 @@ func TestAGuestLearnsTheRoomFromHellosAndTheMagnet(t *testing.T) {
 	tr := newFakeTransport("guest-id")
 	runRoom(ctx, t, tr, "guest-id", "guest-user", false, cb)
 
-	tr.feed("host-id", NewHello("host-id", "host-user", "Host", true))
+	tr.feed("host-id", NewHello("host-id", "host-user", "Host", true, nil))
 	tr.feed("host-id", NewMagnet(Magnet{MagnetURI: "magnet:?xt=urn:btih:abc", InfoHash: "abc", SelectedFile: 1, Name: "Film.mkv"}))
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -155,8 +165,8 @@ func TestCommandsFromStrangersAreDropped(t *testing.T) {
 	tr := newFakeTransport("guest-id")
 	r := runRoom(ctx, t, tr, "guest-id", "guest-user", false, cb)
 
-	tr.feed("host-id", NewHello("host-id", "host-user", "", true))
-	tr.feed("stranger-id", NewHello("stranger-id", "stranger-user", "", false))
+	tr.feed("host-id", NewHello("host-id", "host-user", "", true, nil))
+	tr.feed("stranger-id", NewHello("stranger-id", "stranger-user", "", false, nil))
 	tr.feed("stranger-id", NewPause(true))
 
 	time.Sleep(300 * time.Millisecond)
@@ -206,8 +216,8 @@ func TestTakeoverElectsTheSmallestLivingPeer(t *testing.T) {
 	tr := newFakeTransport("peer-b", "peer-c")
 	runRoom(ctx, t, tr, "peer-b", "user-b", false, cb)
 
-	tr.feed("host-id", NewHello("host-id", "host-user", "", true))
-	tr.feed("peer-c", NewHello("peer-c", "user-c", "", false))
+	tr.feed("host-id", NewHello("host-id", "host-user", "", true, nil))
+	tr.feed("peer-c", NewHello("peer-c", "user-c", "", false, nil))
 	tr.feed("host-id", NewBye("host-id"))
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -252,7 +262,7 @@ func TestTakeoverAnnouncementFromAStrangerIsIgnored(t *testing.T) {
 	tr := newFakeTransport("peer-b", "peer-c")
 	runRoom(ctx, t, tr, "peer-b", "user-b", false, cb)
 
-	tr.feed("host-id", NewHello("host-id", "host-user", "", true))
+	tr.feed("host-id", NewHello("host-id", "host-user", "", true, nil))
 	// peer-c crowns itself while the host is still alive and peer-c is not the
 	// smallest anything: must change nothing. The one announcement the test
 	// expects is the legitimate one — learning the actual host from its hello.

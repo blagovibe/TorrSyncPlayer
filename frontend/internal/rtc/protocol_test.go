@@ -6,6 +6,7 @@ package rtc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -120,4 +121,44 @@ func decode(t *testing.T, raw []byte) Envelope {
 		t.Fatalf("decode: %v", err)
 	}
 	return envelope
+}
+
+// TestTheAddressBookTravelsAndIsPinned pins the two shapes the room's own
+// network needs: the greeting carries the sender's addresses, and the address
+// book carries everybody's. A renamed key here means a room that assembles and
+// then stays a star, with no error on either side.
+func TestTheAddressBookTravelsAndIsPinned(t *testing.T) {
+	hello := NewHello("peer-a", "user-a", "Ann", false, []string{"/ip4/127.0.0.1/tcp/4001/p2p/peer-a"})
+	raw := encode(t, hello)
+	if !strings.Contains(string(raw), `"addrs":["/ip4/127.0.0.1/tcp/4001/p2p/peer-a"]`) {
+		t.Errorf("the greeting does not carry the addresses: %s", raw)
+	}
+	decoded, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("the greeting does not parse: %v", err)
+	}
+	got, ok := decoded.(Hello)
+	if !ok {
+		t.Fatalf("the greeting came back as a %T", decoded)
+	}
+	if len(got.Addrs) != 1 || got.Addrs[0] != hello.Addrs[0] {
+		t.Errorf("the addresses came back changed: %+v", got.Addrs)
+	}
+
+	book := NewPeers([]PeerAddr{
+		{PeerID: "peer-a", Addrs: []string{"/ip4/127.0.0.1/tcp/4001/p2p/peer-a"}},
+		{PeerID: "peer-b"},
+	})
+	raw = encode(t, book)
+	decoded, err = Parse(raw)
+	if err != nil {
+		t.Fatalf("the address book does not parse: %v", err)
+	}
+	parsed, ok := decoded.(Peers)
+	if !ok {
+		t.Fatalf("the address book came back as a %T", decoded)
+	}
+	if len(parsed.Peers) != 2 || parsed.Peers[0].PeerID != "peer-a" {
+		t.Errorf("the address book came back changed: %+v", parsed.Peers)
+	}
 }

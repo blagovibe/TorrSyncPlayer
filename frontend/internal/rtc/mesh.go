@@ -214,6 +214,49 @@ func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
 	m.addPeer(info.ID.String(), s, m.selfID)
 }
 
+// DialHint reaches the peers the room's address book named. It is the mesh
+// growing into the mesh the goal promises: a newcomer is told where the
+// others are and dials them itself, so the room is not a star around the
+// host (bug-0136).
+func (m *Mesh) DialHint(peers []PeerAddr) {
+	m.mu.RLock()
+	node := m.node
+	m.mu.RUnlock()
+	if node == nil {
+		return
+	}
+	for _, p := range peers {
+		info, err := addrInfoFromAddrs(p.Addrs)
+		if err != nil {
+			continue
+		}
+		m.mu.RLock()
+		_, known := m.peers[p.PeerID]
+		_, flying := m.dialing[p.PeerID]
+		m.mu.RUnlock()
+		if known || flying {
+			continue
+		}
+		m.mu.Lock()
+		m.dialing[p.PeerID] = struct{}{}
+		m.mu.Unlock()
+		go func(id string, info peer.AddrInfo) {
+			defer func() {
+				m.mu.Lock()
+				delete(m.dialing, id)
+				m.mu.Unlock()
+			}()
+			ctx, cancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
+			defer cancel()
+			s, err := node.DialRoom(ctx, info)
+			if err != nil {
+				return
+			}
+			m.addPeer(id, s, m.selfID)
+		}(p.PeerID, info)
+	}
+}
+
 // addrInfoFromAddrs reads the peer out of the addresses the invite carried.
 // Every address names the same peer, and a code that names two is refused
 // rather than half-dialed.
@@ -645,6 +688,7 @@ func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser, initiator string) {
 	m.peers[id] = mp
 	selfID := m.selfID
 	isHost := m.isHost
+	node := m.node
 	m.mu.Unlock()
 
 	if exists {
@@ -655,8 +699,14 @@ func (m *Mesh) addPeer(id string, conn io.ReadWriteCloser, initiator string) {
 	go m.readLoop(mp)
 
 	// Announce presence at once: the roster is whoever said hello, and a peer
-	// that waits to be asked is a roster entry that never appears.
-	_ = m.sendTo(mp, NewHello(selfID, m.opts.UserID, m.opts.Username, isHost))
+	// that waits to be asked is a roster entry that never appears. The
+	// greeting carries this node's addresses, so the room can hand them on
+	// and the mesh can grow without a rendezvous (bug-0136).
+	var addrs []string
+	if node != nil {
+		addrs = node.Addrs()
+	}
+	_ = m.sendTo(mp, NewHello(selfID, m.opts.UserID, m.opts.Username, isHost, addrs))
 }
 
 func (m *Mesh) sendTo(mp *meshPeer, msg any) error {

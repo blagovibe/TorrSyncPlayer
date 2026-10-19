@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -22,6 +23,11 @@ type Transport interface {
 	Next(ctx context.Context) (from string, msg any, ok bool)
 	Peers() []string
 	SelfID() string
+	// DialHint asks the transport to reach the given peers. It is how the
+	// room's own network grows: a newcomer is told where the others are
+	// and dials them itself, so the room is a mesh rather than a star
+	// around the host (bug-0136).
+	DialHint(peers []PeerAddr)
 	Close() error
 }
 
@@ -34,6 +40,9 @@ type Peer struct {
 	Username  string
 	IsHost    bool
 	Buffering bool
+	// Addrs are the peer's dialable addresses, as its greeting carried them.
+	// The room keeps them so the host can hand them to a newcomer.
+	Addrs []string
 }
 
 // Callbacks are the room's effects on the world. The driver decides; the
@@ -234,17 +243,20 @@ func (r *Room) handle(from string, msg any) {
 		r.onHost(from, m)
 	case Bye:
 		r.onBye(from, m)
+	case Peers:
+		r.onPeers(m)
 	}
 }
 
 func (r *Room) onHello(from string, m Hello) {
 	r.mu.Lock()
-	r.peers[from] = &Peer{PeerID: from, UserID: m.UserID, Username: m.Username, IsHost: m.IsHost}
+	r.peers[from] = &Peer{PeerID: from, UserID: m.UserID, Username: m.Username, IsHost: m.IsHost, Addrs: m.Addrs}
 	if m.IsHost {
 		r.hostPeer = from
 	}
 	magnet := r.magnet
 	amHost := r.isHost
+	book := r.addressBook()
 	r.mu.Unlock()
 
 	r.emitRoster()
@@ -267,7 +279,53 @@ func (r *Room) onHello(from string, m Hello) {
 		if paused, known := r.PlayState(); known {
 			_ = r.transport.Send(ctx, NewPause(paused))
 		}
+		// And the address book: where the ones already in the room can be
+		// reached. Without it the newcomer knows the host and nobody else,
+		// and the room is a star (bug-0136).
+		if len(book) > 0 {
+			_ = r.transport.Send(ctx, NewPeers(book))
+		}
 	}
+}
+
+// addressBook is where the room's members can be reached. It goes to
+// everyone, not only to the newcomer: the point of a mesh is that the members
+// reach each other, and the host is only the one who knows the whole map.
+func (r *Room) addressBook() []PeerAddr {
+	book := make([]PeerAddr, 0, len(r.peers))
+	for id, p := range r.peers {
+		if len(p.Addrs) == 0 {
+			continue
+		}
+		book = append(book, PeerAddr{PeerID: id, Addrs: p.Addrs})
+	}
+	sort.Slice(book, func(i, j int) bool { return book[i].PeerID < book[j].PeerID })
+	return book
+}
+
+// onPeers is the address book arriving. Whoever is not in the room yet is
+// dialled: the room's network grows into the mesh it promises.
+func (r *Room) onPeers(m Peers) {
+	r.mu.RLock()
+	var fresh []PeerAddr
+	for _, p := range m.Peers {
+		if p.PeerID == r.selfID {
+			// The book lists everybody, and a room is in it too.
+			continue
+		}
+		if _, known := r.peers[p.PeerID]; known {
+			continue
+		}
+		if len(p.Addrs) == 0 {
+			continue
+		}
+		fresh = append(fresh, p)
+	}
+	r.mu.RUnlock()
+	if len(fresh) == 0 {
+		return
+	}
+	r.transport.DialHint(fresh)
 }
 
 func (r *Room) onMagnet(from string, m Magnet) {

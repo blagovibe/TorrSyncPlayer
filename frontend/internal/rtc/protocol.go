@@ -31,6 +31,7 @@ const (
 	TypeHello     = "hello"
 	TypeHost      = "host"
 	TypeBye       = "bye"
+	TypePeers     = "peers"
 )
 
 // Envelope is the one field every message carries, so a follower can route
@@ -103,16 +104,42 @@ type Hello struct {
 	UserID   string `json:"userId"`
 	Username string `json:"username,omitempty"`
 	IsHost   bool   `json:"isHost,omitempty"`
+	// Addrs are the sender's dialable addresses. The room keeps them so the
+	// host can hand a newcomer the address book: a newcomer that knows where
+	// the others are reaches them without a rendezvous, and the mesh stays a
+	// mesh instead of a star (idea-0131, bug-0136).
+	Addrs []string `json:"addrs,omitempty"`
+}
+
+// PeerAddr is one entry of the address book: who this is and where to reach
+// them.
+type PeerAddr struct {
+	PeerID string   `json:"peerId"`
+	Addrs  []string `json:"addrs,omitempty"`
+}
+
+// Peers is the room's address book. The host sends it to a newcomer, so the
+// newcomer reaches the others without a rendezvous — the room's own network
+// instead of a star around the host.
+type Peers struct {
+	Envelope
+	Peers []PeerAddr `json:"peers"`
+}
+
+// NewPeers wraps an address book for the wire.
+func NewPeers(peers []PeerAddr) Peers {
+	return Peers{Envelope: Envelope{Type: TypePeers}, Peers: peers}
 }
 
 // NewHello wraps a presence announcement for the wire.
-func NewHello(peerID, userID, username string, isHost bool) Hello {
+func NewHello(peerID, userID, username string, isHost bool, addrs []string) Hello {
 	return Hello{
 		Envelope: Envelope{Type: TypeHello},
 		PeerID:   peerID,
 		UserID:   userID,
 		Username: username,
 		IsHost:   isHost,
+		Addrs:    addrs,
 	}
 }
 
@@ -191,6 +218,12 @@ func Parse(raw []byte) (any, error) {
 		var m Bye
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return nil, fmt.Errorf("rtc: decode bye: %w", err)
+		}
+		return m, nil
+	case TypePeers:
+		var m Peers
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, fmt.Errorf("rtc: decode peers: %w", err)
 		}
 		return m, nil
 	default:

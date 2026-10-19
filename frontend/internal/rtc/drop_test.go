@@ -88,8 +88,8 @@ func TestARoomConvergesWhenTheStreamDropsSilently(t *testing.T) {
 	tr := newFakeTransport("peer-b", "peer-c")
 	runRoom(ctx, t, tr, "peer-b", "user-b", false, cb)
 
-	tr.feed("host-id", NewHello("host-id", "host-user", "", true))
-	tr.feed("peer-c", NewHello("peer-c", "user-c", "", false))
+	tr.feed("host-id", NewHello("host-id", "host-user", "", true, nil))
+	tr.feed("peer-c", NewHello("peer-c", "user-c", "", false, nil))
 	// No bye from the host — exactly the silent-drop case.
 	tr.feed("host-id", NewBye("host-id"))
 

@@ -146,3 +146,83 @@ func p2pAddr(t *testing.T, base string) string {
 	require.NoError(t, err)
 	return fmt.Sprintf("%s/p2p/%s", base, id)
 }
+
+// TestTheRoomIsAMeshAndNotAStar is the goal's own word for it: the network is
+// symmetric, the control is not. Three participants, a rendezvous that cannot
+// answer, and the two guests must reach each other — not only the host. The
+// address book is what carries them there: without it the room is a star, and
+// a star is not the mesh the goal promises (bug-0136).
+func TestTheRoomIsAMeshAndNotAStar(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	invite := testInvite()
+	bootstrap := unreachableBootstrap(t)
+
+	host := NewMesh(MeshOptions{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Bootstrap: bootstrap, UserID: "host",
+	})
+	t.Cleanup(func() { _ = host.Close() })
+	if err := host.Join(ctx, true); err != nil {
+		t.Fatalf("the host could not join: %v", err)
+	}
+
+	code := Invite{
+		Community: invite.Community, Password: invite.Password, Key: invite.Key,
+		Addrs: host.Addrs(),
+	}.Encode()
+	parsed, err := ParseInviteCode(code)
+	if err != nil {
+		t.Fatalf("the host's own code does not parse: %v", err)
+	}
+
+	// The room is what processes the greetings, so the room is what the
+	// participants need: the mesh is the transport under it.
+	hostRoom := NewRoom(host, host.SelfID(), "host", true, &Callbacks{})
+	go hostRoom.Run(ctx)
+
+	guest := func(name string) *Room {
+		m := NewMesh(MeshOptions{
+			Community: parsed.Community, Password: parsed.Password, Key: parsed.Key,
+			Addrs: parsed.Addrs, Bootstrap: bootstrap, UserID: name,
+		})
+		t.Cleanup(func() { _ = m.Close() })
+		if err := m.Join(ctx, false); err != nil {
+			t.Fatalf("the guest %s could not join: %v", name, err)
+		}
+		room := NewRoom(m, m.SelfID(), name, false, &Callbacks{})
+		go room.Run(ctx)
+		return room
+	}
+
+	first := guest("guest-one")
+	waitForRoster(t, ctx, hostRoom, 1, "the host never saw the first guest")
+
+	second := guest("guest-two")
+	waitForRoster(t, ctx, hostRoom, 2, "the host never saw the second guest")
+
+	// And the two guests reach each other: the room is a mesh, not a star
+	// around the host.
+	waitForRoster(t, ctx, first, 2, "the first guest never saw the second one")
+	waitForRoster(t, ctx, second, 2, "the second guest never saw the first one")
+}
+
+// waitForRoster waits until the room's roster holds the wanted number of
+// people. The roster is who said hello and has not said bye: the room's own
+// account of who is watching.
+func waitForRoster(t *testing.T, ctx context.Context, room *Room, want int, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(room.Peers()) >= want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%s: %d in the roster, want %d", msg, len(room.Peers()), want)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	t.Fatalf("%s: %d in the roster, want %d", msg, len(room.Peers()), want)
+}

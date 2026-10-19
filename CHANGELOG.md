@@ -154,16 +154,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   words a person can act on. And while the fallback is down — it is the way in
   for a peer that has no address — the line says so; when it is up, it is
   silence (bug-0137).
-- **What this pass did not do, and where it is written down.** The mesh is not
-  gossiped yet: `hello` carries no addresses, so a room of three or more is a
-  star — the host knows every guest, the guests know the host — and the rest
-  still waits for the DHT in the background (bug-0136). The window still shows
-  the waiting states and the minute counter the goal has just retired
-  (bug-0137). The first promise of the project — that playback starts before
-  the download finishes — is still held by a byte-level test alone, with no
-  `mpv` started on a partial torrent (bug-0138). The fallback path itself is
-  still the old one, announce included: the no-op publish is recorded as
-  bug-0133 and is not fixed here.
+- **The room is a mesh now, and it was a star.** The goal says the network is
+  symmetric and the control is not: "the network is a mesh, not a star with the
+  host in the middle". The code said otherwise. The address in the code gets a
+  guest to the host, and then the room stopped there — the guests knew the
+  host and nobody else, so the third person in the room was invisible to the
+  second. The composition of the room was the host's alone.
+  Two fields in the protocol fix it. The greeting carries the sender's
+  addresses, so the host knows where each of its guests can be reached, and the
+  host answers with the room's address book — so the one who came dials
+  everyone in it who it does not know yet, and the network grows into the mesh
+  it promises. No rendezvous, no lookup, no waiting: the check is three
+  participants against a rendezvous that cannot answer, and the two guests
+  reach each other in 0.22s (bug-0136).
+- **What this pass did not do, and where it is written down.** The first
+  promise of the project — that playback starts before the download finishes —
+  is still held by a byte-level test alone, with no `mpv` started on a partial
+  torrent (bug-0138). The fallback path itself is still the old one, announce
+  included: the no-op publish is recorded as bug-0133 and is not fixed here,
+  which is what the public DHT measurements (bug-0129) and the meeting that
+  sometimes does not happen (bug-0130) are about. The room's own book carries
+  the addresses as they were when the greeting was sent, so a peer whose public
+  address arrived later is in the book with its local address only; the
+  rendezvous still finds it in the end, but the mesh waits for that.
 - **Reconciliation: the zone was empty, and the suites say so.** No commit
   touched the tree since the last recorded entry; the only working-tree change
   was the untracked probe above. Both suites are green in full: the backend in

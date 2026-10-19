@@ -216,6 +216,10 @@ func (f *fakeRoom) Peers() []string { return nil }
 func (f *fakeRoom) SelfID() string  { return "host-peer" }
 func (f *fakeRoom) Close() error    { return nil }
 
+// DialHint does nothing here: the fake room is a follower, and a follower
+// only follows.
+func (f *fakeRoom) DialHint(peers []rtc.PeerAddr) {}
+
 // TestTheFollowerComesBackToTheRoomsPlayState is the room leading, as decided.
 //
 // The play state travels only when it changes, so a pause can be lost: it
