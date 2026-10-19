@@ -7,6 +7,157 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The room was assembling by an announce that publishes nothing.** The narrow
+  announce on the join path was the project's answer to "how do two
+  participants find each other", and it does not leave the node: in
+  go-libp2p-kad-dht v0.42.2, `Provide(key, brdcst=false)` writes the record into
+  the node's own provider store and returns (`routing.go:398-427`). The room
+  was therefore visible to the other side only after the wide publish — the
+  one measured at 2m16s…2m36s against the public DHT — and the "closest peers"
+  a publisher writes to and a seeker asks are computed from each side's own
+  view, so they are not the same set. That is the mechanism behind both open
+  cards: a room that does not assemble over the public DHT, and two
+  participants on one machine that fail to meet roughly once in five runs with
+  nothing wrong with either of them (bug-0129, bug-0130). The project's own
+  test pinned the policy, not the library's behaviour — the policy was right
+  about a thing that did not happen.
+- **The goal now says what the room promises, and the room is going to keep
+  it.** The second goal is "watch together", on a par with the first, so the
+  bar is now that the room always assembles and the only price is how long it
+  takes. The address the host already knows travels in the invite code, and
+  the guest dials it: `community:password:key` becomes
+  `community:password:key:addrs`, the first three parts still without a colon
+  and the fourth a list of multiaddrs. The peer ID goes with them, so the
+  guest knows who it reached and takes nobody else's place. The DHT stays — as
+  the automatic fallback for an address that did not work, and as the only way
+  a node learns its own public address and finds relay candidates — but it is
+  no longer how a room meets. The mesh stays symmetric: every newcomer gets
+  the addresses of those already in the room in its `hello` and dials them
+  itself. "Minutes" leave the goal together with the counter, the "why is this
+  taking so long" explanation and the six-minute deadline: the room assembles
+  in seconds now, and a failure is an exception with a cause, not a routine
+  state (idea-0131).
+- **The promise about privacy is now the one that was true all along.** Media
+  and commands travel between participants and past nobody else's machine;
+  the participants see each other, and the public DHT and the relays see who
+  is in the room — named plainly, because that was true before too. The goal
+  still forbids a room server, even one of our own: if that ever becomes
+  necessary, it is a goal change with questions and a confirmation, not a
+  quiet decision.
+- **The goal was describing an architecture that stopped existing a year ago.**
+  "A room is not a private channel. The server holds the torrent client, so
+  the media passes through it, and it also sees every sync command with
+  positions and times" — that is the pre-broker model, and it contradicted
+  both the rest of the same file and `.github/SECURITY.md`, which says the
+  opposite. The backend API list in the same section named "rooms,
+  synchronisation" that the API has not had since the room moved to the
+  frontend. The goal was fixed; the code was right (idea-0132).
+- **Three cards are on the board, and two older ones were audited.** bug-0133
+  is the no-op announce itself, with the reading that found it; bug-0134 is
+  the broker's leftovers in the API (`SignalRequest`, `CreateRoomRequest`,
+  `JoinRoomRequest` — no uses, and not in the generated spec); bug-0135 is
+  the "Signaler" column in the room diagram, which has no code behind it.
+  bug-0129 and bug-0130 were put into `needs_review` when the goal changed
+  and then checked against the new text: the code does not meet the goal yet,
+  so both stay open. bug-0129's subject narrowed from "the room" to "the
+  fallback path", and the threshold for that path is written down: no fewer
+  than 90% of the last 20 runs assembling within 90 seconds, a breach opens a
+  card, and the series itself lives in `measurements/rendezvous.md` instead of
+  a job summary nobody reads.
+- **The code carries the address, and the room meets in a tenth of a second.**
+  The invite is now `community:password:key:addrs` — the first three parts as
+  before, the fourth a list of the host's multiaddrs, each carrying its peer
+  ID. The guest dials those addresses and the room is open: no rendezvous, no
+  discovery, no minutes. The DHT did not disappear, it moved: it comes up
+  behind the join, because it is the fallback for an address that did not
+  work, and the only way a node learns its own public address — and a guest
+  whose code named nobody still meets through it exactly as before, with the
+  same "rendezvous unreachable" refusal if it does not answer. The peer ID in
+  the code is not decoration: the guest knows whom it reached and takes
+  nobody else's place.
+  The check is hermetic and it bites: `TestTheRoomMeetsByTheCodeAlone` runs two
+  peers against a rendezvous that cannot answer, and the room assembles in
+  0.11s. With the address removed from the code the same test fails at the
+  join — "rendezvous unreachable: none of the 1 rendezvous nodes answered" —
+  so it measures the fast path and not the room in general.
+- **The probe ran, and the flake did not reproduce.** Eight attempts on the
+  local testbed: eight meetings, 1.74s in total, with the guest finding both
+  providers and their addresses every time. On a three-node testbed the
+  "closest peers" of both sides coincide and the wide publish lands quickly,
+  so the failure bug-0130 describes did not happen in this run — it stays
+  open, because a defect nobody can reproduce on demand is a defect nobody
+  has fixed yet, and guessing at it twice is how the four earlier attempts
+  failed. What the probe did settle is the mechanism behind the minutes, and
+  the address in the code settles both the minutes and the meetings.
+- **The rendezvous setting says what it is now.** «Бутстрап» became «Запасное
+  рандеву» ("Fallback rendezvous"): it is the path for when the address did
+  not work, not the way rooms meet, and a name that promises the old thing is
+  a name that lies.
+- **The untracked probe was breaking the suite, which is a thing the suite
+  cannot report.** `frontend/internal/rtc/zz_probe_test.go` is a throwaway
+  diagnostic: eight meeting attempts plus six publish timings, minutes of
+  wall clock, and the `internal/rtc` package went red on the ten-minute
+  package timeout — a red that says "the probe is slow", not "the room is
+  broken". It now runs only when asked for (`TORRSYNC_PROBE=1`), the way the
+  public-DHT measurement runs only on a schedule, and it stays out of the
+  commit: a deterministic test is born from it instead.
+- **The README moved with the code.** It described the meeting in minutes and
+  the connection block in the states of a room that assembles slowly; it now
+  describes the address, the fallback, and the path the window shows.
+- **Two leftovers of the broker are gone.** `CreateRoomRequest`,
+  `JoinRoomRequest` and `SignalRequest` — the last of them described a
+  "server-brokered over SSE" the project has not had for a year — sat in
+  `backend/internal/models/types.go` with no uses anywhere and no mention in the
+  generated spec, so removing them changes no endpoint and no line of the
+  OpenAPI (bug-0134). The room diagram in DEV.md still had a "Signaler" column
+  with no code behind it; the column is now the DHT rendezvous it always was
+  (bug-0135). Both cards leave the board; their stories stay here.
+- **The host's code is ready in seconds, and the join no longer refuses the
+  entry because a network is down.** The join is now one thing: the node is up.
+  The rendezvous — the way a peer that has no address finds this one — comes up
+  behind it, and a rendezvous that does not answer no longer refuses the entry:
+  the room is open either way, and the window says what state the network is
+  in. The host learns its own addresses as soon as its node is up, so its code
+  carries them right away, and the public address joins them a moment later,
+  when the network has told the node who it is (bug-0139).
+  The way there was known and not taken blind: separate "the node is up" from
+  "the rendezvous is up". The first attempt at it — putting the host on the
+  background rendezvous alone — broke the NAT scenario, and the reason is
+  worth writing down rather than reverting quietly: a host that leaves the
+  moment it has a peer takes the room with it, and the guest is left holding a
+  half-open stream. The scenario was measuring a race between two processes,
+  not a room. Fixed on the scenario's side — it waits for the roster, and the
+  host stays until the guest has left — and then the change was safe to make.
+- **The scenario now waits for the room, not for a connection.** The
+  participants wait for the roster — who said hello and has not said bye —
+  rather than for the transport's peer list, which empties itself when a
+  connection blinks, and the host stays until the guest has left. A scenario
+  that measured a coincidence of timings was measuring the wrong thing. With
+  that fixed, the scenario runs in 0.23s — faster than the 0.43s it took
+  before, because the room no longer waits for a network to be ready before it
+  starts looking.
+- **What this pass did not do, and where it is written down.** The mesh is not
+  gossiped yet: `hello` carries no addresses, so a room of three or more is a
+  star — the host knows every guest, the guests know the host — and the rest
+  still waits for the DHT in the background (bug-0136). The window still shows
+  the waiting states and the minute counter the goal has just retired
+  (bug-0137). The first promise of the project — that playback starts before
+  the download finishes — is still held by a byte-level test alone, with no
+  `mpv` started on a partial torrent (bug-0138). The fallback path itself is
+  still the old one, announce included: the no-op publish is recorded as
+  bug-0133 and is not fixed here.
+- **Reconciliation: the zone was empty, and the suites say so.** No commit
+  touched the tree since the last recorded entry; the only working-tree change
+  was the untracked probe above. Both suites are green in full: the backend in
+  one run, the frontend in one (`internal/rtc` 41s, `internal/integration`
+  15s, the rest in seconds). Inside the zone the reconciliation found three
+  things, and they are the cards this release carries: the announce that
+  publishes nothing (bug-0133), the promise of the first sentence with no
+  proof behind it (bug-0138), and the goal that described an architecture a
+  year gone (idea-0132, transferred). The rooms' own two cards were audited
+  against the new goal and stay open, because the code does not meet the goal
+  yet.
+
 - **Three cards closed on evidence rather than on hope.** The last reconciliation
   found the CI runs on `main` green — every leg, all three platforms — which is
   exactly what three of the open cards were waiting for. `bug-0115` (mpv

@@ -503,7 +503,71 @@ func (w *window) onCopyCodePressed() {
 		w.notify(w.tr("status.notIn"))
 		return
 	}
+	// The code carries the addresses, and the address set grows as the node
+	// learns them: the local one is there at once, the public one arrives
+	// with the rendezvous. A code copied before that would send the guest
+	// nowhere.
+	if addrs := w.meshAddrs(); len(addrs) > 0 {
+		invite.Addrs = addrs
+		w.mu.Lock()
+		w.invite = invite
+		w.mu.Unlock()
+	}
 	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
+}
+
+// meshAddrs are the addresses the room's node can be reached at. They grow as
+// the node learns them.
+func (w *window) meshAddrs() []string {
+	w.mu.RLock()
+	mesh := w.mesh
+	w.mu.RUnlock()
+	if mesh == nil {
+		return nil
+	}
+	return mesh.Addrs()
+}
+
+// refreshInviteCode rewrites the host's code when the node's addresses grew.
+// The code is what the guest dials, so an address that arrives late has to
+// reach the code — otherwise the guest has nothing to dial and the room falls
+// back to the rendezvous, the slow path this exists to leave behind.
+func (w *window) refreshInviteCode() {
+	w.mu.RLock()
+	mesh := w.mesh
+	room := w.rtcRoom
+	invite := w.invite
+	w.mu.RUnlock()
+	if mesh == nil || room == nil || !room.IsHost() {
+		return
+	}
+	addrs := mesh.Addrs()
+	if len(addrs) == 0 || sameAddrs(addrs, invite.Addrs) {
+		return
+	}
+	invite.Addrs = addrs
+	w.mu.Lock()
+	w.invite = invite
+	w.mu.Unlock()
+	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
+}
+
+// sameAddrs compares two address lists as sets: the order in which a node
+// reports its addresses is not a fact about the room.
+func sameAddrs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(a))
+	for _, addr := range a {
+		seen[addr] = struct{}{}
+	}
+	for _, addr := range b {
+		if _, ok := seen[addr]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // ── room ───────────────────────────────────────────────────────────────────
@@ -560,6 +624,10 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 		Community: invite.Community,
 		Password:  invite.Password,
 		Key:       invite.Key,
+		// The addresses the code carried: the host's, for a guest. With them
+		// the room meets by a direct dial, and the rendezvous stays a
+		// fallback for an address that did not work.
+		Addrs: invite.Addrs,
 		// The identity the room shows people by. It must be the same value
 		// the room below is given: the greeting is the only thing a peer hears
 		// about anyone, and a greeting without a name leaves the roster a list
@@ -1277,6 +1345,11 @@ func (w *window) refresh() {
 		conn = connStatusText(w.tr, mesh.ConnStatus(), w.waitedForGuests())
 	}
 	onMain(func() { setLine(w.connLabel, conn) })
+
+	// The host's code carries the addresses, and they grow as the node learns
+	// them. The code has to follow, or a guest gets a code with nothing to
+	// dial.
+	w.refreshInviteCode()
 
 	var out struct {
 		Torrents []Torrent `json:"torrents"`

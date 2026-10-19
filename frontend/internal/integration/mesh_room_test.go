@@ -94,6 +94,9 @@ func TestARoomWithoutAServer(t *testing.T) {
 		Community: inv.Community,
 		Password:  inv.Password,
 		Key:       inv.Key,
+		// The code the host copies carries its addresses: the guest dials
+		// them, and the testbed stays behind as the fallback.
+		Addrs: hostMesh.Addrs(),
 	})
 	defer func() { _ = guestMesh.Close() }()
 	require.NoError(t, guestMesh.Join(ctx, false), "the guest could not join the mesh")

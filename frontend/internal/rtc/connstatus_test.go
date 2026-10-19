@@ -109,6 +109,12 @@ func TestMeshConnStatusBeforeJoinIsEmpty(t *testing.T) {
 // connection state the window needs to keep a person from waiting: a room
 // that never announced itself will never be found by a guest who is not here
 // yet, and "rendezvous ready" on its own would not say so (bug-0121).
+//
+// The announcement follows the rendezvous, and the rendezvous comes up behind
+// the join: a room whose code named its peer does not wait for a network to
+// be ready. So the state is not there the instant the join returns — it is
+// there once the room has announced itself, and the window is what tells the
+// two apart.
 func TestMeshConnStatusSaysWhetherTheRoomAnnouncedItself(t *testing.T) {
 	inv := testInvite()
 	m := NewMesh(MeshOptions{Community: inv.Community, Password: inv.Password, Key: inv.Key})
@@ -118,6 +124,10 @@ func TestMeshConnStatusSaysWhetherTheRoomAnnouncedItself(t *testing.T) {
 	defer cancel()
 
 	host, _ := joinMesh(t, ctx, 0)
+	deadline := time.Now().Add(30 * time.Second)
+	for !host.ConnStatus().Published && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
 	assert.True(t, host.ConnStatus().Published, "a joined room has announced itself")
 }
 

@@ -24,26 +24,6 @@ type AddTorrentRequest struct {
 	TorrentFile string `json:"torrentFile,omitempty"` // base64 encoded torrent file content
 }
 
-// CreateRoomRequest request to create a room
-type CreateRoomRequest struct {
-	Name      string `json:"name"`
-	Password  string `json:"password"`
-	TorrentID string `json:"torrentId,omitempty"` // infohash of the torrent to bind this room to
-}
-
-// JoinRoomRequest request to join a room
-type JoinRoomRequest struct {
-	RoomID    string `json:"roomId"`
-	Password  string `json:"password"`
-	TorrentID string `json:"torrentId,omitempty"` // must match room's torrent (idea-0046)
-}
-
-// SignalRequest request to relay a room signal to peers (server-brokered over SSE)
-type SignalRequest struct {
-	RoomID string `json:"roomId"`
-	Signal []byte `json:"signal"`
-}
-
 // SeekRequest seek request
 type SeekRequest struct {
 	Position float64 `json:"position"`

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/multiformats/go-multiaddr"
 )
 
 // Transport is what a Room talks through: the mesh in production, channels in
@@ -418,32 +420,58 @@ func SmoothSeek(current, requested float64) float64 {
 const smoothRatio = 0.3
 
 // Invite is a room's address: the community to join and the password and key
-// pair that admits. The host generates all three and copies them as one
-// string; the guest pastes it back.
+// pair that admits, plus the addresses the host can be reached at. The host
+// generates the first three and copies them as one string; the guest pastes
+// it back. The addresses are the fast path — the room meets without a
+// rendezvous, in seconds instead of minutes — and they carry the host's peer
+// ID, so the guest knows whom it reached and takes nobody else's place.
 type Invite struct {
 	Community string
 	Password  string
 	Key       string
+	// Addrs are the host's multiaddrs, each with its /p2p/ peer ID. Empty
+	// means the code says no way to reach the host, and the room can only
+	// meet through the rendezvous.
+	Addrs []string
 }
 
-// Encode renders the invite as community:password:key.
+// Encode renders the invite as community:password:key:addrs. The addresses
+// are comma-separated; each carries the host's peer ID, so the code says not
+// only where to go but to whom.
 func (in Invite) Encode() string {
-	return in.Community + ":" + in.Password + ":" + in.Key
+	return in.Community + ":" + in.Password + ":" + in.Key + ":" + strings.Join(in.Addrs, ",")
 }
 
-// ParseInviteCode parses community:password:key. Colons separate the parts, so
-// none of the parts may contain one — and a magnet is not an invite.
+// ParseInviteCode parses community:password:key:addrs. The first three parts
+// are separated by colons and contain none, so the split is by the first
+// three colons and the rest — which is where the addresses live, colons and
+// all — stays in one piece. A code without addresses still parses: that is a
+// room that can only be met through the rendezvous.
 func ParseInviteCode(code string) (Invite, error) {
-	parts := strings.Split(code, ":")
-	if len(parts) != 3 {
-		return Invite{}, fmt.Errorf("rtc: an invite is community:password:key, got %d parts", len(parts))
+	parts := strings.SplitN(code, ":", 4)
+	if len(parts) < 3 {
+		return Invite{}, fmt.Errorf("rtc: an invite is community:password:key:addrs, got %d parts", len(parts))
 	}
-	for _, part := range parts {
+	for _, part := range parts[:3] {
 		if part == "" {
 			return Invite{}, fmt.Errorf("rtc: an invite part is empty")
 		}
 	}
-	return Invite{Community: parts[0], Password: parts[1], Key: parts[2]}, nil
+	invite := Invite{Community: parts[0], Password: parts[1], Key: parts[2]}
+	if len(parts) < 4 {
+		return invite, nil
+	}
+	for _, raw := range strings.Split(parts[3], ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if _, err := multiaddr.NewMultiaddr(raw); err != nil {
+			return Invite{}, fmt.Errorf("rtc: an invite address is not a multiaddr: %w", err)
+		}
+		invite.Addrs = append(invite.Addrs, raw)
+	}
+	return invite, nil
 }
 
 // GenerateInvite makes a fresh room address. Short random strings from an

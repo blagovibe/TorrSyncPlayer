@@ -297,7 +297,7 @@ func TestInviteCodeRoundTrips(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a generated code does not parse back: %v", err)
 		}
-		if parsed != invite {
+		if parsed.Community != invite.Community || parsed.Password != invite.Password || parsed.Key != invite.Key {
 			t.Fatalf("a code round-tripped into something else: %+v", parsed)
 		}
 	}

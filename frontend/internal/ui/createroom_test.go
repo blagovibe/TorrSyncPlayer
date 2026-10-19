@@ -30,7 +30,7 @@ func TestCreatingARoomNeedsATorrent(t *testing.T) {
 func TestTheInvitationCodeOfANewRoom(t *testing.T) {
 	invite := rtc.Invite{Community: "room-abc", Password: "secret", Key: "key-123"}
 	code := invitationFor(invite)
-	if code != "room-abc:secret:key-123" {
+	if code != "room-abc:secret:key-123:" {
 		t.Errorf("got %q", code)
 	}
 
@@ -38,7 +38,7 @@ func TestTheInvitationCodeOfANewRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a code we just built does not parse: %v", err)
 	}
-	if parsed != invite {
+	if parsed.Community != invite.Community || parsed.Password != invite.Password || parsed.Key != invite.Key {
 		t.Errorf("round trip lost something: %+v", parsed)
 	}
 }

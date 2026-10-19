@@ -95,3 +95,7 @@ desktop.ini
 # (e.g. the htorrent gateway behind idea-0023). Reference material only —
 # never part of this repository's source.
 .mxwork/
+
+# One-off diagnostics. A probe measures something and is thrown away; a check
+# that stays belongs in the suite. Run it with TORRSYNC_PROBE=1.
+frontend/internal/rtc/zz_probe_test.go

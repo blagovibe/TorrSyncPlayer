@@ -167,6 +167,11 @@ func NewNode(opts NodeOptions) (*Node, error) {
 // ID is this node's peer ID.
 func (n *Node) ID() peer.ID { return n.host.ID() }
 
+// Lifetime is the node's own context: work that must outlive the join — the
+// rendezvous behind the address — hangs off it, not off the caller's, whose
+// context dies with the join.
+func (n *Node) Lifetime() context.Context { return n.ctx }
+
 // Published reports whether this room announced itself to the rendezvous. The
 // window polls it from its own goroutine while an announce writes it, so it is
 // read under the same lock that writes it.
@@ -179,6 +184,24 @@ func (n *Node) Published() bool {
 // AddrInfo is this node's address for out-of-band exchange (tests).
 func (n *Node) AddrInfo() peer.AddrInfo {
 	return peer.AddrInfo{ID: n.host.ID(), Addrs: n.host.Addrs()}
+}
+
+// Addrs are this node's dialable addresses, each carrying its peer ID. They
+// travel in the invite code: with them the guest dials the host directly and
+// the room meets without a rendezvous — and because the peer ID is in the
+// address, the guest pins the identity it reached instead of trusting
+// whoever answered.
+func (n *Node) Addrs() []string {
+	info := n.AddrInfo()
+	p2pAddrs, err := peer.AddrInfoToP2pAddrs(&info)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(p2pAddrs))
+	for _, addr := range p2pAddrs {
+		out = append(out, addr.String())
+	}
+	return out
 }
 
 // Close leaves the swarm.

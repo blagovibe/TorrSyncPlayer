@@ -49,6 +49,10 @@ type Mesh struct {
 	dialing  map[string]struct{}
 	incoming chan incomingMessage
 	closed   chan struct{}
+	// wake asks the discovery loop to look again right now. The tick is a
+	// floor, not a schedule: a room that becomes findable in the second
+	// between two ticks must not wait out the interval.
+	wake chan struct{}
 
 	closeOnce sync.Once
 }
@@ -83,6 +87,10 @@ type MeshOptions struct {
 	// Bootstrap is DHT rendezvous as comma-separated multiaddrs with /p2p/.
 	// Empty means the public defaults.
 	Bootstrap string
+	// Addrs are the host's addresses, from the invite code. With them the
+	// room meets without a rendezvous, in seconds; without them the room can
+	// only be met through the DHT.
+	Addrs []string
 	// Relays are the owner's fallback relay candidates, same shape as
 	// Bootstrap. Empty means DHT discovery only.
 	Relays string
@@ -104,6 +112,7 @@ func NewMesh(opts MeshOptions) *Mesh {
 		dialing:  make(map[string]struct{}),
 		incoming: make(chan incomingMessage, 64),
 		closed:   make(chan struct{}),
+		wake:     make(chan struct{}, 1),
 	}
 }
 
@@ -111,12 +120,16 @@ func NewMesh(opts MeshOptions) *Mesh {
 // inbound streams and dialing discovered ones. It returns once the node is on
 // the rendezvous; the peers knowing each other takes discovery on top, so a
 // send before convergence lands nowhere — convergence is part of joining here,
-// not an afterthought in each caller. Against the public DHT that convergence
-// is measured in minutes, not seconds (see p2p.go: the wide publish is slow
-// and runs off this path), so a caller that expects an immediate roster is
-// wrong about the network, not about this function.
+// not an afterthought in each caller.
 //
-// A failed announce does not fail the join — the room is open either way, and
+// Two ways to meet, and the fast one does not wait for anything. When the
+// invite carries the host's addresses, the peer dials them directly and the
+// rendezvous comes up behind it: the DHT is the fallback for an address that
+// did not work, and the only way the node learns its own public address. When
+// the code names nobody, the rendezvous is the only way to meet, and the room
+// waits for it the way it always has — by looking again every few seconds.
+//
+// A failed rendezvous does not fail the join. The room is open either way, and
 // the node remembers whether it announced itself for the window to show.
 func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 	bootstrap, err := resolveBootstrap(m.opts.Bootstrap)
@@ -135,20 +148,8 @@ func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 	if err != nil {
 		return err
 	}
-	if err := node.Bootstrap(ctx, bootstrap); err != nil {
-		_ = node.Close()
-		return err
-	}
-	if err := node.WaitReady(ctx); err != nil {
-		_ = node.Close()
-		return err
-	}
-	// A failed announce does not stop the join. The room is open, discovery
-	// runs either way, and peers already inside are still found — refusing
-	// entry here is what turned a weak rendezvous into "could not join" with
-	// nothing to look at (bug-0121). The window shows the room as not
-	// published instead, so the state is visible rather than silently wrong.
-	_ = node.Announce(ctx)
+
+	invited, inviteErr := addrInfoFromAddrs(m.opts.Addrs)
 
 	m.mu.Lock()
 	m.node = node
@@ -158,7 +159,80 @@ func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 
 	go m.acceptLoop()
 	go m.discoverLoop()
+
+	// The node is up, and the room is open. The rendezvous is the fallback —
+	// the way a peer that has no address finds this one — and it comes up
+	// behind the join: a room whose code named its peer does not wait for a
+	// network to be ready, and one whose code named nobody waits for it the
+	// same way, by looking again every few seconds. A rendezvous that does
+	// not answer no longer refuses the entry: the room is open either way,
+	// and the window says what state the network is in (bug-0121, bug-0137).
+	go m.startRendezvous(node, bootstrap)
+
+	if inviteErr == nil {
+		// The code named the peer: the room meets by a direct dial, and
+		// without waiting for anything.
+		go m.dialInvited(node, invited)
+	}
 	return nil
+}
+
+// startRendezvous brings the fallback path up: the DHT, then the announce that
+// puts the room where a peer without an address can find it. It runs behind
+// the join, on the node's own lifetime — the caller's context dies with the
+// join, and a rendezvous that dies with it is no rendezvous at all.
+func (m *Mesh) startRendezvous(node *Node, bootstrap []peer.AddrInfo) {
+	ctx := node.Lifetime()
+	if err := node.Bootstrap(ctx, bootstrap); err != nil {
+		return
+	}
+	if err := node.WaitReady(ctx); err != nil {
+		return
+	}
+	_ = node.Announce(ctx)
+	// The room is out there now: look for the other side at once, rather than
+	// at the next tick.
+	m.wakeDiscovery()
+}
+
+// dialInvited dials the peer the invite code named. This is the primary
+// path: no rendezvous, no discovery, seconds.
+func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
+	ctx, cancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
+	defer cancel()
+	s, err := node.DialRoom(ctx, info)
+	if err != nil {
+		return
+	}
+	m.addPeer(info.ID.String(), s, m.selfID)
+}
+
+// addrInfoFromAddrs reads the peer out of the addresses the invite carried.
+// Every address names the same peer, and a code that names two is refused
+// rather than half-dialed.
+func addrInfoFromAddrs(addrs []string) (peer.AddrInfo, error) {
+	var info peer.AddrInfo
+	for _, raw := range addrs {
+		addr, err := multiaddr.NewMultiaddr(raw)
+		if err != nil {
+			return peer.AddrInfo{}, fmt.Errorf("rtc: invite address %q: %w", raw, err)
+		}
+		ai, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			return peer.AddrInfo{}, fmt.Errorf("rtc: invite address %q carries no peer id: %w", raw, err)
+		}
+		if info.ID == "" {
+			info.ID = ai.ID
+		}
+		if info.ID != ai.ID {
+			return peer.AddrInfo{}, fmt.Errorf("rtc: the invite names two different peers")
+		}
+		info.Addrs = append(info.Addrs, ai.Addrs...)
+	}
+	if info.ID == "" {
+		return peer.AddrInfo{}, fmt.Errorf("rtc: the invite carries no address")
+	}
+	return info, nil
 }
 
 // resolveBootstrap parses the bootstrap setting or falls back to the public
@@ -237,6 +311,19 @@ func (m *Mesh) SelfID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.selfID
+}
+
+// Addrs are this peer's dialable addresses, each carrying its peer ID. They
+// go into the invite code: a guest that has them dials this peer directly,
+// and the room meets without a rendezvous.
+func (m *Mesh) Addrs() []string {
+	m.mu.RLock()
+	node := m.node
+	m.mu.RUnlock()
+	if node == nil {
+		return nil
+	}
+	return node.Addrs()
 }
 
 // IsHost reports whether this peer holds the host role.
@@ -506,9 +593,21 @@ func (m *Mesh) discoverLoop() {
 			return
 		case <-ctx.Done():
 			return
+		case <-m.wake:
+			discover()
 		case <-ticker.C:
 			discover()
 		}
+	}
+}
+
+// wakeDiscovery asks the discovery loop to look again now. The room became
+// findable in the middle of an interval, and waiting out the interval is a
+// room that is ready and still says it is looking.
+func (m *Mesh) wakeDiscovery() {
+	select {
+	case m.wake <- struct{}{}:
+	default:
 	}
 }
 

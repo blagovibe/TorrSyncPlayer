@@ -60,6 +60,12 @@ func (w *window) onCreatePressed() {
 			return
 		}
 
+		// The code carries the host's addresses: that is how the guest finds
+		// this room without a rendezvous, in seconds instead of minutes. The
+		// set grows as the node learns them — its public address arrives with
+		// the rendezvous — and the window rewrites the code as they come.
+		invite.Addrs = w.meshAddrs()
+
 		// The code lands in the field the copy button reads, so the next thing
 		// a host does — send it to the people they are watching with — is one
 		// click away instead of a trip through a menu.
@@ -144,7 +150,7 @@ func torrentIDOf(t *Torrent) string {
 	return t.ID
 }
 
-// invitationFor is the line a host hands over: community:password:key.
+// invitationFor is the line a host hands over: community:password:key:addrs.
 func invitationFor(invite rtc.Invite) string {
 	return invite.Encode()
 }

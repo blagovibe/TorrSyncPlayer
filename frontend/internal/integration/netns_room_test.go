@@ -208,10 +208,21 @@ func TestNATParticipant(t *testing.T) {
 	if role == "guest" {
 		gotMagnet = make(chan rtc.Magnet, 1)
 	}
+	// The roster is the room's truth: it is who said hello and has not said
+	// bye. The mesh's peer list is a transport fact that comes and goes with
+	// the connections under it, and a participant that waits for it waits for
+	// a coincidence of timings.
+	roster := make(chan []rtc.Peer, 8)
 	room := rtc.NewRoom(mesh, mesh.SelfID(), role, role == "host", &rtc.Callbacks{
 		OnMagnet: func(m rtc.Magnet) {
 			select {
 			case gotMagnet <- m:
+			default:
+			}
+		},
+		OnRoster: func(peers []rtc.Peer) {
+			select {
+			case roster <- peers:
 			default:
 			}
 		},
@@ -226,7 +237,7 @@ func TestNATParticipant(t *testing.T) {
 	// own impatience — and the product's, which is the thing under test. The
 	// coordinator may ask for less, which is how the same machinery gets three
 	// real attempts out of one budget instead of one and two that ran out of it.
-	if !waitForMeshWithin(t, mesh, 1, wait) {
+	if !waitForRoster(t, roster, 1, wait) {
 		t.Fatalf("the room never met with no direct path open (status %+v)", mesh.ConnStatus())
 	}
 
@@ -244,6 +255,12 @@ func TestNATParticipant(t *testing.T) {
 			SelectedFile: 0,
 			Name:         "behind-nat.mkv",
 		}), "the host could not announce its film across the relay")
+
+		// The host stays until the guest has left. A host that vanishes the
+		// moment it has a peer takes the room with it: the guest is left
+		// holding a half-open stream, and the scenario measures a race
+		// between two processes rather than the room.
+		waitForRoster(t, roster, 0, 30*time.Second)
 	}
 
 	if role == "guest" {
@@ -431,16 +448,32 @@ func tcpPortOf(addrs []multiaddr.Multiaddr) (int, bool) {
 	return 0, false
 }
 
-// waitForMeshWithin is waitForMesh without the fatal, so a participant can say
-// what it knew at the moment it gave up.
-func waitForMeshWithin(t *testing.T, m interface{ Peers() []string }, want int, timeout time.Duration) bool {
+// waitForRoster waits until the room's roster holds exactly the wanted
+// number of people. The roster is who said hello and has not said bye: it is
+// the room's own account of who is watching, and unlike the transport's peer
+// list it does not empty itself when a connection blinks.
+//
+// What is already queued is dropped first: the roster fires on every change,
+// and a stale entry is not the answer.
+func waitForRoster(t *testing.T, roster <-chan []rtc.Peer, want int, timeout time.Duration) bool {
 	t.Helper()
+	for {
+		select {
+		case <-roster:
+			continue
+		default:
+		}
+		break
+	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if len(m.Peers()) >= want {
-			return true
+		select {
+		case peers := <-roster:
+			if len(peers) == want {
+				return true
+			}
+		case <-time.After(200 * time.Millisecond):
 		}
-		time.Sleep(200 * time.Millisecond)
 	}
 	return false
 }
