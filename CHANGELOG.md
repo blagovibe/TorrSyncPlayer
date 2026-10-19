@@ -207,10 +207,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it checks it instead of a path that no longer exists. The host goes first
   and waits, which used to be the bug: it finishes the moment it has a peer.
   It does not any more.
-- **What this pass did not do, and where it is written down.** The first
-  promise of the project — that playback starts before the download finishes —
-  is still held by a byte-level test alone, with no `mpv` started on a partial
-  torrent (bug-0138). The fallback path itself is still the old one, announce
+- **The project's first sentence is now a check, not a belief.** "The file
+  starts playing as soon as enough data has arrived" was true — the byte-level
+  test proves a partial torrent serves its head, and the buffer's own tests
+  prove the head is fetched first — but nobody had put a player in front of the
+  film. Now someone has: the source serves a third of a real film and stops,
+  exactly as a torrent with only its head downloaded stops, and the player must
+  play what is there. The position must move while the source is holding the
+  rest, and must go on past where it stood when the rest is finally let
+  through. Against the real mpv, in 1.8 seconds.
+  It bites: with the head withheld, the position does not move and the check
+  goes red. The player needed no change for it — mpv plays what has arrived
+  with its own defaults, and the claim was waiting for a proof, not for a fix
+  (bug-0138).
+- **What this pass did not do, and where it is written down.** The fallback path itself is still the old one, announce
   included: the no-op publish is recorded as bug-0133 and is not fixed here,
   which is what the public DHT measurements (bug-0129) and the meeting that
   sometimes does not happen (bug-0130) are about. And the measurement itself
