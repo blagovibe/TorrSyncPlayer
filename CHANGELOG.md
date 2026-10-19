@@ -244,6 +244,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with five good ones produce the card and the breach, and the comparison is
   numeric rather than alphabetical, which is the sort of thing that looks right
   and counts the wrong way.
+- **A test that failed on the machine's mood, and nothing else.** The follower
+  tests gave mpv ten seconds to open a file. On a shared runner, with the race
+  detector on and the whole module running at once, that is a coin flip — and
+  it came up heads wrong on the run that finally turned the NAT job green. The
+  budget is thirty seconds now, named in one place, and the tests still say
+  what they are waiting for. The room was not involved: the file opened on
+  every other run, including three before it and the one after.
 - **The scenario across the namespaces blamed the room for its own address.**
   The relay in that scenario listened on two ports — one per bridge — and the
   participants were each told the port of the *other* bridge. Nothing was

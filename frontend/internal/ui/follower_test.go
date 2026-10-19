@@ -68,7 +68,7 @@ func startFollowerPlayer(t *testing.T, label, media string) *player.Player {
 	socket := filepath.Join("/tmp", fmt.Sprintf("torrsync-follow-%s-%d.sock", label, os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(socket) })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), followerWait*3)
 	defer cancel()
 
 	p, err := player.Start(ctx, player.Options{
@@ -98,12 +98,12 @@ func TestTheFollowerObeysTheHostsPause(t *testing.T) {
 	p := startFollowerPlayer(t, "pause", media)
 	w := &window{mpv: p}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), followerWait*3)
 	defer cancel()
 
 	// A pause that arrives while mpv is still loading the file is lost: the
 	// load sets the play state itself. So the file has to be open first.
-	waitFor(t, 10*time.Second, "the file to be open", func() bool {
+	waitFor(t, followerWait, "the file to be open", func() bool {
 		tracks, err := p.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
@@ -111,13 +111,13 @@ func TestTheFollowerObeysTheHostsPause(t *testing.T) {
 	// The pause arrives as a room callback; the window's handler is what the
 	// room calls.
 	w.applyPause(true)
-	waitFor(t, 10*time.Second, "the player to pause", func() bool {
+	waitFor(t, followerWait, "the player to pause", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && paused
 	})
 
 	w.applyPause(false)
-	waitFor(t, 10*time.Second, "the player to play again", func() bool {
+	waitFor(t, followerWait, "the player to play again", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && !paused
 	})
@@ -136,14 +136,14 @@ func TestTheFollowerMovesTowardTheHostWithoutTeleporting(t *testing.T) {
 	p := startFollowerPlayer(t, "seek", media)
 	w := &window{mpv: p}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), followerWait*3)
 	defer cancel()
 
 	// The file has to be open before the room's commands mean anything. A
 	// pause that arrives while mpv is still loading is lost: the load sets
 	// the play state itself, and the command that came a moment earlier is
 	// overwritten by it.
-	waitFor(t, 10*time.Second, "the file to be open", func() bool {
+	waitFor(t, followerWait, "the file to be open", func() bool {
 		tracks, err := p.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
@@ -151,14 +151,14 @@ func TestTheFollowerMovesTowardTheHostWithoutTeleporting(t *testing.T) {
 	// Paused, so the position is a known number and the smoothed target is
 	// exact: from zero to a hundred, a third of the way is thirty.
 	w.applyPause(true)
-	waitFor(t, 10*time.Second, "the player to pause", func() bool {
+	waitFor(t, followerWait, "the player to pause", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && paused
 	})
 
 	w.applySeek(100)
 
-	waitFor(t, 10*time.Second, "the player to move toward the host's position", func() bool {
+	waitFor(t, followerWait, "the player to move toward the host's position", func() bool {
 		position, err := p.Position(ctx)
 		if err != nil {
 			return false
@@ -181,6 +181,14 @@ func TestTheFollowerMovesTowardTheHostWithoutTeleporting(t *testing.T) {
 // waitFor polls until the condition holds or the test gives up. The window
 // applies a room command on its own goroutine, so the effect lands when it
 // lands.
+// followerWait is how long the follower tests give mpv to do what a person
+// would see at once: open a file, pause, come back to the room's state.
+// Ten seconds was tuned on a quiet machine and turned out to be a coin flip
+// on a shared CI runner, where mpv starts cold, the whole module runs at
+// once and the race detector makes every wait longer. A test that fails on
+// the machine's mood is a test about the machine.
+const followerWait = 30 * time.Second
+
 func waitFor(t *testing.T, within time.Duration, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(within)
@@ -236,10 +244,10 @@ func TestTheFollowerComesBackToTheRoomsPlayState(t *testing.T) {
 	p := startFollowerPlayer(t, "converge", media)
 	w := &window{mpv: p}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), followerWait*3)
 	defer cancel()
 
-	waitFor(t, 10*time.Second, "the file to be open", func() bool {
+	waitFor(t, followerWait, "the file to be open", func() bool {
 		tracks, err := p.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
@@ -257,14 +265,14 @@ func TestTheFollowerComesBackToTheRoomsPlayState(t *testing.T) {
 
 	// The follower is playing, because the pause was lost while its file was
 	// loading.
-	waitFor(t, 10*time.Second, "the player to be playing", func() bool {
+	waitFor(t, followerWait, "the player to be playing", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && !paused
 	})
 
 	// And the window's convergence brings it back to the room.
 	w.convergeToRoomState(room, false, nil)
-	waitFor(t, 10*time.Second, "the player to come back to the room's state", func() bool {
+	waitFor(t, followerWait, "the player to come back to the room's state", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && paused
 	})
