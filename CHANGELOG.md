@@ -136,6 +136,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that fixed, the scenario runs in 0.23s — faster than the 0.43s it took
   before, because the room no longer waits for a network to be ready before it
   starts looking.
+- **The window stopped counting.** The connection line had a clock, a
+  threshold and three sentences about waiting: "looking for people — 0:07",
+  "the first meeting can take a couple of minutes", and, after six minutes,
+  "the room did not meet — check the network, or point the room at a rendezvous
+  of your own". All three are gone, and with them the machinery: the room's
+  open time, the clock that formatted it, the threshold and the advice about
+  pointing the room at a rendezvous of one's own — a remedy for a situation
+  the goal no longer puts a person in. The line answers four questions now, in
+  that order: is it connected, how, what about the fallback, who am I.
+  "Connecting…" is what a guest sees while it dials the address in the code;
+  "the room is open — waiting for someone to join" is what a host sees while it
+  waits for a person to paste it. The line used to say "looking for people" to
+  both, which was true of neither.
+  The one failure left is the one the application can see: the address in the
+  code did not work and the fallback is not there either. It says both, in
+  words a person can act on. And while the fallback is down — it is the way in
+  for a peer that has no address — the line says so; when it is up, it is
+  silence (bug-0137).
 - **What this pass did not do, and where it is written down.** The mesh is not
   gossiped yet: `hello` carries no addresses, so a room of three or more is a
   star — the host knows every guest, the guests know the host — and the rest

@@ -53,6 +53,8 @@ type Mesh struct {
 	// floor, not a schedule: a room that becomes findable in the second
 	// between two ticks must not wait out the interval.
 	wake chan struct{}
+	// inviteFailed says the address in the invite code did not work.
+	inviteFailed bool
 
 	closeOnce sync.Once
 }
@@ -202,6 +204,11 @@ func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
 	defer cancel()
 	s, err := node.DialRoom(ctx, info)
 	if err != nil {
+		// A failed dial is remembered: the room is then on the fallback path
+		// alone, and the window says so rather than waiting in silence.
+		m.mu.Lock()
+		m.inviteFailed = true
+		m.mu.Unlock()
 		return
 	}
 	m.addPeer(info.ID.String(), s, m.selfID)

@@ -31,7 +31,12 @@ type ConnStatus struct {
 	// means a guest who is not here yet will never be told this room
 	// exists, and a person waiting for that guest needs to know it.
 	Published bool
-	Peers     []ConnPeer
+	// InviteFailed says the address in the invite code did not work. The
+	// room is then on the fallback path alone, and if the fallback is down
+	// too, the room cannot form at all — which is the one failure a person
+	// can do something about.
+	InviteFailed bool
+	Peers        []ConnPeer
 }
 
 // DHTReady reports whether the DHT rendezvous is usable: created and with a
@@ -62,6 +67,7 @@ func (n *Node) PeerRelayed(id peer.ID) bool {
 func (m *Mesh) ConnStatus() ConnStatus {
 	m.mu.RLock()
 	node := m.node
+	inviteFailed := m.inviteFailed
 	ids := make([]string, 0, len(m.peers))
 	for id := range m.peers {
 		ids = append(ids, id)
@@ -75,6 +81,7 @@ func (m *Mesh) ConnStatus() ConnStatus {
 	st.SelfID = node.ID().String()
 	st.DHTReady = node.DHTReady()
 	st.Published = node.Published()
+	st.InviteFailed = inviteFailed
 	for _, id := range ids {
 		pid, err := peer.Decode(id)
 		if err != nil {

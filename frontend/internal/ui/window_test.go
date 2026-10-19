@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
@@ -222,15 +221,11 @@ func TestThePreparingLineReportsThePlayingDownload(t *testing.T) {
 func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
 	tr := func(key string) string { return catalog.Lookup(catalog.English, key) }
 
-	if got := connStatusText(tr, rtc.ConnStatus{}, 0); got != "" {
+	if got := connStatusText(tr, rtc.ConnStatus{}, false); got != "" {
 		t.Errorf("outside a room the block must stay blank, got %q", got)
 	}
-	waiting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: false}
-	if got, want := connStatusText(tr, waiting, 0), "Finding the room — DHT not ready yet"; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-	unannounced := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: false}
-	if got, want := connStatusText(tr, unannounced, 0), "The room is open, but it did not reach the network — guests who are not here yet will not find it"; got != want {
+	connecting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: true}
+	if got, want := connStatusText(tr, connecting, false), "Connecting…"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	ready := rtc.ConnStatus{
@@ -239,7 +234,7 @@ func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
 		Published: true,
 		Peers:     []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
 	}
-	if got, want := connStatusText(tr, ready, time.Minute), "DHT ready — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
+	if got, want := connStatusText(tr, ready, false), "Connected — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	if got := shortID("abc"); got != "abc" {
