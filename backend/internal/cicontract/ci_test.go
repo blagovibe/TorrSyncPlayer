@@ -39,7 +39,11 @@ const (
 // the directory the test happens to run in.
 func packageExists(t *testing.T, pattern string) bool {
 	t.Helper()
-	cmd := exec.Command("go", "list", pattern)
+	// #nosec G204 -- the argument is a package pattern read out of the
+	// project's own workflow file. Nothing a person can reach gets here: the
+	// test fails if the file names a package that is not there, which is the
+	// whole point.
+	cmd := exec.Command("go", "list", pattern) //nolint:gosec // G204: see above
 	cmd.Dir = moduleRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
