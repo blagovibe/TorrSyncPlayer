@@ -191,36 +191,20 @@ func (m *Mesh) startRendezvous(node *Node, bootstrap []peer.AddrInfo) {
 	if err := node.WaitReady(ctx); err != nil {
 		return
 	}
-	_ = node.Announce(ctx)
-	// The room is out there now: look for the other side at once, rather than
-	// at the next tick.
+	// The routing table is up: the peer the code named can be found by its id
+	// now, and the room's own network can grow.
 	m.wakeDiscovery()
 }
 
 // dialInvited dials the peer the invite code named. This is the primary
 // path: no rendezvous, no discovery, seconds.
+//
+// A failed dial is remembered: the room is then on the lookup by id alone,
+// and the window says so rather than waiting in silence.
 func (m *Mesh) dialInvited(node *Node, info peer.AddrInfo) {
 	ctx, cancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
 	defer cancel()
 	s, err := node.DialRoom(ctx, info)
-	if err == nil {
-		m.addPeer(info.ID.String(), s, m.selfID)
-		return
-	}
-
-	// The address did not work. The code named the peer all the same, and the
-	// DHT can find a node by its id: a routing lookup, which is a different
-	// and much steadier thing than looking for a provider record, which is
-	// where the "closest peers" of the two sides stop matching
-	// (bug-0129, bug-0133).
-	fallbackCtx, fallbackCancel := context.WithTimeout(node.Lifetime(), 30*time.Second)
-	defer fallbackCancel()
-	found, ferr := node.FindPeer(fallbackCtx, info.ID)
-	if ferr != nil {
-		m.markInviteFailed()
-		return
-	}
-	s, err = node.DialRoom(fallbackCtx, found)
 	if err != nil {
 		m.markInviteFailed()
 		return
@@ -599,61 +583,62 @@ func (m *Mesh) discoverLoop() {
 		cancel()
 	}()
 
-	// The walk runs in its own goroutine, so a slow one cannot swallow the
+	// The peer the code named. The room's way in when the address does not
+	// work: it is looked up by its id, and a routing lookup is a different and
+	// much steadier thing than a provider record, which is where the
+	// "closest peers" of the two sides stop matching (bug-0129, bug-0133).
+	invited, _ := addrInfoFromAddrs(m.opts.Addrs)
+	if invited.ID == "" {
+		// A host waits to be called: it has nobody to look up.
+		return
+	}
+
+	// The lookup runs in its own goroutine, so a slow one cannot swallow the
 	// interval: a lookup that finds nothing walks the network until it gives
-	// up, and a walk still running when the next tick came meant the next one
-	// waited behind it. Measured on a loopback testbed, two participants
-	// sometimes needed more than a minute to find each other with nothing but
-	// that delay in the way.
+	// up, and a lookup still running when the next tick came meant the next
+	// one waited behind it.
 	walking := make(chan struct{}, 1)
 	discover := func() {
 		select {
 		case walking <- struct{}{}:
 		default:
-			// A walk is still going. A second would only compete with it for
-			// the same DHT and make both slower.
+			// A lookup is still going. A second would only compete with it
+			// for the same DHT and make both slower.
 			return
 		}
 
 		go func() {
 			defer func() { <-walking }()
 
-			ch, err := node.Discover(ctx)
+			id := invited.ID.String()
+			m.mu.Lock()
+			_, known := m.peers[id]
+			_, flying := m.dialing[id]
+			if !known && !flying {
+				m.dialing[id] = struct{}{}
+			} else {
+				m.mu.Unlock()
+				return
+			}
+			m.mu.Unlock()
+
+			defer func() {
+				m.mu.Lock()
+				delete(m.dialing, id)
+				m.mu.Unlock()
+			}()
+
+			found, err := node.FindPeerWhenReady(ctx, invited.ID)
 			if err != nil {
 				return
 			}
-			for info := range ch {
-				if info.ID == node.ID() {
-					continue
-				}
-				id := info.ID.String()
-
-				m.mu.Lock()
-				_, known := m.peers[id]
-				_, flying := m.dialing[id]
-				if !known && !flying {
-					m.dialing[id] = struct{}{}
-				} else {
-					m.mu.Unlock()
-					continue
-				}
-				m.mu.Unlock()
-
-				go func(info peer.AddrInfo) {
-					defer func() {
-						m.mu.Lock()
-						delete(m.dialing, id)
-						m.mu.Unlock()
-					}()
-					dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
-					defer dialCancel()
-					s, err := node.DialRoom(dialCtx, info)
-					if err != nil {
-						return
-					}
-					m.addPeer(id, s, m.selfID)
-				}(info)
+			dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer dialCancel()
+			s, err := node.DialRoom(dialCtx, found)
+			if err != nil {
+				return
 			}
+			m.addPeer(id, s, m.selfID)
 		}()
 	}
 

@@ -60,9 +60,6 @@ func deriveAuthKey(password, key string) ([]byte, error) {
 	return sum[:], nil
 }
 
-// rendezvousKey maps a community to the DHT provider key peers announce and
-// look up. Raw codec over the SHA-256 of a namespaced community: finding the
-// key needs the community, and nothing else about the room leaks into it.
 func rendezvousKey(community string) (cid.Cid, error) {
 	if community == "" {
 		return cid.Undef, fmt.Errorf("rtc: community is empty")
@@ -96,10 +93,8 @@ type Node struct {
 	dht          *dht.IpfsDHT
 	staticRelays []peer.AddrInfo
 	authKey      []byte
-	key          cid.Cid
-	published    bool
 	// ctx lives as long as the node: work that must outlive the join — the
-	// wide publish below — cannot hang off the join's own context, which is
+	// rendezvous behind it — cannot hang off the join's own context, which is
 	// cancelled the moment Join returns.
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -119,11 +114,6 @@ func NewNode(opts NodeOptions) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, err := rendezvousKey(opts.Invite.Community)
-	if err != nil {
-		return nil, err
-	}
-
 	// The peer source closes over the node before it exists: autorelay
 	// calls it asynchronously, and a call winning the race with the
 	// assignment below must see an empty candidate set, not a nil pointer.
@@ -156,7 +146,7 @@ func NewNode(opts NodeOptions) (*Node, error) {
 	}
 	nodeCtx, nodeCancel := context.WithCancel(context.Background())
 	n = &Node{
-		host: h, staticRelays: opts.StaticRelays, authKey: authKey, key: key,
+		host: h, staticRelays: opts.StaticRelays, authKey: authKey,
 		admitted: make(chan *roomStream, 16),
 		ctx:      nodeCtx, cancel: nodeCancel,
 	}
@@ -171,15 +161,6 @@ func (n *Node) ID() peer.ID { return n.host.ID() }
 // rendezvous behind the address — hangs off it, not off the caller's, whose
 // context dies with the join.
 func (n *Node) Lifetime() context.Context { return n.ctx }
-
-// Published reports whether this room announced itself to the rendezvous. The
-// window polls it from its own goroutine while an announce writes it, so it is
-// read under the same lock that writes it.
-func (n *Node) Published() bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.published
-}
 
 // AddrInfo is this node's address for out-of-band exchange (tests).
 func (n *Node) AddrInfo() peer.AddrInfo {
@@ -458,37 +439,6 @@ func (n *Node) WaitReady(ctx context.Context) error {
 	return nil
 }
 
-// announceOnJoinBroadcast is false: the announce that runs during the join
-// writes the room's provider record to the closest peers only.
-//
-// announceWideningBroadcast is true: the follow-up publish reaches every peer
-// the DHT considers closest to the room key.
-//
-// Both are measured, not preferred. The wide form of this exact key took 2m16s
-// against the public DHT — past the 60s join budget, which is how a room
-// became impossible to enter (bug-0121). The narrow form is instant but
-// insufficient on its own: with the record on the single closest peer, a guest
-// that looked in the same period did not find the room, because "the closest
-// peers" is not one fixed set — a lookup asks the peers closest to *its own*
-// view. So the join publishes quickly and the wide publish follows off the
-// join path, where minutes cost nobody.
-const (
-	announceOnJoinBroadcast     = false
-	announceWideningBroadcast   = true
-	announceWideningRepublishes = 30 * time.Minute
-)
-
-// announceTimeout bounds the announce the join waits for, whatever budget the
-// caller handed in. A rendezvous that needs longer than this is not slow, it
-// is not there, and the join must learn that in seconds rather than in a
-// minute of silence.
-const announceTimeout = 15 * time.Second
-
-// FindPeer looks a node up in the DHT by its id. It is the fallback for an
-// address that did not work: the invite code named the peer, and a routing
-// lookup finds a node by its id — a different and much steadier thing than
-// looking for a provider record, which is where the "closest peers" of the two
-// sides stop matching (bug-0129, bug-0133).
 func (n *Node) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
 	d := n.getDHT()
 	if d == nil {
@@ -497,111 +447,14 @@ func (n *Node) FindPeer(ctx context.Context, id peer.ID) (peer.AddrInfo, error) 
 	return d.FindPeer(ctx, id)
 }
 
-// Announce publishes this node's provider record under the community key:
-// "this room is watched here". A failed announce is reported, never fatal to
-// the join: the room is already open, peers already inside are found by
-// discovery all the same, and the window shows the room as not published, so
-// nobody sits waiting for a guest who was never told.
-func (n *Node) Announce(ctx context.Context) error {
-	d := n.getDHT()
-	if d == nil {
-		return fmt.Errorf("rtc: DHT is not bootstrapped")
+// FindPeerWhenReady waits for the DHT to come up and then looks a node up by
+// its id. The DHT is the fallback's own path, and it needs a moment: the
+// rendezvous comes up behind the join, not with it.
+func (n *Node) FindPeerWhenReady(ctx context.Context, id peer.ID) (peer.AddrInfo, error) {
+	if err := n.WaitReady(ctx); err != nil {
+		return peer.AddrInfo{}, err
 	}
-	announceCtx, cancel := context.WithTimeout(ctx, announceTimeout)
-	defer cancel()
-
-	if err := d.Provide(announceCtx, n.key, announceOnJoinBroadcast); err != nil {
-		n.setPublished(false)
-		return fmt.Errorf("rtc: announce room: %w", err)
-	}
-	n.setPublished(true)
-
-	go n.widenAnnouncement()
-	return nil
-}
-
-// widenAnnouncement publishes the room to the whole closest set, off the join
-// path, and keeps doing so for as long as the node lives: a room that has
-// widened once still expires as the DHT's provider records expire, and a room
-// whose record went stale is a room a guest cannot find.
-//
-// The first widening is immediate, not deferred to the next tick. Measured
-// against the public DHT: with the room left on the closest peer alone, a
-// guest's provider lookup returned the guest's own record and the host's
-// nothing — not once in two minutes of lookups. "Closest" is not one fixed
-// set, so a room that means to be found publishes wide.
-// announceWideningRetry is how long to wait before publishing again while the
-// room is still not out there. A minute and a half: long enough that the DHT
-// is not being hammered, short enough that a room which lost the first race is
-// invisible for a minute rather than for half an hour.
-const announceWideningRetry = 90 * time.Second
-
-// announceWideningBudget bounds one wide publish. It is generous because the
-// publish is slow by nature against a large DHT — measured at two and a half
-// minutes — and it is a bound because a wedged DHT must not leak a goroutine.
-const announceWideningBudget = 5 * time.Minute
-
-// widePublishDelay is how long until the next wide publish: soon while the
-// room is still invisible, and the long refresh once it is out there.
-func widePublishDelay(published bool) time.Duration {
-	if published {
-		return announceWideningRepublishes
-	}
-	return announceWideningRetry
-}
-
-func (n *Node) widenAnnouncement() {
-	published := n.publishWide()
-
-	timer := time.NewTimer(widePublishDelay(published))
-	defer timer.Stop()
-	for {
-		select {
-		case <-n.ctx.Done():
-			return
-		case <-timer.C:
-		}
-
-		if n.publishWide() {
-			published = true
-		}
-		timer.Reset(widePublishDelay(published))
-	}
-}
-
-// publishWide puts the room in front of the peers the DHT considers closest to
-// its key, and reports whether it landed.
-//
-// Whether it landed is the whole point. A provider write against the public
-// DHT is a walk that competes with everyone else's, and against this project's
-// own key it completed once in under two minutes and twice did not land inside
-// five and a half. Treating one attempt as the answer meant a room could sit
-// invisible for half an hour; the caller now decides what to do about a false
-// answer.
-func (n *Node) publishWide() bool {
-	d := n.getDHT()
-	if d == nil {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(n.ctx, announceWideningBudget)
-	defer cancel()
-	return d.Provide(ctx, n.key, announceWideningBroadcast) == nil
-}
-
-func (n *Node) setPublished(published bool) {
-	n.mu.Lock()
-	n.published = published
-	n.mu.Unlock()
-}
-
-// Discover looks the community key up in the DHT. The channel closes when the
-// lookup ends or ctx is done; the caller picks its peers out of it.
-func (n *Node) Discover(ctx context.Context) (<-chan peer.AddrInfo, error) {
-	d := n.getDHT()
-	if d == nil {
-		return nil, fmt.Errorf("rtc: DHT is not bootstrapped")
-	}
-	return d.FindProvidersAsync(ctx, n.key, 10), nil
+	return n.FindPeer(ctx, id)
 }
 
 // DialRoom opens an admitted room stream to a discovered peer: connect,

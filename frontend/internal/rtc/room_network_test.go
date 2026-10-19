@@ -158,6 +158,7 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 
 	go hostRoom.Run(ctx)
 	go guestRoom.Run(ctx)
+	waitForTheRoomToGather(t, meshes)
 
 	// 1. The roster names who is in the room. A roster of nameless rows is
 	//    not a roster: the person reading it cannot tell who they are
@@ -225,6 +226,9 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([
 	bootstrap := addrsToStrings(t, bed.AddrInfo())
 
 	meshes := make([]*Mesh, 0, len(users))
+	// The first participant is the host: the ones that follow come by the
+	// address in the code, the way they do in the product.
+	var hostAddrs []string
 	for i, user := range users {
 		mesh := NewMesh(MeshOptions{
 			Community: inv.Community,
@@ -232,6 +236,7 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([
 			Key:       inv.Key,
 			Bootstrap: bootstrap,
 			UserID:    user,
+			Addrs:     hostAddrs,
 		})
 		if err := mesh.Join(ctx, i == 0); err != nil {
 			for _, m := range meshes {
@@ -241,6 +246,9 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([
 			t.Fatalf("participant %d did not join: %v", i, err)
 		}
 		meshes = append(meshes, mesh)
+		if i == 0 {
+			hostAddrs = mesh.Addrs()
+		}
 	}
 	t.Cleanup(func() {
 		for _, m := range meshes {
@@ -248,6 +256,15 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([
 		}
 	})
 
+	return meshes, bootstrap
+}
+
+// waitForTheRoomToGather waits until every participant knows every other one.
+// It is a separate step because the room's network grows through the address
+// book, and the address book is the room's: the rooms have to be running
+// before the guests can reach each other, not just the host.
+func waitForTheRoomToGather(t *testing.T, meshes []*Mesh) {
+	t.Helper()
 	waitFor(t, 30*time.Second, "the participants to meet", func() bool {
 		for _, m := range meshes {
 			if len(m.Peers()) < len(meshes)-1 {
@@ -256,7 +273,6 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([
 		}
 		return true
 	})
-	return meshes, bootstrap
 }
 
 // TestAHostLeavingHandsTheRoomToTheSmallestLivingID is the rule the concept
@@ -284,6 +300,7 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 	go hostRoom.Run(ctx)
 	go guestOneRoom.Run(ctx)
 	go guestTwoRoom.Run(ctx)
+	waitForTheRoomToGather(t, meshes)
 
 	// Both guests know the host before it leaves, or there is nobody to hand
 	// the role to.
@@ -366,7 +383,10 @@ func TestTheRoomRemembersThePlayStateAndTellsANewcomer(t *testing.T) {
 		Password:  testInvite().Password,
 		Key:       testInvite().Key,
 		Bootstrap: bootstrap,
-		UserID:    "late-user",
+		// The late guest comes by the address in the code, like every guest
+		// does: the room is met by a direct dial.
+		Addrs:  meshes[0].Addrs(),
+		UserID: "late-user",
 	})
 	if err := late.Join(ctx, false); err != nil {
 		t.Fatalf("the late guest did not join: %v", err)

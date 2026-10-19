@@ -224,15 +224,14 @@ func TestTheConnectionBlockReportsWhatTheNodeKnows(t *testing.T) {
 	if got := connStatusText(tr, rtc.ConnStatus{}, false); got != "" {
 		t.Errorf("outside a room the block must stay blank, got %q", got)
 	}
-	connecting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: true}
+	connecting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true}
 	if got, want := connStatusText(tr, connecting, false), "Connecting…"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	ready := rtc.ConnStatus{
-		SelfID:    "12D3KooWABCDEFGH",
-		DHTReady:  true,
-		Published: true,
-		Peers:     []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
+		SelfID:   "12D3KooWABCDEFGH",
+		DHTReady: true,
+		Peers:    []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
 	}
 	if got, want := connStatusText(tr, ready, false), "Connected — 2 peers (1 direct, 1 relayed), you 12D3KooW"; got != want {
 		t.Errorf("got %q, want %q", got, want)

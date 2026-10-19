@@ -41,7 +41,6 @@ func TestAFailureIsNotClaimedWhileTheFallbackCanStillWork(t *testing.T) {
 	stillLooking := rtc.ConnStatus{
 		SelfID:       "12D3KooWABCDEFGH",
 		DHTReady:     true,
-		Published:    true,
 		InviteFailed: true,
 	}
 
@@ -58,7 +57,6 @@ func TestAFailureIsNotClaimedWhenTheRoomIsFull(t *testing.T) {
 	met := rtc.ConnStatus{
 		SelfID:       "12D3KooWABCDEFGH",
 		DHTReady:     true,
-		Published:    true,
 		InviteFailed: true,
 		Peers:        []rtc.ConnPeer{{ID: "b"}, {ID: "c"}},
 	}

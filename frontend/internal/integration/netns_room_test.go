@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -121,21 +122,25 @@ func runNATAttempt(ctx context.Context, t *testing.T, host, guest natParticipant
 		// No testbed: the production rendezvous, the project's own seed list,
 		// exactly as a person gets it with an empty --bootstrap.
 		host.bootstrap, guest.bootstrap = "", ""
-		host.invite, guest.invite = inv, inv
-		return runParticipantPair(ctx, t, host, guest)
+	} else {
+		bedID, bedPort := startNATTestbed(t, inv)
+		host.bootstrap = p2pAddr(host.bridge, bedPort, bedID)
+		guest.bootstrap = p2pAddr(guest.bridge, bedPort, bedID)
 	}
-
-	bedID, bedPort := startNATTestbed(t, inv)
-	host.bootstrap = p2pAddr(host.bridge, bedPort, bedID)
-	guest.bootstrap = p2pAddr(guest.bridge, bedPort, bedID)
 	host.invite, guest.invite = inv, inv
 
-	// Both at once. Staggering them looks like a closer imitation of how a room
-	// forms — someone opens it, someone else walks in — and it is exactly
-	// wrong here: the host meets the guest, announces its film and finishes,
-	// while the guest is still starting up and waits three minutes for someone
-	// who has already gone. Tried, measured, reverted.
+	// The host goes first and publishes the code it would copy; the guest is
+	// given that code and dials. The staggering is not the imitation it used
+	// to be a bug of: the host no longer finishes the moment it has a peer —
+	// it waits for the room to gather and for the guest to leave — so the
+	// room is there when the guest walks in.
+	host.codeFile = filepath.Join(t.TempDir(), "invite.code")
 	hostOut, hostErr := startParticipant(ctx, host.namespace, host)
+	code, err := waitForTheHostsCode(host.codeFile)
+	if err != nil {
+		return "", "", err
+	}
+	guest.code = code
 	guestOut, guestErr := startParticipant(ctx, guest.namespace, guest)
 	hostBody, guestBody := <-hostOut, <-guestOut
 	hostDone, guestDone := <-hostErr, <-guestErr
@@ -148,24 +153,17 @@ func runNATAttempt(ctx context.Context, t *testing.T, host, guest natParticipant
 	return hostBody, guestBody, nil
 }
 
-// runParticipantPair starts both sides and waits for both to finish. A public
-// meeting can take minutes, so the participants' own wait is the window; the
-// coordinator does not add one of its own on top.
-func runParticipantPair(ctx context.Context, t *testing.T, host, guest natParticipant) (string, string, error) {
-	t.Helper()
-
-	hostOut, hostErr := startParticipant(ctx, host.namespace, host)
-	guestOut, guestErr := startParticipant(ctx, guest.namespace, guest)
-	hostBody, guestBody := <-hostOut, <-guestOut
-	hostDone, guestDone := <-hostErr, <-guestErr
-
-	if hostDone != nil || guestDone != nil {
-		return hostBody, guestBody, fmt.Errorf("a participant failed:\n%s\n%s", hostBody, guestBody)
+// waitForTheHostsCode reads the code the host published. The host is up and
+// has its addresses by then, and the code is what the guest is given.
+func waitForTheHostsCode(path string) (string, error) {
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
+			return string(raw), nil
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	if !strings.Contains(hostBody, "OK") || !strings.Contains(guestBody, "OK") {
-		return hostBody, guestBody, fmt.Errorf("a participant did not finish:\n%s\n%s", hostBody, guestBody)
-	}
-	return hostBody, guestBody, nil
+	return "", fmt.Errorf("the host never published its code")
 }
 
 // natRelayFor is the relay's address as one namespace sees it.
@@ -189,9 +187,20 @@ func TestNATParticipant(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), wait+time.Minute)
 	defer cancel()
 
-	parts := strings.Split(natFlag("-nat-invite"), ":")
-	require.Len(t, parts, 3, "the invite must be community:password:key")
-	inv := rtc.Invite{Community: parts[0], Password: parts[1], Key: parts[2]}
+	// The host is given the room's name and its secret; the guest is given
+	// the whole code, with the host's addresses in it. That is what a host
+	// copies, and it is how the guest finds the room without a rendezvous.
+	raw := natFlag("-nat-invite")
+	var inv rtc.Invite
+	if role == "host" {
+		parts := strings.Split(raw, ":")
+		require.Len(t, parts, 3, "the host's invite must be community:password:key")
+		inv = rtc.Invite{Community: parts[0], Password: parts[1], Key: parts[2]}
+	} else {
+		parsed, err := rtc.ParseInviteCode(raw)
+		require.NoError(t, err, "the guest's invite must be a whole code: %v", err)
+		inv = parsed
+	}
 
 	mesh := rtc.NewMesh(rtc.MeshOptions{
 		Bootstrap: natFlag("-nat-bootstrap"),
@@ -199,10 +208,21 @@ func TestNATParticipant(t *testing.T) {
 		Community: inv.Community,
 		Password:  inv.Password,
 		Key:       inv.Key,
+		Addrs:     inv.Addrs,
 		UserID:    role,
 	})
 	defer func() { _ = mesh.Close() }()
 	require.NoError(t, mesh.Join(ctx, role == "host"), "the participant could not join over NAT")
+
+	// The host publishes the code it would copy: the room's name, its secret
+	// and its own addresses. The guest is given that code, and dials.
+	if role == "host" {
+		inv.Addrs = mesh.Addrs()
+		if path := natFlag("-nat-code-file"); path != "" {
+			require.NoError(t, os.WriteFile(path, []byte(inv.Encode()), 0o600),
+				"the host could not publish its code")
+		}
+	}
 
 	var gotMagnet chan rtc.Magnet
 	if role == "guest" {
@@ -277,8 +297,15 @@ func TestNATParticipant(t *testing.T) {
 
 // natParticipant is one side's parameters, passed to the helper process.
 type natParticipant struct {
-	role        string
-	invite      rtc.Invite
+	role   string
+	invite rtc.Invite
+	// code is the whole invite, with the host's addresses in it. The guest is
+	// given this: it is what a host copies, and it is how a guest finds the
+	// room without a rendezvous.
+	code string
+	// codeFile is where the host publishes the code it would copy. The
+	// coordinator reads it and hands it to the guest.
+	codeFile    string
 	bootstrap   string
 	relay       string
 	expectRelay string
@@ -327,6 +354,16 @@ func waitForParticipant(t *testing.T, out <-chan string, done <-chan error, what
 
 // runParticipant runs this test binary inside a namespace and returns its
 // output.
+// inviteArg is what this participant is told about the room: the whole code
+// for a guest, the room's name and secret for a host that has to add its own
+// addresses to it.
+func (p natParticipant) inviteArg() string {
+	if p.code != "" {
+		return p.code
+	}
+	return strings.Join([]string{p.invite.Community, p.invite.Password, p.invite.Key}, ":")
+}
+
 func runParticipant(ctx context.Context, namespace string, p natParticipant) (string, error) {
 	// A participant with no role is a process that starts, skips itself and
 	// reports success — which is how this scenario spent two runs on a real
@@ -359,11 +396,12 @@ func runParticipant(ctx context.Context, namespace string, p natParticipant) (st
 		"-test.v",
 		"-test.timeout", "7m",
 		"-nat-role", p.role,
-		"-nat-invite", strings.Join([]string{p.invite.Community, p.invite.Password, p.invite.Key}, ":"),
+		"-nat-invite", p.inviteArg(),
 		"-nat-bootstrap", p.bootstrap,
 		"-nat-relay", p.relay,
 		"-nat-expect-relay", p.expectRelay,
 		"-nat-wait", p.wait.String(),
+		"-nat-code-file", p.codeFile,
 	}
 	var cmd *exec.Cmd
 	if namespace != "" && namespace != "self" {

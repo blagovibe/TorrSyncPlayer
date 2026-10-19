@@ -105,30 +105,21 @@ func TestMeshConnStatusBeforeJoinIsEmpty(t *testing.T) {
 	assert.Empty(t, st.Peers)
 }
 
-// TestMeshConnStatusSaysWhetherTheRoomAnnouncedItself pins the one piece of
-// connection state the window needs to keep a person from waiting: a room
-// that never announced itself will never be found by a guest who is not here
-// yet, and "rendezvous ready" on its own would not say so (bug-0121).
-//
-// The announcement follows the rendezvous, and the rendezvous comes up behind
-// the join: a room whose code named its peer does not wait for a network to
-// be ready. So the state is not there the instant the join returns — it is
-// there once the room has announced itself, and the window is what tells the
-// two apart.
-func TestMeshConnStatusSaysWhetherTheRoomAnnouncedItself(t *testing.T) {
+// TestMeshConnStatusSaysWhoTheRoomIs pins the one piece of connection state
+// the window needs: who this room is. The room no longer announces itself to
+// a rendezvous, so there is nothing left to publish and nothing to wait for —
+// the address in the code brought the peers, and the window's job is to say
+// who they are and how they are reached.
+func TestMeshConnStatusSaysWhoTheRoomIs(t *testing.T) {
 	inv := testInvite()
 	m := NewMesh(MeshOptions{Community: inv.Community, Password: inv.Password, Key: inv.Key})
-	assert.False(t, m.ConnStatus().Published, "a mesh that never joined has published nothing")
+	assert.Empty(t, m.ConnStatus().SelfID, "a mesh that never joined is nobody")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	host, _ := joinMesh(t, ctx, 0)
-	deadline := time.Now().Add(30 * time.Second)
-	for !host.ConnStatus().Published && time.Now().Before(deadline) {
-		time.Sleep(50 * time.Millisecond)
-	}
-	assert.True(t, host.ConnStatus().Published, "a joined room has announced itself")
+	assert.NotEmpty(t, host.ConnStatus().SelfID, "a joined room knows itself")
 }
 
 // TestMeshConnStatusListsRoomPeers pins the window's input end to end: a

@@ -93,11 +93,12 @@ func startTestbed(t *testing.T, ctx context.Context, inv Invite) *Node {
 	return bed
 }
 
-// TestNodesRendezvousOverDHT is the whole slice in one assertion: the host
-// announces, the guest discovers it through the DHT alone (the test never
-// hands the guest the host's address), the password handshake passes, and a
-// magnet travels the admitted stream.
-func TestNodesRendezvousOverDHT(t *testing.T) {
+// TestAGuestFindsTheHostByItsIDThroughTheDHT is the whole slice in one
+// assertion: the guest knows the host's id and nothing else — no address, no
+// provider record — the DHT's routing table finds it, the password handshake
+// passes, and a magnet travels the admitted stream. This is the fallback the
+// room has when the address in the code did not work.
+func TestAGuestFindsTheHostByItsIDThroughTheDHT(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -112,18 +113,10 @@ func TestNodesRendezvousOverDHT(t *testing.T) {
 	// first met a peer with no DHT yet.
 	require.NoError(t, host.WaitReady(ctx))
 	require.NoError(t, guest.WaitReady(ctx))
-	require.NoError(t, host.Announce(ctx))
 
-	found, err := guest.Discover(ctx)
-	require.NoError(t, err)
-	var hostInfo peer.AddrInfo
-	for p := range found {
-		if p.ID == host.ID() {
-			hostInfo = p
-			break
-		}
-	}
-	require.NotEmpty(t, hostInfo.ID, "the guest must discover the host through the DHT")
+	hostInfo, err := guest.FindPeerWhenReady(ctx, host.ID())
+	require.NoError(t, err, "the guest must find the host by its id")
+	require.Equal(t, host.ID(), hostInfo.ID, "the guest must find the host, not somebody else")
 
 	stream, err := guest.DialRoom(ctx, hostInfo)
 	require.NoError(t, err, "the password handshake must pass")
@@ -167,7 +160,6 @@ func TestWrongPasswordIsRejected(t *testing.T) {
 	require.NoError(t, stranger.Bootstrap(ctx, []peer.AddrInfo{bed.AddrInfo()}))
 	require.NoError(t, host.WaitReady(ctx))
 	require.NoError(t, stranger.WaitReady(ctx))
-	require.NoError(t, host.Announce(ctx))
 
 	_, err := stranger.DialRoom(ctx, host.AddrInfo())
 	assert.Error(t, err, "a stranger with the wrong password must not get a stream")

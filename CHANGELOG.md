@@ -184,6 +184,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parses, and the refusal says what it is and what to do about it: "this
   invite has no address in it: it is from an older version of the app. Ask the
   host for a new code". A silent half-meeting is worse than a clear refusal.
+- **The room no longer publishes itself to anybody.** The provider record, the
+  wide publish, the narrow announce that never left the node, the lookup by
+  provider — all of it is gone, because nothing used it: the room is met by
+  the address in the code, and the fallback finds the host by its peer id,
+  which is a routing lookup and not a search whose two sides answer
+  differently. What the DHT is for now is the routing table, the public
+  address and the relay candidates. Three cards close with the machinery they
+  lived on: the room that did not assemble over the public DHT (bug-0129), the
+  meeting that sometimes did not happen at all (bug-0130), and the announce
+  that published nothing (bug-0133). The first two closed not because a
+  failure was fixed, but because the path they lived on no longer exists —
+  which is a different thing, and the journal says so.
+  What the fallback leans on is pinned: a node that never announced anything is
+  still found by its id, and a room whose code carries a dead address still
+  meets.
+- **The scenario behind a NAT now measures what the room does.** The two
+  participants no longer meet through a rendezvous: the host publishes the
+  code it would copy, and the guest is given that code and dials — and across
+  the namespaces that address cannot be reached, so the fallback is what
+  connects them. That is the path the scenario was written to check, and now
+  it checks it instead of a path that no longer exists. The host goes first
+  and waits, which used to be the bug: it finishes the moment it has a peer.
+  It does not any more.
 - **What this pass did not do, and where it is written down.** The first
   promise of the project — that playback starts before the download finishes —
   is still held by a byte-level test alone, with no `mpv` started on a partial
@@ -195,9 +218,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code, which is the legacy rendezvous and not the fallback the room now
   uses. The series has to be re-aimed at the fallback before its numbers mean
   anything (bug-0129).
-  And with the legacy path refused, the machinery only it used — the provider
-  record, the wide publish, the provider lookup — is dead weight now, and it
-  is written down as the next slice (idea-0139). The room's own book carries
+  The public measurement now follows the room to where it actually is: two
+  participants in the public network, the host's code in the guest's hands,
+  and the minutes it costs when the host's address is not reachable. The series
+  still has to be written to `measurements/rendezvous.md` by the job, and the
+  threshold has to open a card when it is breached — that part is not done.
+  The room's own book carries
   the addresses as they were when the greeting was sent, so a peer whose public
   address arrived later is in the book with its local address only; the
   rendezvous still finds it in the end, but the mesh waits for that.

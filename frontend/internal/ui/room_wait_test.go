@@ -22,14 +22,13 @@ import (
 // TestTheLineSaysWhatIsHappening pins the three states a room can be in:
 // connecting, connected, and not connected with the cause spelled out.
 func TestTheLineSaysWhatIsHappening(t *testing.T) {
-	connecting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: true}
+	connecting := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true}
 	assert.Equal(t, "Connecting…", connStatusText(trEN, connecting, false))
 
 	connected := rtc.ConnStatus{
-		SelfID:    "12D3KooWABCDEFGH",
-		DHTReady:  true,
-		Published: true,
-		Peers:     []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
+		SelfID:   "12D3KooWABCDEFGH",
+		DHTReady: true,
+		Peers:    []rtc.ConnPeer{{ID: "a", Relayed: false}, {ID: "b", Relayed: true}},
 	}
 	assert.Equal(t, "Connected — 2 peers (1 direct, 1 relayed), you 12D3KooW",
 		connStatusText(trEN, connected, false))
@@ -44,7 +43,7 @@ func TestTheLineSaysWhatIsHappening(t *testing.T) {
 // person, and a person does not need a stopwatch to know how long they have
 // been standing there.
 func TestTheLineNeverCounts(t *testing.T) {
-	joined := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: true}
+	joined := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true}
 	got := connStatusText(trEN, joined, true)
 	assert.NotContains(t, got, "0:07")
 	assert.NotContains(t, got, "Looking for people in the room")
@@ -57,7 +56,7 @@ func TestTheLineNeverCounts(t *testing.T) {
 // someone to paste the code; a guest with an empty room is connecting. The
 // line said "looking for people" to both, which was true of neither.
 func TestTheHostWaitsForAPersonNotForTheNetwork(t *testing.T) {
-	joined := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: true}
+	joined := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true}
 	assert.Contains(t, connStatusText(trEN, joined, true), "waiting for someone to join")
 	assert.Contains(t, connStatusText(trEN, joined, false), "Connecting")
 }
@@ -71,10 +70,9 @@ func TestTheFallbackIsSaidWhenItIsDown(t *testing.T) {
 	assert.Contains(t, connStatusText(trEN, down, true), "the fallback rendezvous is not up")
 
 	up := rtc.ConnStatus{
-		SelfID:    "12D3KooWABCDEFGH",
-		DHTReady:  true,
-		Published: true,
-		Peers:     []rtc.ConnPeer{{ID: "a"}},
+		SelfID:   "12D3KooWABCDEFGH",
+		DHTReady: true,
+		Peers:    []rtc.ConnPeer{{ID: "a"}},
 	}
 	assert.NotContains(t, connStatusText(trEN, up, false), "rendezvous")
 }
@@ -84,7 +82,7 @@ func TestTheFallbackIsSaidWhenItIsDown(t *testing.T) {
 // test is there to prevent — this pins the sentence, not the key.
 func TestTheConnectionLineIsTranslated(t *testing.T) {
 	tr := func(key string) string { return catalog.Lookup(catalog.LangRussian, key) }
-	joined := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true, Published: true}
+	joined := rtc.ConnStatus{SelfID: "12D3KooWABCDEFGH", DHTReady: true}
 
 	assert.Equal(t, "Подключаемся…", connStatusText(tr, joined, false))
 	assert.Contains(t, connStatusText(tr, joined, true), "ждём, кто подключится")

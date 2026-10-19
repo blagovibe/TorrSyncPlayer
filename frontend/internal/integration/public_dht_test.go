@@ -13,14 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The same two participants, but meeting over the public DHT instead of a
+// The same two participants, but meeting over the public network instead of a
 // loopback testbed.
 //
 // This one exists because the loopback scenario cannot see the only failure
-// that matters in the product: the rendezvous. Every other scenario here puts
-// its participants on one host and they meet in half a second. Against the
-// public DHT the same two participants meet in two to three minutes — and in
-// whole stretches of time they do not meet at all inside five and a half.
+// that matters in the product: the real network. Every other scenario here puts
+// its participants on one host and they meet in a fraction of a second. Over
+// the public network the same two participants meet in seconds — when the
+// host's address is reachable — and in minutes, or not at all, when it is not
+// and the fallback has to find the host by its id.
 //
 // That is not a test to gate on. A check that goes red because someone else's
 // network is having a bad afternoon teaches everyone to ignore red, and this
@@ -47,12 +48,12 @@ func TestARoomMeetsOverThePublicDHT(t *testing.T) {
 	)
 	waited := time.Since(started).Round(time.Second)
 
-	report(t, "public DHT rendezvous", map[string]string{
+	report(t, "public network meeting", map[string]string{
 		"outcome":  outcomeOf(err),
 		"waited":   waited.String(),
-		"attempts": "three, each on a fresh testbed",
+		"attempts": "three, each on a fresh host",
 	})
-	t.Logf("public DHT rendezvous: %s after %s\n%s\n%s", outcomeOf(err), waited, hostOut, guestOut)
+	t.Logf("public network meeting: %s after %s\n%s\n%s", outcomeOf(err), waited, hostOut, guestOut)
 
 	// Nothing fails here on purpose. The line above is the product of this
 	// test; the failure mode would be a pipeline nobody can keep green, and a

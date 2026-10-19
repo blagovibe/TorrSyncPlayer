@@ -213,6 +213,11 @@ func tryJoinMesh(t *testing.T, ctx context.Context, bootstrap string, guests int
 		return nil, nil, err
 	}
 
+	// The guests come by the address in the code, the way they do in the
+	// product: the room meets by a direct dial, and the rendezvous is the
+	// fallback behind it.
+	hostAddrs := host.Addrs()
+
 	gs := make([]*Mesh, guests)
 	for i := range gs {
 		gs[i] = NewMesh(MeshOptions{
@@ -220,6 +225,7 @@ func tryJoinMesh(t *testing.T, ctx context.Context, bootstrap string, guests int
 			Password:  inv.Password,
 			Key:       inv.Key,
 			Bootstrap: bootstrap,
+			Addrs:     hostAddrs,
 		})
 		if err := gs[i].Join(ctx, false); err != nil {
 			_ = host.Close()

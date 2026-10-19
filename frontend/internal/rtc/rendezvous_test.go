@@ -20,11 +20,15 @@ import (
 // hermetically: the testbed is two loopback nodes that meet by handing over
 // an address. Everything it proved about production therefore came from
 // reading, and the room did not work: on a real network, four of the five
-// bootstrap addresses libp2p ships do not resolve, the one that does answers
-// alone, and a broadcast announce of the room key took 2m16s against a 60s
-// join budget (bug-0121). These tests pin the three rules that follow from
-// that measurement — own seeds, unreachable seeds do not stop the room, and
-// the announce asks for the closest peers only.
+// bootstrap addresses libp2p ships do not resolve, and the one that does
+// answers alone (bug-0121).
+//
+// The room no longer meets through the rendezvous — the address in the code
+// does that, and the lookup by peer id is the fallback. What the rendezvous is
+// for now is the routing table: the public address, the relay candidates, and
+// the way to find a peer whose address stopped working. These tests pin the
+// two rules that follow — own seeds, and a seed that does not answer costs
+// that seed and not the room.
 
 // TestTheProjectsOwnSeedsAreAddressesThatDial pins the first rule. The seeds
 // are the project's own, and every one of them is an address that can
@@ -109,25 +113,6 @@ func TestARoomWhoseSeedsAreAllDeadSaysTheRendezvousIsUnreachable(t *testing.T) {
 		"the error must name the rendezvous, not the dial: %v", err)
 	assert.False(t, strings.Contains(err.Error(), "connect to bootstrap peer"),
 		"the old error reported one dial, hiding that every seed failed")
-}
-
-// TestTheRoomIsAnnouncedQuicklyOnJoinAndWidenedAfterwards pins the third
-// rule, and it is a pin rather than a proof: what makes the difference is not
-// observable hermetically — on the loopback testbed every policy is instant.
-// The measurements are on the public DHT: the wide announce of this exact key
-// took 2m16s and blew past the join budget, so the join cannot wait for it;
-// and the narrow one alone was not found by a guest that looked at the same
-// time, so it cannot be the only publish either. Both halves are named and
-// watched here, where flipping either back fails instead of rotting silently.
-func TestTheRoomIsAnnouncedQuicklyOnJoinAndWidenedAfterwards(t *testing.T) {
-	assert.False(t, announceOnJoinBroadcast,
-		"the wide announce of this key took 2m16s on the public DHT — a join must not wait for it")
-	assert.True(t, announceWideningBroadcast,
-		"a record left on the closest peer alone was not found by a guest looking at the same time")
-	assert.Greater(t, announceTimeout, time.Duration(0),
-		"the announce needs its own deadline: the join budget is not its to spend")
-	assert.LessOrEqual(t, announceTimeout, 20*time.Second,
-		"an announce slower than this is a dead rendezvous, not a slow one")
 }
 
 // deadSeed is a rendezvous node that was alive and is now gone: a real peer
