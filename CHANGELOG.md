@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-10-19
+
 - **The room was assembling by an announce that publishes nothing.** The narrow
   announce on the join path was the project's answer to "how do two
   participants find each other", and it does not leave the node: in
