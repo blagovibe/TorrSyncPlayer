@@ -230,7 +230,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgl1-mesa-dev xorg-dev libxkbcommon-dev libfontconfig-dev \
-            iproute2 iptables
+            iproute2 iptables iputils-ping
 
       # The setup fails loudly on purpose. A scenario that quietly created
       # nothing and passed is the exact failure this repository keeps having to

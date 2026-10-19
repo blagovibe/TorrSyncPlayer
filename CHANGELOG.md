@@ -203,6 +203,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hardware, the report is about the commits named here, not about the version
   they shipped in (owner's decision, 2026-10-19).
 
+- **The NAT job cannot pass for the wrong reason.** Its script now requires
+  `ping` rather than treating its absence as a successful isolation check, and
+  it verifies the bridges both ways: the two sides must not reach each other,
+  and each must reach its own gateway — otherwise the scenario would be a test
+  that hangs to its timeout and then fails for a reason nobody wrote down. The
+  relayed assertion in the test is the deeper guard: if `ip netns exec` were a
+  no-op, both participants would sit on the host and meet directly, and the
+  room would be green — which is precisely what every other scenario already
+  proves, so the test can only be green with the sides genuinely apart.
+- **The README describes the application that exists.** It now says that
+  participants are named from the settings and shown as «device …» without
+  one, that the first meeting takes minutes and why, what the connection block
+  says while it waits, and what to do when a room does not assemble.
+
 ### Changed
 
 - **A fresh reconciliation, and the room turned out not to be joinable at

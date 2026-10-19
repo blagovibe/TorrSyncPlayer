@@ -34,7 +34,10 @@ need_root() {
 }
 
 require_tools() {
-  for tool in ip iptables; do
+  # ping is not decoration: the isolation check below proves the two sides
+  # cannot reach each other, and a check that passes because the tool is
+  # missing proves nothing at all.
+  for tool in ip iptables ping; do
     command -v "$tool" >/dev/null 2>&1 || {
       echo "room-nat: $tool is required and not installed" >&2
       exit 1
@@ -94,9 +97,16 @@ up() {
   iptables -A FORWARD -s "$HOST_CIDR.0/24" -d "$GUEST_CIDR.0/24" -j DROP
   iptables -A FORWARD -s "$GUEST_CIDR.0/24" -d "$HOST_CIDR.0/24" -j DROP
 
-  # Verify the claim instead of assuming it.
+  # Verify the claim instead of assuming it — both ways. A direct path between
+  # the participants would make this a test of nothing; a dead bridge would
+  # make it a test that hangs for its full timeout and then fails for a
+  # reason nobody wrote down.
   if ip netns exec "$GUEST_NS" ping -c1 -W2 "$HOST_CIDR.2" >/dev/null 2>&1; then
     echo "room-nat: the namespaces can reach each other directly — the scenario is not a NAT" >&2
+    exit 1
+  fi
+  if ! ip netns exec "$GUEST_NS" ping -c1 -W2 "$GUEST_CIDR.1" >/dev/null 2>&1; then
+    echo "room-nat: the guest namespace cannot reach its own gateway — the bridge is down" >&2
     exit 1
   fi
 

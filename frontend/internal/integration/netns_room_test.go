@@ -45,6 +45,13 @@ import (
 // able to dial directly — which is the part that has never been checked and
 // cannot be checked without exactly this.
 //
+// The relayed assertion is what makes this impossible to pass vacuously: if
+// `ip netns exec` were a no-op, both participants would sit on the host,
+// connect directly, and the room would be green — because a room on one host
+// is exactly what every other scenario here already proves. The test can only
+// go green with the two sides genuinely separated and genuinely talking
+// through a relay.
+//
 // The test skips unless the namespaces were set up on purpose:
 //
 //	sudo tests/netns/room-nat.sh up
