@@ -48,6 +48,9 @@ backend/.pact-ffi/
 # The Go frontend: the runnable pair `go run ./cmd/build` assembles.
 frontend/dist/
 
+# The measurement's own log: a run's reading, not a source file.
+frontend/rendezvous.log
+
 # Editor
 *~
 
