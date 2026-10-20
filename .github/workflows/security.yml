@@ -58,7 +58,7 @@ jobs:
       # database must not be able to fail a scan that says nothing about
       # the code.
       - name: Install govulncheck
-        run: .github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
+        run: ${{ github.workspace }}/.github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
         working-directory: backend
@@ -105,7 +105,7 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Install gosec
-        run: .github/scripts/install-go-tool.sh github.com/securego/gosec/v2/cmd/gosec@latest
+        run: ${{ github.workspace }}/.github/scripts/install-go-tool.sh github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec (backend)
         working-directory: backend

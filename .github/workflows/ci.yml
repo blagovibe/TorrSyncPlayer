@@ -32,7 +32,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run go mod tidy
         working-directory: backend
         run: go mod tidy
@@ -118,7 +118,7 @@ jobs:
       # the platform.
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh frontend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -251,7 +251,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh frontend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -356,7 +356,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run tests with race detector and coverage
         working-directory: backend
         env:
@@ -394,7 +394,7 @@ jobs:
         env:
           GOVULNCHECK_ALLOW_FAILURE: ${{ vars.GOVULNCHECK_ALLOW_FAILURE || '0' }}
         run: |
-          .github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
+          ${{ github.workspace }}/.github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
 
       - name: Upload coverage to Codecov
@@ -425,7 +425,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Build
         working-directory: backend
         run: make build
@@ -447,7 +447,7 @@ jobs:
       # attempts, because a broken stream from the proxy must not be able to
       # fail a job that says nothing about the code.
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
 
       - name: Build backend for scanning
         working-directory: backend
@@ -496,7 +496,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run Go fuzzing (backend)
         working-directory: backend
         shell: bash
@@ -562,7 +562,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Install go-mutesting
         run: |
           # Pinned: @latest now requires Go >= 1.27, but CI is on $(GO_VERSION).
@@ -572,7 +572,7 @@ jobs:
           # operation like any other: the checksum database's connection broke
           # mid-tile once, and this job went red for a reason that said
           # nothing about the code it was testing.
-          .github/scripts/install-go-tool.sh github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb
+          ${{ github.workspace }}/.github/scripts/install-go-tool.sh github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb
 
       - name: Run mutation testing (backend)
         working-directory: backend
@@ -620,7 +620,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run Pact provider verification (backend)
         working-directory: backend
         shell: bash
@@ -701,7 +701,7 @@ jobs:
 
 
       - name: Fetch the modules
-        run: .github/scripts/fetch-modules.sh backend
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Build backend
         working-directory: backend
         run: make build
