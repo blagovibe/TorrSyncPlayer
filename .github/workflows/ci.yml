@@ -125,11 +125,26 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install mpv ffmpeg
 
+      # Chocolatey's own exit code, not the exit code of the pipe it used to
+      # be written into: `choco install ... | Write-Host` makes a failed
+      # install look like a successful one, and the failure surfaces three
+      # steps later as "ffmpeg was installed but cannot be found" — which
+      # says nothing about chocolatey's error, because it was thrown away.
+      # One more attempt, because the package server does fail sometimes
+      # and the honest answer is chocolatey's own message, printed.
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install mpv ffmpeg -y --no-progress | Write-Host
+          choco install mpv ffmpeg -y --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "choco install failed with $LASTEXITCODE — trying once more"
+            choco install mpv ffmpeg -y --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "choco install failed with $LASTEXITCODE"
+              exit $LASTEXITCODE
+            }
+          }
 
       # Chocolatey does not put mpv on PATH for later steps, and the release
       # job already learned that the hard way. The directory is found and pushed
