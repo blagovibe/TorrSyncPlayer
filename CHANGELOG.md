@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-10-21
+
 - **The repository itself was defended the way the code is defended
   (idea-0140).** The release line was protected by nothing but the owner's
   memory: `main` had no protection and no rulesets, the vulnerability alerts
@@ -47,15 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves every import. The first updates are merged — x/image 0.25 → 0.41,
   grpc 1.81 → 1.83, go-chi 5.3 → 5.5, trufflehog 3.95.9 → 3.99.2 with its
   pin moved to the new commit.
-- Fresh reconciliation: the boundary was the release commit of v0.4.0; both
-  suites are green in full under the race detector, the scenario across the
-  namespaces passes locally in 0.13 seconds, and the release workflow
-  published v0.4.0 with all three artifacts and their checksums. The zone
-  turned up three things, all recorded above: the Windows install threw away
-  the failure it was supposed to report, a broken connection to the module
-  proxy could fail a job that said nothing about the code, and four
-  dependency updates had been waiting unasked. The pipeline is green in full
-  on the commit that carries them, the NAT scenario among them.
+- Fresh reconciliation: everything above was verified on the commit this
+  release is made from. Both suites are green in full under the race
+  detector, the scenario across the namespaces is green locally in 0.13
+  seconds, the pipeline is green in full, and the release workflow was
+  exercised on v0.4.0 with all three artifacts and their checksums. The zone
+  since v0.4.0 turned up three things, all recorded above: the Windows
+  install threw away the failure it was supposed to report, a broken
+  connection to the module proxy could fail a job that said nothing about the
+  code, and four dependency updates had been waiting unasked. The boundary
+  for the next session is this commit: the code after it has not been looked
+  at.
 
 ## [v0.4.0] - 2026-10-20
 
