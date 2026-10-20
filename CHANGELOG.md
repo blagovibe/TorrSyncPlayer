@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **What the series does not measure is now written down where the threshold
+  lives.** The row measures the fallback path, because the address in the code
+  is made to fail there; the direct path between two real machines on the
+  internet has never met in a measurement, since both participants of a
+  measurement share one network. Two gates hold the direct path — the hermetic
+  one and the scenario across the namespaces, where the direct path is closed
+  on purpose while the relay and the fallback work — but a gate is not a
+  measurement, and the promise that the room always assembles is checked in
+  one network so far. A second machine (a small VPS as a self-hosted runner)
+  would measure it between two networks, in a row of its own: mixing "two
+  machines on the internet" with "two machines in one network" in one series
+  would be two different measurements under one name. The owner deferred that
+  decision (2026-10-21), so for now the fallback is what is measured, and
+  the limit is written into the way next to the threshold (idea-0141).
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
