@@ -53,8 +53,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-govulncheck-
 
+      # Through the script, because installing a tool is a network
+      # operation like any other, and a broken connection to the checksum
+      # database must not be able to fail a scan that says nothing about
+      # the code.
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: .github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
         working-directory: backend
@@ -101,7 +105,7 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        run: .github/scripts/install-go-tool.sh github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec (backend)
         working-directory: backend
