@@ -50,6 +50,18 @@ const maxRelayWalks = 8
 // would wrap every connection — including the public bootstrap nodes and
 // public relays the room needs — so admission lives in the handshake, not in
 // the transport (idea-0091).
+// The auth key is a fast hash on purpose, and the reason is worth writing
+// down because the obvious reading of this function is wrong.
+//
+// There is no password to guess here. Both parts of the invite are random —
+// the password is nine characters of the alphabet, the key sixteen — and
+// nobody types them: the room hands out the invite and the guest reads it
+// back. What protects the room is that entropy, not the difficulty of the
+// hash, so a slow key-derivation function would cost every participant a
+// fraction of a second and buy nothing: there is no dictionary to try.
+//
+// CodeQL reads this as a weak password hash and says so. That is a false
+// positive here, and it is dismissed as one (2026-10-20).
 func deriveAuthKey(password, key string) ([]byte, error) {
 	if password == "" {
 		return nil, fmt.Errorf("rtc: invite password is empty")

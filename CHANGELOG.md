@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The repository itself was defended the way the code is defended
+  (idea-0140).** The release line was protected by nothing but the owner's
+  memory: `main` had no protection and no rulesets, the vulnerability alerts
+  were off, the wiki was open to every account with a GitHub login, six
+  third-party actions floated on version tags — among them the one that
+  publishes the release — and two branches from the Qt era still hung on the
+  remote. Now the gates are set rather than assumed: the vulnerability alerts
+  and Dependabot's automatic security fixes are on, and `dependabot.yml`
+  watches both Go modules and the actions; a repository rule lets only the
+  owner create a `v*` tag, so the release line is protected while `main`
+  stays exactly as pushable as it was; the third-party actions are pinned to
+  full commit SHAs; the wiki is off, because anyone can edit its pages and
+  the documentation lives in the repository; and the two stale branches are
+  gone — their content did not vanish with them, the audit reports among it
+  stay reachable by their commit SHA.
+- **The one open warning from CodeQL was not a warning at all.** It read the
+  invite's SHA-256 as a weak password hash. Both parts of the invite are
+  random — nine characters for the password, sixteen for the key — and nobody
+  types them: there is no dictionary to try, so the entropy sits in the parts
+  and not in the hash, and a slow key-derivation function would cost every
+  participant time and buy nothing. The reasoning is now written down in the
+  code, where the next reader will meet it, and the warning is dismissed as a
+  false positive.
+- The rules themselves are written down in the way: DEV.md, "Ворота
+  репозитория" (idea-0140).
+- Fresh reconciliation: the boundary was the release commit of v0.4.0; both
+  suites are green in full under the race detector, the scenario across the
+  namespaces passes locally in 0.13 seconds, and the release workflow
+  published v0.4.0 with all three artifacts and their checksums. No findings
+  inside the zone.
+
 ## [v0.4.0] - 2026-10-20
 
 - **The room was assembling by an announce that publishes nothing.** The narrow

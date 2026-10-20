@@ -34,7 +34,7 @@ jobs:
         working-directory: backend
         run: go mod tidy
 
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: "v2.14.0"
           install-mode: "binary"
@@ -78,7 +78,7 @@ jobs:
             || { echo "Swagger spec is stale. Regenerate with the command above"; exit 1; }
 
       - name: Secrets scanning
-        uses: trufflesecurity/trufflehog@v3.95.9
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
         with:
           path: .
           base: ""
@@ -125,11 +125,26 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install mpv ffmpeg
 
+      # Chocolatey's own exit code, not the exit code of the pipe it used to
+      # be written into: `choco install ... | Write-Host` makes a failed
+      # install look like a successful one, and the failure surfaces three
+      # steps later as "ffmpeg was installed but cannot be found" — which
+      # says nothing about chocolatey's error, because it was thrown away.
+      # One more attempt, because the package server does fail sometimes
+      # and the honest answer is chocolatey's own message, printed.
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install mpv ffmpeg -y --no-progress | Write-Host
+          choco install mpv ffmpeg -y --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "choco install failed with $LASTEXITCODE — trying once more"
+            choco install mpv ffmpeg -y --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "choco install failed with $LASTEXITCODE"
+              exit $LASTEXITCODE
+            }
+          }
 
       # Chocolatey does not put mpv on PATH for later steps, and the release
       # job already learned that the hard way. The directory is found and pushed
@@ -371,7 +386,7 @@ jobs:
           govulncheck ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           directory: backend
           files: coverage.out
@@ -410,7 +425,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Build backend for scanning
         working-directory: backend
@@ -432,7 +447,7 @@ jobs:
           echo "Server startup attempted, proceeding to ZAP scan..."
 
       - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.15.0
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
         with:
           target: 'https://127.0.0.1:8889'
           cmd_options: '-a -config api.addrs.hostname.empty=false -config ssl.ignore.connection.failure=true -config connection.ssl.routable.enabled=false'
