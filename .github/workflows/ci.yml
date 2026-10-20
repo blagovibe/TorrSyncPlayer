@@ -30,6 +30,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run go mod tidy
         working-directory: backend
         run: go mod tidy
@@ -113,6 +116,9 @@ jobs:
       # fixture one of them plays. Without these the suite does not skip — it
       # fails on a missing executable, which is a red job that says nothing about
       # the platform.
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh frontend
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -243,6 +249,9 @@ jobs:
           cache: true
           cache-dependency-path: frontend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh frontend
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -345,6 +354,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run tests with race detector and coverage
         working-directory: backend
         env:
@@ -411,6 +423,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Build
         working-directory: backend
         run: make build
@@ -426,6 +441,13 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      # This job builds the backend without the toolchain step the others
+      # have, so it fetches the modules itself — with the same three
+      # attempts, because a broken stream from the proxy must not be able to
+      # fail a job that says nothing about the code.
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
 
       - name: Build backend for scanning
         working-directory: backend
@@ -472,6 +494,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run Go fuzzing (backend)
         working-directory: backend
         shell: bash
@@ -535,6 +560,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Install go-mutesting
         run: |
           # Pinned: @latest now requires Go >= 1.27, but CI is on $(GO_VERSION).
@@ -585,6 +613,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run Pact provider verification (backend)
         working-directory: backend
         shell: bash
@@ -663,6 +694,9 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
 
+
+      - name: Fetch the modules
+        run: .github/scripts/fetch-modules.sh backend
       - name: Build backend
         working-directory: backend
         run: make build

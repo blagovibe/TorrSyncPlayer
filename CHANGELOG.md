@@ -30,8 +30,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   participant time and buy nothing. The reasoning is now written down in the
   code, where the next reader will meet it, and the warning is dismissed as a
   false positive.
-- The rules themselves are written down in the way: DEV.md, "Ворота
-  репозитория" (idea-0140).
+- **The rules themselves are written down in the way: DEV.md, "Ворота
+  репозитория" (idea-0140).**
+- **The Windows build dependencies threw away the answer to their own
+  failure.** `choco install ... | Write-Host` makes chocolatey's exit code
+  the pipe's, so a failed install looked like a successful one — and the
+  failure surfaced three steps later as "ffmpeg was installed but cannot be
+  found", which says nothing about chocolatey's error, because it had been
+  thrown away. The code is now read, the install is attempted a second time,
+  and the failure reported is chocolatey's own.
+- **The dependencies were behind, and now somebody watches them.** Dependabot
+  was off, so nothing said that go-chi, grpc, x/image and the actions the
+  workflows use had moved on. It is on now, with the v6 line of go-libp2p
+  excluded: that line is not newer than the v0.50 the project uses, it is the
+  same library from before it changed its module path, and "upgrading" to it
+  moves every import. The first updates are merged — x/image 0.25 → 0.41,
+  grpc 1.81 → 1.83, go-chi 5.3 → 5.5, trufflehog 3.95.9 → 3.99.2 with its
+  pin moved to the new commit.
 - Fresh reconciliation: the boundary was the release commit of v0.4.0; both
   suites are green in full under the race detector, the scenario across the
   namespaces passes locally in 0.13 seconds, and the release workflow
