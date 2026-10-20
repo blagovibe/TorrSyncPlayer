@@ -50,8 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fresh reconciliation: the boundary was the release commit of v0.4.0; both
   suites are green in full under the race detector, the scenario across the
   namespaces passes locally in 0.13 seconds, and the release workflow
-  published v0.4.0 with all three artifacts and their checksums. No findings
-  inside the zone.
+  published v0.4.0 with all three artifacts and their checksums. The zone
+  turned up three things, all recorded above: the Windows install threw away
+  the failure it was supposed to report, a broken connection to the module
+  proxy could fail a job that said nothing about the code, and four
+  dependency updates had been waiting unasked. The pipeline is green in full
+  on the commit that carries them, the NAT scenario among them.
 
 ## [v0.4.0] - 2026-10-20
 
