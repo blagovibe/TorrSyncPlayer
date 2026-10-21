@@ -59,11 +59,10 @@ func TestMpvKeepsSayingStalledWhileThePlayerIsPaused(t *testing.T) {
 	// The film runs out of data and the player says so.
 	waitForStalled(t, ctx, p)
 
-	// The room stops: the player is paused.
+	// The room stops: the player is paused. The pause is fire-and-forget, so
+	// the property changes a moment after the command is written.
 	require.NoError(t, p.Pause(ctx))
-	paused, err := p.Paused(ctx)
-	require.NoError(t, err)
-	require.True(t, paused, "the player must be paused")
+	waitForPaused(t, ctx, p, true)
 
 	time.Sleep(time.Second)
 	stalled, err := p.Stalled(ctx)
@@ -86,6 +85,20 @@ func TestMpvKeepsSayingStalledWhileThePlayerIsPaused(t *testing.T) {
 	}
 	require.False(t, stalled,
 		"the stall must clear when the data arrives, even while the player is paused: otherwise the room waits for a recovery that never comes")
+}
+
+// waitForPaused waits until the player says whether it is paused.
+func waitForPaused(t *testing.T, ctx context.Context, p *Player, want bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		paused, err := p.Paused(ctx)
+		if err == nil && paused == want {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("the player did not report paused=%v", want)
 }
 
 // waitForStalled waits until the player says it is out of data.

@@ -103,7 +103,7 @@ func TestTheFollowerObeysTheHostsPause(t *testing.T) {
 
 	// A pause that arrives while mpv is still loading the file is lost: the
 	// load sets the play state itself. So the file has to be open first.
-	waitFor(t, followerWait, "the file to be open", func() bool {
+	waitForPlayer(t, p, followerWait, "the file to be open", func() bool {
 		tracks, err := p.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
@@ -111,13 +111,13 @@ func TestTheFollowerObeysTheHostsPause(t *testing.T) {
 	// The pause arrives as a room callback; the window's handler is what the
 	// room calls.
 	w.applyPause(true)
-	waitFor(t, followerWait, "the player to pause", func() bool {
+	waitForPlayer(t, p, followerWait, "the player to pause", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && paused
 	})
 
 	w.applyPause(false)
-	waitFor(t, followerWait, "the player to play again", func() bool {
+	waitForPlayer(t, p, followerWait, "the player to play again", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && !paused
 	})
@@ -147,21 +147,21 @@ func TestTheFollowerLandsWhereTheHostIs(t *testing.T) {
 	// pause that arrives while mpv is still loading is lost: the load sets
 	// the play state itself, and the command that came a moment earlier is
 	// overwritten by it.
-	waitFor(t, followerWait, "the file to be open", func() bool {
+	waitForPlayer(t, p, followerWait, "the file to be open", func() bool {
 		tracks, err := p.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
 
 	// Paused, so the position is a known number and the target is exact.
 	w.applyPause(true)
-	waitFor(t, followerWait, "the player to pause", func() bool {
+	waitForPlayer(t, p, followerWait, "the player to pause", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && paused
 	})
 
 	w.applySeek(100)
 
-	waitFor(t, followerWait, "the player to land on the host's position", func() bool {
+	waitForPlayer(t, p, followerWait, "the player to land on the host's position", func() bool {
 		position, err := p.Position(ctx)
 		if err != nil {
 			return false
@@ -197,6 +197,27 @@ func waitFor(t *testing.T, within time.Duration, what string, cond func() bool) 
 	t.Helper()
 	deadline := time.Now().Add(within)
 	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %s waiting for %s", within, what)
+}
+
+// waitForPlayer is waitFor for a condition that needs a living player.
+//
+// A player that died is not a player that is slow: waiting out the whole
+// budget on a process that left a minute ago turns a readable failure into a
+// slow silence, and the reason — in mpv's own log — was there all along.
+func waitForPlayer(t *testing.T, p *player.Player, within time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if !p.Alive() {
+			t.Fatalf("the player died while waiting for %s: %v\nmpv said:\n%s",
+				what, p.ExitError(), p.Log())
+		}
 		if cond() {
 			return
 		}
@@ -251,7 +272,7 @@ func TestTheFollowerComesBackToTheRoomsPlayState(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), followerWait*3)
 	defer cancel()
 
-	waitFor(t, followerWait, "the file to be open", func() bool {
+	waitForPlayer(t, p, followerWait, "the file to be open", func() bool {
 		tracks, err := p.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
@@ -269,14 +290,14 @@ func TestTheFollowerComesBackToTheRoomsPlayState(t *testing.T) {
 
 	// The follower is playing, because the pause was lost while its file was
 	// loading.
-	waitFor(t, followerWait, "the player to be playing", func() bool {
+	waitForPlayer(t, p, followerWait, "the player to be playing", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && !paused
 	})
 
 	// And the window's convergence brings it back to the room.
 	w.convergeToRoomState(room, false, nil)
-	waitFor(t, followerWait, "the player to come back to the room's state", func() bool {
+	waitForPlayer(t, p, followerWait, "the player to come back to the room's state", func() bool {
 		paused, err := p.Paused(ctx)
 		return err == nil && paused
 	})

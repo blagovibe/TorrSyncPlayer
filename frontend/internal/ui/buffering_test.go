@@ -119,7 +119,7 @@ func TestTheRoomStopsForTheOneWhoIsBehind(t *testing.T) {
 	defer cancel()
 
 	// The file has to be open before the room means anything.
-	waitFor(t, followerWait, "the file to be open", func() bool {
+	waitForPlayer(t, w.mpv, followerWait, "the file to be open", func() bool {
 		tracks, err := w.mpv.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
@@ -127,7 +127,7 @@ func TestTheRoomStopsForTheOneWhoIsBehind(t *testing.T) {
 	// A guest reports that it is behind.
 	tr.feed("guest-peer", rtc.NewBuffering(true))
 
-	waitFor(t, followerWait, "the room to stop", func() bool {
+	waitForPlayer(t, w.mpv, followerWait, "the room to stop", func() bool {
 		paused, err := w.mpv.Paused(ctx)
 		return err == nil && paused
 	})
@@ -145,20 +145,20 @@ func TestTheRoomIsReleasedWhenTheOneWhoIsBehindIsBack(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), followerWait*2)
 	defer cancel()
 
-	waitFor(t, followerWait, "the file to be open", func() bool {
+	waitForPlayer(t, w.mpv, followerWait, "the file to be open", func() bool {
 		tracks, err := w.mpv.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})
 
 	tr.feed("guest-peer", rtc.NewBuffering(true))
-	waitFor(t, followerWait, "the room to stop", func() bool {
+	waitForPlayer(t, w.mpv, followerWait, "the room to stop", func() bool {
 		paused, err := w.mpv.Paused(ctx)
 		return err == nil && paused
 	})
 
 	tr.feed("guest-peer", rtc.NewBuffering(false))
 
-	waitFor(t, followerWait, "the room to play again", func() bool {
+	waitForPlayer(t, w.mpv, followerWait, "the room to play again", func() bool {
 		paused, err := w.mpv.Paused(ctx)
 		return err == nil && !paused
 	})
@@ -177,7 +177,7 @@ func TestAGuestDoesNotStopTheRoom(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), followerWait*2)
 	defer cancel()
 
-	waitFor(t, followerWait, "the file to be open", func() bool {
+	waitForPlayer(t, w.mpv, followerWait, "the file to be open", func() bool {
 		tracks, err := w.mpv.Tracks(ctx, player.TrackVideo)
 		return err == nil && len(tracks) > 0
 	})

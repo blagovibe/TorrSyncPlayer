@@ -47,12 +47,39 @@ type Player struct {
 	log  *lockedBuffer
 	dial dialer
 
+	// done is closed when the process is gone, and exitErr says how it went.
+	// A player that died is not a player that is slow, and a caller that
+	// cannot tell the two apart waits out its whole budget on a process that
+	// left minutes ago.
+	done    chan struct{}
+	exitMu  sync.Mutex
+	exitErr error
+
 	closeOnce sync.Once
 }
 
 // Log is what mpv said about itself. Kept so a failure can quote it instead of
 // leaving a reader to guess what the player was doing.
 func (p *Player) Log() string { return p.log.String() }
+
+// Alive says whether the player is still running.
+func (p *Player) Alive() bool {
+	select {
+	case <-p.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// ExitError says how the player ended, if it has ended. It is nil while the
+// player is alive, and for a player that was closed on purpose it is the
+// signal that killed it.
+func (p *Player) ExitError() error {
+	p.exitMu.Lock()
+	defer p.exitMu.Unlock()
+	return p.exitErr
+}
 
 // lockedBuffer is a concurrency-safe io.Writer for a process's output.
 type lockedBuffer struct {
@@ -114,13 +141,37 @@ func Start(ctx context.Context, opts Options, headers []string) (*Player, error)
 		return nil, fmt.Errorf("player: start %s: %w", binary, err)
 	}
 
-	p := &Player{cmd: cmd, sock: opts.SocketPath, log: output, dial: dial}
+	p := &Player{cmd: cmd, sock: opts.SocketPath, log: output, dial: dial, done: make(chan struct{})}
+	// Someone has to wait for the process, and that someone says how it
+	// ended. Without it a caller cannot tell a player that died from a player
+	// that is slow, and waits out its whole budget on a process that left
+	// minutes ago.
+	go p.watch()
+
 	if err := p.waitReady(ctx); err != nil {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		p.waitGone()
 		return nil, err
 	}
 	return p, nil
+}
+
+// watch waits for the process to end and records how it ended.
+func (p *Player) watch() {
+	err := p.cmd.Wait()
+	p.exitMu.Lock()
+	p.exitErr = err
+	p.exitMu.Unlock()
+	close(p.done)
+}
+
+// waitGone waits for the process to be gone, briefly. It is used where the
+// process is being killed on purpose and its exit says nothing.
+func (p *Player) waitGone() {
+	select {
+	case <-p.done:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // waitReady polls the IPC socket. mpv creates it a moment after launch, and
@@ -244,7 +295,9 @@ func (p *Player) Close() {
 	p.closeOnce.Do(func() {
 		if p.cmd != nil && p.cmd.Process != nil {
 			_ = p.cmd.Process.Kill()
-			_, _ = p.cmd.Process.Wait()
+			// The watcher is the one that waits for the process, so that
+			// the exit is recorded in one place and one place only.
+			p.waitGone()
 		}
 		// A killed process cannot remove its own control socket, so the
 		// socket is ours to take: without this every playback session

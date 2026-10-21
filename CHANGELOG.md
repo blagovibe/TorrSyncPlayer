@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A test could wait out its whole budget on a player that had died.**
+  On macOS the follower test that waits for the room's pause spent ninety
+  seconds waiting for a player that was already gone, and the failure said
+  only "timed out waiting for the player to pause" — while mpv's own log,
+  which the project has been keeping for exactly this reason since a track
+  test spent fifteen seconds guessing at a reason nobody could read, lay
+  right there unread.
+  The player now watches its process and says how it ended (`Alive`,
+  `ExitError`), and the tests that need a living player fail at once with
+  what mpv said. A player that died is not a player that is slow, and the
+  difference is the difference between a failure that says why and a slow
+  silence.
 - **The room never stopped for the one who was behind.** The goal says it
   plainly — "buffering is not a command but a report: the room stops, it does
   not lead" — and the way repeated it, and the code did nothing of the sort:
