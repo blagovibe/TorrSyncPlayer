@@ -50,6 +50,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not hide the stall that stopped it, and the room is released exactly
   when the data is back. In an mpv upgrade both facts can disappear, and the
   stop would become a lie.
+- **A room of two is a pair with a protocol; a room of three is a room.**
+  The application had never been exercised with more than two people in it:
+  the scenario that runs the whole flow — real backends, a real film, a real
+  swarm, a real room over real libp2p streams — was a pair. Everything the
+  room promises is decided by three or more: the mesh has to grow past the
+  star a host and one guest make, the address book has to carry the third
+  participant to the others, the host's commands have to reach everyone, a
+  report from somebody who is not the host has to travel, and the role after
+  the host leaves has to be decided among the survivors.
+  The new scenario is the host and two guests, each with its own backend and
+  its own mesh, the guests coming in by the address the code carried. It
+  checks that the guests reach *each other* — the address book is what turns a
+  star into a mesh, and that is visible in the peer list — that the film
+  reaches both and both pull real pieces out of the swarm, that the host's
+  pause reaches both, that a buffering report from a non-host reaches the
+  host and the other guest, and that after the host leaves the role goes to
+  the smallest living peer ID and both survivors name the same one.
+  It bites: with the address book switched off, the guests never find each
+  other and the scenario says so by name.
+  How many participants a room holds is still unmeasured — three is the first
+  step, and the ADR's condition about a hundred is still open.
 - **The divergence is a series now, not a number in a job log.** The measurement
   answers "did this run keep the promise", and the series answers the question
   one run cannot: is the divergence growing. The rows live in
