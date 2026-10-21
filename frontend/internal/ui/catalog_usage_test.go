@@ -88,7 +88,7 @@ func TestEveryCatalogKeyTheWindowAsksForExists(t *testing.T) {
 				return true
 			}
 			name := calledMethod(call)
-			if (name != "tr" && name != "trf") || len(call.Args) == 0 {
+			if (name != "tr" && name != "trf" && name != "trfi") || len(call.Args) == 0 {
 				return true
 			}
 

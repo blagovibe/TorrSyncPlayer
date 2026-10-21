@@ -226,6 +226,54 @@ jobs:
           CGO_ENABLED: '1'
         run: go test -v -timeout 10m ./internal/integration/...
 
+  # The room's promise — "the same moment in the same second" — is measured,
+  # not asserted by a test that checks a command arrived. This is that
+  # measurement: two real players, one real file, one real room over a real
+  # libp2p stream, and the difference between the two positions sampled every
+  # half second.
+  #
+  # It is a job of its own, not another leg of the matrix, because it is a
+  # measurement rather than a check: it takes two minutes, it says what the
+  # room does rather than whether a function returned, and the platform does
+  # not change the number — the room's logic is the same everywhere.
+  #
+  # The threshold lives in the measurement itself (steadyDivergenceLimit), so
+  # a violation makes this job red. A promise with nobody checking it is not
+  # a promise (idea-0142, idea-0146).
+  sync-measurement:
+    name: Sync Divergence Measurement
+    needs: lint-backend
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: frontend/go.sum
+
+      - name: Fetch the modules
+        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
+
+      # The same build dependencies as the other frontend jobs: Fyne builds
+      # through cgo, and the measurement drives a real mpv over its socket.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev \
+            mpv ffmpeg
+
+      - name: Measure the room's divergence
+        shell: bash
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: go test -tags measurement -v -timeout 6m -run TestTheRoomKeepsEveryoneInTheSameSecond ./internal/ui/
+
   room-across-nat:
     name: Room Across NAT
     needs: lint-backend

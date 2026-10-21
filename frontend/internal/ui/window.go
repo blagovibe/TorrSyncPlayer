@@ -683,6 +683,12 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 		OnHostChanged: func(hostPeerID string) {
 			w.showRoster()
 		},
+		OnPeerRefused: func(peerID string, theirVersion int) {
+			// A peer this build does not understand is not in the room, and
+			// the room must say so: a participant who silently did not arrive
+			// is a participant somebody is waiting for (idea-0145).
+			w.notify(w.trfi("room.refused", theirVersion))
+		},
 	}
 }
 
@@ -722,10 +728,7 @@ func (w *window) watchPlayer() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	var lastPaused *bool
-	var lastPosition float64
-	var lastStalled *bool
-	var tick uint64
+	var st watchState
 
 	for range ticker.C {
 		w.mu.RLock()
@@ -733,61 +736,76 @@ func (w *window) watchPlayer() {
 		room := w.rtcRoom
 		w.mu.RUnlock()
 		if mpv == nil {
-			lastPaused, lastPosition, lastStalled = nil, 0, nil
+			st = watchState{}
 			w.setControlsOn(false)
 			continue
 		}
 		w.setControlsOn(true)
 		w.updateControls(mpv)
-		if room == nil {
-			continue
-		}
+		w.roomTick(mpv, room, &st)
+	}
+}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		paused, pausedErr := mpv.Paused(ctx)
-		position, positionErr := mpv.Position(ctx)
-		stalled, stalledErr := mpv.Stalled(ctx)
-		cancel()
+// watchState is what the loop remembers between ticks.
+//
+// It is a struct rather than four locals so that the room's half of a tick can
+// take it: the measurement of the room's divergence drives the same decisions
+// the loop drives, and a copy of the decisions would measure a copy
+// (idea-0142).
+type watchState struct {
+	lastPaused   *bool
+	lastPosition float64
+	lastStalled  *bool
+	tick         uint64
+}
 
-		if stalledErr == nil && (lastStalled == nil || *lastStalled != stalled) {
-			lastStalled = &stalled
-			_ = room.ReportBuffering(context.Background(), stalled)
-		}
+// roomTick is what one tick does with the room: the host tells the room where
+// it is, the follower comes back to the room's play state.
+//
+// It is separate from the loop because the loop also moves widgets, and a
+// measurement of the room's divergence needs the decisions without a window.
+func (w *window) roomTick(mpv *player.Player, room *rtc.Room, st *watchState) {
+	if room == nil {
+		return
+	}
 
-		if !room.IsHost() {
-			lastPaused = boolPtr(paused, pausedErr)
-			lastPosition = positionOr(position, positionErr, lastPosition)
-			// The room decides the play state, and a follower comes back to it
-			// on the heartbeat — the same beat on which the host repeats its
-			// position. A pause that was lost (it arrived while the file was
-			// loading, and the load overwrote it) is heard again from the
-			// room's own memory, and a local pause that was meant for a moment
-			// ends when the room says the room is playing (bug-0120).
-			//
-			// The tick counts for the follower too: the heartbeat is a beat of
-			// the room, not of the host's role.
-			tick++
-			if tick%heartbeatEvery == 0 {
-				w.convergeToRoomState(room, paused, pausedErr)
-			}
-			continue
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	paused, pausedErr := mpv.Paused(ctx)
+	position, positionErr := mpv.Position(ctx)
+	stalled, stalledErr := mpv.Stalled(ctx)
+	cancel()
 
-		if pausedErr == nil && (lastPaused == nil || *lastPaused != paused) {
-			lastPaused = &paused
-			if paused {
-				_ = room.Pause(context.Background())
-			} else {
-				_ = room.Play(context.Background())
-			}
+	if stalledErr == nil && (st.lastStalled == nil || *st.lastStalled != stalled) {
+		st.lastStalled = &stalled
+		_ = room.ReportBuffering(context.Background(), stalled)
+	}
+
+	if !room.IsHost() {
+		st.lastPaused = boolPtr(paused, pausedErr)
+		st.lastPosition = positionOr(position, positionErr, st.lastPosition)
+		// The tick counts for the follower too: the heartbeat is a beat of
+		// the room, not of the host's role.
+		st.tick++
+		if st.tick%heartbeatEvery == 0 {
+			w.convergeToRoomState(room, paused, pausedErr)
 		}
-		if positionErr == nil {
-			tick++
-			if hostSeekDue(lastPosition, position, tick) {
-				_ = room.Seek(context.Background(), position)
-			}
-			lastPosition = position
+		return
+	}
+
+	if pausedErr == nil && (st.lastPaused == nil || *st.lastPaused != paused) {
+		st.lastPaused = &paused
+		if paused {
+			_ = room.Pause(context.Background())
+		} else {
+			_ = room.Play(context.Background())
 		}
+	}
+	if positionErr == nil {
+		st.tick++
+		if hostSeekDue(st.lastPosition, position, st.tick) {
+			_ = room.Seek(context.Background(), position)
+		}
+		st.lastPosition = position
 	}
 }
 
@@ -908,9 +926,13 @@ func (w *window) applyPause(paused bool) {
 	}()
 }
 
-// applySeek drives the local player to the host's raw target, smoothed against
-// this peer's own lag. Following the requested position puts this client
-// seconds ahead of everyone else, silently, because the number looks plausible.
+// applySeek drives the local player to the host's position.
+//
+// The host's position is the room's position: the follower goes where the
+// host is, and goes at once. There is no smoothing here any more, and that is
+// the decision, not an omission — a follower that eased into place was a
+// minute and a half of different content for everyone in the room after
+// every seek, and the goal says they see the same second (idea-0146).
 func (w *window) applySeek(seconds float64) {
 	w.mu.RLock()
 	mpv := w.mpv
@@ -922,11 +944,7 @@ func (w *window) applySeek(seconds float64) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		current, err := mpv.Position(ctx)
-		if err != nil {
-			current = 0
-		}
-		_ = mpv.Seek(ctx, rtc.SmoothSeek(current, seconds))
+		_ = mpv.Seek(ctx, rtc.FollowPosition(seconds))
 	}()
 }
 
@@ -1742,6 +1760,13 @@ func describeRoster(tr func(string) string, peers []rtc.Peer) []string {
 			// place that can say WHICH peer is stalled.
 			label += " — buffering"
 		}
+		if peer.Version == rtc.ProtocolVersionLegacy {
+			// A participant on the build before the version field existed. It
+			// is in the room and it works, but its rooms will not have
+			// everything this build has, and a person should know whose
+			// experience is the older one (idea-0145).
+			label += " — " + tr("room.oldVersion")
+		}
 		labels = append(labels, label)
 	}
 	return labels
@@ -1796,5 +1821,12 @@ func (w *window) tr(key string) string {
 // The verbs are part of the translation, not an afterthought: "%d torrents" and
 // "торрентов: %d" are not the same sentence rearranged.
 func (w *window) trf(key, arg string) string {
+	return fmt.Sprintf(w.tr(key), arg)
+}
+
+// trfi renders a catalogue string with one number in it. The number is a
+// version, a count or a size: things a person reads as digits in every
+// language, so the sentence around it is the part that is translated.
+func (w *window) trfi(key string, arg int) string {
 	return fmt.Sprintf(w.tr(key), arg)
 }

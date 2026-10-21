@@ -91,6 +91,8 @@ var catalog = map[string]string{
 	"room.device":      "device %s",
 	"room.buffering":   "buffering",
 	"room.defaultName": "Room",
+	"room.oldVersion":  "older version",
+	"room.refused":     "a participant speaks a newer protocol (version %d) — the room did not admit them",
 	"media.info":       "%s · %s · %s",
 	"track.none":       "None",
 
@@ -225,6 +227,8 @@ var Russian = Strings{
 	"room.device":                   "устройство %s",
 	"room.buffering":                "буферизация",
 	"room.defaultName":              "Комната",
+	"room.oldVersion":               "старая версия",
+	"room.refused":                  "участник говорит на более новом протоколе (версия %d) — комната его не приняла",
 	"media.info":                    "%s · %s · %s",
 	"track.none":                    "Нет",
 	"zone.playback":                 "Сейчас играет",

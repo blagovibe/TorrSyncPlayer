@@ -123,12 +123,16 @@ func TestTheFollowerObeysTheHostsPause(t *testing.T) {
 	})
 }
 
-// TestTheFollowerMovesTowardTheHostWithoutTeleporting is the smoothing, end
-// to end. The host's raw target is a hundred seconds away; a follower that
-// jumped there would be a hundred seconds ahead of everyone else, silently,
-// because the number looks plausible. It moves part of the way — a third —
-// and the rest arrives with the next heartbeat.
-func TestTheFollowerMovesTowardTheHostWithoutTeleporting(t *testing.T) {
+// TestTheFollowerLandsWhereTheHostIs is the follower's half of the promise,
+// end to end. The host's target is a hundred seconds away, and the follower
+// goes there — at once, and all the way.
+//
+// It used to move a third of the way and let the next heartbeat bring the
+// rest, so that a follower a minute behind crawled back for a minute and a
+// half while everyone else watched on. The goal says the people in a room see
+// the same second, and the measurement that found the old behaviour put the
+// divergence at 59.8 seconds after a seek (idea-0142, idea-0146).
+func TestTheFollowerLandsWhereTheHostIs(t *testing.T) {
 	if !mpvOnPath(t) {
 		t.Skip("no mpv on PATH")
 	}
@@ -148,8 +152,7 @@ func TestTheFollowerMovesTowardTheHostWithoutTeleporting(t *testing.T) {
 		return err == nil && len(tracks) > 0
 	})
 
-	// Paused, so the position is a known number and the smoothed target is
-	// exact: from zero to a hundred, a third of the way is thirty.
+	// Paused, so the position is a known number and the target is exact.
 	w.applyPause(true)
 	waitFor(t, followerWait, "the player to pause", func() bool {
 		paused, err := p.Paused(ctx)
@@ -158,23 +161,20 @@ func TestTheFollowerMovesTowardTheHostWithoutTeleporting(t *testing.T) {
 
 	w.applySeek(100)
 
-	waitFor(t, followerWait, "the player to move toward the host's position", func() bool {
+	waitFor(t, followerWait, "the player to land on the host's position", func() bool {
 		position, err := p.Position(ctx)
 		if err != nil {
 			return false
 		}
-		return position > 1
+		return position > 95
 	})
 
 	position, err := p.Position(ctx)
 	if err != nil {
 		t.Fatalf("read the position: %v", err)
 	}
-	if position > 45 {
-		t.Errorf("the player is at %.1fs: it followed the raw target instead of the smoothed one", position)
-	}
-	if position < 15 {
-		t.Errorf("the player is at %.1fs: it barely moved toward the host", position)
+	if position < 95 {
+		t.Errorf("the player is at %.1fs: it did not go where the host is", position)
 	}
 }
 

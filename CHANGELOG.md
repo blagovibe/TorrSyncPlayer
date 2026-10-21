@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The room's promise finally has a number, and the number was not the one the
+  goal assumed.** The goal says that the people in a room "see the same moment
+  in the same second", and nothing in the project ever measured that: the
+  tests proved that a command *arrives*, and the goal is about what a person
+  sees. The measurement now exists — two real players on one real file, one
+  real room over a real libp2p stream, the same `roomTick`, the same
+  `applySeek`, the same mpv, and the difference between the two positions
+  sampled every half second.
+  What it found is that the promise held while the room played (0.20 s of
+  divergence) and did not hold at all after a seek: the follower closed a
+  third of the gap per heartbeat and a heartbeat came every five seconds, so
+  a seek of a minute left everyone in the room on different seconds for a
+  minute and a half — 59.80 s of divergence, 74.9 s to close.
+  The cause was not a bug but a rule: the smoothing existed so that a
+  follower would not "teleport past everyone else", and it was buying a soft
+  landing at the price of the promise. The owner's decision was unambiguous
+  — "the same second" holds after a seek too (idea-0146) — so the smoothing
+  is gone: a follower goes where the host is, at once. The measurement after
+  the change: the divergence stays at **0.20 s**, and a seek of 60 s takes
+  effect in the room in **600–624 ms** (two runs). The room is now together
+  within a second, always, which is what the goal said all along.
+  The measurement lives behind the `measurement` tag — it takes two minutes
+  and has a job of its own, because it is a measurement and not a check — and
+  it is a gate: the threshold is inside it, so a violation makes the job red.
+- **The room's protocol says which version it speaks, and the difference is
+  visible instead of silent.** The protocol had no number, and its shape had
+  already changed once — the greeting gained the sender's addresses, and the
+  invite code went from three parts to four — with the only visible sign
+  being the code itself. Now the code says it: `v2:community:password:key:addrs`,
+  and the guest learns the version *before* the dial, so a code from a newer
+  build is refused with a sentence instead of a room that assembles in
+  silence. The greeting carries the version too, and there the refusal is
+  stricter: a participant that speaks a protocol this build does not know is
+  not admitted at all — not in the roster, and its magnet, its claim to the
+  host role and its commands are not the room's. A refusal sticks, and it is
+  said out loud. A participant from before the version field existed speaks a
+  subset of what this build understands, so it is admitted and marked in the
+  roster as an older version (idea-0145).
+- **The direct path between two real networks is not a task.** The
+  measurement series over the public rendezvous and the scenario across the
+  namespaces cover the promise that the room always assembles, and the
+  namespaces scenario is *harsher* than the real case: it masks both sides
+  behind one public address, and one NAT behind a shared address is harder
+  for hole punching than two. A second machine was not bought (idea-0141).
+- **A stale line in the way contradicted the ADR in the same file.** Principle
+  6 still said that rooms meet at the DHT rendezvous, which the ADR
+  superseded two revisions ago: the room assembles by the address in the
+  code, and the rendezvous is the fallback. The principle now says what the
+  ADR says.
+- Fresh reconciliation: the zone since the last record was empty and both
+  suites are green in full, and the append-only property of this journal
+  holds — every line ever removed from it was inside an unreleased draft, and
+  no released record was ever rewritten. The findings of this session are the
+  ones above and the two cards on the board. The boundary for the next
+  session is this commit: the code after it has not been looked at.
 - **What the series does not measure is now written down where the threshold
   lives.** The row measures the fallback path, because the address in the code
   is made to fail there; the direct path between two real machines on the

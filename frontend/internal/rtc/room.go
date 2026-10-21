@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -43,6 +44,11 @@ type Peer struct {
 	// Addrs are the peer's dialable addresses, as its greeting carried them.
 	// The room keeps them so the host can hand them to a newcomer.
 	Addrs []string
+	// Version is the protocol the peer speaks. A peer from before the field
+	// existed speaks the legacy one, and the roster says so: a participant
+	// on an older build is a participant whose rooms will not have
+	// everything this build has (idea-0145).
+	Version int
 }
 
 // Callbacks are the room's effects on the world. The driver decides; the
@@ -54,13 +60,18 @@ type Callbacks struct {
 	OnMagnet func(m Magnet)
 	// OnPause fires on the host's play state. Pause=false is play.
 	OnPause func(paused bool)
-	// OnSeek fires on the host's raw seek target. Smoothing is the caller's:
-	// only the follower knows its own lag (see SmoothSeek).
+	// OnSeek fires on the host's raw seek target. Where the follower actually
+	// goes is the caller's decision (see FollowPosition).
 	OnSeek func(seconds float64)
 	// OnBuffering fires when any peer reports its own stall or recovery.
 	OnBuffering func(peerID string, buffering bool)
 	// OnHostChanged fires when the host role moves, with the new host's peer ID.
 	OnHostChanged func(hostPeerID string)
+	// OnPeerRefused fires when a peer is not admitted: it speaks a protocol
+	// this build does not know. The peer is not in the room and the room
+	// does not listen to it, and the window says so rather than showing a
+	// room that mysteriously has one person fewer (idea-0145).
+	OnPeerRefused func(peerID string, theirVersion int)
 }
 
 // Room drives one room on top of a Transport.
@@ -81,6 +92,12 @@ type Room struct {
 	peers    map[string]*Peer
 	hostPeer string
 	magnet   *Magnet
+
+	// refused holds the peers this build did not admit, and the version they
+	// speak. The refusal sticks: a peer that was refused once stays refused,
+	// and the room does not take its magnet, its host claim or its commands
+	// (idea-0145).
+	refused map[string]int
 
 	// paused is the room's play state and pausedKnown says whether it is
 	// known at all. The state travels only on a change — a pause that is
@@ -103,6 +120,7 @@ func NewRoom(transport Transport, selfID, userID string, isHost bool, cb *Callba
 		userID:    userID,
 		cb:        callbacks,
 		peers:     make(map[string]*Peer),
+		refused:   make(map[string]int),
 		isHost:    isHost,
 	}
 	if isHost {
@@ -212,6 +230,13 @@ func (r *Room) AnnounceMagnet(ctx context.Context, m Magnet) error {
 }
 
 func (r *Room) handle(from string, msg any) {
+	// A peer this build refused keeps talking: the connection is open, only
+	// the room is closed to it. Everything it says after the refusal is
+	// dropped — a refused peer that can still hand the room a film or claim
+	// the host role has not been refused at all (idea-0145).
+	if _, isHello := msg.(Hello); !isHello && r.refusedPeer(from) {
+		return
+	}
 	switch m := msg.(type) {
 	case Hello:
 		r.onHello(from, m)
@@ -249,8 +274,37 @@ func (r *Room) handle(from string, msg any) {
 }
 
 func (r *Room) onHello(from string, m Hello) {
+	// The version decides whether the peer is in the room at all. A peer that
+	// speaks a protocol this build does not know may send commands this
+	// build would follow into something it does not understand, so it is not
+	// admitted — and the refusal is reported, because a room that silently
+	// has one person fewer is a room that lies (idea-0145).
+	theirVersion := m.Version
+	if theirVersion == 0 {
+		// No version in the greeting: the build before the field existed.
+		theirVersion = ProtocolVersionLegacy
+	}
+	if theirVersion > ProtocolVersion {
+		r.mu.Lock()
+		if r.refused == nil {
+			r.refused = make(map[string]int)
+		}
+		_, already := r.refused[from]
+		r.refused[from] = theirVersion
+		r.mu.Unlock()
+		if !already && r.cb.OnPeerRefused != nil {
+			r.cb.OnPeerRefused(from, theirVersion)
+		}
+		return
+	}
+	if r.refusedPeer(from) {
+		// The refusal sticks. A peer that says hello again with a smaller
+		// number does not get a second hearing.
+		return
+	}
+
 	r.mu.Lock()
-	r.peers[from] = &Peer{PeerID: from, UserID: m.UserID, Username: m.Username, IsHost: m.IsHost, Addrs: m.Addrs}
+	r.peers[from] = &Peer{PeerID: from, UserID: m.UserID, Username: m.Username, IsHost: m.IsHost, Addrs: m.Addrs, Version: theirVersion}
 	if m.IsHost {
 		r.hostPeer = from
 	}
@@ -286,6 +340,15 @@ func (r *Room) onHello(from string, m Hello) {
 			_ = r.transport.Send(ctx, NewPeers(book))
 		}
 	}
+}
+
+// refusedPeer reports whether this peer was refused, and it is how the room
+// keeps a refusal from being a suggestion.
+func (r *Room) refusedPeer(peerID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, refused := r.refused[peerID]
+	return refused
 }
 
 // addressBook is where the room's members can be reached. It goes to
@@ -452,30 +515,24 @@ func (r *Room) emitHostChanged(hostPeerID string) {
 // MaxSeekDrift is the biggest position change between two polls that still
 // counts as drift rather than a seek. The host's broadcast loop polls twice a
 // second, so drift is half a second; anything past this is a seek someone made
-// and travels the room. It matches the smoothing boundary on purpose: a jump
-// the follower would take whole is not worth announcing either.
+// and travels the room at once.
 const MaxSeekDrift = 2.0
 
-// SmoothSeek is where a follower actually goes after a seek.
+// FollowPosition is where a follower goes after the host's command.
 //
-// The host sends the raw target; the follower moves the whole way for small
-// jumps and partway for big ones, so a lagging follower does not teleport past
-// everyone else. The numbers are the server's old ones (2 seconds, 30%),
-// kept because the perceived behavior is already tuned to them, not because
-// the server that computed them still exists.
-func SmoothSeek(current, requested float64) float64 {
-	diff := requested - current
-	if diff < 0 {
-		diff = -diff
-	}
-	if diff <= MaxSeekDrift {
-		return requested
-	}
-	return current + (requested-current)*smoothRatio
+// The host's position is the room's position: the goal says the people in the
+// room see the same second, and a second is a second. The follower therefore
+// takes the host's position as it is.
+//
+// There used to be a smoothing here: a third of the gap per heartbeat, so a
+// follower that was a minute behind crawled back for a minute and a half while
+// everyone else watched on. The measurement that found it (idea-0142) put the
+// number at 59.8 seconds of divergence and 74.9 seconds to close — the goal's
+// promise, false for everyone in the room after every seek. A soft landing
+// bought at that price is not a landing, it is a different film (idea-0146).
+func FollowPosition(requested float64) float64 {
+	return requested
 }
-
-// smoothRatio is how far a smoothed jump moves: partway, not teleporting.
-const smoothRatio = 0.3
 
 // Invite is a room's address: the community to join and the password and key
 // pair that admits, plus the addresses the host can be reached at. The host
@@ -491,19 +548,39 @@ type Invite struct {
 	// means the code says no way to reach the host, and the room can only
 	// meet through the rendezvous.
 	Addrs []string
+	// Version is the protocol the host speaks. The code carries it so the
+	// guest knows before the dial whether the room on the other end is one it
+	// can talk to (idea-0145).
+	Version int
 }
 
-// Encode renders the invite as community:password:key:addrs. The addresses
-// are comma-separated; each carries the host's peer ID, so the code says not
-// only where to go but to whom.
+// Encode renders the invite as v2:community:password:key:addrs. The version
+// comes first because everything after it is fixed-shape, and a guest that
+// does not know the version must be able to see it without parsing the rest.
+//
+// The addresses are comma-separated; each carries the host's peer ID, so the
+// code says not only where to go but to whom.
 func (in Invite) Encode() string {
-	return in.Community + ":" + in.Password + ":" + in.Key + ":" + strings.Join(in.Addrs, ",")
+	body := in.Community + ":" + in.Password + ":" + in.Key + ":" + strings.Join(in.Addrs, ",")
+	if in.Version > 0 {
+		return "v" + strconv.Itoa(in.Version) + ":" + body
+	}
+	return body
 }
 
-// ParseInviteCode parses community:password:key:addrs. The first three parts
-// are separated by colons and contain none, so the split is by the first
-// three colons and the rest — which is where the addresses live, colons and
-// all — stays in one piece.
+// ParseInviteCode parses v2:community:password:key:addrs, and the older
+// community:password:key:addrs without a version in front of it.
+//
+// The first three parts are separated by colons and contain none, so the split
+// is by the first three colons and the rest — which is where the addresses
+// live, colons and all — stays in one piece.
+//
+// A code without a version is a code from the build before the field existed.
+// It still opens a room: the old shape is a subset of the new one, and the
+// guest that reads it knows it is talking to an older build.
+//
+// A code that names a version this build does not know is refused before the
+// dial, and the person pasting it is told what is wrong.
 //
 // The addresses are not optional. A code without them is a code from an older
 // build, and a room met through the rendezvous is a room that assembles in
@@ -511,7 +588,25 @@ func (in Invite) Encode() string {
 // was put there to stop. Such a code is refused, and the person pasting it is
 // told what to do about it.
 func ParseInviteCode(code string) (Invite, error) {
-	parts := strings.SplitN(code, ":", 4)
+	code = strings.TrimSpace(code)
+	version := ProtocolVersionLegacy
+	body := code
+
+	// The prefix is only a version if what follows it is still a four-part
+	// code. A community that happens to look like "v2" — the generator makes
+	// nine random characters, so it can — must not be mistaken for one.
+	if v, rest, ok := splitVersionPrefix(code); ok {
+		if parts := strings.SplitN(rest, ":", 4); len(parts) == 4 {
+			version = v
+			body = rest
+		}
+	}
+
+	if version > ProtocolVersion {
+		return Invite{}, fmt.Errorf("rtc: this invite is from a newer version of the app (protocol %d, this build speaks %d): ask the host for a code from this build", version, ProtocolVersion)
+	}
+
+	parts := strings.SplitN(body, ":", 4)
 	if len(parts) < 4 {
 		return Invite{}, fmt.Errorf("rtc: this invite has no address in it: it is from an older version of the app. Ask the host for a new code")
 	}
@@ -520,7 +615,7 @@ func ParseInviteCode(code string) (Invite, error) {
 			return Invite{}, fmt.Errorf("rtc: an invite part is empty")
 		}
 	}
-	invite := Invite{Community: parts[0], Password: parts[1], Key: parts[2]}
+	invite := Invite{Community: parts[0], Password: parts[1], Key: parts[2], Version: version}
 	for _, raw := range strings.Split(parts[3], ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -537,6 +632,28 @@ func ParseInviteCode(code string) (Invite, error) {
 	return invite, nil
 }
 
+// splitVersionPrefix reads a leading "vN:" as a protocol version.
+func splitVersionPrefix(code string) (int, string, bool) {
+	rest, ok := strings.CutPrefix(code, "v")
+	if !ok {
+		return 0, "", false
+	}
+	digits, tail, ok := strings.Cut(rest, ":")
+	if !ok || digits == "" {
+		return 0, "", false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return 0, "", false
+		}
+	}
+	version, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0, "", false
+	}
+	return version, tail, true
+}
+
 // GenerateInvite makes a fresh room address. Short random strings from an
 // alphabet without colons, so every generated code parses back.
 func GenerateInvite() Invite {
@@ -544,6 +661,7 @@ func GenerateInvite() Invite {
 		Community: randomPart(9),
 		Password:  randomPart(9),
 		Key:       randomPart(16),
+		Version:   ProtocolVersion,
 	}
 }
 

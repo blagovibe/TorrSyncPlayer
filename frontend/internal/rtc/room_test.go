@@ -277,19 +277,19 @@ func TestTakeoverAnnouncementFromAStrangerIsIgnored(t *testing.T) {
 	}
 }
 
-// TestSeekSmoothingStaysWithTheFollower pins where the numbers come from: the
-// host sends raw positions, and the follower decides where to actually go. A
-// small jump lands as asked; a big one moves partway, so a lagging follower
-// does not teleport past everyone else.
-func TestSeekSmoothingStaysWithTheFollower(t *testing.T) {
-	if got := SmoothSeek(100, 101); got != 101 {
-		t.Errorf("a 1s jump smoothed to %v, want it as asked", got)
+// TestTheFollowerGoesWhereTheHostIs pins where the numbers come from: the host
+// sends raw positions, and the follower goes where the host is, at once.
+//
+// There used to be a smoothing here — a third of the gap per heartbeat — and
+// it bought a soft landing at the price of the goal's promise: a follower a
+// minute behind crawled back for a minute and a half while everyone else
+// watched on. The measurement found it, and the promise won (idea-0146).
+func TestTheFollowerGoesWhereTheHostIs(t *testing.T) {
+	if got := FollowPosition(101); got != 101 {
+		t.Errorf("the follower went to %v, want the host's position", got)
 	}
-	if got := SmoothSeek(100, 200); got != 100+(200-100)*0.3 {
-		t.Errorf("a 100s jump smoothed to %v, want 30%% of the way", got)
-	}
-	if got := SmoothSeek(100, 102); got != 102 {
-		t.Errorf("exactly the 2s boundary smoothed to %v, want it as asked", got)
+	if got := FollowPosition(200); got != 200 {
+		t.Errorf("a jump of a minute smoothed to %v, want it taken whole", got)
 	}
 }
 

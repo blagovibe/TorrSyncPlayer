@@ -34,6 +34,27 @@ const (
 	TypePeers     = "peers"
 )
 
+// The room protocol's version.
+//
+// It exists because the protocol's shape has already changed once — the
+// greeting gained the sender's addresses, and the invite code went from three
+// parts to four — and a difference nobody can name is a difference nobody can
+// act on. The number says which shape a peer speaks, so a room can refuse a
+// peer it would not understand and say why.
+//
+// It is not semver and it is not a negotiation: a peer says what it speaks,
+// and a peer that speaks more than this build knows is not admitted.
+const (
+	// ProtocolVersion is the protocol this build speaks.
+	ProtocolVersion = 2
+
+	// ProtocolVersionLegacy is the protocol before the version existed. A
+	// peer whose greeting has no version field speaks this one: its messages
+	// are a subset of what this build understands, so the room admits it and
+	// marks it.
+	ProtocolVersionLegacy = 1
+)
+
 // Envelope is the one field every message carries, so a follower can route
 // before it parses.
 type Envelope struct {
@@ -109,6 +130,10 @@ type Hello struct {
 	// the others are reaches them without a rendezvous, and the mesh stays a
 	// mesh instead of a star (idea-0131, bug-0136).
 	Addrs []string `json:"addrs,omitempty"`
+	// Version is the protocol the sender speaks. A peer from before the
+	// field existed does not fill it in, and that absence means the legacy
+	// version — not an unknown one (idea-0145).
+	Version int `json:"version,omitempty"`
 }
 
 // PeerAddr is one entry of the address book: who this is and where to reach
@@ -132,6 +157,10 @@ func NewPeers(peers []PeerAddr) Peers {
 }
 
 // NewHello wraps a presence announcement for the wire.
+//
+// The version is filled in here rather than by the caller: a greeting that
+// forgot it would look like a greeting from before the field existed, and the
+// room would treat this build as old.
 func NewHello(peerID, userID, username string, isHost bool, addrs []string) Hello {
 	return Hello{
 		Envelope: Envelope{Type: TypeHello},
@@ -140,6 +169,7 @@ func NewHello(peerID, userID, username string, isHost bool, addrs []string) Hell
 		Username: username,
 		IsHost:   isHost,
 		Addrs:    addrs,
+		Version:  ProtocolVersion,
 	}
 }
 
