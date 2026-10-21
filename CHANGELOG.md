@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The room never stopped for the one who was behind.** The goal says it
+  plainly — "buffering is not a command but a report: the room stops, it does
+  not lead" — and the way repeated it, and the code did nothing of the sort:
+  the report travelled, the room recorded it, the roster showed "— buffering",
+  and playback carried on. The path that should have stopped the room ended
+  at the third step, where the window's buffering callback updated the roster
+  and stopped there. Nobody noticed, because the test on buffering checked
+  that the report *arrived* and not that the room acted on it.
+  Now the host stops the room: it hears a guest's report (or sees its own
+  stall), stops its own playback, and its loop mirrors that into the room, and
+  every follower obeys. The room is let go when nobody is behind any more.
+  The report is still not a command — a guest that hears it does nothing,
+  because the room's play state is the host's — and a pause the user made by
+  hand is never taken away by the room's own business.
+  The design rests on a fact about mpv that was not obvious and is now pinned
+  by a test: mpv keeps saying "stalled" **while the player is paused**, and
+  clears it when the data arrives, even while paused. So stopping the room
+  does not hide the stall that stopped it, and the room is released exactly
+  when the data is back. In an mpv upgrade both facts can disappear, and the
+  stop would become a lie.
 - **The divergence is a series now, not a number in a job log.** The measurement
   answers "did this run keep the promise", and the series answers the question
   one run cannot: is the divergence growing. The rows live in

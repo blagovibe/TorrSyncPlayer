@@ -165,6 +165,26 @@ func (r *Room) rememberPause(paused bool) {
 	r.mu.Unlock()
 }
 
+// AnyoneBuffering says whether any member of the room has run out of data.
+//
+// It is the fact the host needs to stop the room for the one who is behind:
+// the goal says the room stops when someone buffers, and the report is not a
+// command — so the host reads the roster and decides, and only the host
+// decides.
+//
+// The local peer is not in the roster: a peer does not hear its own report,
+// and the host keeps its own stall beside itself.
+func (r *Room) AnyoneBuffering() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.peers {
+		if p.Buffering {
+			return true
+		}
+	}
+	return false
+}
+
 // Peers returns the roster as the room currently sees it.
 func (r *Room) Peers() []Peer {
 	r.mu.RLock()

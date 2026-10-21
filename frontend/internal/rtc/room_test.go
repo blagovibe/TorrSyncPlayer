@@ -25,6 +25,9 @@ type fakeTransport struct {
 	incoming chan incomingMessage
 	closed   bool
 	dialed   []PeerAddr
+	// sent keeps what the room sent, so a test can ask what the room said
+	// and not only what it heard.
+	sent []any
 }
 
 func newFakeTransport(self string, peers ...string) *fakeTransport {
@@ -36,7 +39,17 @@ func newFakeTransport(self string, peers ...string) *fakeTransport {
 }
 
 func (f *fakeTransport) Send(_ context.Context, msg any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, msg)
 	return nil
+}
+
+// sentMessages returns what the room sent, oldest first.
+func (f *fakeTransport) sentMessages() []any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]any(nil), f.sent...)
 }
 
 func (f *fakeTransport) Next(ctx context.Context) (string, any, bool) {

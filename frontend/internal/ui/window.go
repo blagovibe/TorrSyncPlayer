@@ -113,6 +113,22 @@ type window struct {
 	// selfPeerID is this window's mesh peer id, set on join. Roster notices
 	// skip it: my own arrival is answered by the room opening.
 	selfPeerID string
+
+	// myStalled says that THIS peer's own stream ran out of data. It is not
+	// in the room's roster — a peer does not hear its own report — so the
+	// host keeps it here.
+	myStalled bool
+	// roomStopped says that the room is stopped because someone is
+	// buffering. It is the host's decision and nobody else's, and it is what
+	// tells the release from the user's own pause: a room stopped for
+	// buffering is released when the buffering is over, and a room the user
+	// paused is not.
+	roomStopped bool
+	// pausedForBuffering says that this peer is the one who paused the
+	// player, and may therefore release it. It is false when the player was
+	// already paused — the user had paused it — so that the user's pause is
+	// never taken away by the room's own business.
+	pausedForBuffering bool
 	// lastRoster is the previous roster by peer id. OnRoster hands the whole
 	// roster every time, so the window diffs it itself to notice arrivals
 	// and departures. Reset on leave: the next join baselines again.
@@ -679,6 +695,9 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 		},
 		OnBuffering: func(peerID string, buffering bool) {
 			w.showRoster()
+			// The report is not a command, but the room stops for the one who
+			// is behind — and the host is the one who stops it.
+			w.syncTheRoomStop()
 		},
 		OnHostChanged: func(hostPeerID string) {
 			w.showRoster()
@@ -777,7 +796,15 @@ func (w *window) roomTick(mpv *player.Player, room *rtc.Room, st *watchState) {
 
 	if stalledErr == nil && (st.lastStalled == nil || *st.lastStalled != stalled) {
 		st.lastStalled = &stalled
+		// The host's own stall is not in the room's roster: a peer does not
+		// hear its own report. The host keeps it, because the room stops for
+		// the host as well as for the guests.
+		w.mu.Lock()
+		w.myStalled = stalled
+		w.mu.Unlock()
 		_ = room.ReportBuffering(context.Background(), stalled)
+		// And the room may have to stop for it.
+		w.syncTheRoomStop()
 	}
 
 	if !room.IsHost() {
@@ -876,7 +903,111 @@ func (w *window) convergeToRoomState(room *rtc.Room, paused bool, pausedErr erro
 	}()
 }
 
-// showRoster renders the membership line.
+// syncTheRoomStop stops the room for the one who is behind, and releases it
+// when the buffering is over.
+//
+// The goal says it plainly: "Buffering is not a command but a report: the
+// room stops, it does not lead." The report travels from anyone — the host
+// and the guests alike — and the host is the one who decides what the room
+// does with it, because the host owns the room's play state and nobody else
+// is obeyed. So a guest that runs out of data does not command the room: it
+// reports, and the host stops the room for it.
+//
+// The host's own stall counts the same way. It is not in the roster — a peer
+// does not hear its own report — so the host keeps it beside itself.
+//
+// mpv keeps saying "stalled" while the player is paused, so stopping the room
+// does not hide the stall that stopped it, and the room is released exactly
+// when the data is back.
+//
+// Only the host acts. A guest that hears the same report does nothing with
+// it: the room's play state is the host's, and a guest that paused itself
+// would be a guest that steers the room — which is exactly what a report is
+// not.
+func (w *window) syncTheRoomStop() {
+	w.mu.RLock()
+	room := w.rtcRoom
+	stopped := w.roomStopped
+	owned := w.pausedForBuffering
+	ownStall := w.myStalled
+	w.mu.RUnlock()
+
+	if room == nil || !room.IsHost() {
+		return
+	}
+
+	// The room waits for whoever is behind: a peer in the roster, or this
+	// peer itself.
+	waiting := room.AnyoneBuffering() || ownStall
+	if waiting == stopped {
+		return
+	}
+
+	w.mu.Lock()
+	w.roomStopped = waiting
+	w.mu.Unlock()
+
+	if waiting {
+		w.pauseTheRoom()
+		return
+	}
+	if owned {
+		w.resumeTheRoom()
+	}
+}
+
+// pauseTheRoom stops the playback for everyone.
+//
+// The player's own state change is what the room hears: the host's loop
+// mirrors the player's play state into the room, and that is the message
+// every follower obeys.
+func (w *window) pauseTheRoom() {
+	w.mu.RLock()
+	mpv := w.mpv
+	w.mu.RUnlock()
+	if mpv == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	paused, err := mpv.Paused(ctx)
+	if err != nil {
+		return
+	}
+	if paused {
+		// The user had paused it already. The room is stopped, but this
+		// pause is not ours to take away later.
+		w.mu.Lock()
+		w.pausedForBuffering = false
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Lock()
+	w.pausedForBuffering = true
+	w.mu.Unlock()
+	_ = mpv.Pause(ctx)
+}
+
+// resumeTheRoom lets the room play again, when the one who was behind is
+// back.
+func (w *window) resumeTheRoom() {
+	w.mu.RLock()
+	mpv := w.mpv
+	w.mu.RUnlock()
+	if mpv == nil {
+		return
+	}
+
+	w.mu.Lock()
+	w.pausedForBuffering = false
+	w.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = mpv.Resume(ctx)
+}
+
 // adoptRoomTorrent adds the room's torrent to THIS client's backend.
 func (w *window) adoptRoomTorrent(ev rtc.Magnet) {
 	w.mu.RLock()
