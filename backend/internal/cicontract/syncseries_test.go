@@ -102,7 +102,7 @@ func TestTheSeriesOpensACardWhenThePromiseIsBroken(t *testing.T) {
 	// them. The script works on a copy of the repository, so the copy gets
 	// the real journal.
 	root := filepath.Join(dir, "repo")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, ".project-board"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".project-board"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte(repoFile(t, "../../../CHANGELOG.md")), 0o600))
 
 	out, err := runScript(t, "check", series, root, syncSource)
@@ -130,6 +130,30 @@ func TestTheSeriesReadsThePromiseFromTheMeasurement(t *testing.T) {
 	out, err := runScript(t, "record", writeLog(t, goodRun), filepath.Join(t.TempDir(), "sync.md"), syncSource)
 	require.NoError(t, err, "the script must find the number: %s", out)
 	assert.Contains(t, out, "within the promise", "0.20 s is within the promise of one second: %s", out)
+}
+
+// TestTheSeriesFileHasTheHeaderTheRowsBelongTo pins the table the script
+// writes into. A row appended to a file whose header says something else is a
+// row nobody can read, and a file that does not end with a newline swallows
+// the first row into the header.
+func TestTheSeriesFileHasTheHeaderTheRowsBelongTo(t *testing.T) {
+	body := repoFile(t, syncSeries)
+
+	// The table's header is the first line that starts a row: the file opens
+	// with a title and an explanation, and the table comes after them.
+	header := ""
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "| ") {
+			header = line
+			break
+		}
+	}
+	require.NotEmpty(t, header, "the series must have a table: %s", body)
+	assert.Contains(t, header, "Расхождение", "the header must name what the column is: %s", header)
+	assert.Len(t, strings.Split(header, "|"), 6,
+		"the header must have the four columns the row has: %s", header)
+	assert.True(t, strings.HasSuffix(body, "\n"),
+		"the series must end with a newline, or the first row joins the header")
 }
 
 // writeLog puts a run's output into a file and returns its path.
