@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   next to it — the same lesson the follower tests were taught — and the room
   tests' own budget grew with it. A test that fails on the machine's mood is
   a test about the machine.
+- **The follower tests were a coin flip too, one step later.** The same
+  runner, the same reason: mpv starts cold, and thirty seconds was not always
+  enough for it to open the file. The wait is now ninety, with the story
+  written next to it, and the frontend's own test step says its timeout
+  instead of leaving Go's default of ten minutes per package — a package
+  killed by the default looks like a failure of the code.
 - **The Go standard library had a vulnerability in the version every workflow
   pinned.** `govulncheck` found it where it belongs — in the standard library,
   in `crypto/x509`, reachable from the code that serves a stream through a

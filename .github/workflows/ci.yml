@@ -189,13 +189,17 @@ jobs:
       # The driver must be offscreen: without a display the tests hang waiting
       # for a window rather than failing. That is per-platform too — there is no
       # display on any of these runners, only the shape differs.
+      # The timeout is stated: the room and the follower tests wait for a
+      # network and for a cold mpv, and the budget they need on a loaded
+      # runner is bigger than Go's default of ten minutes per package. A
+      # package killed by the default looks like a failure of the code.
       - name: Run tests
         shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
           CGO_ENABLED: '1'
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -timeout 20m -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Report coverage
         shell: bash

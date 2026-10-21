@@ -183,11 +183,15 @@ func TestTheFollowerLandsWhereTheHostIs(t *testing.T) {
 // lands.
 // followerWait is how long the follower tests give mpv to do what a person
 // would see at once: open a file, pause, come back to the room's state.
+//
 // Ten seconds was tuned on a quiet machine and turned out to be a coin flip
 // on a shared CI runner, where mpv starts cold, the whole module runs at
-// once and the race detector makes every wait longer. A test that fails on
-// the machine's mood is a test about the machine.
-const followerWait = 30 * time.Second
+// once and the race detector makes every wait longer. Thirty seconds was the
+// same story one step later: on a loaded runner even that was not enough for
+// mpv to open the file, and the test failed on the machine's mood rather
+// than on the room's behaviour. A test that fails on the machine's mood is a
+// test about the machine.
+const followerWait = 90 * time.Second
 
 func waitFor(t *testing.T, within time.Duration, what string, cond func() bool) {
 	t.Helper()
