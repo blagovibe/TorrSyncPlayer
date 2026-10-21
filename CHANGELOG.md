@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The project is distributed through GitHub Releases and nowhere else.**
+  The last card on the board was the one place TorrSyncPlayer still trailed
+  Multiplex: Multiplex is on Flathub with 401 stars and 13 languages through
+  Weblate, while this project ships an AppImage, a zip and a dmg on its
+  releases page and keeps its two languages in the code. The owner's
+  decision: no other channel. The build and the release job already do
+  exactly that — `TorrSyncPlayer-x86_64.AppImage`,
+  `TorrSyncPlayer-windows-x64.zip` and `TorrSyncPlayer-macos-arm64.dmg`,
+  with `mpv` inside — and the boundary is now written into the goal, so the
+  question does not come back in a later session.
+  The reason is in the goal rather than only in the journal: keeping a build
+  in someone else's store is work on someone else's infrastructure and under
+  someone else's rules, and the project prepares neither. Weblate goes with
+  it — translating a project with two languages has no audience, and gettext
+  instead of a catalogue in the code would be a change of form without a
+  change of content.
 - **The Windows job spent half an hour before its first test.** The step that
   puts mpv and ffmpeg on PATH searched `C:\Program Files` recursively, and
   the runner's filesystem is enormous — the job spent longer looking for the
