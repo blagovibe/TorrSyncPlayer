@@ -190,11 +190,11 @@ func TestARoomOfThreeIsARoomAndNotAPair(t *testing.T) {
 	// 6. The host leaves, and the role goes to the smallest living peer ID
 	// among the survivors — and both survivors agree on who it is. The rule
 	// is deterministic, so the answer cannot be "whoever spoke first".
-	knownHosts := len(guestOneEvents.hosts) + len(guestTwoEvents.hosts)
+	knownHosts := guestOneEvents.hostCount() + guestTwoEvents.hostCount()
 	require.NoError(t, hostMesh.Close())
 
 	waitForGuestValue(t, func() bool {
-		return len(guestOneEvents.hosts)+len(guestTwoEvents.hosts) > knownHosts
+		return guestOneEvents.hostCount()+guestTwoEvents.hostCount() > knownHosts
 	}, "no takeover happened after the host left")
 
 	survivors := []string{guestOneMesh.SelfID(), guestTwoMesh.SelfID()}
@@ -271,6 +271,13 @@ func (e *roomEvents) bufferingCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.buffering
+}
+
+// hostCount is how many times the room named a host.
+func (e *roomEvents) hostCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.hosts)
 }
 
 func (e *roomEvents) lastHost() string {
