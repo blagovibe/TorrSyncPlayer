@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The Windows job spent half an hour before its first test.** The step that
+  puts mpv and ffmpeg on PATH searched `C:\Program Files` recursively, and
+  the runner's filesystem is enormous — the job spent longer looking for the
+  players than the tests took to run. Chocolatey keeps a package's files under
+  its own directory, and that is where mpv and ffmpeg are, so the step looks
+  there first; the wide search stays as a fallback for a package that
+  installs elsewhere.
 - **A test could wait out its whole budget on a player that had died.**
   On macOS the follower test that waits for the room's pause spent ninety
   seconds waiting for a player that was already gone, and the failure said

@@ -171,10 +171,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $roots = "$env:ProgramData\chocolatey\lib", "$env:ProgramFiles", "$env:ProgramFiles(x86)"
+          # Chocolatey puts a package's files under its own directory, and
+          # that is where mpv and ffmpeg are: the recursive search over
+          # Program Files was the step's own cost, and it cost the Windows
+          # job half an hour before a single test ran. The wide search stays
+          # as a fallback, for the case where a package installs elsewhere.
+          $chocolatey = "$env:ProgramData\chocolatey\lib"
+          $roots = "$env:ProgramFiles", "$env:ProgramFiles(x86)"
           foreach ($name in 'mpv', 'ffmpeg') {
-            $found = Get-ChildItem -Path $roots -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
-            if (-not $found) { Write-Error "$name was installed but cannot be found under: $roots"; exit 1 }
+            $found = Get-ChildItem -Path $chocolatey -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
+            if (-not $found) {
+              Write-Host "$name is not under chocolatey, looking wider"
+              $found = Get-ChildItem -Path $roots -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
+            }
+            if (-not $found) { Write-Error "$name was installed but cannot be found under: $chocolatey or $roots"; exit 1 }
             $best = $found |
               ForEach-Object {
                 [pscustomobject]@{ Path = $_.FullName; Dlls = @(Get-ChildItem (Split-Path $_.FullName) -Filter *.dll -File -ErrorAction SilentlyContinue).Count }
