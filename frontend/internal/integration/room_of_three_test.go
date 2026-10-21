@@ -273,6 +273,13 @@ func (e *roomEvents) bufferingCount() int {
 	return e.buffering
 }
 
+// rosterSize is how many peers the last roster named.
+func (e *roomEvents) rosterSize() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.roster)
+}
+
 // hostCount is how many times the room named a host.
 func (e *roomEvents) hostCount() int {
 	e.mu.Lock()

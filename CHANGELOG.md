@@ -50,6 +50,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not hide the stall that stopped it, and the room is released exactly
   when the data is back. In an mpv upgrade both facts can disappear, and the
   stop would become a lie.
+- **The ADR's own condition about a hundred participants was measured, and it
+  did not fire.** The condition said: "rooms of a hundred participants needed
+  a server". Nobody had ever put more than three people in a room, so the
+  condition had never been asked of the code. Now it has: the room's shape is
+  quadratic — every pair holds a stream, every newcomer is handed the whole
+  address book, every command travels to everybody — and the measurement says
+  what that costs.
+  A room of 100 participants gathers in **14.8 s**, the host's command
+  reaches everyone in **0.2 s**, and the room holds 4950 streams. A room of 30
+  gathers in 5 s, of 20 — in 0.4 s, of 10 — in 0.2 s. So on a hundred people
+  a server is not needed, at least by the shape of it: the network in the
+  measurement is local, one machine.
+  What the measurement does *not* say is a hundred people on a hundred
+  machines over the internet — the shape is the same, the network is not, and
+  there the question leaves the protocol for bandwidth and deployment. That is
+  a deployment, not a measurement in this repository, and the ADR's condition
+  does not cover it.
+  The answer is written into the ADR where the condition stood, and the curve
+  lives in `measurements/scale.md`. The gate in CI keeps two sizes honest: five
+  and twenty-five, each of which must gather in under thirty seconds and
+  deliver a command in under ten.
 - **A room of two is a pair with a protocol; a room of three is a room.**
   The application had never been exercised with more than two people in it:
   the scenario that runs the whole flow — real backends, a real film, a real
