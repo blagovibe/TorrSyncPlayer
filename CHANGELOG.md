@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drives the script the way the job drives it and checks that a broken run is
   recorded as broken and that the card is numbered after the cards that
   already exist.
+- **The vulnerability scan went red on a run where the code was fine.** The
+  scan fetches its database over the network, and a broken connection to it
+  is the weather, not a finding — the same failure the modules and the tool
+  installs had already been cured of, in the same way, in the same week. The
+  scan now goes through a script that tells a finding (exit 3) from a failure
+  to look (anything else) and retries only the second; the finding still
+  fails the job at once. The script has a test of its own: a stand-in scan
+  that exits the way the real one does.
 - **The room's promise finally has a number, and the number was not the one the
   goal assumed.** The goal says that the people in a room "see the same moment
   in the same second", and nothing in the project ever measured that: the

@@ -523,11 +523,16 @@ jobs:
         working-directory: backend
         # Fail the build on known vulnerabilities. Set GOVULNCHECK_ALLOW_FAILURE=1
         # in the workflow run to temporarily opt out (e.g. during triage).
+        #
+        # The scan fetches the vulnerability database over the network, and a
+        # broken connection to it is the weather, not a finding: the script
+        # tells a finding (exit 3) from a failure to look (anything else) and
+        # retries only the second, the same way the modules are fetched.
         env:
           GOVULNCHECK_ALLOW_FAILURE: ${{ vars.GOVULNCHECK_ALLOW_FAILURE || '0' }}
         run: |
           ${{ github.workspace }}/.github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
+          ${{ github.workspace }}/.github/scripts/govulncheck.sh ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
