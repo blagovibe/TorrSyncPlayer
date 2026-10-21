@@ -191,3 +191,36 @@ func TestEveryWorkflowPinsTheSameGoVersion(t *testing.T) {
 	assert.Len(t, pinned, 1,
 		"workflows pin more than one Go version: a green job about a different compiler is still a lie")
 }
+
+// TestEveryModuleIsCheckedForTidiness pins that each Go module's go.mod and
+// go.sum are asked whether they are tidy.
+//
+// The backend had such a check and the frontend did not, so the frontend's
+// sums drifted and nobody saw it: the bot that publishes the measurement's
+// row committed the drift, because `go mod download all` writes the sums of
+// modules the build does not need, and only `go mod tidy` takes them away.
+//
+// A module nobody checks is a module nobody looks at.
+func TestEveryModuleIsCheckedForTidiness(t *testing.T) {
+	body := repoFile(t, workflow)
+
+	// The steps of the workflow, so a step can be looked at as a whole.
+	steps := strings.Split(body, "\n      - name: ")
+	for _, module := range []string{"backend", "frontend"} {
+		checked := false
+		for _, step := range steps {
+			if !strings.Contains(step, "go mod tidy") {
+				continue
+			}
+			if !strings.Contains(step, "git diff --exit-code go.mod go.sum") {
+				continue
+			}
+			if strings.Contains(step, "working-directory: "+module) {
+				checked = true
+				break
+			}
+		}
+		assert.True(t, checked,
+			"the %s module must have a step that runs go mod tidy and fails when go.mod or go.sum changed", module)
+	}
+}

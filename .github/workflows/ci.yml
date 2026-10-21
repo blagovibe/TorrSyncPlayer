@@ -69,6 +69,18 @@ jobs:
           git diff --exit-code go.mod go.sum || { echo "go.mod/go.sum not tidy. Run: go mod tidy"; exit 1; }
           go mod verify
 
+      # The same for the frontend, which had no such check: the module's sums
+      # drifted and nobody saw it, because nothing ever asked whether they
+      # were tidy. The bot that publishes the measurement's row committed the
+      # drift — `go mod download all` writes the sums of modules the build
+      # does not need, and `go mod tidy` takes them away again.
+      - name: Check go.mod tidy (frontend)
+        working-directory: frontend
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || { echo "frontend go.mod/go.sum not tidy. Run: go mod tidy"; exit 1; }
+          go mod verify
+
       - name: Check Swagger spec is up to date
         working-directory: backend
         run: |
@@ -336,7 +348,10 @@ jobs:
 
           # The board is a directory of cards, and an empty board is not in
           # git at all — so the paths are added wholesale rather than by name.
-          git add -A
+          # And only these paths: `git add -A` would sweep in whatever the
+          # run touched, and the run touches go.sum — `go mod download all`
+          # writes the sums of modules the build does not need.
+          git add measurements .project-board
           if git diff --cached --quiet; then
             echo "the series has nothing new"
             exit 0

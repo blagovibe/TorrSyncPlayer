@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drives the script the way the job drives it and checks that a broken run is
   recorded as broken and that the card is numbered after the cards that
   already exist.
+- **The bot that publishes the measurement's row published more than the
+  row.** It committed the run's log and 254 lines of `frontend/go.sum` that
+  `go mod download all` had written and nobody had cleaned up — which is how
+  it turned out that the frontend module had **no tidiness check at all**,
+  while the backend had one since long ago. The log is ignored now, the
+  publish step adds only the series and the board, and the frontend has the
+  same check the backend has: `go mod tidy`, and the job fails if it changed
+  anything. The check itself is pinned by a test, and the test was seen going
+  red: with the frontend's step removed, it says so by name.
 - **The vulnerability scan went red on a run where the code was fine.** The
   scan fetches its database over the network, and a broken connection to it
   is the weather, not a finding — the same failure the modules and the tool

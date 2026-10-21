@@ -50,6 +50,7 @@ frontend/dist/
 
 # The measurement's own log: a run's reading, not a source file.
 frontend/rendezvous.log
+frontend/sync.log
 
 # Editor
 *~
