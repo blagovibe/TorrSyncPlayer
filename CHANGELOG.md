@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The remoting mode had never been run against a real gateway.** It was
+  tested only against a stand-in: a hand-written HTTP server that speaks
+  exactly what our client expects — the same trap the room's own tests were
+  in, and the project has already paid for that lesson once. A scenario now
+  starts a real hTorrent gateway, a real seeder behind it, and the real
+  backend in remoting mode.
+  What it proves is *our* side of the contract: the magnet goes into the
+  gateway, the metadata and the file list come back through it, and the
+  progress the backend reports matches the progress the gateway reports, byte
+  for byte. Against a stand-in, none of that could be shown.
+  What it found is that the **gateway does not pull the film** — one peer, zero
+  bytes — and the reasons are in the gateway's own client: its uTP cannot reach
+  an IPv4 peer from an IPv6 socket, the DHT is unusable without a global IPv6
+  route, and it does not seed, so it refuses incoming connections until it has
+  pending pieces. Our client reports the gateway's numbers faithfully, so the
+  divergence is not ours. The scenario therefore pins what the project is
+  responsible for, and the piece transfer is a card (idea-0147), not a check
+  that can never be green. The same was true of the released v0.5.4 and of the
+  newer branch.
 - **The project is distributed through GitHub Releases and nowhere else.**
   The last card on the board was the one place TorrSyncPlayer still trailed
   Multiplex: Multiplex is on Flathub with 401 stars and 13 languages through

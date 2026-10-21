@@ -177,10 +177,14 @@ func readRows(t *testing.T, path string) []string {
 	return rows
 }
 
-// readCards returns the files of a board directory.
+// readCards returns the files of a board directory. A directory that is not
+// there holds no cards.
 func readCards(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	require.NoError(t, err)
 	var cards []string
 	for _, entry := range entries {
@@ -202,6 +206,10 @@ func cardNumber(t *testing.T, path string) string {
 
 // nextFreeNumber is the number the board and the journal say is next: one
 // more than the highest they use.
+//
+// The board may be empty — an empty board is not in git at all, and a board
+// with nothing on it is a board where everything was resolved. The journal
+// still holds the numbers that were used.
 func nextFreeNumber(t *testing.T) string {
 	t.Helper()
 	highest := 0

@@ -233,6 +233,36 @@ jobs:
             exit 1
           fi
 
+      # The remoting mode's real counterpart: the hTorrent gateway the
+      # backend talks to when it has no torrent client of its own. The
+      # scenario skips without it, so the pipeline installs it — and a
+      # separate step makes sure the scenario did not skip.
+      #
+      # CGO is off: the gateway's uTP needs a C library that does not build
+      # everywhere, and the scenario needs the gateway's HTTP side, not its
+      # uTP.
+      - name: Install the hTorrent gateway
+        shell: bash
+        working-directory: frontend
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          ${{ github.workspace }}/.github/scripts/install-go-tool.sh github.com/pojntfx/htorrent/cmd/htorrent@v0.5.4
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Re-run the gateway scenario without skipping
+        shell: bash
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: |
+          if go test -v -timeout 6m -run TestTheBackendTalksToARealGateway ./internal/integration/ 2>&1 | tee gateway.log | grep -q SKIP; then
+            echo "the gateway scenario was skipped: hTorrent is missing or not working"
+            exit 1
+          fi
+          grep -qE "^(ok|PASS)" gateway.log || { echo "the gateway scenario did not pass"; cat gateway.log; exit 1; }
+
       - name: Build the application
         shell: bash
         working-directory: frontend

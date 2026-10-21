@@ -156,7 +156,7 @@ func startServer(t *testing.T, clientID string) *server {
 // A seeder needs disk storage: the pieces have to exist before the client starts,
 // because "the host already has the film" is the whole premise of everyone else
 // pulling from the swarm. In memory there is nothing to hand out.
-func startServerWith(t *testing.T, clientID, dataDir string, disk bool) *server {
+func startServerWith(t *testing.T, clientID, dataDir string, disk bool, extraArgs ...string) *server {
 	t.Helper()
 
 	token := fmt.Sprintf("token-%d", time.Now().UnixNano())
@@ -176,6 +176,10 @@ func startServerWith(t *testing.T, clientID, dataDir string, disk bool) *server 
 	if disk {
 		args = append(args, "--disk-storage")
 	}
+	// The remoting mode and anything else the backend grows: the flags go on
+	// the same command line, so a scenario drives the real binary and not a
+	// stand-in for it.
+	args = append(args, extraArgs...)
 
 	cmd := exec.Command(backendBinary(t), args...)
 	cmd.Stdout = logFile
