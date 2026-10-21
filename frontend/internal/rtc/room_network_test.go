@@ -123,6 +123,17 @@ func (e *roomEvents) bufferingOf(id string) (bool, bool) {
 	return b, ok
 }
 
+// networkWait is how long a room test gives the network to say what it has
+// to say.
+//
+// Thirty seconds was tuned on a quiet machine and turned out to be a coin flip
+// on a shared runner: the whole module runs at once, the race detector makes
+// every wait longer, and the room has to meet over a real libp2p connection
+// before it can carry anything. A test that fails on the machine's mood is a
+// test about the machine, and the same lesson the follower tests were taught
+// applies here.
+const networkWait = 90 * time.Second
+
 // waitFor polls until the condition holds or the test gives up.
 //
 // The network decides when a message arrives, so a room test cannot assert by
@@ -145,7 +156,7 @@ func waitFor(t *testing.T, within time.Duration, what string, cond func() bool) 
 // arrive — the roster, the magnet, the host's command, and the guest's report
 // that it is buffering.
 func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
 	meshes, _ := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
@@ -163,7 +174,7 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 	// 1. The roster names who is in the room. A roster of nameless rows is
 	//    not a roster: the person reading it cannot tell who they are
 	//    watching with.
-	waitFor(t, 30*time.Second, "the guest's roster to name the host", func() bool {
+	waitFor(t, networkWait, "the guest's roster to name the host", func() bool {
 		p, ok := guestEvents.peerNamed(host.SelfID())
 		return ok && p.UserID != ""
 	})
@@ -177,14 +188,14 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 		Name:         "Movie.2024.mkv",
 	}
 	require.NoError(t, hostRoom.AnnounceMagnet(ctx, magnet))
-	waitFor(t, 30*time.Second, "the guest to receive the magnet", func() bool {
+	waitFor(t, networkWait, "the guest to receive the magnet", func() bool {
 		m := guestEvents.magnetSeen()
 		return m != nil && m.InfoHash == magnet.InfoHash
 	})
 
 	// 3. The host's command reaches the guest.
 	require.NoError(t, hostRoom.Pause(ctx))
-	waitFor(t, 30*time.Second, "the guest to be told to pause", func() bool {
+	waitFor(t, networkWait, "the guest to be told to pause", func() bool {
 		p := guestEvents.pauseSeen()
 		return p != nil && *p
 	})
@@ -194,7 +205,7 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 	//    and a host that never heard about the stall would keep playing into
 	//    an empty buffer.
 	require.NoError(t, guestRoom.ReportBuffering(ctx, true))
-	waitFor(t, 30*time.Second, "the host to hear that the guest is buffering", func() bool {
+	waitFor(t, networkWait, "the host to hear that the guest is buffering", func() bool {
 		b, ok := hostEvents.bufferingOf(guest.SelfID())
 		return ok && b
 	})
@@ -204,7 +215,7 @@ func TestTwoParticipantsInARoomOverARealNetwork(t *testing.T) {
 	//    is stuck on a stall that ended. The concept says exactly this: any
 	//    participant may report, not only the host.
 	require.NoError(t, guestRoom.ReportBuffering(ctx, false))
-	waitFor(t, 30*time.Second, "the host to hear that the guest caught up", func() bool {
+	waitFor(t, networkWait, "the host to hear that the guest caught up", func() bool {
 		b, ok := hostEvents.bufferingOf(guest.SelfID())
 		return ok && !b
 	})
@@ -265,7 +276,7 @@ func joinIdentifiedMeshes(t *testing.T, ctx context.Context, users ...string) ([
 // before the guests can reach each other, not just the host.
 func waitForTheRoomToGather(t *testing.T, meshes []*Mesh) {
 	t.Helper()
-	waitFor(t, 30*time.Second, "the participants to meet", func() bool {
+	waitFor(t, networkWait, "the participants to meet", func() bool {
 		for _, m := range meshes {
 			if len(m.Peers()) < len(meshes)-1 {
 				return false
@@ -284,7 +295,7 @@ func waitForTheRoomToGather(t *testing.T, meshes []*Mesh) {
 // computed from the peer set each side sees, and the announcement that
 // follows has to reach the peer that did not win.
 func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
 	meshes, _ := joinIdentifiedMeshes(t, ctx, "host-user", "guest-one", "guest-two")
@@ -304,7 +315,7 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 
 	// Both guests know the host before it leaves, or there is nobody to hand
 	// the role to.
-	waitFor(t, 30*time.Second, "both guests to know the host", func() bool {
+	waitFor(t, networkWait, "both guests to know the host", func() bool {
 		_, hostKnown := guestOneEvents.peerNamed(host.SelfID())
 		_, hostKnownToo := guestTwoEvents.peerNamed(host.SelfID())
 		return hostKnown && hostKnownToo
@@ -313,7 +324,7 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 	// The host's position reaches both guests: this is what keeps a follower
 	// in step, and it only counts if the guest believes the host is the host.
 	require.NoError(t, hostRoom.Seek(ctx, 42.5))
-	waitFor(t, 30*time.Second, "both guests to receive the host's position", func() bool {
+	waitFor(t, networkWait, "both guests to receive the host's position", func() bool {
 		one, okOne := guestOneEvents.seekSeen()
 		two, okTwo := guestTwoEvents.seekSeen()
 		return okOne && okTwo && one == 42.5 && two == 42.5
@@ -325,7 +336,7 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 	// The smallest living peer ID takes the role — and says so, so the other
 	// guest converges on the same answer from the same peer set.
 	winner := TakeoverHost([]string{guestOne.SelfID(), guestTwo.SelfID()})
-	waitFor(t, 30*time.Second, "the guests to agree on the new host", func() bool {
+	waitFor(t, networkWait, "the guests to agree on the new host", func() bool {
 		return guestOneEvents.hostChanged() == winner && guestTwoEvents.hostChanged() == winner
 	})
 
@@ -346,7 +357,7 @@ func TestAHostLeavingHandsTheRoomToTheSmallestLivingID(t *testing.T) {
 // never sent again. The room keeps what it last heard, and a guest that
 // joins a paused room must not start playing on its own (bug-0120).
 func TestTheRoomRemembersThePlayStateAndTellsANewcomer(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
 	meshes, bootstrap := joinIdentifiedMeshes(t, ctx, "host-user", "guest-user")
@@ -362,7 +373,7 @@ func TestTheRoomRemembersThePlayStateAndTellsANewcomer(t *testing.T) {
 
 	// The host pauses: the room remembers, and the guest hears.
 	require.NoError(t, hostRoom.Pause(ctx))
-	waitFor(t, 30*time.Second, "the guest to be told to pause", func() bool {
+	waitFor(t, networkWait, "the guest to be told to pause", func() bool {
 		p := guestEvents.pauseSeen()
 		return p != nil && *p
 	})
@@ -397,7 +408,7 @@ func TestTheRoomRemembersThePlayStateAndTellsANewcomer(t *testing.T) {
 	lateRoom := NewRoom(late, late.SelfID(), "late-user", false, lateEvents.callbacks())
 	go lateRoom.Run(ctx)
 
-	waitFor(t, 30*time.Second, "the late guest to be told the room is paused", func() bool {
+	waitFor(t, networkWait, "the late guest to be told the room is paused", func() bool {
 		p := lateEvents.pauseSeen()
 		return p != nil && *p
 	})

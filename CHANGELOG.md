@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drives the script the way the job drives it and checks that a broken run is
   recorded as broken and that the card is numbered after the cards that
   already exist.
+- **A room test was a coin flip on a loaded runner.** On macOS the test that
+  waits for a newcomer to be told the room is paused gave the network thirty
+  seconds, and the room has to meet over a real libp2p connection before it
+  can carry anything: on a shared runner, where the whole module runs at once
+  and the race detector makes every wait longer, the meeting took longer than
+  the wait. The waits are now one named number with the reasoning written
+  next to it — the same lesson the follower tests were taught — and the room
+  tests' own budget grew with it. A test that fails on the machine's mood is
+  a test about the machine.
 - **The Go standard library had a vulnerability in the version every workflow
   pinned.** `govulncheck` found it where it belongs — in the standard library,
   in `crypto/x509`, reachable from the code that serves a stream through a
