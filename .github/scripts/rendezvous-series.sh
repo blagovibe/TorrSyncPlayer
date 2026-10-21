@@ -84,7 +84,10 @@ write_card() {
     ls "$board" 2>/dev/null | grep -oE '^[a-z]+-[0-9]{4}' | grep -oE '[0-9]{4}' || true
     grep -oE '\b(idea|bug|deviation)-[0-9]{4}\b' "$root/CHANGELOG.md" 2>/dev/null | grep -oE '[0-9]{4}' || true
   } | sort -n | tail -1 )
-  number=$(( ${number:-0} + 1 ))
+  # 10# says the number is decimal: without it bash reads a zero-padded
+  # number as octal, and 0146 becomes 102 — a card numbered from a number
+  # nobody used.
+  number=$(( 10#${number:-0} + 1 ))
   slug="the-room-gathered-$rate-percent-of-the-time"
   file="$board/bug-$(printf '%04d' "$number")-$slug.md"
 

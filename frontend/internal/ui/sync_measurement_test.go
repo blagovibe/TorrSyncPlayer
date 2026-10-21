@@ -168,6 +168,18 @@ func TestTheRoomKeepsEveryoneInTheSameSecond(t *testing.T) {
 	t.Logf("steady divergence: max %.2fs over %d samples; the jump of %ds landed in %s, and the divergence after it is max %.2fs (during the flight it was %.2fs, which is the jump itself)",
 		report.steadyMax, report.steadySamples, measurementJumpSeconds, report.landedAfter, report.afterLandingMax, report.duringFlightMax)
 
+	// The numbers in a shape a script can read. The series in
+	// measurements/sync.md is written from these lines, and a line nobody can
+	// parse is a line nobody can keep.
+	t.Logf("steadyDivergence: %.2f", report.steadyMax)
+	t.Logf("landingSeconds: %.2f", report.landedAfter.Seconds())
+	t.Logf("samples: %d", report.steadySamples)
+	if report.steadyMax <= steadyDivergenceLimit && report.afterLandingMax <= steadyDivergenceLimit {
+		t.Logf("outcome: within the promise")
+	} else {
+		t.Logf("outcome: outside the promise")
+	}
+
 	require.LessOrEqual(t, report.steadyMax, steadyDivergenceLimit,
 		"the room drifted %0.2fs apart while nothing was happening", report.steadyMax)
 	require.LessOrEqual(t, report.afterLandingMax, steadyDivergenceLimit,

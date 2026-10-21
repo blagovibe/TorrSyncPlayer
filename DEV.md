@@ -1207,6 +1207,39 @@ FYNE_DRIVER=offscreen go test -tags measurement -timeout 6m \
 краснеет вместе с ним. Обещание «та же секунда» теперь проверяется, а не
 предполагается (idea-0142, idea-0146).
 
+**Ряд измерений расхождения.** Гейт отвечает на вопрос «этот прогон в
+пределе?», а ряд — на вопрос, который один прогон не отвечает: **не растёт
+ли расхождение**. Пока цифра держится у нуля, всё в порядке; когда она
+ползёт к пределу, об этом должен узнать человек, а не тот, кто через полгода
+откроет лог джобы.
+
+Ряд живёт в `measurements/sync.md`: одна строка — один прогон, и кладёт её
+сама джоба `sync-measurement` (только на пуше в `main`: измерение пул-реквеста
+не пишет в `main`). Правило ряда: не меньше 90% из 20 последних прогонов
+держат расхождение в пределах обещания — той же секунды. Ниже порога ряд
+пишет карточку на доске.
+
+Число обещания **читается из самого измерения** (`steadyDivergenceLimit` в
+`frontend/internal/ui/sync_measurement_test.go`), а не живёт в скрипте
+вторым экземпляром: ряд и гейт не могут сказать разного. Скрипт — тот же
+`.github/scripts/sync-series.sh`, что и у запасного пути, и он же проверяется
+на записях, где порог нарушен (тест `TestTheSeries*` в
+`backend/internal/cicontract`).
+
+Механика вся — в скрипте, а не в YAML: скрипт можно прогнать локально на
+настоящем прогоне, и он же проверяется на записях, где порог нарушен.
+
+```bash
+cd frontend
+FYNE_DRIVER=offscreen go test -tags measurement -timeout 6m \
+  -run TestTheRoomKeepsEveryoneInTheSameSecond -v ./internal/ui/ 2>&1 | tee sync.log
+cd ..
+.github/scripts/sync-series.sh record frontend/sync.log measurements/sync.md \
+  frontend/internal/ui/sync_measurement_test.go
+.github/scripts/sync-series.sh check measurements/sync.md "$PWD" \
+  frontend/internal/ui/sync_measurement_test.go
+```
+
 Фронтенд:
 
 ```bash

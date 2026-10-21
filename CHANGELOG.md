@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The divergence is a series now, not a number in a job log.** The measurement
+  answers "did this run keep the promise", and the series answers the question
+  one run cannot: is the divergence growing. The rows live in
+  `measurements/sync.md` — one per run, written by the job itself and landed in
+  `main`, because a measurement that lives in a job summary for fourteen days
+  is a measurement nobody reads. The rule is written down: no fewer than 90 %
+  of the last 20 runs keep the divergence within the promise, and below that
+  the series opens a card on the board. The promise's number is **read out of
+  the measurement** rather than kept as a second copy in the script, so the
+  series and the gate cannot answer different questions.
+- **A card written by a script could be numbered from a number nobody used.**
+  Bash reads a zero-padded number as octal, so the next card number after
+  0146 came out as 0103 — and the same line stood in the script that opens
+  cards for the rendezvous series, where it had been quietly wrong the whole
+  time. Both scripts now say `10#` and mean decimal. The series machinery has
+  a test of its own (`TestTheSeries*` in `backend/internal/cicontract`): it
+  drives the script the way the job drives it and checks that a broken run is
+  recorded as broken and that the card is numbered after the cards that
+  already exist.
 - **The room's promise finally has a number, and the number was not the one the
   goal assumed.** The goal says that the people in a room "see the same moment
   in the same second", and nothing in the project ever measured that: the

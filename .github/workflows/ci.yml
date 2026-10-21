@@ -237,13 +237,18 @@ jobs:
   # room does rather than whether a function returned, and the platform does
   # not change the number — the room's logic is the same everywhere.
   #
-  # The threshold lives in the measurement itself (steadyDivergenceLimit), so
-  # a violation makes this job red. A promise with nobody checking it is not
-  # a promise (idea-0142, idea-0146).
+  # Two things happen here, and they are different. The measurement itself is
+  # the gate: the threshold lives inside it, so a run that broke the promise
+  # makes this job red. The series is what no single run can answer — is the
+  # divergence growing — and its rows live in the repository, because a
+  # measurement that lives in a job summary for fourteen days is a
+  # measurement nobody reads (idea-0142, idea-0146).
   sync-measurement:
     name: Sync Divergence Measurement
     needs: lint-backend
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v7
@@ -266,13 +271,92 @@ jobs:
             libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev \
             mpv ffmpeg
 
+      # The gate. A run that broke the promise fails here, and the job is
+      # red: this is our code, not the weather, and a promise with nobody
+      # checking it is not a promise.
       - name: Measure the room's divergence
         shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
           CGO_ENABLED: '1'
-        run: go test -tags measurement -v -timeout 6m -run TestTheRoomKeepsEveryoneInTheSameSecond ./internal/ui/
+        run: go test -tags measurement -v -timeout 6m -run TestTheRoomKeepsEveryoneInTheSameSecond ./internal/ui/ 2>&1 | tee sync.log
+
+      - name: What it saw
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## The room's divergence"
+            echo
+            echo '```'
+            grep -E '(steadyDivergence|landingSeconds|samples|outcome):' frontend/sync.log || echo "(the run produced no reading)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The series is a table in the repository, one row per run, and the
+      # threshold is written down: no fewer than 90% of the last 20 runs kept
+      # the divergence within the promise. The number itself is read out of
+      # the measurement, so the series and the gate cannot disagree.
+      #
+      # The row is recorded even when the run broke the promise: a run that
+      # broke it is exactly the row the series is for.
+      - name: Record the run in the series
+        if: always()
+        shell: bash
+        run: .github/scripts/sync-series.sh record frontend/sync.log measurements/sync.md frontend/internal/ui/sync_measurement_test.go
+
+      - name: Check the series against its threshold
+        if: always()
+        shell: bash
+        run: |
+          # The breach opens a card, and the card is what a person reads. The
+          # job is already red when the run itself broke the promise.
+          if .github/scripts/sync-series.sh check measurements/sync.md "$GITHUB_WORKSPACE" frontend/internal/ui/sync_measurement_test.go; then
+            echo "the series is within its threshold"
+          else
+            echo "::warning::the sync series is below its threshold; a card was written for the board"
+          fi
+
+      # The row and the card land in the repository itself. A pull request
+      # would need the repository to allow Actions to open one, and it does
+      # not; main is not protected, and a row of measurements is data rather
+      # than intent — it needs no review to be true. The commit says [skip ci]
+      # so that the measurement does not start a pipeline of its own.
+      #
+      # Only on a push to main: a pull request's measurement has no business
+      # writing to main.
+      - name: Publish the series
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # The board is a directory of cards, and an empty board is not in
+          # git at all — so the paths are added wholesale rather than by name.
+          git add -A
+          if git diff --cached --quiet; then
+            echo "the series has nothing new"
+            exit 0
+          fi
+          git commit -m "the room's divergence: one more run [skip ci]"
+
+          # main may have moved under the measurement: the run reads the
+          # repository as it was when it started, and the series goes in on
+          # top of what is there now.
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-${{ github.run_id }}
+          path: frontend/sync.log
+          retention-days: 14
 
   room-across-nat:
     name: Room Across NAT
