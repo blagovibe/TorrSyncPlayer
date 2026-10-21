@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not hide the stall that stopped it, and the room is released exactly
   when the data is back. In an mpv upgrade both facts can disappear, and the
   stop would become a lie.
+- **A test that waits for "some host" and checks the last one is a race.**
+  The takeover test waited for the room to name any host and then read the
+  last name it had announced — but the room names the host twice: the one
+  that is there, and the one that took over. Between the two the test could
+  read the first and fail on it, which is what happened on macOS. The wait is
+  now for the announcement that is not the host that left, and the test
+  still bites: with the takeover rule broken, it says so.
 - **The ADR's own condition about a hundred participants was measured, and it
   did not fire.** The condition said: "rooms of a hundred participants needed
   a server". Nobody had ever put more than three people in a room, so the

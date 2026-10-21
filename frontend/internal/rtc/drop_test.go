@@ -93,12 +93,18 @@ func TestARoomConvergesWhenTheStreamDropsSilently(t *testing.T) {
 	// No bye from the host — exactly the silent-drop case.
 	tr.feed("host-id", NewBye("host-id"))
 
+	// The room names the host twice: the one that is here, and the one that
+	// took over. Waiting for "some host" and reading the last one is a race —
+	// the first announcement is the host that is leaving — so the wait is for
+	// the announcement that is not it.
 	deadline := time.Now().Add(3 * time.Second)
 	var got string
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		if len(hosts) > 0 {
-			got = hosts[len(hosts)-1]
+		for _, id := range hosts {
+			if id != "host-id" {
+				got = id
+			}
 		}
 		mu.Unlock()
 		if got != "" {
@@ -110,5 +116,6 @@ func TestARoomConvergesWhenTheStreamDropsSilently(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.NotEmpty(t, hosts, "no takeover happened after the host left")
-	assert.Equal(t, "peer-b", hosts[len(hosts)-1])
+	assert.Equal(t, "peer-b", got,
+		"the takeover named somebody else: %v", hosts)
 }
