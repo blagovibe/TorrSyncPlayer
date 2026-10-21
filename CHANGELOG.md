@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drives the script the way the job drives it and checks that a broken run is
   recorded as broken and that the card is numbered after the cards that
   already exist.
+- **The Go standard library had a vulnerability in the version every workflow
+  pinned.** `govulncheck` found it where it belongs — in the standard library,
+  in `crypto/x509`, reachable from the code that serves a stream through a
+  gateway — and the fix is in `go1.27.3`, while the pipeline was on `go1.27.2`.
+  Every workflow now pins 1.27.3, which is the only place the version is
+  written down. The scan that found it is the one that was hardened a moment
+  earlier: it told a finding from a failure to look, failed the job at once
+  and did not retry a finding as if it were the weather.
+- **The bot could not publish the row because the tree was dirty.** A rebase
+  refuses to run with unstaged changes, and the run leaves some behind —
+  `go mod download all` writes the sums of modules the build does not need.
+  The publish step now discards the run's dust after its commit and before
+  the rebase, and adds only the series and the board rather than whatever
+  the run touched. The same step in the rendezvous series had the same two
+  weaknesses and is fixed the same way.
 - **The bot that publishes the measurement's row published more than the
   row.** It committed the run's log and 254 lines of `frontend/go.sum` that
   `go mod download all` had written and nobody had cleaned up — which is how

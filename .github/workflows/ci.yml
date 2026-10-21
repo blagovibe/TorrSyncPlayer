@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.27.2'
+  GO_VERSION: '1.27.3'
 
 jobs:
   lint-backend:
@@ -357,6 +357,12 @@ jobs:
             exit 0
           fi
           git commit -m "the room's divergence: one more run [skip ci]"
+
+          # The run touched other things — `go mod download all` writes the
+          # sums of modules the build does not need — and a rebase refuses to
+          # run with a dirty tree. The commit is already made; what is left is
+          # the run's own dust.
+          git checkout -- .
 
           # main may have moved under the measurement: the run reads the
           # repository as it was when it started, and the series goes in on

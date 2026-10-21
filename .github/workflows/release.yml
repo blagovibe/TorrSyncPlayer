@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 env:
-  GO_VERSION: '1.27.2'
+  GO_VERSION: '1.27.3'
 
 # Every step here fails the job. A release workflow that swallows errors does
 # not publish a broken application — it publishes nothing and reports success,
