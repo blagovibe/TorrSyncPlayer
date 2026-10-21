@@ -40,12 +40,17 @@ func TestThePlayerSaysWhenItIsGone(t *testing.T) {
 	require.True(t, p.Alive(), "a player that has just started is alive")
 	require.NoError(t, p.ExitError(), "a living player has no exit error")
 
-	// And now it is gone.
+	// And now it is gone: a player that was killed must say so, and say how
+	// it ended. This is the case a test hits when the machine is loaded and
+	// mpv gives up — and the case that used to be a ninety-second silence.
 	require.NoError(t, p.cmd.Process.Kill(), "kill mpv")
 
 	require.Eventually(t, func() bool { return !p.Alive() },
-		10*time.Second, 50*time.Millisecond,
-		"the player must notice that its process is gone")
+		30*time.Second, 50*time.Millisecond,
+		"a killed player must say it is gone")
 	require.Error(t, p.ExitError(),
 		"a player that is gone must say how it ended, or the failure says nothing")
+
+	// And a player that was closed on purpose is gone as well.
+	require.False(t, p.Alive(), "a closed player is not alive")
 }

@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what mpv said. A player that died is not a player that is slow, and the
   difference is the difference between a failure that says why and a slow
   silence.
+  The watcher waits for the process itself and not for `cmd.Wait`, which also
+  waits for the pipes to be drained: that wait can outlast the process — on
+  Windows a child that inherited the pipe keeps it open — and the player would
+  be reported alive long after it was gone. "Alive" means the process.
 - **The room never stopped for the one who was behind.** The goal says it
   plainly — "buffering is not a command but a report: the room stops, it does
   not lead" — and the way repeated it, and the code did nothing of the sort:

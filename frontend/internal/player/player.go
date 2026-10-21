@@ -51,9 +51,10 @@ type Player struct {
 	// A player that died is not a player that is slow, and a caller that
 	// cannot tell the two apart waits out its whole budget on a process that
 	// left minutes ago.
-	done    chan struct{}
-	exitMu  sync.Mutex
-	exitErr error
+	done     chan struct{}
+	doneOnce sync.Once
+	exitMu   sync.Mutex
+	exitErr  error
 
 	closeOnce sync.Once
 }
@@ -157,12 +158,31 @@ func Start(ctx context.Context, opts Options, headers []string) (*Player, error)
 }
 
 // watch waits for the process to end and records how it ended.
+//
+// It waits for the process itself and not for cmd.Wait, which also waits for
+// the pipes to be drained: that wait can outlast the process — on Windows a
+// child that inherited the pipe keeps it open — and the player would be
+// reported alive long after it was gone. "Alive" means the process.
 func (p *Player) watch() {
-	err := p.cmd.Wait()
+	state, err := p.cmd.Process.Wait()
+	if err == nil && state != nil && !state.Success() {
+		// The process's own wait says nothing about how it ended: a killed
+		// process is a successful wait with a signal in its state. The state
+		// is where the answer is.
+		err = fmt.Errorf("player: mpv ended: %s", state)
+	}
+	p.markGone(err)
+}
+
+// markGone says the player is no more, and how it ended. It is safe to call
+// twice: the watcher and a close that had to give up on the process.
+func (p *Player) markGone(err error) {
 	p.exitMu.Lock()
-	p.exitErr = err
+	if p.exitErr == nil {
+		p.exitErr = err
+	}
 	p.exitMu.Unlock()
-	close(p.done)
+	p.doneOnce.Do(func() { close(p.done) })
 }
 
 // waitGone waits for the process to be gone, briefly. It is used where the
@@ -296,8 +316,12 @@ func (p *Player) Close() {
 		if p.cmd != nil && p.cmd.Process != nil {
 			_ = p.cmd.Process.Kill()
 			// The watcher is the one that waits for the process, so that
-			// the exit is recorded in one place and one place only.
+			// the exit is recorded in one place and one place only. If it
+			// does not come — a child that inherited the pipe keeps the
+			// process's own wait hanging — the player is marked gone
+			// anyway: it was closed, and that is the end of it.
 			p.waitGone()
+			p.markGone(errors.New("player: closed"))
 		}
 		// A killed process cannot remove its own control socket, so the
 		// socket is ours to take: without this every playback session
