@@ -269,6 +269,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would be two different measurements under one name. The owner deferred that
   decision (2026-10-21), so for now the fallback is what is measured, and
   the limit is written into the way next to the threshold (idea-0141).
+- **The project was held against its own goal and against Multiplex — eighteen
+  findings, four of them in the goal's own promises, and the direction is now
+  chosen.** Multiplex was read from its sources, not its README: media travels
+  from its hTorrent gateway to mpv over HTTP, WebRTC carries four message types
+  (magnet, pause, position, buffering), the mesh has no host and sends positions
+  only on events, and the repository carries no tests, one Flatpak-only
+  workflow, AGPL-3.0, 402 stars, and no code change since its April 2026 release
+  (commits after it are translations). None of its transport or toolkit is
+  taken: the project already chose libp2p streams and a host role deliberately,
+  and the ADR rejects a signalling server. What is worth taking is
+  application-level, and it is the same list the audit produced from this side.
+  The audit found four defects that break the goal rather than polish it. The
+  host role is claimed by any admitted peer — `hello.isHost` is unverified
+  (`room.go:326–339`) and the mesh's own flag is never updated after a transfer,
+  so the old host takes the room back when a newcomer arrives. A magnet from any
+  peer replaces the room's film, which the host then hands to newcomers
+  (`room.go:414–431`). Buffer priorities are computed in file bytes and applied
+  to torrent pieces (`buffer/service.go:95–119,162–208`), so a multi-file
+  release — the common case — loses the whole "watch while it downloads"
+  promise. Every release artifact reports `version=dev`, because the Go build
+  script passes no ldflags (`cmd/build/main.go:87–96`) — undoing what the v1.1.x
+  release line had already fixed.
+  The other fourteen are hygiene and product edges: a copy-code button that
+  copies nothing, Ctrl-C orphaning the backend, documented `--client-id` that
+  the binary does not define (and a default that becomes the identifier),
+  `WaitFor` dropping what it does not match and not knowing `peers`, a fuzz
+  target that cannot fail, series scripts dividing by every row instead of the
+  window, GPL players shipped without notices, a journal that cannot be read as
+  history, an arm64-only unsigned macOS build the README does not warn about, no
+  log file to send, checks watching Qt-era paths, and Go 1.26 in the way against
+  1.27.3 in the pipeline. Each is a card, 0148–0165; the remoting mode is
+  deviation-0166.
+- **The owner's decisions of this session.** Order: the four P0 defects first,
+  then the real-machine run. Window gaps taken: `.torrent` from a file, torrent
+  removal, progress and speed in the list, a description screen, and mpv
+  discovery with an install hint; "download it whole" was deferred rather than
+  refused. Release hygiene: GPL notices now, signing and notarisation later.
+  Remoting: not needed — the gateway must be run separately, the mode cannot be
+  verified end to end, and the participant then has no torrent client of its
+  own, which the goal promises — so the mode goes, code and way together
+  (deviation-0166; idea-0147 removed, its history here).
+- **Fresh reconciliation, and what it could not do.** The zone since the last
+  record was eight commits over three files — the gateway install step in
+  `ci.yml` and two rows in `measurements/` — on a clean tree; the journal itself
+  was not touched, so the append-only line holds without a new commit behind it.
+  The suite was **not run**: this environment has no Go toolchain and no network
+  to fetch the modules, so nothing after the boundary may be called verified by
+  execution, and this entry says so instead of hiding it. What the zone was read
+  as: the CI change removes an absolute path that bash ate on Windows, adds
+  `pipefail`, and replaces a grep for `ok` with the exit code it was imitating —
+  a check that learned to go red; the measurement rows are data. The boundary
+  for the next session is this commit, and the first thing that session owes is
+  the suite this one could not run.
 
 ## [v0.4.1] - 2026-10-21
 
