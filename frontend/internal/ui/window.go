@@ -700,6 +700,16 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 			w.syncTheRoomStop()
 		},
 		OnHostChanged: func(hostPeerID string) {
+			// The greeting carries the host role, and it is what a newcomer
+			// believes before it hears any command: a flag set once at Join
+			// kept naming the old host after a transfer, and the newcomer
+			// believed the old one (bug-0148).
+			w.mu.RLock()
+			mesh := w.mesh
+			w.mu.RUnlock()
+			if mesh != nil {
+				mesh.SetHostRole(hostPeerID == mesh.SelfID())
+			}
 			w.showRoster()
 		},
 		OnPeerRefused: func(peerID string, theirVersion int) {

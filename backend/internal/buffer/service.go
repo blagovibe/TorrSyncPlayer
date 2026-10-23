@@ -75,6 +75,13 @@ type TorrentBuffer struct {
 	BufferStart     int64
 	BufferEnd       int64
 	LastUpdate      time.Time
+
+	// FileOffset is where the selected file begins inside the torrent. Piece
+	// numbers are torrent-wide, so every translation between the playback
+	// position (file-relative, as the client reports it) and a piece index has
+	// to add this — without it the priorities of a second file in a multi-file
+	// torrent land on the first file's pieces (bug-0150).
+	FileOffset int64
 }
 
 type Service struct {
@@ -100,9 +107,23 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 	pieceSize := wrapped.Torrent().Info().PieceLength
 	totalPieces := wrapped.Torrent().NumPieces()
 
+	// Where the chosen file sits inside the torrent, and which one it is. A
+	// position is in file bytes while a piece number is torrent-wide, so the
+	// offset is the whole difference between steering the file being watched
+	// and steering the first file in the release (bug-0150).
+	fileIndex, fileOffset := 0, int64(0)
+	for i, f := range file.Torrent().Files() {
+		if f == file {
+			fileIndex = i
+			break
+		}
+		fileOffset += f.Length()
+	}
+
 	s.torrentBuffers[torrentID] = &TorrentBuffer{
 		TorrentID:      torrentID,
-		FileIndex:      0,
+		FileIndex:      fileIndex,
+		FileOffset:     fileOffset,
 		File:           wrapped,
 		BufferPercent:  bufferPercent,
 		BufferDuration: bufferDuration,
@@ -114,6 +135,8 @@ func (s *Service) RegisterTorrent(torrentID string, file *torrent.File, bufferPe
 
 	logger.Info("Registered torrent for buffering",
 		"torrentID", torrentID,
+		"fileIndex", fileIndex,
+		"fileOffset", fileOffset,
 		"totalPieces", totalPieces,
 		"pieceSize", pieceSize)
 }
@@ -163,8 +186,12 @@ func (s *Service) updatePiecePriorities(tb *TorrentBuffer) {
 	t := tb.File.Torrent()
 	pieceSize := t.Info().PieceLength
 
-	startPiece := int(tb.BufferStart / pieceSize)
-	endPiece := int(tb.BufferEnd / pieceSize)
+	// File bytes to torrent pieces: the offset goes in before the division.
+	// The buffer is measured inside the file, the pieces are numbered inside
+	// the torrent, and skipping the offset steered the first file's pieces
+	// whenever the film was not the first file in the release (bug-0150).
+	startPiece := int((tb.FileOffset + tb.BufferStart) / pieceSize)
+	endPiece := int((tb.FileOffset + tb.BufferEnd) / pieceSize)
 
 	nowEndPiece := startPiece + constants.BufferNowPieces
 	highEndPiece := startPiece + constants.BufferHighPieces
@@ -218,8 +245,11 @@ func (s *Service) GetBufferInfo(ctx context.Context, torrentID string) (*models.
 
 	t := tb.File.Torrent()
 	pieceSize := t.Info().PieceLength
-	startPiece := int(tb.BufferStart / pieceSize)
-	endPiece := int(tb.BufferEnd / pieceSize)
+	// Same translation as in updatePiecePriorities: the count has to be about
+	// the pieces of the file being watched, not about whatever piece numbers
+	// the file's own byte offsets happen to land on (bug-0150).
+	startPiece := int((tb.FileOffset + tb.BufferStart) / pieceSize)
+	endPiece := int((tb.FileOffset + tb.BufferEnd) / pieceSize)
 
 	var bufferedBytes int64
 	for i := startPiece; i <= endPiece && i < tb.TotalPieces; i++ {

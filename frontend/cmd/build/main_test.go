@@ -21,7 +21,7 @@ func TestBuildPutsBothBinariesInTheRequestedDirectory(t *testing.T) {
 	defer chdir(t, dir)()
 
 	var outputs []string
-	record := func(dir, output string, pkg []string) error {
+	record := func(dir, output string, pkg, ldflags []string) error {
 		outputs = append(outputs, output)
 		return os.WriteFile(output, []byte("binary"), 0o755)
 	}
@@ -66,7 +66,7 @@ func resolveSymlinks(t *testing.T, path string) string {
 func TestBuildFailsWhenABinaryDoesNotCompile(t *testing.T) {
 	defer chdir(t, t.TempDir())()
 
-	refusing := func(dir, output string, pkg []string) error {
+	refusing := func(dir, output string, pkg, ldflags []string) error {
 		return os.ErrPermission
 	}
 
@@ -85,7 +85,7 @@ func TestBuildFailsWhenABinaryDoesNotCompile(t *testing.T) {
 func TestBuildReportsAFailingBackend(t *testing.T) {
 	defer chdir(t, t.TempDir())()
 
-	backendBroken := func(dir, output string, pkg []string) error {
+	backendBroken := func(dir, output string, pkg, ldflags []string) error {
 		if dir == "." {
 			return os.WriteFile(output, []byte("binary"), 0o755)
 		}
@@ -101,9 +101,79 @@ func TestBuildReportsAFailingBackend(t *testing.T) {
 	}
 }
 
+// TestTheBackendIsStampedWithTheReleaseVersion pins bug-0151: the artifacts
+// reported version=dev because the build passed no ldflags, and the fix has to
+// reach the backend — the binary that answers /api/v1/version.
+func TestTheBackendIsStampedWithTheReleaseVersion(t *testing.T) {
+	t.Setenv("VERSION", "v0.5.0")
+	t.Setenv("COMMIT", "deadbeef")
+	defer chdir(t, t.TempDir())()
+
+	var clientFlags, backendFlags []string
+	record := func(dir, output string, pkg, ldflags []string) error {
+		if dir == "." {
+			clientFlags = append([]string(nil), ldflags...)
+		} else {
+			backendFlags = append([]string(nil), ldflags...)
+		}
+		return os.WriteFile(output, []byte("binary"), 0o755)
+	}
+	if err := build("dist", record); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	stamped := strings.Join(backendFlags, " ")
+	if !strings.Contains(stamped, versionPackage+".Version=0.5.0") {
+		t.Errorf("the backend was not stamped with the release version: %q", stamped)
+	}
+	if !strings.Contains(stamped, versionPackage+".Commit=deadbeef") {
+		t.Errorf("the backend was not stamped with the commit: %q", stamped)
+	}
+	if len(clientFlags) != 0 {
+		t.Errorf("the client was stamped with the backend's variables: %v", clientFlags)
+	}
+}
+
+// TestALocalBuildStaysDev keeps the other half honest: a binary built by hand
+// must not claim to be a release.
+func TestALocalBuildStaysDev(t *testing.T) {
+	t.Setenv("VERSION", "")
+	t.Setenv("COMMIT", "")
+
+	stamped := strings.Join(versionLdflags(), " ")
+	if !strings.Contains(stamped, versionPackage+".Version=dev") {
+		t.Errorf("a local build does not say dev: %q", stamped)
+	}
+	if !strings.Contains(stamped, versionPackage+".Commit=unknown") {
+		t.Errorf("a local build does not say unknown: %q", stamped)
+	}
+}
+
+// TestBuildArgsCarryTheLdflags pins the wiring between the stamp and the
+// command: a variable computed but not passed to go build is the same defect
+// one step later.
+func TestBuildArgsCarryTheLdflags(t *testing.T) {
+	args := buildArgs("/tmp/out", []string{"./cmd/server"}, []string{"-X", "pkg.Version=1.2.3"})
+	found := false
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-ldflags" && args[i+1] == "-X pkg.Version=1.2.3" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the ldflags never reach go build: %q", strings.Join(args, " "))
+	}
+
+	bare := buildArgs("/tmp/out", nil, nil)
+	for _, arg := range bare {
+		if arg == "-ldflags" {
+			t.Fatalf("a build with nothing to stamp was given an empty -ldflags: %q", strings.Join(bare, " "))
+		}
+	}
+}
+
 // chdir moves into dir and returns a function that puts the old one back.
-func chdir(t *testing.T, dir string) func() {
-	t.Helper()
+func chdir(t *testing.T, dir string) func() {	t.Helper()
 	old, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)

@@ -42,6 +42,10 @@ jobs:
         working-directory: frontend
         env:
           CGO_ENABLED: '1'
+          # What the binary reports at /api/v1/version (bug-0151): an artifact
+          # that says "dev" cannot be named in a report.
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
         run: go run ./cmd/build -out ../dist
 
       # The mark is drawn in code (internal/ui.IconPNG) and rendered here, so
@@ -183,6 +187,11 @@ jobs:
       - name: Build the application and the backend
         working-directory: frontend
         shell: pwsh
+        env:
+          # What the binary reports at /api/v1/version (bug-0151): an artifact
+          # that says "dev" cannot be named in a report.
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
         run: go run ./cmd/build -out ../dist
 
       - name: Assemble the release folder
@@ -271,6 +280,10 @@ jobs:
         working-directory: frontend
         env:
           CGO_ENABLED: '1'
+          # What the binary reports at /api/v1/version (bug-0151): an artifact
+          # that says "dev" cannot be named in a report.
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
         run: go run ./cmd/build -out ../dist
 
       - name: Render the icon

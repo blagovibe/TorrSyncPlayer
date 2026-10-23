@@ -55,6 +55,10 @@ type Mesh struct {
 	wake chan struct{}
 	// inviteFailed says the address in the invite code did not work.
 	inviteFailed bool
+	// invitedHostID is the peer ID the invite code named, empty when the code
+	// named nobody. The room believes only this peer's claim to the host role
+	// until the role moves (bug-0148).
+	invitedHostID string
 
 	closeOnce sync.Once
 }
@@ -155,11 +159,16 @@ func (m *Mesh) Join(ctx context.Context, isHost bool) error {
 	}
 
 	invited, inviteErr := addrInfoFromAddrs(m.opts.Addrs)
+	invitedHost := ""
+	if inviteErr == nil && invited.ID != "" {
+		invitedHost = invited.ID.String()
+	}
 
 	m.mu.Lock()
 	m.node = node
 	m.selfID = node.ID().String()
 	m.isHost = isHost
+	m.invitedHostID = invitedHost
 	m.mu.Unlock()
 
 	go m.acceptLoop()
@@ -454,6 +463,28 @@ func (m *Mesh) IsHost() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.isHost
+}
+
+// SetHostRole keeps the greeting honest when the room's host role moves.
+//
+// The greeting says whether the sender holds the role, and the flag was set
+// once at Join: a host that handed the role over went on telling every
+// newcomer that it was the host, and the newcomer believed the old one
+// (bug-0148). The window calls this on every host change, so the greeting and
+// the room agree.
+func (m *Mesh) SetHostRole(isHost bool) {
+	m.mu.Lock()
+	m.isHost = isHost
+	m.mu.Unlock()
+}
+
+// InvitedHost is the peer ID the invite code named, or empty when the code
+// named nobody (a room created here). The room uses it to decide whose claim
+// to the host role is believable (bug-0148).
+func (m *Mesh) InvitedHost() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.invitedHostID
 }
 
 // Peers lists the connected peer IDs.

@@ -93,6 +93,12 @@ type Room struct {
 	hostPeer string
 	magnet   *Magnet
 
+	// invitedHost is the peer ID the invite code named, or empty when the code
+	// named nobody (a room created here). It is what makes a host claim
+	// believable: the guest knows whom it dialled, so a peer that says "I am
+	// the host" without being that peer is not believed (bug-0148).
+	invitedHost string
+
 	// refused holds the peers this build did not admit, and the version they
 	// speak. The refusal sticks: a peer that was refused once stays refused,
 	// and the room does not take its magnet, its host claim or its commands
@@ -122,6 +128,13 @@ func NewRoom(transport Transport, selfID, userID string, isHost bool, cb *Callba
 		peers:     make(map[string]*Peer),
 		refused:   make(map[string]int),
 		isHost:    isHost,
+	}
+	// The invite names the host by its peer ID, so a guest knows whom to
+	// believe before it hears anyone. A transport that knows no invite — the
+	// host's own room, and the test transports — answers with the empty
+	// string and the room falls back to the first claim (see onHello).
+	if named, ok := transport.(interface{ InvitedHost() string }); ok {
+		r.invitedHost = named.InvitedHost()
 	}
 	if isHost {
 		r.hostPeer = selfID
@@ -324,17 +337,30 @@ func (r *Room) onHello(from string, m Hello) {
 	}
 
 	r.mu.Lock()
-	r.peers[from] = &Peer{PeerID: from, UserID: m.UserID, Username: m.Username, IsHost: m.IsHost, Addrs: m.Addrs, Version: theirVersion}
+	// A greeting's host claim is a claim, not a proof. Any admitted peer could
+	// say it holds the role and be obeyed by everyone at once, and a host that
+	// handed the role over went on announcing itself because its mesh flag was
+	// never updated — so a newcomer believed the old one (bug-0148). A role
+	// that is already known may only be confirmed by its holder: it is moved
+	// by a transfer or by the takeover rule, never by a greeting. Before a host
+	// is known, the invite decides; a room with no invite at all — the host's
+	// own room, and the test transports — lets the first claim bind, because a
+	// room with nobody to follow cannot start.
+	claimed := false
 	if m.IsHost {
-		r.hostPeer = from
+		claimed = r.hostClaimIsBelievableLocked(from)
+		if claimed {
+			r.hostPeer = from
+		}
 	}
+	r.peers[from] = &Peer{PeerID: from, UserID: m.UserID, Username: m.Username, IsHost: claimed, Addrs: m.Addrs, Version: theirVersion}
 	magnet := r.magnet
 	amHost := r.isHost
 	book := r.addressBook()
 	r.mu.Unlock()
 
 	r.emitRoster()
-	if m.IsHost {
+	if claimed {
 		r.emitHostChanged(from)
 	}
 
@@ -413,21 +439,46 @@ func (r *Room) onPeers(m Peers) {
 
 func (r *Room) onMagnet(from string, m Magnet) {
 	r.mu.Lock()
-	if r.hostPeer == "" {
-		// No host known yet: the first magnet binds the sender as host. The
-		// alternative is ignoring the film until someone claims the role, and
-		// a room that names a film but nobody to follow is a room that cannot
-		// start.
+	// The film belongs to the host. A magnet from anyone else used to be
+	// remembered anyway, and the host then handed the stranger's film to every
+	// newcomer while believing it was its own (bug-0149). Until a host is
+	// known, the peer the invite named binds the role; in a room that named
+	// nobody the first sender does, because a room that names a film and
+	// nobody to follow cannot start.
+	if r.hostPeer == "" && (r.invitedHost == "" || from == r.invitedHost) {
 		r.hostPeer = from
 	}
 	follow := from == r.hostPeer
-	cp := m
-	r.magnet = &cp
+	if follow {
+		cp := m
+		r.magnet = &cp
+	}
 	r.mu.Unlock()
 
 	if follow && r.cb.OnMagnet != nil {
 		r.cb.OnMagnet(m)
 	}
+}
+
+// hostClaimIsBelievableLocked reports whether a greeting's host claim can be
+// taken at face value; the caller holds the lock.
+//
+// A role that is already known may only be confirmed, not replaced: the
+// messages that move it (the host's transfer, the takeover rule) are the only
+// ones allowed to name a new host, and a greeting that could name one would let
+// the original host take the room back after handing it over. Before a host is
+// known, the invite decides: it names the host's peer ID, so only that peer is
+// believed. A room with no invite at all — the host's own room, the test
+// transports — has nothing to check the claim against and lets the first claim
+// bind, because a room with nobody to follow cannot start.
+func (r *Room) hostClaimIsBelievableLocked(from string) bool {
+	if r.hostPeer != "" {
+		return from == r.hostPeer
+	}
+	if r.invitedHost != "" {
+		return from == r.invitedHost
+	}
+	return true
 }
 
 func (r *Room) onHost(from string, m Host) {

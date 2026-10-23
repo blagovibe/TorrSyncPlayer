@@ -322,6 +322,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check that learned to go red; the measurement rows are data. The boundary
   for the next session is this commit, and the first thing that session owes is
   the suite this one could not run.
+- **The four P0 defects got their fixes, and none of them is called fixed.**
+  The room no longer takes a greeting's host claim at face value: the role is
+  confirmed by the peer the invite named, a role already known can only be
+  confirmed by its holder, and the mesh now updates the flag its greeting
+  carries when the role moves (bug-0148). A magnet from anyone but the host is
+  no longer remembered, so the host can no longer hand a stranger's film to
+  every newcomer (bug-0149). Buffer priorities and the buffer report translate
+  file bytes into torrent pieces by the selected file's offset inside the
+  torrent — which is what a multi-file release needed all along (bug-0150). The
+  build script stamps the backend with the release version, commit and build
+  time and the release jobs pass the tag and the SHA, while a binary built by
+  hand still says `dev` (bug-0151).
+  Each fix carries the test that fails without it: a forged host claim, a
+  stranger's magnet, the second file of a two-file torrent, and a build that
+  must not report `dev`. What this session could not do is run them — the
+  environment has no Go toolchain and no network to fetch it, so the fixes were
+  written against the source rather than against a compiler. All four cards are
+  `in_progress` and stay that way until a green suite on all three platforms
+  says otherwise, which is the rule this project already wrote down; the entry
+  states the gap instead of closing it by assertion.
 
 ## [v0.4.1] - 2026-10-21
 

@@ -26,6 +26,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 )
 
 func main() {
@@ -39,13 +41,14 @@ func main() {
 }
 
 // builder compiles one binary: in dir, from pkg (nil meaning the package in
-// dir), writing it to output.
+// dir), writing it to output, with ldflags when the binary has to know what it
+// is.
 //
 // It is a parameter because the two builds run from different module
 // directories, and that is exactly where a relative output path stops meaning
 // what it looks like it means. Injecting it keeps that testable without
 // compiling anything twice per run.
-type builder func(dir, output string, pkg []string) error
+type builder func(dir, output string, pkg, ldflags []string) error
 
 func build(out string, goBuild builder) error {
 	if err := os.MkdirAll(out, 0o750); err != nil {
@@ -65,15 +68,16 @@ func build(out string, goBuild builder) error {
 
 	// The application.
 	app := filepath.Join(absOut, appName())
-	if err := goBuild(".", app, nil); err != nil {
+	if err := goBuild(".", app, nil, nil); err != nil {
 		return fmt.Errorf("client: %w", err)
 	}
 
 	// The backend, under the name the client looks for. On Windows the two
 	// differ by more than case — client.exe beside server.exe — which is why
-	// this is a decision and not a constant.
+	// this is a decision and not a constant. It is also the binary that answers
+	// /api/v1/version, so it is the one that has to be stamped (bug-0151).
 	backendPath := filepath.Join(absOut, backendName())
-	if err := goBuild("../backend", backendPath, []string{"./cmd/server"}); err != nil {
+	if err := goBuild("../backend", backendPath, []string{"./cmd/server"}, versionLdflags()); err != nil {
 		return fmt.Errorf("backend: %w", err)
 	}
 
@@ -84,15 +88,53 @@ func build(out string, goBuild builder) error {
 	return nil
 }
 
-func goBuild(dir, output string, pkg []string) error {
-	args := append([]string{"build", "-o", output}, pkg...)
+func goBuild(dir, output string, pkg, ldflags []string) error {
 	// #nosec G204 -- argv is built here from an output path this tool owns and
 	// package paths fixed in the source; it shell-executes nothing.
-	cmd := exec.Command("go", args...)
+	cmd := exec.Command("go", buildArgs(output, pkg, ldflags)...)
 	cmd.Dir = dir
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	return cmd.Run()
+}
+
+// buildArgs is the argument list, kept apart so the ldflags a release depends on
+// can be asserted without compiling anything (bug-0151).
+func buildArgs(output string, pkg, ldflags []string) []string {
+	args := []string{"build"}
+	if len(ldflags) > 0 {
+		args = append(args, "-ldflags", strings.Join(ldflags, " "))
+	}
+	args = append(args, "-o", output)
+	return append(args, pkg...)
+}
+
+// versionPackage is where the backend keeps the variables a build stamps.
+const versionPackage = "github.com/blagovibe/TorrSyncPlayer/backend/internal/version"
+
+// versionLdflags stamps the backend with what it is.
+//
+// The release artifacts reported version=dev because this script passed no
+// ldflags at all, and the v1.1.x release line had already paid for that lesson
+// (bug-0151): a build nobody can identify turns every report into "some build
+// from somewhere". The version comes from VERSION, which the release workflow
+// sets from the tag; the commit comes from COMMIT. A hands-built binary keeps
+// saying dev, so it cannot be mistaken for a release.
+func versionLdflags() []string {
+	version := strings.TrimPrefix(strings.TrimSpace(os.Getenv("VERSION")), "v")
+	if version == "" {
+		version = "dev"
+	}
+	commit := strings.TrimSpace(os.Getenv("COMMIT"))
+	if commit == "" {
+		commit = "unknown"
+	}
+	built := time.Now().UTC().Format(time.RFC3339)
+	return []string{
+		"-X", versionPackage + ".Version=" + version,
+		"-X", versionPackage + ".Commit=" + commit,
+		"-X", versionPackage + ".BuildTime=" + built,
+	}
 }
 
 // appName is the client executable: TorrSyncPlayer.exe, TorrSyncPlayer.
