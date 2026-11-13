@@ -462,6 +462,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests changed: the Ubuntu follower behaviour still needs a mechanism, and
   the next run onto that leg will name it instead of everyone guessing it.
 
+- **Nine cards closed today, each on the green that covered it.** CI run on
+  this line of main is green across the board: lint with the build guard, the
+  backend suite with the race detector and govulncheck, the frontend matrix on
+  ubuntu-24.04/macos/windows including the mpv and gateway scenarios, fuzzing,
+  OWASP ZAP, all three builds, sync divergence inside its promise and the NAT
+  room. The four P0 defects found by the audit (bug-0148 the host role
+  claimable by any admitted peer, bug-0149 a stranger's magnet replacing the
+  room's film, bug-0150 buffer priorities in file bytes applied to torrent
+  pieces, bug-0151 release artifacts reporting `dev`) were written blind and
+  verified here. The blind batch (bug-0152 Ctrl-C orphaning the backend,
+  bug-0154 `--client-id` undocumented and defaulting to a literal, bug-0155
+  `WaitFor` dropping what it did not match, bug-0156 a fuzz target that could
+  not fail, deviation-0153 a copy button that copied nothing) was compiled,
+  repaired and verified the same way — the repairs themselves are in the
+  previous entries. At the time of writing, only the k6 load test and the
+  mutation job are still in flight; neither gates any of the nine. What stays
+  open and why: bug-0157 (the series divides by every row, not the window —
+  the defect the fifty-one false cards came from), bug-0158 (GPL notices for
+  the bundled mpv/ffmpeg), bug-0165 (checks watching dead paths), bug-0167
+  (Windows-local file-handle and permission flakes — the backend job runs on
+  ubuntu only), deviation-0164 (the way says Go 1.26+ against a 1.27.4 pin),
+  deviation-0166 (the remoting mode still contradicts the goal; the owner's
+  decision to remove it stands but the code has not been taken out yet),
+  deviation-0168 (the way sends Windows
+  developers at an MSVC path cgo cannot take), deviation-0169 (runtime Pact
+  verification off, restore triggers written), idea-0159…0163 (nobody has run
+  an artifact on a real machine; the window cannot do what the API can; the
+  journal cannot be read as history; macOS arm64-only and unsigned; no log
+  file to send).
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
