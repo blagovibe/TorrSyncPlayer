@@ -41,7 +41,7 @@ env:
   # Pinned in every workflow and checked to be the same number everywhere by
   # backend/internal/cicontract: a workflow that quietly builds with a different
   # Go is a green job about a different compiler.
-  GO_VERSION: '1.27.3'
+  GO_VERSION: '1.27.4'
 
 jobs:
   measure:
