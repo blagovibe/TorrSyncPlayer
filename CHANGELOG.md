@@ -452,6 +452,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   advance; both the 22.04 stall and the 24.04 play failures stay open
   findings until a mechanism is named.
 
+- **The timeout stopped failing silently.** The follower tests on the Ubuntu
+  leg timed out at their ninety-second budget in two runs on two different
+  assertions while the same suite was green on macOS and Windows. Their
+  timeout branches said only "timed out waiting for X", though mpv's own log
+  — what the player was doing between socket open and the deadline — was one
+  field away. Both the timeout and the death branch of `waitForPlayer` now
+  quote the tail of the player's log (25 lines). Nothing else about the
+  tests changed: the Ubuntu follower behaviour still needs a mechanism, and
+  the next run onto that leg will name it instead of everyone guessing it.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended

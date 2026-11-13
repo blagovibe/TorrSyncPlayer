@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -223,7 +224,20 @@ func waitForPlayer(t *testing.T, p *player.Player, within time.Duration, what st
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("timed out after %s waiting for %s", within, what)
+	// The timeout message carries mpv's own words, like the death branch does:
+	// "timed out" without them is what sent everyone guessing for a week.
+	t.Fatalf("timed out after %s waiting for %s\nmpv said:\n%s",
+		within, what, tailLines(p.Log(), 25))
+}
+
+// tailLines keeps the last few lines of a player's log — the head of it is
+// what the player says about opening the file; the failure lives at the tail.
+func tailLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
 // fakeRoom is a room transport that records what was sent and says nothing
