@@ -373,6 +373,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without any of them. The boundary for the next session is that divergence,
   and resolving it is the owner's decision; until then no card above is
   called fixed, and neither is the board honest.
+- **The owner decided: merge origin/main into main, delete the fifty-one
+  false threshold cards, one journal note.** The measurement series itself
+  was checked before deletion: all 73 rendezvous runs in
+  `measurements/rendezvous.md` are `met` (2–46 s against a 90-second
+  threshold) — the 86%→27% "degradation" quoted above was the checker's
+  arithmetic, not the network: `good` over the last 20 rows divided by every
+  row ever recorded, so every run after the twentieth row opened a card.
+  Fifty-one cards asserting a false trend are gone; the root defect stays
+  with bug-0157, and the merge of origin/main into main (3b7eb8c) takes the
+  measurement rows and the audit together onto one line for the first time
+  since 2026-10-21; the audit's cards, the four P0 fixes and the blind batch
+  are now all on the same branch as the public series. The duplicate card
+  IDs are resolved with the deletion: the board holds the human cards only.
+  CI has not run on this line yet — no push has happened; every card above
+  stays open/in_progress until it does, on three platforms.
 
 ## [v0.4.1] - 2026-10-21
 
