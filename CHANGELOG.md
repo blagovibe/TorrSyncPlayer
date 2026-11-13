@@ -388,6 +388,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IDs are resolved with the deletion: the board holds the human cards only.
   CI has not run on this line yet — no push has happened; every card above
   stays open/in_progress until it does, on three platforms.
+- **The first reunion CI run found two reachable vulnerabilities, and both
+  were closed in the same window.** govulncheck went red: GO-2026-6894
+  (unbounded recursion in anacrolix/torrent's bencode decoder — reachable via
+  any crafted .torrent, i.e. by whoever hands one to this machine; fixed by
+  the Dependabot bump merged here) and GO-2026-6859 (HTTP/1 server crash via
+  a MaxBytesReader header race in net/http at the pinned go1.27.3; fixed by
+  moving the pin to go1.27.4 everywhere — ci, release, rendezvous, security,
+  codeql — with the Dockerfile builder following). govulncheck is green
+  again. What the new toolchain brings is this entry's middle: go1.27.4
+  carries security fixes to cgo and the linker, and with them it broke the
+  pact-FFI link on this runner — `invalid linker input file in #cgo LDFLAGS`,
+  in the provider build, in vet, in the contract job, on both pact-go 2.5.1
+  and 2.9.0, with the gcc image unchanged and no 1.27.5 released. The runtime
+  Pact verification job is removed for as long as that is true: a permanently
+  red job teaches ignoring red. The e2fb119-class guard survives as a build,
+  not a link ("Build the contract package"), and the accepted compromise is on
+  the board as deviation-0169 with its restore triggers. Nothing about
+  go1.27.3 was rolled back: the net/http hole stays closed.
+- **The Linux frontend leg now tests the mpv people actually install.** The
+  leg tested mpv 0.34.1 (apt jammy) while macOS and Windows tested current
+  mpv, and its stall-pinning test failed there once in two runs with the
+  same image. The leg now runs on ubuntu-24.04 — and mpv 0.37 then
+  exposed the larger half of the same truth: the application passed mpv
+  nothing about cache behaviour, so mpv's default ~50% cache gate decided
+  when a film was allowed to start — the goal's first sentence was
+  unimplementable on this build of the player. The player now starts
+  playback at the first byte (`--cache-pause-initial=0`), while cache-pause
+  itself stays enabled, so paused-for-cache keeps reporting starvation and
+  the room's stop keeps working. mpv's behaviour is version-dependent, and
+  the pins here cover the generations in CI; a mpv bump that changes these
+  semantics will surface exactly like this month did. Fresh reconciliation:
+  what this session could not do is prove any of it on three platforms —
+  this machine has no gcc — so CI is the verifier, #545 was red exactly on
+  the two findings fixed here, everything else was green (backend with race
+  detector and govulncheck, lint with the build guard, macOS/Windows
+  frontend including the mpv and gateway scenarios, fuzzing, OWASP ZAP,
+  mutation, all builds), and nothing is called fixed until the next run says
+  so on all three.
 
 ## [v0.4.1] - 2026-10-21
 
