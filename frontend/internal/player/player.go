@@ -418,14 +418,6 @@ func Args(socketPath string, headers []string, extra ...string) []string {
 		"--no-config",
 		"--idle=yes",
 		"--keep-open=yes",
-		// A torrent has a frontier that grows, not a file that fills. The
-		// default cache-pause gate (~50%) would have mpv sit on a third of
-		// the film and wait for data that has not started to matter yet; the
-		// goal promises the film plays as soon as enough of it exists. The
-		// initial threshold goes to zero; the cache-pause mechanism itself
-		// stays on, so paused-for-cache keeps reporting starvation and the
-		// room's stop keeps working.
-		"--cache-pause-initial=0",
 		// The player window is a screen, not a remote: this kills the
 		// builtin bindings and the script ones (OSC included — the manual
 		// says so), so every keypress travels through our window and the

@@ -44,23 +44,6 @@ func TestArgsCarryNoHeaderWhenThereIsNone(t *testing.T) {
 	}
 }
 
-// The goal's first sentence is that the file starts playing as soon as there
-// is enough of it — not when mpv's default gate (~50% of the cache) lets it.
-// A torrent streams a frontier that grows; the gate is a buffering preference
-// for seekable files, and against a growing file it is a promise not to play.
-// The flag starts playback at the first byte; paused-for-cache stays live,
-// which is what the room's stop rests on (mpv keeps reporting cache
-// starvation while the pause is on — pin it or lose the room's stop).
-func TestArgsDoNotWaitForHalfTheCache(t *testing.T) {
-	joined := strings.Join(Args("/tmp/mpv.sock", nil), " ")
-	if !strings.Contains(joined, "--cache-pause-initial=0") {
-		t.Fatalf("mpv would wait for its default cache gate before playing a growing file: %v", joined)
-	}
-	if strings.Contains(joined, "--cache-pause=no") {
-		t.Fatal("--cache-pause=no kills paused-for-cache, which the room's stop rests on")
-	}
-}
-
 // TestArgsJoinHeadersIntoOneFlag pins the shape mpv actually honors: repeated
 // --http-header-fields do not accumulate, the last flag wins and the earlier
 // headers never leave the machine. Two headers must ride one comma-joined

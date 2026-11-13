@@ -823,7 +823,7 @@ jobs:
   # runner (invalid linker input file in #cgo LDFLAGS), with no workaround or
   # fixed release available. A permanently red job was not an acceptable
   # guard, so the runtime verification is off for now; the e2fb119-class
-  # guard lives on as `go build -tags contract ./...` in Lint ("Build the
+  # guard lives on as a build of the contract package in Lint ("Build the
   # contract package"). The open deviation card (deviation-0169) carries the
   # restore triggers.
 

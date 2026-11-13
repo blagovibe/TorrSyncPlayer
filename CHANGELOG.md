@@ -427,6 +427,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mutation, all builds), and nothing is called fixed until the next run says
   so on all three.
 
+- **The mpv bet that did not survive its own CI run, and what it taught.**
+  The first attempt to fix the ubuntu leg added `--cache-pause-initial=0` to
+  the player's mpv invocation, on the theory that mpv's default cache-pause
+  gate (~50% of a cache a torrent fills in third) was the reason a
+  one-third-played film never advanced its position on noble. The theory was
+  wrong twice over: the option is `<yes|no>` with a default of `no`, so the
+  flag itself exited mpv and every mpv-driven test in #546 timed out at the
+  socket wait on all three platforms, and the cache gate was never the
+  mechanism. The flag and its pin are reverted untouched. What the episode
+  exposed about the test itself is real: `TestRealMpvPlaysWhileTheSourceIsIncomplete`
+  failed on ubuntu-24.04 (position never passed 0.5s in 60s, while macOS and
+  Windows mpv advanced it), and that failure is **undiagnosed** as of this
+  record — the log shows a healthy player and a frozen position, not a
+  dead one; a mechanism will need the mpv log captured from the noble run or
+  a run against a local 0.37. Separately, the cicontract trip in #546 was
+  self-inflicted: a comment added in the same commit carried `./...` in its
+  text, and the mutation-scope check greps for exactly that string in the
+  workflow read as a package path; the guard earned its keep, and the
+  comment is reworded instead of the guard relaxed. What is not excused by
+  any of this: mpv behaviour is version-dependent, and Ubuntu's mpv is the
+  outlier in the matrix twice in one week, once in each direction of the
+  stall/play pair. Nothing here calls a position advanced that did not
+  advance; both the 22.04 stall and the 24.04 play failures stay open
+  findings until a mechanism is named.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
