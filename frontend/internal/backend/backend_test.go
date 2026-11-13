@@ -63,6 +63,53 @@ func TestUnknownFlagCatchesARemovedFlag(t *testing.T) {
 	}
 }
 
+// TestEveryDocumentedBackendFlagIsKnown holds the two lists against each other:
+// the way documents the backend's flags, and a documented flag this list does not
+// know is a startup failure waiting for whoever copies it out of the table.
+//
+// It reads the way from the checkout rather than restating the flags here — a
+// second hardcoded copy would drift in exactly the same way as the first one.
+func TestEveryDocumentedBackendFlagIsKnown(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "..", "DEV.md"))
+	if err != nil {
+		t.Skipf("the way is not beside this module: %v", err)
+	}
+
+	_, section, found := strings.Cut(string(source), "\nБэкенд:\n")
+	if !found {
+		t.Fatal("DEV.md has no backend flags section")
+	}
+
+	known := make(map[string]bool, len(KnownFlags()))
+	for _, name := range KnownFlags() {
+		known[name] = true
+	}
+
+	row := regexp.MustCompile("^\\| `(--[a-z0-9-]+)`")
+	flags := 0
+	for _, line := range strings.Split(section, "\n") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "|") {
+			// The table ends at the first paragraph after it.
+			break
+		}
+		match := row.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		flags++
+		name := strings.TrimPrefix(match[1], "--")
+		if !known[name] {
+			t.Errorf("the way documents %s but the backend child would refuse it: add it to KnownFlags", match[1])
+		}
+	}
+	if flags == 0 {
+		t.Fatal("no backend flags were read from DEV.md; the table format changed")
+	}
+}
+
 func TestGeneratedTokenIsUsableAndFixedLength(t *testing.T) {
 	first, err := GenerateToken()
 	if err != nil {

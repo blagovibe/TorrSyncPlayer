@@ -34,10 +34,14 @@ import (
 // An unknown flag is not a warning to the backend, it is
 // "flag provided but not defined" and os.Exit(2): the application simply does
 // not start. That is why the list is asserted here rather than assumed.
+//
+// Every flag the backend declares belongs here, whether or not the window passes
+// it today: this is the answer to "would the child accept it", and a missing
+// entry turns a documented flag into a startup failure (bug-0154).
 func KnownFlags() []string {
 	return []string{
 		"port", "addr", "token", "token-stdin",
-		"data-dir", "disk-storage",
+		"data-dir", "disk-storage", "memory-capacity",
 		"tls-cert", "tls-key", "tls", "auto-tls",
 		"enable-profiling",
 		"gateway-url", "gateway-user", "gateway-pass", "gateway-ca-cert",

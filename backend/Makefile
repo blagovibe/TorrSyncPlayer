@@ -97,9 +97,26 @@ test-coverage:
 	@echo "Отчёт о покрытии: coverage.html"
 
 ## test-fuzz: Запустить фаззинг тесты (30 секунд на каждый)
+#
+# Go отказывается работать с -fuzz, если шаблон совпал больше чем с одной
+# фаззинг-целью, поэтому цели перечисляются явно, по одной. Список берётся из
+# исходников, а не хардкодится: новая FuzzXxx-функция не может молча выпасть из
+# прогона. Раньше здесь стоял `-fuzz=Fuzz | head`: на несуществующей цели
+# `go test` печатал предупреждение и завершался успешно, а `head` ещё и
+# маскировал код возврата, так что цель была зелёной при нулевом фаззинге.
 test-fuzz:
 	@echo "Запуск фаззинг тестов..."
-	go test -fuzz=Fuzz -fuzztime=30s ./internal/validation/... 2>&1 | head -100
+	@targets=$$(grep -hoE '^func (Fuzz[A-Za-z0-9_]+)' internal/validation/*_test.go | sed -E 's/^func //' | sort -u); \
+	if [ -z "$$targets" ]; then \
+		echo "В internal/validation не найдено ни одной фаззинг-цели" >&2; \
+		exit 1; \
+	fi; \
+	echo "Фаззинг-цели: $$targets"; \
+	for target in $$targets; do \
+		echo "=== $$target ==="; \
+		go test -run='^$$' -fuzz="^$${target}\$$" -fuzztime=30s ./internal/validation/... || exit 1; \
+	done
+	@echo "Фаззинг завершён."
 
 ## test-mutation: Запустить мутационное тестирование (go-mutesting)
 #

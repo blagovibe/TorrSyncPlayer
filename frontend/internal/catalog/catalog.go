@@ -58,6 +58,13 @@ var catalog = map[string]string{
 	"status.notIn":    "You are not in a room yet",
 	"status.unreach":  "Backend unreachable: %s",
 
+	// Copying the invite is the host's whole action (deviation-0153): the code
+	// goes to the clipboard, and the field is refilled only when doing so cannot
+	// destroy something somebody pasted there.
+	"status.codeCopied":     "Invitation code copied — paste it in one message",
+	"status.codeCopiedKept": "Invitation code copied — the code already in the field was left alone",
+	"status.copyFailed":     "Could not copy the code: %s",
+
 	// The playback path. These were the last strings written to the status
 	// line as plain literals, so a person reading the Russian interface read
 	// every failure in English (idea-0073).
@@ -181,23 +188,28 @@ var catalog = map[string]string{
 //
 // #nosec G101 -- same as the source catalogue above: UI text keyed by name.
 var Russian = Strings{
-	"app.title":                     "TorrSyncPlayer",
-	"status.starting":               "Запуск…",
-	"status.ready":                  "Готово",
-	"status.torrents":               "торрентов: %d",
-	"status.torrent":                "1 торрент",
-	"status.added":                  "Добавлено: %s",
-	"status.nothing":                "Нечего добавлять",
-	"status.couldNot":               "Не удалось: %s",
-	"status.playing":                "Смотрим: %s",
-	"status.selected":               "Выбрано: %s",
-	"status.choose":                 "Выберите файл для воспроизведения",
-	"status.pick":                   "Сначала выберите торрент: комната привязана к одному",
-	"status.joined":                 "Вы вошли в комнату",
-	"status.created":                "Комната открыта — код готов к копированию",
-	"status.codeRead":               "Код приглашения прочитан — нажмите «Войти»",
-	"status.notIn":                  "Вы ещё не в комнате",
-	"status.unreach":                "Бэкенд недоступен: %s",
+	"app.title":       "TorrSyncPlayer",
+	"status.starting": "Запуск…",
+	"status.ready":    "Готово",
+	"status.torrents": "торрентов: %d",
+	"status.torrent":  "1 торрент",
+	"status.added":    "Добавлено: %s",
+	"status.nothing":  "Нечего добавлять",
+	"status.couldNot": "Не удалось: %s",
+	"status.playing":  "Смотрим: %s",
+	"status.selected": "Выбрано: %s",
+	"status.choose":   "Выберите файл для воспроизведения",
+	"status.pick":     "Сначала выберите торрент: комната привязана к одному",
+	"status.joined":   "Вы вошли в комнату",
+	"status.created":  "Комната открыта — код готов к копированию",
+	"status.codeRead": "Код приглашения прочитан — нажмите «Войти»",
+	"status.notIn":    "Вы ещё не в комнате",
+	"status.unreach":  "Бэкенд недоступен: %s",
+
+	// Копирование приглашения — единственное действие хоста (deviation-0153).
+	"status.codeCopied":             "Код приглашения скопирован — отправьте его одним сообщением",
+	"status.codeCopiedKept":         "Код скопирован — код, уже вставленный в поле, не тронут",
+	"status.copyFailed":             "Не удалось скопировать код: %s",
 	"status.joinFail":               "Не удалось войти: %s",
 	"status.roomWatching":           "Комната смотрит %s — добавляю торрент в ваш бэкенд",
 	"status.roomReadFail":           "Не удалось прочитать торрент комнаты: %s",

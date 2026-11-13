@@ -299,6 +299,8 @@ func messageType(msg any) string {
 		return m.Type
 	case Bye:
 		return m.Type
+	case Peers:
+		return m.Type
 	default:
 		return ""
 	}

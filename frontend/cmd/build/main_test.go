@@ -173,7 +173,8 @@ func TestBuildArgsCarryTheLdflags(t *testing.T) {
 }
 
 // chdir moves into dir and returns a function that puts the old one back.
-func chdir(t *testing.T, dir string) func() {	t.Helper()
+func chdir(t *testing.T, dir string) func() {
+	t.Helper()
 	old, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)

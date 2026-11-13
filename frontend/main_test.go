@@ -5,10 +5,12 @@
 package main
 
 import (
+	"flag"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -214,5 +216,100 @@ func TestAnEmptyGatewayIsOff(t *testing.T) {
 		launch.GatewayPass != "" || launch.GatewayCACert != "" {
 		t.Errorf("an empty form produced a gateway: url=%q user=%q cert=%q",
 			launch.GatewayURL, launch.GatewayUser, launch.GatewayCACert)
+	}
+}
+
+// TestAnInterruptStopsTheBackendBeforeTheWindowGoes is the bug, fixed.
+//
+// The handler used to call os.Exit(0) from its own goroutine, which skips the
+// deferred child.Stop: Ctrl-C left the backend running, holding the port and
+// the download, and the next launch started a second one. The order matters as
+// much as the call — the toolkit is told to quit only once the child is gone.
+func TestAnInterruptStopsTheBackendBeforeTheWindowGoes(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	var order []string
+	done := make(chan struct{})
+
+	stopOnSignal(signals,
+		func() { order = append(order, "backend") },
+		func() { order = append(order, "window"); close(done) })
+
+	signals <- os.Interrupt
+	<-done
+
+	if len(order) != 2 || order[0] != "backend" || order[1] != "window" {
+		t.Fatalf("an interrupt produced %v; the backend has to stop before the window quits", order)
+	}
+}
+
+// The handler must wait for a signal rather than act on startup: a window that
+// stops its own backend as it opens would be a much shorter session than the
+// one people expect.
+func TestTheSignalHandlerWaits(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	done := make(chan struct{})
+
+	stopOnSignal(signals, func() { close(done) }, func() {})
+
+	select {
+	case <-done:
+		t.Fatal("the handler stopped the backend without a signal")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// Both spellings of the client identifier have to exist: the way promises -c and
+// --client-id, and whoever copies the long one out of the table must not be told
+// "flag provided but not defined" (bug-0154).
+func TestBothSpellingsOfTheClientIDAreDeclared(t *testing.T) {
+	for _, args := range [][]string{{"--client-id", "alice"}, {"-c", "bob"}} {
+		var opts runOptions
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		registerFlags(fs, &opts)
+
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("%v was refused: %v", args, err)
+		}
+		if opts.ClientID != args[1] {
+			t.Errorf("%v set the identifier to %q", args, opts.ClientID)
+		}
+	}
+}
+
+// The default is empty rather than the old literal "client-id": an empty value is
+// what makes run generate one, and a shared default made every instance answer to
+// the same name in a room.
+func TestTheClientIDIsEmptyUntilGiven(t *testing.T) {
+	var opts runOptions
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	registerFlags(fs, &opts)
+
+	if err := fs.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if opts.ClientID != "" {
+		t.Fatalf("the identifier defaults to %q instead of being generated", opts.ClientID)
+	}
+}
+
+func TestClientIdentityMakesDefaultInstancesDistinct(t *testing.T) {
+	first, err := clientIdentity("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := clientIdentity("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first == second {
+		t.Fatalf("two default instances got the same identifier %q", first)
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(first) {
+		t.Errorf("a generated identifier is not 32 hex characters: %q", first)
+	}
+
+	if given, err := clientIdentity("alice"); err != nil || given != "alice" {
+		t.Errorf("a given identifier was replaced by %q (%v)", given, err)
 	}
 }

@@ -342,6 +342,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `in_progress` and stay that way until a green suite on all three platforms
   says otherwise, which is the rule this project already wrote down; the entry
   states the gap instead of closing it by assertion.
+- **A fresh reconciliation, and this one could run.** The last record said no
+  Go toolchain existed here; one did (go1.27.3, network to the module proxy),
+  so the zone since the boundary — the working-tree batch written blind — was
+  run against a compiler, and it did not compile. `mesh_pipe_test.go` had lost
+  a newline (the comment and the func merged into one line), `backend_test.go`
+  shadowed its own `found` and then compared `--addr` against `addr` — a check
+  that could never pass — and `cmd/build/main_test.go` plus `catalog.go` were
+  not gofmt-clean, which the CI format gate would have rejected. The repairs
+  are mechanical and carry no semantics; the comparison now trims its prefix,
+  the shadow is gone, the newline is restored.
+  What the run showed, zone only: the backend suite is green except
+  `TestAPartialTorrentIsPlayableAndWhatIsPlayingIsFetchedFirst`, which passes
+  on its own yet fails in a package run on Windows — `RemoveTorrent` cannot
+  unlink a file the torrent client still holds open, so `t.TempDir()` cleanup
+  fails and with it the test (bug-0167). The frontend UI suite ran headless
+  (100 passed, 6 skips on missing mpv), the two room scenarios passed against
+  real backends, and `rtc`, `api`, `backend`, `catalog`, `room`, `adopt`,
+  `internal/buffer` and `cmd/build` are green; the fuzz target runs and stops
+  cleanly. No C toolchain exists on this machine — `main` cannot build until
+  CI, and the way points Windows developers at an MSVC path that cgo cannot
+  take (deviation-0168). What this session found beyond the zone is larger
+  than the zone: this local main was never pushed, and origin's main carries
+  sixty measurement commits the audit never saw — the public fallback path
+  reads 27% on its latest rows against 86% a month ago, and the threshold
+  checker, because it divides by every row rather than the window, opened one
+  card per run: fifty-one duplicate threshold cards, each numbered as if the
+  audit never existed. The audit's two commits, the four fixes, the unverified
+  batch and these two repairs are all still local. origin/main ships a room
+  without any of them. The boundary for the next session is that divergence,
+  and resolving it is the owner's decision; until then no card above is
+  called fixed, and neither is the board honest.
 
 ## [v0.4.1] - 2026-10-21
 

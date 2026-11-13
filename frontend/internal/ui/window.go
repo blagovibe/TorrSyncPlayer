@@ -179,6 +179,11 @@ type window struct {
 	inviteEntry *widget.Entry
 	createRoom  *widget.Button
 
+	// clip is where "Copy code" writes. Injected so a test can hold the code
+	// that actually reached the buffer; the application leaves it nil and the
+	// method below takes the toolkit's own (deviation-0153).
+	clip fyne.Clipboard
+
 	// Track choosers. mpv knows every voice and every subtitle track in the
 	// file; until this existed a person who needed the dub had no way to reach
 	// it from the application (idea-0080).
@@ -505,7 +510,15 @@ func (w *window) onPasteCodePressed() {
 	w.notify(w.tr("status.codeRead"))
 }
 
-// onCopyCodePressed fills the field with this room's invitation code.
+// onCopyCodePressed puts this room's invitation code on the clipboard.
+//
+// The goal says the host copies the code with one message; the button used to
+// only write it into the field, so the person then had to select it by hand and
+// the "one message" was two steps and a mouse drag (deviation-0153).
+//
+// The field is refilled only when it is empty or already shows this code: a
+// guest who pasted somebody else's invite into it is not silently robbed of it
+// by a button that was called "Copy code".
 func (w *window) onCopyCodePressed() {
 	w.mu.RLock()
 	invite := w.invite
@@ -525,7 +538,41 @@ func (w *window) onCopyCodePressed() {
 		w.invite = invite
 		w.mu.Unlock()
 	}
-	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
+
+	code := invite.Encode()
+	refill := w.inviteEntry.Text == "" || w.inviteEntry.Text == code
+	onMain(func() {
+		if refill {
+			w.inviteEntry.SetText(code)
+		}
+	})
+
+	err := w.copyToClipboard(code)
+	switch {
+	case err != nil:
+		w.notify(w.trf("status.copyFailed", err.Error()))
+	case refill:
+		w.notify(w.tr("status.codeCopied"))
+	default:
+		w.notify(w.tr("status.codeCopiedKept"))
+	}
+}
+
+// copyToClipboard writes the invitation code where a person can paste it.
+func (w *window) copyToClipboard(code string) error {
+	clip := w.clip
+	if clip == nil {
+		current := fyne.CurrentApp()
+		if current == nil {
+			return errors.New("no application to take the clipboard from")
+		}
+		clip = current.Clipboard()
+	}
+	if clip == nil {
+		return errors.New("the toolkit has no clipboard")
+	}
+	clip.SetContent(code)
+	return nil
 }
 
 // meshAddrs are the addresses the room's node can be reached at. They grow as

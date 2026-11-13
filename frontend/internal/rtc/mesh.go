@@ -59,6 +59,11 @@ type Mesh struct {
 	// named nobody. The room believes only this peer's claim to the host role
 	// until the role moves (bug-0148).
 	invitedHostID string
+	// deferred holds messages WaitFor read but did not want. They stay here
+	// until a call wants their type, or Next hands them out in arrival order:
+	// the old code dropped them, which contradicted its own promise that other
+	// messages stay queued (bug-0155).
+	deferred []incomingMessage
 
 	closeOnce sync.Once
 }
@@ -524,7 +529,13 @@ func (m *Mesh) Send(ctx context.Context, msg any) error {
 
 // Next blocks until any message arrives, returning its sender with it.
 // It is what a room driver pumps: one message at a time, in arrival order.
+//
+// Messages a WaitFor call set aside come first: they arrived earlier, so handing
+// them out later would reorder the stream.
 func (m *Mesh) Next(ctx context.Context) (string, any, bool) {
+	if in, ok := m.takeDeferred(""); ok {
+		return in.from, in.msg, true
+	}
 	select {
 	case in := <-m.incoming:
 		return in.from, in.msg, true
@@ -541,11 +552,15 @@ func (m *Mesh) Next(ctx context.Context) (string, any, bool) {
 func (m *Mesh) WaitFor(ctx context.Context, msgType string, timeout time.Duration) any {
 	deadline := time.Now().Add(timeout)
 	for {
+		if in, ok := m.takeDeferred(msgType); ok {
+			return in.msg
+		}
 		select {
 		case in := <-m.incoming:
 			if messageType(in.msg) == msgType {
 				return in.msg
 			}
+			m.deferMessage(in)
 		case <-ctx.Done():
 			return nil
 		case <-m.closed:
@@ -554,6 +569,28 @@ func (m *Mesh) WaitFor(ctx context.Context, msgType string, timeout time.Duratio
 			return nil
 		}
 	}
+}
+
+// deferMessage sets aside a message this WaitFor call does not want.
+func (m *Mesh) deferMessage(in incomingMessage) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deferred = append(m.deferred, in)
+}
+
+// takeDeferred removes the first set-aside message of the given type, or the
+// first one of any type when msgType is empty. The empty form is what Next asks
+// for, and it is how a message waits for whichever consumer comes next.
+func (m *Mesh) takeDeferred(msgType string) (incomingMessage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, in := range m.deferred {
+		if msgType == "" || messageType(in.msg) == msgType {
+			m.deferred = append(m.deferred[:i], m.deferred[i+1:]...)
+			return in, true
+		}
+	}
+	return incomingMessage{}, false
 }
 
 // Close leaves the mesh.

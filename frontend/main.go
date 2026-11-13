@@ -32,27 +32,49 @@ import (
 )
 
 func main() {
-	var (
-		clientID  = flag.String("c", "client-id", "Client identifier for P2P room (auto-generated if not provided)")
-		bootstrap = flag.String("bootstrap", "", "DHT rendezvous as comma-separated multiaddrs (empty: the saved setting, then the public defaults)")
-		relays    = flag.String("relays", "", "Fallback relay candidates as comma-separated multiaddrs (empty: the saved setting, then DHT discovery)")
-		lang      = flag.String("lang", "", "Interface language: ru, en")
-		noTray    = flag.Bool("no-tray", false, "Don't use system tray")
-		darkTheme = flag.Bool("dark-theme", false, "Use dark theme")
-	)
+	var opts runOptions
+	registerFlags(flag.CommandLine, &opts)
 	flag.Parse()
 
-	if err := run(runOptions{
-		ClientID:  *clientID,
-		Language:  *lang,
-		NoTray:    *noTray,
-		DarkTheme: *darkTheme,
-		Bootstrap: *bootstrap,
-		Relays:    *relays,
-	}); err != nil {
+	if err := run(opts); err != nil {
 		fmt.Fprintln(os.Stderr, "TorrSyncPlayer:", err)
 		os.Exit(1)
 	}
+}
+
+// registerFlags declares the client's command line.
+//
+// The identifier has two spellings because the way promises both, and a flag
+// that only exists in the documentation is a startup failure for whoever copied
+// it. Both point at the same value, and both default to empty: the default used
+// to be the literal string "client-id", which meant the auto-generated identifier
+// never happened and every default instance claimed the same name in a room
+// (bug-0154).
+func registerFlags(fs *flag.FlagSet, opts *runOptions) {
+	fs.StringVar(&opts.ClientID, "c", "", "Client identifier for the P2P room (generated when empty)")
+	fs.StringVar(&opts.ClientID, "client-id", "", "Client identifier for the P2P room (generated when empty)")
+	fs.StringVar(&opts.Bootstrap, "bootstrap", "", "DHT rendezvous as comma-separated multiaddrs (empty: the saved setting, then the public defaults)")
+	fs.StringVar(&opts.Relays, "relays", "", "Fallback relay candidates as comma-separated multiaddrs (empty: the saved setting, then DHT discovery)")
+	fs.StringVar(&opts.Language, "lang", "", "Interface language: ru, en")
+	fs.BoolVar(&opts.NoTray, "no-tray", false, "Don't use system tray")
+	fs.BoolVar(&opts.DarkTheme, "dark-theme", false, "Use dark theme")
+}
+
+// clientIdentity is the identifier the room sees: the one given on the command
+// line, or a random one when none was.
+//
+// Random is 16 bytes of hex rather than something readable, because this name is
+// what other peers key their roster on; two default instances must not share it.
+func clientIdentity(given string) (string, error) {
+	if given != "" {
+		return given, nil
+	}
+
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate client id: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 type runOptions struct {
@@ -85,13 +107,9 @@ func backendLaunch(settings ui.Settings, executable string, port int, token stri
 }
 
 func run(opts runOptions) error {
-	clientID := opts.ClientID
-	if clientID == "" {
-		raw := make([]byte, 16)
-		if _, err := rand.Read(raw); err != nil {
-			return fmt.Errorf("generate client id: %w", err)
-		}
-		clientID = hex.EncodeToString(raw)
+	clientID, err := clientIdentity(opts.ClientID)
+	if err != nil {
+		return err
 	}
 
 	// The saved choices are read before the backend starts: storage and the
@@ -134,6 +152,14 @@ func run(opts runOptions) error {
 		return err
 	}
 	defer child.Stop()
+
+	// The signal is taken here, before anything else can fail, and held in a
+	// buffered channel until the handler is registered below: an interrupt that
+	// arrives during startup is queued rather than killing this process and
+	// leaving the child behind (bug-0152).
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
 
 	dataURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
@@ -212,6 +238,13 @@ func run(opts runOptions) error {
 		fyne.Do(a.Quit)
 	}()
 
+	// Ctrl-C and SIGTERM must not leave the backend running as an orphan. The
+	// handler stops the child and only then unwinds the toolkit, so the port is
+	// free and the download has ended by the time this process is gone; quitting
+	// through Fyne (rather than os.Exit from the handler) is what lets every
+	// deferred stop run at all.
+	stopOnSignal(signals, child.Stop, func() { fyne.Do(a.Quit) })
+
 	window.ShowAndRun()
 	return nil
 }
@@ -250,12 +283,21 @@ func waitForBackend(client *api.Client, child *backend.Process, timeout time.Dur
 	}
 }
 
-func init() {
-	// Ctrl-C and SIGTERM must not leave the backend running as an orphan.
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+// stopOnSignal turns an interrupt into an orderly shutdown: the backend child
+// stops first, the window quits only after that.
+//
+// This used to live in an init that called os.Exit(0) from the handler
+// goroutine, under a comment promising the backend would not be orphaned. It
+// was: os.Exit runs no deferred function, so the deferred child.Stop at the top
+// of run never happened and an interrupted session left the backend holding the
+// port and the download (bug-0152).
+func stopOnSignal(signals <-chan os.Signal, stopBackend, quit func()) {
 	go func() {
 		<-signals
-		os.Exit(0)
+		// The child first, deliberately: quitting the toolkit may take its
+		// time, and none of that time should be spent with the torrent client
+		// still listening.
+		stopBackend()
+		quit()
 	}()
 }
