@@ -41,3 +41,16 @@ Windows-раннере гоняет тот же путь. Заметно на м
 anacrolix) либо удалять файлы теста с ретраем/конечной выдержкой; попутно —
 сделать файлы «attempts» в `cicontract` локальными для `t.TempDir()`. Тест,
 который без правки остаётся красным на Windows, — обязателен.
+
+2026-11-14 (дополнение): на этой машине класс шире — красным при полном
+прогоне детерминированно падает ещё `internal/persistence: TestAtomicWrites`
+(ожидает 0600, Windows субъектирует права иначе) и три `internal/storage:
+TestRemovingATorrent*` (`unlinkat ...\.torrent.bolt.db: The process cannot
+access the file because it is being used by another process` — тот же
+anacrolix/bolt-хэндл, что и у `internal/torrent`). Проверено на 569282a —
+те же падения до pact-go мерджа, то есть это не регрессия, а давно
+невидимое: backend-джоба в CI идёт только на ubuntu, поэтому на Linux всё
+зелёное. В лечение карточки входит и сведение Windows-личных проверок к
+explicit skip-with-reason либо к Windows-совместимым проверкам, и то, что
+backend-набор гоняется хотя бы на одном Windows (или дефект задокументирован
+как "backend targets Linux").

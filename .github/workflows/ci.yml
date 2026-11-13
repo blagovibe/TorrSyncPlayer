@@ -109,7 +109,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        # ubuntu-22.04 ships mpv 0.34.1, whose paused-for-cache never surfaces
+        # reliably in the follower tests (stalled_test.go red twice in a row in
+        # November 2026); 24.04 ships 0.37.x, the generation macOS and Windows
+        # already test against. The Linux claim is "current mpv works", not
+        # "a 2022 mpv works".
+        os: [ubuntu-24.04, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v7
