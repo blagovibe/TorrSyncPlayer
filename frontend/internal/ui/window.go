@@ -1619,6 +1619,12 @@ func (w *window) addTorrentFile() {
 // one, one on PATH, or a well-known place it hides on this OS. The first
 // answer wins; a missing one means the install hint, not a bare exit error.
 func mpvExecutable(configured string) (string, bool) {
+	return mpvExecutableWithCandidates(configured, mpvCandidates(runtime.GOOS))
+}
+
+// mpvExecutableWithCandidates is the part tests can drive without an OS
+// full of mpv: the well-known locations are handed in.
+func mpvExecutableWithCandidates(configured string, candidates []string) (string, bool) {
 	if configured != "" {
 		if _, err := exec.LookPath(configured); err == nil {
 			return configured, true
@@ -1627,7 +1633,7 @@ func mpvExecutable(configured string) (string, bool) {
 	if _, err := exec.LookPath("mpv"); err == nil {
 		return "mpv", true
 	}
-	for _, candidate := range mpvCandidates(runtime.GOOS) {
+	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate, true
 		}

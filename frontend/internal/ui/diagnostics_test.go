@@ -66,6 +66,14 @@ func TestDiagnosticsMentionsWhatMatters(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "TorrSyncPlayer", "settings.json")
 	require.NoError(t, WriteDiagnostic(settingsPath, "mpv start failed"))
 
+	// A box with no mpv anywhere: the configured path is absent, PATH is
+	// empty, and no well-known location exists — the exact box a person
+	// phones in about, pinned deterministically instead of by luck.
+	t.Setenv("PATH", t.TempDir())
+	old := mpvLookup
+	mpvLookup = func(string) (string, bool) { return "", false }
+	defer func() { mpvLookup = old }()
+
 	client := api.New(srv.URL, "token")
 	text := Diagnostics(client, settingsPath, Settings{PlayerBinary: "/definitely/not-mpv-here"})
 

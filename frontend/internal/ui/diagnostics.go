@@ -28,6 +28,12 @@ import (
 
 const diagnosticsTailBytes = 16 << 10
 
+// mpvLookup resolves an mpv the way mpvExecutable does. A package variable
+// so the diagnostics tests can pin a box with no mpv on it — the shape of
+// the failure a person phones in about — without rewriting PATH or moving
+// real files.
+var mpvLookup = mpvExecutable
+
 // DiagnosticsLogPath is the log's home: beside settings.json, which the
 // first-launch question and the settings dialog already know how to find.
 // An empty settings path means the application keeps nothing, and neither
@@ -118,7 +124,7 @@ func Diagnostics(client *api.Client, settingsPath string, settings Settings) str
 	b.WriteString("backend version: " + version + "\n")
 	b.WriteString("os/arch: " + runtime.GOOS + "/" + runtime.GOARCH + "\n")
 
-	mpv, found := mpvExecutable(settings.PlayerBinary)
+	mpv, found := mpvLookup(settings.PlayerBinary)
 	if found {
 		b.WriteString("mpv: " + mpv + "\n")
 	} else {
