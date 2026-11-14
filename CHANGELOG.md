@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.2] - 2026-11-15
 
+- **The owner decided not to run the built application on a real
+  machine (idea-0159, left open on purpose).** After v0.4.2 shipped,
+  the run that its remaining acceptance always demanded was offered
+  again: this machine could not have shown video anyway (no mpv), and
+  the second-OS option was not taken either. The owner's words: the
+  release — three OS artifacts, their own content checks, and the
+  published notes — is sufficient evidence for this build; idea-0159 is
+  not refused and not closed, it stays on the board as a deliberate,
+  remembered gap until a machine or a user's report names it. Any
+  future smoke run of the artifact (or a user filing "it does not open")
+  is the trigger this card has been waiting for.
+
 - **The remoting mode had never been run against a real gateway.** It was
   tested only against a stand-in: a hand-written HTTP server that speaks
   exactly what our client expects — the same trap the room's own tests were
