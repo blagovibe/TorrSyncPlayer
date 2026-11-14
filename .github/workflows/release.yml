@@ -291,7 +291,11 @@ jobs:
 
   build-macos:
     name: Build (macOS, DMG)
-    runs-on: macos-14
+    # macos-14 stopped accepting jobs for this repository on 2026-11-14:
+    # the job was cancelled with zero steps on both release attempts, before
+    # a runner ever looked at it. The frontend CI has been green on
+    # macos-latest throughout; the release uses the same label now.
+    runs-on: macos-latest
     permissions:
       contents: read
     steps:
