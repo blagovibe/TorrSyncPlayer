@@ -54,3 +54,15 @@ anacrolix/bolt-хэндл, что и у `internal/torrent`). Проверено 
 explicit skip-with-reason либо к Windows-совместимым проверкам, и то, что
 backend-набор гоняется хотя бы на одном Windows (или дефект задокументирован
 как "backend targets Linux").
+
+2026-11-14 (проделано): детерминированная часть закрыта — полный бэкенд
+зелёный на Windows (включая шесть полных прогонов `internal/torrent` в
+ряд; флейк real_swarm не воспроизвёлся). `internal/storage`: все три
+теста теперь закрывают свой `FileStorage` в `t.Cleanup` — bolt-база
+`.torrent.bolt.db` освобождается до удаления TempDir, без сна.
+`TestAtomicWrites` на Windows утверждает честное «файл не read-only»
+(Windows не имеет 0600-семантики), на Unix — 0600, как прежде. Что
+остаётся открытым: backend-джоба CI — Ubuntu-only, поэтому Windows в
+контракте невидим; закрытие карточки требует либо Windows-ноги в
+backend CI (изменение пайплайна), либо строчку в способе «backend
+целит в Linux» — оба решения за владельцем.

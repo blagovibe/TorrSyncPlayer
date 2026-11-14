@@ -750,6 +750,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   class of timing the rendezvous measurement exists to see). Neither
   check was weakened to make the red go away.
 
+
+- **The backend suite is green on Windows at last — the two red
+  classes were housekeeping, not mystery (bug-0167, open, structural
+  part waits on the owner).** The three `internal/storage` tests never
+  closed the bolt-backed piece-completion index Anacrolix opens at
+  `NewFile` time; on Windows, TempDir removal under an open
+  `.torrent.bolt.db` made anacrolix exit 41 with
+  `unlinkat ... The process cannot access the file because it is being
+  used by another process`. Each test now closes the storage it owns in
+  `t.Cleanup` — close orders itself before the directory is removed, by
+  construction, with no sleeps. `TestAtomicWrites/target file is not
+  left readable by other users` asserted Unix's 0600 on a filesystem
+  that has no 0600 — Windows ACLs map nothing onto the triad, so the
+  Go API reports a writable file as 0666 no matter what mode was asked;
+  the check now asserts what Windows can honestly say (the file is not
+  read-only) and keeps 0600 for Unix. Full backend suite on Windows:
+  green, and `internal/torrent` passed six full runs in a row (the
+  residual real_swarm flake did not reproduce). What stays open, and
+  why: the backend CI job is Ubuntu-only, so Windows stays invisible
+  to the contract — closing the card needs either a Windows leg in the
+  backend CI (a pipeline change, the owner's call) or the way
+  documenting "backend targets Linux" (a DEV.md edit, also the
+  owner's call).
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
