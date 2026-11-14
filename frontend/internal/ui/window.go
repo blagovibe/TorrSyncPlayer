@@ -1109,9 +1109,25 @@ func (w *window) pauseTheRoom() {
 	w.mu.Lock()
 	w.pausedForBuffering = true
 	w.mu.Unlock()
-	pauseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = mpv.Pause(pauseCtx)
+
+	// The fire-and-forget send deserves the same three attempts as the
+	// read: an mpv busy answering a burst of queries on a loaded machine
+	// drops or stalls the socket write, and the room stays playing for
+	// someone who cannot see it. A definitive error is logged — the next
+	// report should say the pause never landed, not leave it a mystery.
+	var pauseErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pauseErr = mpv.Pause(ctx)
+		cancel()
+		if pauseErr == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if w.onDiagnostic != nil {
+		w.onDiagnostic("mpv: the room's pause never landed after three attempts: " + pauseErr.Error())
+	}
 }
 
 // resumeTheRoom lets the room play again, when the one who was behind is
@@ -1128,9 +1144,19 @@ func (w *window) resumeTheRoom() {
 	w.pausedForBuffering = false
 	w.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = mpv.Resume(ctx)
+	var resumeErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resumeErr = mpv.Resume(ctx)
+		cancel()
+		if resumeErr == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if w.onDiagnostic != nil {
+		w.onDiagnostic("mpv: the room never resumed after three attempts: " + resumeErr.Error())
+	}
 }
 
 // adoptRoomTorrent adds the room's torrent to THIS client's backend.
