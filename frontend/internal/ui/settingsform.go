@@ -329,7 +329,18 @@ func (w *window) ShowSettings(parent fyne.Window) {
 	save.Importance = widget.HighImportance
 
 	cancel := widget.NewButton(w.tr("settings.cancel"), func() { d.Hide() })
-	d.SetButtons([]fyne.CanvasObject{cancel, save})
+
+	diag := widget.NewButtonWithIcon(w.tr("settings.diagnostics"), theme.ContentCopyIcon(), func() {
+		text := Diagnostics(w.client, w.store.Path(), current)
+		if err := w.copyToClipboard(text); err != nil {
+			problem.SetText(err.Error())
+			problem.Show()
+			return
+		}
+		w.notify(w.tr("settings.diagnosticsCopied"))
+	})
+	diag.Importance = widget.LowImportance
+	d.SetButtons([]fyne.CanvasObject{cancel, diag, save})
 	// Show first, then size. Fyne sizes a custom dialog to its content's
 	// minimum on Show(), and a size set beforehand is overwritten by it —
 	// which left the form collapsed to one heading and the rest of the

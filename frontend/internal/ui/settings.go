@@ -169,6 +169,15 @@ func NewSettingsStore(path string) *SettingsStore {
 	return &SettingsStore{path: path}
 }
 
+// Path reports where the settings live — the diagnostics log sits beside
+// them, and the person copying diagnostics needs to say where it is.
+func (s *SettingsStore) Path() string {
+	if s == nil {
+		return ""
+	}
+	return s.path
+}
+
 // DefaultSettings is what an absent or damaged file yields.
 func DefaultSettings() Settings {
 	return Settings{Language: "", DarkTheme: false}

@@ -71,6 +71,9 @@ type window struct {
 	// windows without one; then failures still reach the event line, just
 	// without the modal.
 	parent fyne.Window
+	// onDiagnostic is the optional log sink handed in by the launcher; a
+	// window built without one silently keeps no log.
+	onDiagnostic func(string)
 
 	list     *widget.List
 	fileList *widget.List
@@ -241,6 +244,10 @@ type WindowOptions struct {
 	// Parent is the application window dialogs hang off. Empty in tests,
 	// where there is no window to hang one off.
 	Parent fyne.Window
+	// OnDiagnostic receives lines for the log file, if any. The window has
+	// no file of its own; the line that gets a failure in front of a human
+	// is the same line worth keeping for a bug report.
+	OnDiagnostic func(string)
 }
 
 // OpenSettings opens the settings form over the given window.
@@ -294,6 +301,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		clientID:        clientID,
 		store:           store,
 		parent:          opts.Parent,
+		onDiagnostic:    opts.OnDiagnostic,
 		bootstrapFlag:   opts.Bootstrap,
 		relaysFlag:      opts.Relays,
 		socketPath:      playerSocketPath(os.Getpid()),
@@ -1990,6 +1998,9 @@ func (w *window) setStatus(text string) {
 // poll never rewrites. Failures, arrivals and one-shot confirmations go
 // here; the two-second counters stay on status.
 func (w *window) notify(text string) {
+	if w.onDiagnostic != nil {
+		w.onDiagnostic(text)
+	}
 	onMain(func() { w.events.SetText(text) })
 }
 

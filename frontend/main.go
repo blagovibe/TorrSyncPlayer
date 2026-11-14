@@ -123,6 +123,12 @@ func run(opts runOptions) error {
 	store := ui.NewSettingsStore(ui.DefaultPath(configDir))
 	settings := store.Load()
 
+	// The log a person can hand over: a file beside the settings, written
+	// by the process itself, so a packaged build that has no console still
+	// has something to show. A failure to open it is not a startup failure.
+	_ = ui.WriteDiagnostic(store.Path(), "startup: TorrSyncPlayer is starting")
+	defer func() { _ = ui.WriteDiagnostic(store.Path(), "shutdown: TorrSyncPlayer is exiting") }()
+
 	// The backend is started unconditionally, even with --server-url. Every
 	// participant runs its own torrent client and pulls the media from the
 	// swarm themselves; the room's server is a rendezvous for sync commands
@@ -190,6 +196,9 @@ func run(opts runOptions) error {
 		Bootstrap: opts.Bootstrap,
 		Relays:    opts.Relays,
 		Parent:    window,
+		OnDiagnostic: func(line string) {
+			_ = ui.WriteDiagnostic(store.Path(), line)
+		},
 	})
 	defer stopPlayer()
 	window.SetContent(content)
@@ -231,7 +240,9 @@ func run(opts runOptions) error {
 		// can act on. The reason goes out with it, because the window closing
 		// on its own explains nothing.
 		<-child.Exited()
-		fmt.Fprintln(os.Stderr, backend.DescribeExit(child.ExitError()))
+		line := backend.DescribeExit(child.ExitError())
+		_ = ui.WriteDiagnostic(store.Path(), "backend exited: "+line)
+		fmt.Fprintln(os.Stderr, line)
 		// Fyne marks a call made off the main thread and says the next
 		// major release will refuse it outright: quitting from here is a
 		// today-warning and a tomorrow-crash (bug-0111).
