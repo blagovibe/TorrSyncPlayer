@@ -33,7 +33,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run go mod tidy
         working-directory: backend
         run: go mod tidy
@@ -142,7 +142,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
+        run: .github/scripts/fetch-modules.sh frontend
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -299,7 +299,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
+        run: .github/scripts/fetch-modules.sh frontend
 
       # The same build dependencies as the other frontend jobs: Fyne builds
       # through cgo, and the measurement drives a real mpv over its socket.
@@ -372,7 +372,7 @@ jobs:
           # main may have moved under the measurement; the series files
           # are append-only, so the publisher unions the two sides rather
           # than losing the row (see .github/scripts/publish-series.sh).
-          ${{ github.workspace }}/.github/scripts/publish-series.sh "the room's divergence: one more run [skip ci]"
+          .github/scripts/publish-series.sh "the room's divergence: one more run [skip ci]"
 
       - name: Keep the log
         if: always()
@@ -408,7 +408,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
+        run: .github/scripts/fetch-modules.sh frontend
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -523,7 +523,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run tests with race detector and coverage
         working-directory: backend
         env:
@@ -570,9 +570,10 @@ jobs:
         # retries only the second, the same way the modules are fetched.
         env:
           GOVULNCHECK_ALLOW_FAILURE: ${{ vars.GOVULNCHECK_ALLOW_FAILURE || '0' }}
+        shell: bash
         run: |
-          ${{ github.workspace }}/.github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
-          ${{ github.workspace }}/.github/scripts/govulncheck.sh ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
+          ../.github/scripts/install-go-tool.sh golang.org/x/vuln/cmd/govulncheck@latest
+          ../.github/scripts/govulncheck.sh ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
@@ -604,7 +605,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
       - name: Build
         working-directory: backend
         run: make build
@@ -627,7 +628,7 @@ jobs:
       # fail a job that says nothing about the code.
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
 
       - name: Build backend for scanning
         working-directory: backend
@@ -677,7 +678,7 @@ jobs:
 
       - name: Fetch the modules
         shell: bash
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
       - name: Run Go fuzzing (backend)
         working-directory: backend
         shell: bash
