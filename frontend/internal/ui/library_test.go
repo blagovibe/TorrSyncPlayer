@@ -54,6 +54,9 @@ func TestMpvExecutable(t *testing.T) {
 	}
 	fakePath := fake.Name()
 	_ = fake.Close()
+	if err := os.Chmod(fakePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	// The configured binary wins over PATH.
 	t.Setenv("PATH", t.TempDir())
