@@ -17,9 +17,9 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
 )
 
-// The settings dialog is the one place a person can reach what used to need a
-// command line: storage, the htorrent gateway, rendezvous — plus the few
-// choices that already lived in settings.json.
+// The settings dialog is the one place a person can reach what used to need
+// a command line: storage, rendezvous — plus the few choices that already
+// lived in settings.json.
 //
 // The form says what applies when, because half of these are read by the
 // backend child at startup: a setting that looks applied and is not is worse
@@ -54,18 +54,6 @@ func applyTheme(dark bool) {
 	app.Settings().SetTheme(theme.LightTheme())
 }
 
-// chooseFolderButton opens a folder chooser and hands the picked path to set.
-func chooseFolderButton(tr func(string) string, parent fyne.Window, set func(string)) *widget.Button {
-	return widget.NewButtonWithIcon(tr("settings.choose"), theme.FolderOpenIcon(), func() {
-		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
-			if err != nil || uri == nil {
-				return
-			}
-			set(uri.Path())
-		}, parent)
-	})
-}
-
 // chooseFileButton opens a file chooser and hands the picked path to set.
 func chooseFileButton(tr func(string) string, parent fyne.Window, set func(string)) *widget.Button {
 	return widget.NewButtonWithIcon(tr("settings.choose"), theme.FolderOpenIcon(), func() {
@@ -75,6 +63,18 @@ func chooseFileButton(tr func(string) string, parent fyne.Window, set func(strin
 			}
 			defer func() { _ = reader.Close() }()
 			set(reader.URI().Path())
+		}, parent)
+	})
+}
+
+// chooseFolderButton opens a folder chooser and hands the picked path to set.
+func chooseFolderButton(tr func(string) string, parent fyne.Window, set func(string)) *widget.Button {
+	return widget.NewButtonWithIcon(tr("settings.choose"), theme.FolderOpenIcon(), func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if err != nil || uri == nil {
+				return
+			}
+			set(uri.Path())
 		}, parent)
 	})
 }
@@ -168,11 +168,6 @@ type settingsForm struct {
 
 	storage *storageChoice
 
-	gatewayURL    *widget.Entry
-	gatewayUser   *widget.Entry
-	gatewayPass   *widget.Entry
-	gatewayCACert *widget.Entry
-
 	bootstrap *widget.Entry
 	relays    *widget.Entry
 	name      *widget.Entry
@@ -219,15 +214,6 @@ func newSettingsForm(current Settings, tr func(string) string, parent fyne.Windo
 
 	f.storage = newStorageChoice(current, tr, parent)
 
-	f.gatewayURL = widget.NewEntry()
-	f.gatewayURL.SetText(current.GatewayURL)
-	f.gatewayUser = widget.NewEntry()
-	f.gatewayUser.SetText(current.GatewayUser)
-	f.gatewayPass = widget.NewPasswordEntry()
-	f.gatewayPass.SetText(current.GatewayPass)
-	f.gatewayCACert = widget.NewEntry()
-	f.gatewayCACert.SetText(current.GatewayCACert)
-
 	// The placeholder is an example, not the default: an empty field reads
 	// as "the public defaults", not as "no rendezvous".
 	f.bootstrap.SetPlaceHolder(ExampleBootstrap)
@@ -258,12 +244,6 @@ func (f *settingsForm) apply(current Settings) Settings {
 	s.DarkTheme = f.dark.Checked
 	s.PlayerBinary = ExpandPath(f.mpv.Text)
 	s = f.storage.apply(s)
-
-	s.GatewayURL = strings.TrimSpace(f.gatewayURL.Text)
-	s.GatewayUser = strings.TrimSpace(f.gatewayUser.Text)
-	// The password is not trimmed: a password with spaces in it is a password.
-	s.GatewayPass = f.gatewayPass.Text
-	s.GatewayCACert = ExpandPath(f.gatewayCACert.Text)
 
 	s.Bootstrap = strings.TrimSpace(f.bootstrap.Text)
 	s.Relays = strings.TrimSpace(f.relays.Text)

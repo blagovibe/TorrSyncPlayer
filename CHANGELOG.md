@@ -644,6 +644,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CI for the line that carries this is in flight; the card closes when
   that run says green, per the house rule for checks.
 
+- **The remoting mode is gone (deviation-0166, owner's decision of
+  2026-10-23).** It was never going to work: the goal says every person
+  in a room runs their own torrent client, and the remoting mode existed
+  for those who could not — a configuration the product never promised,
+  routed through one more process to reach a third-party binary that
+  failed its own uTP (see the journal entry on the real gateway). The
+  owner decided on 2026-10-23 to remove it rather than keep an
+  unverifiable path; this is that removal, whole: `remote_backend.go`
+  and its tests are gone; the
+  `--gateway-url`/`--gateway-user`/`--gateway-pass`/`--gateway-ca-cert`
+  flags and their validation are gone, along with the env names the
+  flags mirrored; the settings fields, the gateway zone of the settings
+  form and the catalogue keys (both languages) are gone; the
+  `TestTheBackendTalksToARealGateway` scenario and the CI steps that
+  installed the hTorrent gateway for it are gone; the fake gateway in
+  the unit tests and the gateway assertions in `launch_test.go` are
+  gone; DEV.md no longer teaches the gateway flag table, its env-var
+  section, or the "шлюз — окружением" bullet — the seam that remains is
+  local-only by design, kept for the tests that drive the Service
+  against a stand-in. What this also removes: the window's last
+  "configured remote" notion — there is no remote anyone's own backend
+  proxies to. mpv, rooms, everything else: untouched. What stays,
+  deliberately: `NewServiceWithBackend`, the seam the
+  service_backend_test.go stand-in drives. The card is deleted with
+  this commit; the remoting mode was never in a release, so nothing is
+  being "taken away" from anyone.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended

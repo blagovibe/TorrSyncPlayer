@@ -68,8 +68,8 @@ func TestSubtitlesURLEscapesTheFileName(t *testing.T) {
 		c.SubtitlesURL("abc123", 2, "subs/film RU.srt"))
 }
 
-func TestDeleteUsesTheMethodTheGatewayExpects(t *testing.T) {
-	// DELETE is not a GET with a body: the gateway routes on the method, and a
+func TestDeleteUsesTheMethodTheServerExpects(t *testing.T) {
+	// DELETE is not a GET with a body: the router routes on the method, and a
 	// client that quietly downgraded the verb would see a 405 or, worse, a
 	// route nobody meant. It carries the token like every other call.
 	var method, path, token string

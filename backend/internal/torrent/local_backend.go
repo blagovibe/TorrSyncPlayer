@@ -19,8 +19,8 @@ import (
 )
 
 // localBackend drives torrents with an in-process anacrolix client. It is the
-// default, and owns every piece of torrent machinery that has no counterpart on
-// a remote gateway: the piece store, piece priorities and file readers.
+// default and owns every piece of torrent machinery: the piece store, piece
+// priorities and file readers.
 type localBackend struct {
 	client *torrent.Client
 }

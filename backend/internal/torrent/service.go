@@ -497,8 +497,9 @@ func NewServiceWithOptions(bufferService *buffer.Service, opts ServiceOptions) (
 }
 
 // NewServiceWithBackend creates a torrent service on top of a preconfigured
-// backend. It is how remoting mode (idea-0023) swaps the local anacrolix client
-// for a remote htorrent gateway without changing any behaviour above the seam.
+// backend. The tests use it to drive the Service's behaviour against a
+// stand-in; the application passes a real client through
+// NewServiceWithOptions instead.
 func NewServiceWithBackend(bufferService *buffer.Service, backend TorrentBackend) (*Service, error) {
 	if backend == nil {
 		return nil, errors.New(errors.ErrInvalidInput, "backend is required")
@@ -612,7 +613,7 @@ func (s *Service) AddTorrent(ctx context.Context, userID string, torrentData io.
 	}
 
 	// Parsing the bencoded metadata and waiting for it to resolve both belong
-	// to the backend, so a gateway can accept the same call shape.
+	// to the backend.
 	handle, err := s.backend.AddTorrentFile(ctx, bytes.NewReader(raw))
 	if err != nil {
 		logger.Error("Torrent: failed to add torrent from file", "error", err)
@@ -856,7 +857,7 @@ func (s *Service) SelectFile(ctx context.Context, torrentID, userID string, file
 	s.selectedFiles[torrentID][userID] = fileIndex
 
 	// Register in buffer service. Only a backend that owns piece priorities can
-	// be steered; a gateway does its own prioritisation and reports no target.
+	// be steered; one that does not reports no target.
 	if s.bufferService != nil {
 		if file, ok := handle.BufferTarget(fileIndex).(*torrent.File); ok {
 			s.bufferService.RegisterTorrent(
@@ -1028,7 +1029,7 @@ func (s *Service) ServeSubtitles(w http.ResponseWriter, r *http.Request, torrent
 // Uses a context with timeout for waiting on active downloads.
 // After calling Close, the service cannot be used.
 // ListenPort is the port the torrent client listens on, or zero when the
-// service has no client of its own (a gateway stands in for it).
+// service has no port of its own.
 func (s *Service) ListenPort() int {
 	if s == nil {
 		return 0

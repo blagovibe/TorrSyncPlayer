@@ -86,25 +86,21 @@ func TestSettingsDefaultPathIsPerApplication(t *testing.T) {
 	assert.Equal(t, filepath.Join("/home/someone/.config", "TorrSyncPlayer", "settings.json"), path)
 }
 
-// The dialog edits more than a language and a colour scheme now: storage, the
-// gateway and rendezvous all live here. A field that is written and read
+// The dialog edits more than a language and a colour scheme now: storage,
+// rendezvous and the player all live here. A field that is written and read
 // back wrongly is a setting that looks like it works, which is the exact shape
 // of the mpv bug the file's other tests exist for.
 func TestSettingsRememberEverythingTheDialogEdits(t *testing.T) {
 	store := NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
 
 	written := Settings{
-		Language:      "ru",
-		DarkTheme:     true,
-		PlayerBinary:  "/opt/mpv",
-		StorageMode:   StorageDisk,
-		DataDir:       "/tmp/pieces",
-		StorageAsked:  true,
-		GatewayURL:    "https://gateway.example.com",
-		GatewayUser:   "friend",
-		GatewayPass:   "secret",
-		GatewayCACert: "/etc/ca.pem",
-		Bootstrap:     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+		Language:     "ru",
+		DarkTheme:    true,
+		PlayerBinary: "/opt/mpv",
+		StorageMode:  StorageDisk,
+		DataDir:      "/tmp/pieces",
+		StorageAsked: true,
+		Bootstrap:    "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
 	}
 	require.NoError(t, store.Save(written))
 
@@ -135,22 +131,6 @@ func TestDiskStorageNeedsADirectoryToWriteTo(t *testing.T) {
 
 	disk.DataDir = "/tmp/pieces"
 	assert.Empty(t, disk.Problem())
-}
-
-// The backend refuses a gateway whose login is half-given: the server would
-// start and every playback would fail at the first request instead.
-func TestTheGatewayNeedsBothHalvesOfItsLogin(t *testing.T) {
-	half := Settings{GatewayURL: "https://gateway.example.com"}
-	assert.NotEmpty(t, half.Problem())
-
-	half.GatewayUser = "friend"
-	assert.NotEmpty(t, half.Problem())
-
-	half.GatewayPass = "secret"
-	assert.Empty(t, half.Problem())
-
-	// A login without a URL is not a problem: the gateway is simply off.
-	assert.Empty(t, Settings{GatewayUser: "friend"}.Problem())
 }
 
 // Where rooms meet: the flag is a deliberate override for one launch, so it
