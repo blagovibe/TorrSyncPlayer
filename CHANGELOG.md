@@ -671,6 +671,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this commit; the remoting mode was never in a release, so nothing is
   being "taken away" from anyone.
 
+- **bug-0165 is closed: the watches see, on a green line.** The
+  security workflow's trigger now names the files a Go repository
+  actually has (both go.mod/go.sum pairs and the workflow itself)
+  instead of `frontend/**/*.cpp|*.h`, which never matched; the dead
+  CSRF/auth constants are gone from backend/internal/constants and
+  the CORS lists name the headers the API actually sends; paths.go
+  exposes only what the router registers; stale WebRTC mentions became
+  libp2p; and the `paths:` filters of every workflow are now guarded by
+  a cicontract test that fails on any filter matching no tracked file.
+  The line that carries all this — with the window features, the
+  diagnostics, the listen-port walk and the remoting removal — went
+  green on every platform of CI (a0ac9b0), which is the condition this
+  card was opened to wait for.
+
+- **bug-0172 is closed: the Windows leg binds again.** The listen-port
+  walk tried twelve kernel-chosen ephemeral ports; on the windows-latest
+  runner Windows hands them out sequentially, and a reserved UDP window
+  is a run of consecutive refusals — the backend died at startup on the
+  integration test `TestARoomOfThreeIsARoomAndNotAPair`. The walk is now
+  512 attempts, the probe still holds TCP and UDP at once, and the CI
+  line is green on Windows twice over (the listen-port commit and the
+  full merge).
+
+- **idea-0160 is closed: the window took the scope the owner approved,
+  and the line it rides is green.** .torrent from a file picker (posted
+  base64 to the same endpoint a magnet takes); a trash button per row
+  with a confirm, refused while the torrent plays; rows show name,
+  progress and download speed once two ticks measure one, `Seeding` for
+  finished rows; a description dialog (name, size, progress, peers,
+  status, file list); mpv autodetect with a per-OS install dialog on
+  playback failure; and a Leave the room button visible only in a room.
+  The API client learned DELETE — the backed has had it all along, the
+  window just never called it. Every string went into the catalogue;
+  the rows are container rows with trailing icon buttons; speeds are
+  computed between two ticks and never shown before they measured
+  anything. The first CI attempt on this work was red three ways —
+  all three were mine: an untended gosec annotation, an unformatted
+  file, and a fake mpv whose temp file the Unix `exec.LookPath`
+  rejected for missing the execute bit. All fixed; the mpv-missing
+  test no longer gambles on what the host has installed.
+
+- **idea-0163 is closed: the application keeps a log a person can hand
+  over.** `torrsyncplayer.log` beside settings.json; the launch appends
+  startup/shutdown lines, the window mirrors every event line it shows,
+  and the backend's death is recorded with the exit. The settings
+  dialog grew a "Copy diagnostics" button — backend version (commit and
+  build time), OS/arch, mpv resolution, the log's last 16 KB — one
+  paste away from a bug report. The log cannot fail the application
+  and never shadows a startup path. The diagnostics test now pins the
+  no-mpv box deterministically instead of by luck.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
