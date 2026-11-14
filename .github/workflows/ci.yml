@@ -526,6 +526,7 @@ jobs:
         run: .github/scripts/fetch-modules.sh backend
       - name: Run tests with race detector and coverage
         working-directory: backend
+        shell: bash
         env:
           # Measured 60.1% statement coverage on ubuntu. The floor sits below it so a
           # single new uncovered file cannot block a PR, while a real erosion of
