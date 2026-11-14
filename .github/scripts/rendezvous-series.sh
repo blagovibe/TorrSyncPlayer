@@ -61,9 +61,12 @@ check() {
   # holds a string, and "300" <= "90" is true in letters.
   good=$(printf '%s\n' "$window" | awk -F'|' '{gsub(/[ ]/, "", $4); if ($4 ~ /^[0-9]+$/ && ($4 + 0) <= '"$THRESHOLD_SECONDS"') n++} END {print n+0}')
 
-  local rate
-  rate=$((100 * good / total))
-  echo "the last $total runs: $good met within ${THRESHOLD_SECONDS}s ($rate%)"
+  # The threshold is "90% of the last THRESHOLD_RUNS runs", and the rate
+  # must count the same window: anything older would dilute a healthy
+  # series forever, which is how the last fifty-one threshold cards were
+  # opened for a series of 100% "met" rows.
+  rate=$((100 * good / THRESHOLD_RUNS))
+  echo "the last $THRESHOLD_RUNS of $total runs: $good met within ${THRESHOLD_SECONDS}s ($rate%)"
 
   if [ "$rate" -lt "$THRESHOLD_RATE" ]; then
     write_card "$root" "$total" "$good" "$rate"
@@ -96,7 +99,7 @@ write_card() {
 id: bug-$(printf '%04d' "$number")
 type: bug
 status: open
-title: Комната собиралась реже, чем обещает порог — $rate% последних $total замеров уложились в $THRESHOLD_SECONDS секунд
+title: Комната собиралась реже, чем обещает порог — из последних $THRESHOLD_RUNS из $total замеров: $good уложились в $THRESHOLD_SECONDS секунд
 refs:
   - "CONCEPT.md#Синхронные комнаты — каждый качает из роя сам"
   - "DEV.md#Соглашения по тестам"
@@ -105,16 +108,17 @@ created: $(date -u +%Y-%m-%d)
 
 ## Суть
 
-Ряд измерений публичной сети показал: из последних $total замеров комната
-собралась за $THRESHOLD_SECONDS секунд или быстрее в $good случаях, это $rate%
-при пороге в $THRESHOLD_RATE%. Порог записан в способе, и ниже него замер
-обязан открывать карточку — вот она.
+Ряд измерений публичной сети показал: из последних
+$THRESHOLD_RUNS из $total замеров комната собралась за $THRESHOLD_SECONDS
+секунд или быстрее в $good случаях, это $rate% при пороге в $THRESHOLD_RATE%.
+Порог записан в способе, и ниже него замер обязан открывать карточку — вот она.
 
 ## Обсуждение
 
 $(date -u +%Y-%m-%d): Создано автоматически измерением \`rendezvous.yml\`. Ряд:
-\`measurements/rendezvous.md\`. Решение — за владельцем: это чистая сеть, или
-это наш код, или и то и другое.
+\`measurements/rendezvous.md\`. Порог считается по окну из последних $THRESHOLD_RUNS
+замеров, поэтому карточка называет и окно, и полный размер ряда ($total).
+Решение — за владельцем: это чистая сеть, или это наш код, или и то и другое.
 EOF
 
   echo "the threshold is broken: a card was written to ${file#$root/}"

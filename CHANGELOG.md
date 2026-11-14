@@ -492,6 +492,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   journal cannot be read as history; macOS arm64-only and unsigned; no log
   file to send).
 
+- **The series check learned to divide by the window.** Both measurement
+  scripts — the divergence one and the rendezvous one — divided the good
+  rows of the last twenty runs by every row the file had ever recorded, so
+  after the twentieth recorded run the rate could only sink; below the
+  threshold the check opened one card per run, every run, forever — the
+  fifty-one false alarms deleted earlier in this journal. The divisor is
+  now the window of twenty; the verdict names both the window and the size
+  of the whole series; the card it opens says the same. The rendezvous
+  script, which had no test at all, gets the pair the divergence script had,
+  and both series pin the 25-run case now: a good series passes on its
+  merits (the old math said 80% and opened a card), a window that broke the
+  promise opens exactly one card, numbered after everything the board and
+  this journal have used. bug-0170 is the card this session opened for the
+  gates that never finish: the k6 load test and the mutation floor, which
+  no push survives — four runs ended them all, by cancellation, not by
+  verdict. Note for the record: the fix for the series check does not
+  itself make any measurement true; it makes the check able to say yes —
+  and the threshold stays exactly where it was written to be.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
