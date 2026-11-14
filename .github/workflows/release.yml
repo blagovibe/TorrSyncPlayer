@@ -65,6 +65,13 @@ jobs:
           cp dist/torrsyncplayer.png "$APPDIR/torrsyncplayer.png"
           cp dist/torrsyncplayer.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png"
 
+          # The icon generator writes 0600 on purpose (private temporary
+          # files), but an AppDir ships to every user on the machine: an
+          # unreadable icon is an AppImage that appimagetool refuses to
+          # build. Public assets travel world-readable.
+          chmod 0644 "$APPDIR/torrsyncplayer.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png"
+          chmod 755 "$APPDIR/usr/bin/torrsyncplayer" "$APPDIR/usr/bin/TorrSyncPlayer" "$APPDIR/usr/bin/mpv"
+
           cat > "$APPDIR/torrsyncplayer.desktop" <<'EOF'
           [Desktop Entry]
           Name=TorrSyncPlayer
