@@ -520,6 +520,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a card that asserts a trend the data does not show is not information, and
   the fixed script (in this journal's entry above) cannot open another.
 
+- **bug-0157 is closed: the measurement series can say yes again.** Both
+  scripts divided the good rows in the window by every row the file had ever
+  recorded, so after row twenty the rate sank by construction, and below the
+  threshold the check opened one card per run, forever — the fifty-one false
+  alarms, and then bug-0171, deleted as one class. The divisor is the window
+  of twenty; the verdict names the window; the card it opens names it too;
+  the rendezvous script, which had no test at all, gets the pair the
+  divergence script had; and both pin the 25-run case: a good series passes
+  on its merits, a broken window opens exactly one card. CI on this line is
+  green with the fix — lint included — and the two live series pass against
+  it as they stand: rendezvous 100% within the window (73 recorded runs),
+  divergence 95% (20 recorded runs, one historical row outside the promise).
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
