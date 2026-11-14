@@ -722,6 +722,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and never shadows a startup path. The diagnostics test now pins the
   no-mpv box deterministically instead of by luck.
 
+
+- **The series publish no longer loses the row when main moves
+  under a run (owner's decision of this session).** The measurement
+  workflow committed its row and rebased onto main; when the other
+  bot (rendezvous) had pushed another measurement in between, the
+  rebase died on the shared file and the row was lost — red gates for
+  a reason that said nothing about the measurements. The owner chose
+  the union resolution over schedule-only publication: both publish
+  steps now call `.github/scripts/publish-series.sh`, which unions
+  only the append-only series files (markers dropped, exact
+  duplicates removed, both sides kept), refuses to union anything
+  else — a board card two runs both created stops loudly for a
+  human — and fails the job if any marker survives. The rendezvous
+  measurement published cleanly on 2026-11-14T18:10Z.
+- **The macOS leg failed twice at ~92s in one hour, then went green
+  twice — recorded, not guessed.** TestTheRoomStopsForTheOneWhoIsBehind
+  timed out on macos-latest (mpv 0.41.0_12, ffmpeg 9.0.2_1, arm64) with
+  mpv still playing at 66% of the film; the same line twice, then the
+  instrumented run passed it (17.2s suite), and so did the merge line.
+  The follower pause tests, which use the same IPC, never failed. The
+  instrumentation added to the test stays: after the report it polls
+  `roomStopped` and names where the chain stopped. bug-0173 is
+  flaky, not systematic — and bug-0174 was opened for the other red
+  the same run produced: TestARoomOfManyIsStillARoom, one guest at 23
+  of 24 peers in a room of 25 (149s, rendezvous-scale mesh, the same
+  class of timing the rendezvous measurement exists to see). Neither
+  check was weakened to make the red go away.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
