@@ -30,28 +30,6 @@ const (
 	ServerIdleTimeout = 120 * time.Second
 )
 
-// ── CSRF Constants ────────────────────────────────────────────────────────
-
-const (
-	// CSRFTokenTTL CSRF token lifetime
-	CSRFTokenTTL = 1 * time.Hour
-
-	// CSRFTokenStoreMaxSize maximum number of CSRF tokens in the store
-	CSRFTokenStoreMaxSize = 10000
-
-	// CSRFCleanupInterval interval for cleaning expired CSRF tokens
-	CSRFCleanupInterval = 5 * time.Minute
-
-	// CSRFShutdownTimeout timeout for waiting on CSRF cleanup goroutine
-	CSRFShutdownTimeout = 5 * time.Second
-
-	// CSRFTokenBytes number of bytes for CSRF token generation
-	CSRFTokenBytes = 32
-
-	// UserIDBytes number of bytes for user ID generation
-	UserIDBytes = 16
-)
-
 // ── CORS Constants ────────────────────────────────────────────────────────
 
 const (
@@ -62,10 +40,16 @@ const (
 	CORSAllowMethods = "GET, POST, PUT, DELETE, OPTIONS"
 
 	// CORSAllowHeaders allowed headers for CORS
-	CORSAllowHeaders = "Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Session-ID"
+	//
+	// These are the headers the client actually sends, and nothing else:
+	// the previous list carried X-CSRF-Token / X-Session-ID, which the
+	// project never sent and never checked — a door nobody opens, painted
+	// on the wall. X-Client-ID rides beside X-Access-Token because the
+	// backend keys torrent ownership to it.
+	CORSAllowHeaders = "Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Client-ID"
 
 	// CORSExposeHeaders headers exposed to the client
-	CORSExposeHeaders = "X-CSRF-Token, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset"
+	CORSExposeHeaders = "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset"
 
 	// HSTSMaxAge HSTS header lifetime (1 year in seconds)
 	HSTSMaxAge = "max-age=31536000; includeSubDomains"
@@ -108,13 +92,6 @@ const (
 
 	// ClientRateLimiterCleanup cleanup interval for per-IP rate limiter
 	ClientRateLimiterCleanup = 10 * time.Minute
-
-	// CSRFRateLimit rate limit for CSRF endpoint (requests per second)
-	// Very strict: ~5 requests/minute to prevent token flooding attacks
-	CSRFRateLimit = 0.083 // ~5 requests/minute
-
-	// CSRFRateBurst burst size for CSRF endpoint
-	CSRFRateBurst = 2
 
 	// MetricsRateLimit rate limit for metrics endpoint (requests per second)
 	// Strict: ~30 requests/minute for Prometheus scraping
@@ -167,9 +144,6 @@ const (
 // проекте нет и не планируется (см. DEV.md, «Принципы разработки»).
 
 const (
-	// BcryptCost bcrypt cost for password hashing
-	BcryptCost = 12
-
 	// MaxPasswordLength maximum password length for bcrypt
 	MaxPasswordLength = 72
 )
@@ -240,9 +214,6 @@ const (
 
 	// BufferReadAheadPieces number of pieces to read ahead for buffer extension
 	BufferReadAheadPieces = 20
-
-	// MaxRoomPasswordLength maximum room password length (bcrypt truncates at 72)
-	MaxRoomPasswordLength = 72
 
 	// DefaultMemoryStorageCapacity default in-memory storage size (4 GB, 0 = unlimited)
 	DefaultMemoryStorageCapacity int64 = 4 * 1024 * 1024 * 1024

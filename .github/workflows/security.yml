@@ -18,15 +18,17 @@ on:
     paths:
       - 'backend/go.mod'
       - 'backend/go.sum'
-      - 'frontend/**/*.cpp'
-      - 'frontend/**/*.h'
+      - 'frontend/go.mod'
+      - 'frontend/go.sum'
+      - '.github/workflows/security.yml'
   pull_request:
     branches: [main]
     paths:
       - 'backend/go.mod'
       - 'backend/go.sum'
-      - 'frontend/**/*.cpp'
-      - 'frontend/**/*.h'
+      - 'frontend/go.mod'
+      - 'frontend/go.sum'
+      - '.github/workflows/security.yml'
 
 permissions:
   contents: read

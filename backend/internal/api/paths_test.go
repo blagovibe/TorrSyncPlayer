@@ -29,20 +29,6 @@ func TestAPIPaths_Metrics(t *testing.T) {
 	assert.Equal(t, "/metrics", APIPathMetrics)
 }
 
-// TestAPIPaths_CSRF tests CSRF token path
-func TestAPIPaths_CSRF(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, "/api/v1/csrf-token", APIPathCSRFToken)
-}
-
-// TestAPIPaths_Auth tests authentication paths
-func TestAPIPaths_Auth(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, "/api/v1/auth/register", APIPathAuthRegister)
-	assert.Equal(t, "/api/v1/auth/login", APIPathAuthLogin)
-	assert.Equal(t, "/api/v1/auth/logout", APIPathAuthLogout)
-}
-
 // TestAPIPaths_Torrents tests torrent paths
 func TestAPIPaths_Torrents(t *testing.T) {
 	t.Parallel()
@@ -61,10 +47,6 @@ func TestAPIPaths_AllDefined(t *testing.T) {
 		"HealthDetailed": APIPathHealthDetailed,
 		"Version":        APIPathVersion,
 		"Metrics":        APIPathMetrics,
-		"CSRFToken":      APIPathCSRFToken,
-		"AuthRegister":   APIPathAuthRegister,
-		"AuthLogin":      APIPathAuthLogin,
-		"AuthLogout":     APIPathAuthLogout,
 		"Torrents":       APIPathTorrents,
 		"TorrentFiles":   APIPathTorrentFiles,
 		"TorrentSelect":  APIPathTorrentSelect,
@@ -85,10 +67,6 @@ func TestAPIPaths_Consistency(t *testing.T) {
 	t.Parallel()
 	apiPaths := []string{
 		APIPathVersion,
-		APIPathCSRFToken,
-		APIPathAuthRegister,
-		APIPathAuthLogin,
-		APIPathAuthLogout,
 		APIPathTorrents,
 		APIPathTorrentFiles,
 		APIPathTorrentSelect,

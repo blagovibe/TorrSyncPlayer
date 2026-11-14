@@ -6,7 +6,7 @@
 // Contains API path constants for use in router and tests.
 package api
 
-// ── API Path Constants ─────────────────────────────────────────────────
+// ─── API Path Constants ─────────────────────────────────────────────
 
 const (
 	// HealthCheck health check path (public)
@@ -21,22 +21,7 @@ const (
 	// Metrics path for Prometheus metrics
 	APIPathMetrics = "/metrics"
 
-	// CSRFToken path for getting CSRF token
-	// #nosec G101 -- constant path string, not a credential
-	APIPathCSRFToken = "/api/v1/csrf-token" //nolint:gosec // not a credential
-
-	// ── Auth endpoints ─────────────────────────────────────────────────
-
-	// AuthRegister registration path
-	APIPathAuthRegister = "/api/v1/auth/register"
-
-	// AuthLogin login path
-	APIPathAuthLogin = "/api/v1/auth/login"
-
-	// AuthLogout logout path
-	APIPathAuthLogout = "/api/v1/auth/logout"
-
-	// ── Torrent endpoints ──────────────────────────────────────────────
+	// ─── Torrent endpoints ───────────────────────────────────────────
 
 	// Torrents torrent list path
 	APIPathTorrents = "/api/v1/torrents"

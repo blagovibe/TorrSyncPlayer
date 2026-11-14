@@ -52,8 +52,11 @@ func NewAuthService() (*AuthService, error) {
 }
 
 // NewAuthServiceWithToken builds a service around an existing token. Used by
-// tests and by callers that restore a known value; the string is hashed so the
-// plaintext is not retained in memory longer than necessary.
+// tests and by callers that restore a known value. The token is kept as
+// plaintext on purpose: the server prints it once at startup, and the
+// constant-time compare in ValidateAccessToken is what authenticates, so
+// there is nothing a hash would add and everything it would cost. The
+// accepted compromise of storing it in memory is named in deviation-0061.
 func NewAuthServiceWithToken(token string) (*AuthService, error) {
 	if token == "" {
 		return nil, fmt.Errorf("access token must not be empty")

@@ -189,7 +189,7 @@ func main() {
 		)
 	}
 
-	// No room-scoped visibility wiring: rooms meet over WebRTC now, and no
+	// No room-scoped visibility wiring: rooms meet over libp2p streams now, and no
 	// guest ever touches this backend — it serves its owner's torrents only.
 	// canRead falls back to ownership, which is stricter than the room check
 	// it replaces (idea-0064; deviation-0039 is moot: the invite carries no

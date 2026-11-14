@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The room's commands travel a WebRTC data channel now, not the server's SSE
+// The room's commands travel libp2p streams, not the server's SSE
 // stream. What goes over that channel has to be pinned down the same way the
 // API once was: a message the follower cannot parse is a command silently lost,
 // and a command from the wrong peer silently obeyed is worse (idea-0064).
