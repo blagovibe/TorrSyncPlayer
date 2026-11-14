@@ -857,6 +857,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   application keeps. The macOS leg is green on this line — one data point,
   not a fix proven; the card stays open until the flake stays away.
 
+
+- **The v0.4.2 release verified the notices at the tag, end to end
+  (bug-0158, closed).** All three release jobs built, and each job's own
+  gate read the notices back out of the artifact it was about to
+  publish: Linux installed `THIRD_PARTY_NOTICES.md` inside the AppDir
+  **before** linuxdeploy built the image and the AppImage check
+  extracted it and refused to pass without it; Windows copied it into
+  the bundle and the zip check required it before upload; macOS copied
+  it into `Contents/Resources/` and the DMG check required it mounted.
+  `SHA256SUMS` were generated and attached; the release published at
+  2026-11-14T21:46:39Z as a full, non-draft release: `TorrSyncPlayer-x86_64.AppImage` (123 MB), `TorrSyncPlayer-windows-x64.zip`
+  (72 MB), `TorrSyncPlayer-macos-arm64.dmg` (29 MB), `SHA256SUMS`.
+  Two facts worth their own lines: the first tag (4358d4c) could not
+  build its AppImage — the icon generator writes `0600` and the
+  AppDir copied it verbatim, and `appimagetool` refuses an AppImage
+  whose users cannot read their own icon — so the tag was retired
+  before anything was published and re-created on the fixed line;
+  and macOS jobs on the `macos-14` label were cancelled with zero
+  steps on both attempts, so the release now uses `macos-latest`,
+  the same label the frontend CI has been green on for weeks. The
+  release has what it always wanted: a license, a gate that reads
+  its own output, and a tag whose meaning does not change under it.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
