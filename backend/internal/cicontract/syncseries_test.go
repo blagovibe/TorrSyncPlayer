@@ -164,28 +164,20 @@ func TestTheSeriesFileHasTheHeaderTheRowsBelongTo(t *testing.T) {
 // run below the threshold, every run, forever (bug-0157).
 func TestTheSeriesWeighsOnlyTheWindow(t *testing.T) {
 	series := filepath.Join(t.TempDir(), "sync.md")
-	require.NoError(t, os.WriteFile(series, []byte("| When | divergence | landing | outcome |\n"), 0o600))
 
+	var rows strings.Builder
+	rows.WriteString("| When | divergence | landing | outcome |\n")
 	goodRow := "| 2026-11-13T00:00:00Z | 0.20 | 0.30 | within the promise |\n"
-	// Twenty-five good rows: with the old math this was 100·20/25 = 80% and
-	// the script opened a card; with the fix it is 100% and the script says
-	// so.
 	for i := 0; i < 25; i++ {
-		require.NoError(t, os.WriteFile(series, append(mustRead(t, series), goodRow...), 0o600))
+		rows.WriteString(goodRow)
 	}
+	require.NoError(t, os.WriteFile(series, []byte(rows.String()), 0o600))
 
 	out, err := runScript(t, "check", series, t.TempDir(), syncSource)
-		require.NoError(t, err, "a series of 25 good rows must pass on its merits: %s", out)
-		assert.Contains(t, out, "the last 20 of 25 runs", "the output must name the window and the size of the whole series: %s", out)
+	require.NoError(t, err, "a series of 25 good rows must pass on its merits: %s", out)
+	assert.Contains(t, out, "the last 20 of 25 runs", "the output must name the window and the size of the whole series: %s", out)
 }
 
-// mustRead reads a file or skips the test.
-func mustRead(t *testing.T, path string) []byte {
-	t.Helper()
-	body, err := os.ReadFile(path)
-		require.NoError(t, err)
-	return body
-}
 // writeLog puts a run's output into a file and returns its path.
 func writeLog(t *testing.T, body string) string {
 	t.Helper()

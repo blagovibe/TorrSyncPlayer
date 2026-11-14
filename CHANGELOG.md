@@ -511,6 +511,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself make any measurement true; it makes the check able to say yes —
   and the threshold stays exactly where it was written to be.
 
+- **bug-0171 was deleted the same day it was opened — it was the same false
+  alarm.** Between the merge and the push of the series fix, the rendezvous
+  job ran once more with the old arithmetic and opened one more card:
+  `bug-0171-the-room-gathered-27-percent-of-the-time`, opened by a
+  measurement series that has recorded "met" every single run it has ever
+  taken (100%). It is deleted with the fifty-one before it, as one class —
+  a card that asserts a trend the data does not show is not information, and
+  the fixed script (in this journal's entry above) cannot open another.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
