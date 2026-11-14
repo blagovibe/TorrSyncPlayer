@@ -16,6 +16,7 @@
 package cicontract
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,11 +80,20 @@ func copyTree(t *testing.T, src, dst string) error {
 		if entry.IsDir() {
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(src, entry.Name()))
+		// ReadDir returns leaf names, but the destination is built from one,
+		// so it is made to stay inside the destination on purpose, not on
+		// hope: no separator, no parent, no absolute path.
+		name := filepath.Clean(entry.Name())
+		if name == "." || name == ".." || strings.ContainsRune(name, os.PathSeparator) || filepath.IsAbs(name) {
+			return fmt.Errorf("card name escapes the board: %q", entry.Name())
+		}
+		srcPath := filepath.Clean(filepath.Join(src, name))
+		dstPath := filepath.Clean(filepath.Join(dst, name))
+		body, err := os.ReadFile(srcPath) // #nosec G304 G703 -- name checked above, stays inside src
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(dst, entry.Name()), body, 0o600); err != nil {
+		if err := os.WriteFile(dstPath, body, 0o600); err != nil { // #nosec G306 G703 -- dstPath checked above
 			return err
 		}
 	}
