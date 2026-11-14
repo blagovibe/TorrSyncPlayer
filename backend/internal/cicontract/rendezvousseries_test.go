@@ -116,18 +116,33 @@ func TestTheRendezvousSeriesOpensACardWhenTheWindowIsBad(t *testing.T) {
 		require.NoError(t, err, "recording a missed run: %s", out)
 	}
 
-	// The card script computes its number from the board and the journal:
-	// the board in a temp copy of the repo gets the real journal.
+	// The board is a directory of cards, and the journal knows the numbers
+	// that were used before. The script works on a copy of the repository,
+	// and the copy gets the real board too, so the script and this test
+	// read the same facts.
 	root := filepath.Join(t.TempDir(), "repo")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, ".project-board"), 0o750))
+	require.NoError(t, copyTree(t, rendezvousBoardDir, filepath.Join(root, ".project-board")))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte(repoFile(t, "../../../CHANGELOG.md")), 0o600))
+	before := readCards(t, filepath.Join(root, ".project-board"))
 
 	out, err := runRendezvousScript(t, "check", series, root)
 	require.Error(t, err, "a broken window must not report itself as fine: %s", out)
 	assert.Contains(t, out, "the threshold is broken", "the verdict must be said: %s", out)
 
-	cards := readCards(t, filepath.Join(root, ".project-board"))
-	require.Len(t, cards, 1, "a broken window must open exactly one card: %v", cards)
+	var opened []string
+	for _, card := range readCards(t, filepath.Join(root, ".project-board")) {
+		found := false
+		for _, prior := range before {
+			if card == prior {
+				found = true
+				break
+			}
+		}
+		if !found {
+			opened = append(opened, card)
+		}
+	}
+	require.Len(t, opened, 1, "a broken window must open exactly one card: %v", opened)
 }
 
 // TestTheRendezvousSeriesFileHasTheHeaderTheRowsBelongTo pins the table the

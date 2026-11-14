@@ -99,24 +99,40 @@ func TestTheSeriesOpensACardWhenThePromiseIsBroken(t *testing.T) {
 
 	// The board is a directory of cards, and the journal knows the numbers
 	// that were used before: the next number is one more than the highest of
-	// them. The script works on a copy of the repository, so the copy gets
-	// the real journal.
+	// them. The script works on a copy of the repository, and the copy gets
+	// the real board too — without it the script's "everything that exists"
+	// is only the journal's memory, and the test's own number (read from the
+	// real board) disagrees with the script's.
 	root := filepath.Join(dir, "repo")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, ".project-board"), 0o750))
+	require.NoError(t, copyTree(t, syncBoardDir, filepath.Join(root, ".project-board")))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte(repoFile(t, "../../../CHANGELOG.md")), 0o600))
+	before := readCards(t, filepath.Join(root, ".project-board"))
 
 	out, err := runScript(t, "check", series, root, syncSource)
 	require.Error(t, err, "a broken series must not report itself as fine: %s", out)
 	assert.Contains(t, out, "the threshold is broken", "the verdict must be said: %s", out)
 
 	cards := readCards(t, filepath.Join(root, ".project-board"))
-	require.Len(t, cards, 1, "a broken series must open exactly one card: %v", cards)
+	var opened []string
+	for _, card := range cards {
+		found := false
+		for _, prior := range before {
+			if card == prior {
+				found = true
+				break
+			}
+		}
+		if !found {
+			opened = append(opened, card)
+		}
+	}
+	require.Len(t, opened, 1, "a broken series must open exactly one card: %v", opened)
 
 	// The number must be the next free one, and it must not be the octal
 	// reading of it.
-	number := cardNumber(t, cards[0])
+	number := cardNumber(t, opened[0])
 	assert.Equal(t, nextFreeNumber(t), number,
-		"the card must be numbered after the cards that already exist: %s", cards[0])
+		"the card must be numbered after the cards that already exist: %s", opened[0])
 }
 
 // TestTheSeriesReadsThePromiseFromTheMeasurement pins where the number comes

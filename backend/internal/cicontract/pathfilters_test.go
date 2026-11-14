@@ -26,7 +26,7 @@ func TestWorkflowPathFiltersMatchTheTree(t *testing.T) {
 
 	matches := 0
 	for _, wf := range workflowFiles(t) {
-		body, err := os.ReadFile(wf)
+		body, err := os.ReadFile(filepath.Clean(wf))
 		require.NoError(t, err)
 		for _, pattern := range pathFilters(string(body)) {
 			regex := pathFilterToRegex(t, pattern)

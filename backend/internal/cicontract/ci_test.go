@@ -61,6 +61,35 @@ func repoFile(t *testing.T, path string) string {
 	return string(body)
 }
 
+// copyTree copies every regular file of one directory (flat, not recursive)
+// into another, for the temp copy of the repository that the scripts run
+// against. The scripts read the board by listing it, so the copy must carry
+// the same cards the real board carries, or their numbering disagrees with
+// this suite's own.
+func copyTree(t *testing.T, src, dst string) error {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0o750); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(src, entry.Name()))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dst, entry.Name()), body, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // packageArgRe finds `./internal/...`-style package patterns where a shell
 // command names them, which is where a stale package path hides.
 var packageArgRe = regexp.MustCompile(`\./[A-Za-z0-9_./-]*\.\.\.`)
