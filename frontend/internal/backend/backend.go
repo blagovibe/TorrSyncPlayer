@@ -44,7 +44,6 @@ func KnownFlags() []string {
 		"data-dir", "disk-storage", "memory-capacity",
 		"tls-cert", "tls-key", "tls", "auto-tls",
 		"enable-profiling",
-		"gateway-url", "gateway-user", "gateway-pass", "gateway-ca-cert",
 	}
 }
 
@@ -140,8 +139,8 @@ func FindBackend(appDir string) (string, error) {
 // Launch describes the backend child this application starts.
 //
 // Grown from (path, port, token) because the child is told more than where to
-// listen: which storage to use and whether an htorrent gateway owns the
-// torrents. Which channel carries what is deliberate — see Args and LaunchEnv.
+// listen: which storage to use. Which channel carries what is deliberate —
+// see Args and LaunchEnv.
 type Launch struct {
 	// Executable is the backend binary.
 	Executable string
@@ -159,21 +158,12 @@ type Launch struct {
 	// unset disables persistence: memory storage leaves nothing on disk at
 	// all.
 	DataDir string
-
-	// GatewayURL switches the backend into remoting mode, where an htorrent
-	// gateway owns the torrents; user and password are required together, the
-	// CA certificate is optional.
-	GatewayURL    string
-	GatewayUser   string
-	GatewayPass   string
-	GatewayCACert string
 }
 
 // Args builds the command line for the embedded backend.
 //
 // The access token is not here: it travels on the child's standard input
 // (--token-stdin), so it never appears in the process list (deviation-0061).
-// The gateway password is not here either — it travels in the environment.
 // What is here may be read by anyone: where to listen and which storage the
 // window chose.
 //
@@ -210,8 +200,7 @@ func Args(l Launch) []string {
 func managedEnv(entry string) bool {
 	key, _, _ := strings.Cut(entry, "=")
 	switch strings.ToUpper(key) {
-	case "DATA_DIR", "DISK_STORAGE",
-		"GATEWAY_URL", "GATEWAY_USER", "GATEWAY_PASS", "GATEWAY_CA_CERT":
+	case "DATA_DIR", "DISK_STORAGE":
 		return true
 	}
 	return false
@@ -219,30 +208,17 @@ func managedEnv(entry string) bool {
 
 // LaunchEnv builds the environment for the backend child.
 //
-// The child inherits this process's environment, and the backend reads the
-// gateway settings from it. The variables the launch decides are replaced
-// rather than appended to: appending would win for a value the launch sets,
-// but a variable the launch switches off — a gateway removed in the settings —
-// would survive and keep redirecting the backend. Anything unrelated is
-// passed through untouched.
+// The child inherits this process's environment. The variables the launch
+// decides are replaced rather than appended to: a variable the launch
+// switches off must not survive from a shell and stand in for the choice
+// made in the window. Anything unrelated is passed through untouched.
 func LaunchEnv(parent []string, l Launch) []string {
-	env := make([]string, 0, len(parent)+4)
+	env := make([]string, 0, len(parent)+2)
 	for _, entry := range parent {
 		if managedEnv(entry) {
 			continue
 		}
 		env = append(env, entry)
-	}
-
-	if l.GatewayURL != "" {
-		env = append(env,
-			"GATEWAY_URL="+l.GatewayURL,
-			"GATEWAY_USER="+l.GatewayUser,
-			"GATEWAY_PASS="+l.GatewayPass,
-		)
-		if l.GatewayCACert != "" {
-			env = append(env, "GATEWAY_CA_CERT="+l.GatewayCACert)
-		}
 	}
 	return env
 }

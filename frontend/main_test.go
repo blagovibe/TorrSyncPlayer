@@ -188,37 +188,6 @@ func TestTheLaunchKeepsMemoryOffTheDisk(t *testing.T) {
 	}
 }
 
-func TestTheLaunchCarriesTheGateway(t *testing.T) {
-	launch := backendLaunch(ui.Settings{
-		GatewayURL:    "https://gateway.example.com",
-		GatewayUser:   "friend",
-		GatewayPass:   "secret",
-		GatewayCACert: "/etc/ca.pem",
-	}, "/opt/backend", 1, "t")
-
-	if launch.GatewayURL != "https://gateway.example.com" {
-		t.Errorf("the gateway address did not reach the child: %q", launch.GatewayURL)
-	}
-	if launch.GatewayUser != "friend" || launch.GatewayPass != "secret" {
-		t.Error("the gateway login did not reach the child")
-	}
-	if launch.GatewayCACert != "/etc/ca.pem" {
-		t.Errorf("the CA certificate did not reach the child: %q", launch.GatewayCACert)
-	}
-}
-
-// An empty gateway is off, and off has to travel as empty: a half-configured
-// gateway would make the backend proxy every request to nowhere.
-func TestAnEmptyGatewayIsOff(t *testing.T) {
-	launch := backendLaunch(ui.Settings{}, "/opt/backend", 1, "t")
-
-	if launch.GatewayURL != "" || launch.GatewayUser != "" ||
-		launch.GatewayPass != "" || launch.GatewayCACert != "" {
-		t.Errorf("an empty form produced a gateway: url=%q user=%q cert=%q",
-			launch.GatewayURL, launch.GatewayUser, launch.GatewayCACert)
-	}
-}
-
 // TestAnInterruptStopsTheBackendBeforeTheWindowGoes is the bug, fixed.
 //
 // The handler used to call os.Exit(0) from its own goroutine, which skips the

@@ -88,21 +88,16 @@ type runOptions struct {
 
 // backendLaunch turns the saved choices into the child's launch description.
 //
-// Storage and the gateway used to be unreachable from the window: the
-// application always started its backend with a port and a token and nothing
-// else, so every other flag required a hand-started server that then was not
-// the application's own backend (idea-0083).
+// Storage used to be unreachable from the window: the application always
+// started its backend with a port and a token and nothing else, so the one
+// choice a person makes went unmade (idea-0083).
 func backendLaunch(settings ui.Settings, executable string, port int, token string) backend.Launch {
 	return backend.Launch{
-		Executable:    executable,
-		Port:          port,
-		Token:         token,
-		DiskStorage:   settings.UsesDiskStorage(),
-		DataDir:       settings.DataDir,
-		GatewayURL:    settings.GatewayURL,
-		GatewayUser:   settings.GatewayUser,
-		GatewayPass:   settings.GatewayPass,
-		GatewayCACert: settings.GatewayCACert,
+		Executable:  executable,
+		Port:        port,
+		Token:       token,
+		DiskStorage: settings.UsesDiskStorage(),
+		DataDir:     settings.DataDir,
 	}
 }
 
@@ -112,10 +107,10 @@ func run(opts runOptions) error {
 		return err
 	}
 
-	// The saved choices are read before the backend starts: storage and the
-	// gateway are the child's own configuration, and a backend already running
-	// cannot be reconfigured by a window that came up later. The window reads
-	// the same file again for itself.
+	// The saved choices are read before the backend starts: storage is the
+	// child's own configuration, and a backend already running cannot be
+	// reconfigured by a window that came up later. The window reads the same
+	// file again for itself.
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		configDir = os.TempDir()
