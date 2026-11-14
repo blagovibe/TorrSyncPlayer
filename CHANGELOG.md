@@ -626,6 +626,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one that passed), and anything that needs a torrent swarm in front of the
   person. The window and the catalog race to CI to prove the rest.
 
+- **The watches that looked at nothing now watch something (bug-0165).**
+  security.yml was gated on `frontend/**/*.cpp` and `*.h` — paths this Go
+  repository has never had, so the govulncheck job never started on a
+  push; the trigger now names the four `go.mod`/`go.sum` files and the
+  workflow itself. `constants.go` carried a whole dead CSRF/auth block:
+  the CSRF token constants and their rate limits, `BcryptCost` for a
+  hashing path that went with user accounts, the room-password length,
+  `UserIDBytes` — all deleted, and CORS now names the headers the API
+  actually sends (`X-Access-Token`, `X-Client-ID`) instead of two it never
+  did. `paths.go` exposed CSRF and auth endpoints the router never
+  registered; gone, with their tests. The auth comment that claimed the
+  token is hashed now says what is true (plaintext, constant-time
+  compare, deviation-0061). Stale WebRTC mentions became libp2p. The
+  security gate now has a cicontract test that reads every `paths:`
+  filter in every workflow and fails on one matching no tracked file.
+  CI for the line that carries this is in flight; the card closes when
+  that run says green, per the house rule for checks.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
