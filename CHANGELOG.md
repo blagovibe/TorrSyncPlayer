@@ -557,6 +557,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into that section and the section is read against it — that is one of the
   open items of the way.
 
+- **The GPL players no longer ship without their licenses (bug-0158).**
+  `THIRD_PARTY_NOTICES.md` now exists at the repository root: it names mpv
+  (GPLv2+), the FFmpeg libraries it links (LGPLv2.1+ or GPLv2+ in GPL-codec
+  builds, which includes the Debian/Ubuntu builds), how the release jobs
+  fetch them (apt on Linux, Chocolatey on Windows, Homebrew on macOS),
+  exactly where the corresponding source is for each channel, and the
+  full texts of the GNU GPL version 2 and the GNU LGPL version 2.1.
+  All three release jobs now carry their notices inside the artifact: Linux
+  installs them at `usr/share/doc/TorrSyncPlayer/THIRD_PARTY_NOTICES.md`
+  inside the AppDir **before** linuxdeploy builds the image, and the
+  AppImage content check fails the release without them; Windows copies the
+  file into the bundle and the zip's own check requires it before upload;
+  macOS copies them into `Contents/Resources/` and the DMG check requires
+  them. `README.md` tells the user they are bundled and points at the
+  notices. What this does **not** prove: the next tagged release, end to
+  end — the release workflow runs on tags only, and this line of main has
+  not been tagged since the file appeared; the first tagged release after
+  this commit is where the notices get extracted and read. The gates in the
+  release pipeline are written to fail the release before it ships, which
+  is the shape the project's checks demand: a release without them cannot
+  happen, only a failing job.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended

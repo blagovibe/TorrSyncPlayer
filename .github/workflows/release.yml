@@ -79,6 +79,14 @@ jobs:
           # appear, and that failure looks like "the application has no icon".
           desktop-file-validate "$APPDIR/torrsyncplayer.desktop"
 
+          # A bundle without its notices is a bundle that ships GPL code with
+          # no license text: the notices travel with the image, next to the
+          # player they describe, where GPL requires them to be.
+          mkdir -p "$APPDIR/usr/share/doc/TorrSyncPlayer"
+          cp THIRD_PARTY_NOTICES.md "$APPDIR/usr/share/doc/TorrSyncPlayer/THIRD_PARTY_NOTICES.md"
+          test -s "$APPDIR/usr/share/doc/TorrSyncPlayer/THIRD_PARTY_NOTICES.md" \
+            || { echo "THIRD_PARTY_NOTICES.md was not copied into the AppDir"; exit 1; }
+
           # AppRun is what makes the image runnable without installation: it
           # points the loader at the libraries linuxdeploy put in usr/lib.
           cat > "$APPDIR/AppRun" <<'EOF'
@@ -143,6 +151,10 @@ jobs:
             test -e "/tmp/squashfs-root/usr/bin/$f" || test -e "/tmp/squashfs-root/$f" || {
               echo "the image is missing $f"; ls -la /tmp/squashfs-root /tmp/squashfs-root/usr/bin; exit 1; }
           done
+          # The GPL notice file is not optional cargo: it travels with the
+          # image or the release does not ship.
+          test -s /tmp/squashfs-root/usr/share/doc/TorrSyncPlayer/THIRD_PARTY_NOTICES.md || {
+            echo "the image is missing the third-party notices"; find /tmp/squashfs-root -name "THIRD_PARTY_NOTICES.md"; exit 1; }
           test -s /tmp/squashfs-root/usr/lib || {
             echo "the image carries no libraries; it would only run on this runner"; exit 1; }
           du -sh /tmp/squashfs-root
@@ -235,8 +247,19 @@ jobs:
 
           The application starts its own backend on a free port and needs no
           installation, no service and no account. mpv ships beside it, so
-          nothing has to be installed for playback either.
+          nothing has to be installed for playback either. Licensed under MIT;
+          see THIRD_PARTY_NOTICES.md for the licenses of the bundled mpv and
+          its codec libraries and where to get their sources.
           '@
+
+          # The bundle carries third-party GPL/LGPL components (mpv and the
+          # DLLs beside it), so the license texts travel with the folder
+          # they describe — this is what the license requires of the
+          # distributor, and the zip ships nothing before this file exists.
+          Copy-Item THIRD_PARTY_NOTICES.md "$bundle/THIRD_PARTY_NOTICES.md"
+          if (-not (Test-Path "$bundle/THIRD_PARTY_NOTICES.md") -or (Get-Item "$bundle/THIRD_PARTY_NOTICES.md").Length -eq 0) {
+            Write-Error "the release folder is missing THIRD_PARTY_NOTICES.md"; exit 1
+          }
 
           Compress-Archive -Path "$bundle/*" -DestinationPath TorrSyncPlayer-windows-x64.zip -Force
 
@@ -245,7 +268,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $entries = (Expand-Archive TorrSyncPlayer-windows-x64.zip -DestinationPath /tmp/unpacked -PassThru).FullName
-          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer.exe','mpv.exe') {
+          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer.exe','mpv.exe','THIRD_PARTY_NOTICES.md') {
             if (-not ($entries | Where-Object { $_ -like "*$f" })) {
               Write-Error "the archive is missing $f"; $entries; exit 1
             }
@@ -302,6 +325,13 @@ jobs:
           # has to travel, or the bundle points at a prefix the user does not have.
           cp -L "$(command -v mpv)" "$APP/Contents/MacOS/mpv"
           cp dist/torrsyncplayer.png "$APP/Contents/Resources/torrsyncplayer.png"
+          # The bundle carries third-party GPL/LGPL components (mpv and the
+          # libraries it links), so the license texts travel in the bundle —
+          # inside Resources, where a human looking for legal files expects
+          # to find them, and where the release check verifies them.
+          cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
+          test -s "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md" \
+            || { echo "THIRD_PARTY_NOTICES.md was not copied into the bundle"; exit 1; }
 
           cat > "$APP/Contents/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -342,6 +372,8 @@ jobs:
             test -x "/tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/MacOS/$f" || {
               echo "the image is missing $f"; ls -la /tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/MacOS; exit 1; }
           done
+          test -s "/tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/Resources/THIRD_PARTY_NOTICES.md" || {
+            echo "the image is missing the third-party notices"; find /tmp/torrsync-dmg -name "THIRD_PARTY_NOTICES.md"; exit 1; }
           hdiutil detach /tmp/torrsync-dmg
 
       - name: Upload the macOS artifact
