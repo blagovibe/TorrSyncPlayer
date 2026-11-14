@@ -605,6 +605,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window as the rest of CI, all green. The next k6 or mutation failure
   will be a fact someone has to read, not a job cancelled before it spoke.
 
+- **The window does what its API promised it would do (idea-0160).** The
+  owner approved the scope on 2026-10-23; this session built it:
+  a `.torrent` file can be added from a file picker (`Add .torrent` beside
+  the magnet field, posted to the same `/api/v1/torrents` endpoint as a
+  base64 body); a torrent can be removed from the list (a trash button per
+  row, confirm dialog, refusal while it is playing); the torrent rows show
+  what they are doing (name — progress, download speed when two ticks
+  measured one, `Seeding` for finished rows); tapping a row's info button
+  opens a description dialog — name, size, progress, peers, status, and the
+  file list — without touching the player; if mpv cannot be found anywhere
+  (configured binary, PATH, well-known locations), pressing play shows the
+  per-OS install instructions instead of an exec error; and the room has
+  a Leave the room action, enabled while in one and hidden otherwise. The
+  catalogue carried every new string; the rows are container rows with
+  icon buttons at the trailing edge; rates are computed between two ticks
+  of the same torrent and never shown before they measured something. What
+  the local machine cannot prove: the mpv installation dialog in a real
+  window (no mpv, no cgo here — the UI suite that exercises the path is the
+  one that passed), and anything that needs a torrent swarm in front of the
+  person. The window and the catalog race to CI to prove the rest.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
