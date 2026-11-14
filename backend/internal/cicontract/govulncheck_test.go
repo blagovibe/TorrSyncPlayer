@@ -65,8 +65,13 @@ func runFakeScan(t *testing.T, codes ...int) (string, int) {
 	bin := filepath.Join(dir, "bin")
 	require.NoError(t, os.MkdirAll(bin, 0o750))
 
-	// The stand-in counts its own runs, so each attempt gets the next code.
-	counter := filepath.Join(dir, "attempts")
+	// The stand-in counts its own runs in a counter file that lives inside
+	// the temporary directory. An absolute Windows path written into the
+	// script would be read by bash as a word whose backslashes escape the
+	// next character, so `C:\Users\...` would be searched for a file whose
+	// name bash reconstructs without them — and the counter would land
+	// outside the temp dir with a name nobody can read or delete.
+	counter := "attempts"
 	stand := "#!/usr/bin/env bash\n" +
 		"n=0\n" +
 		"if [ -f " + counter + " ]; then n=$(cat " + counter + "); fi\n" +
@@ -90,7 +95,13 @@ func runFakeScan(t *testing.T, codes ...int) (string, int) {
 	//nolint:gosec // G306: an executable stand-in, in a temporary directory
 	require.NoError(t, os.WriteFile(path, []byte(stand), 0o700))
 
-	cmd := exec.Command("bash", govulncheckScript, "./...") //nolint:gosec // G204: the script is the project's own
+	// The stand-in is looked up in the temp bin directory, so run the script
+	// and its argument from there: the counter file the stand-in writes then
+	// lands inside the temp dir and disappears with it.
+	script, err := filepath.Abs(govulncheckScript)
+	require.NoError(t, err)
+	cmd := exec.Command("bash", script, "./...") //nolint:gosec // G204: the script is the project's own
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"PATH="+bin+":"+os.Getenv("PATH"),
 		// The wait between attempts is a variable, so the test does not
