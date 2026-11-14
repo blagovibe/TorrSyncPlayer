@@ -32,6 +32,7 @@ jobs:
 
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run go mod tidy
         working-directory: backend
@@ -140,6 +141,7 @@ jobs:
       # the platform.
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -296,6 +298,7 @@ jobs:
           cache-dependency-path: frontend/go.sum
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
 
       # The same build dependencies as the other frontend jobs: Fyne builds
@@ -404,6 +407,7 @@ jobs:
 
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh frontend
       - name: Install build dependencies
         run: |
@@ -493,10 +497,19 @@ jobs:
         if: always()
         run: sudo tests/netns/room-nat.sh down
 
+  # One job, two platforms: the backend's own suite went red-blind on
+  # Windows for months while CI stayed Ubuntu-only, and that class of
+  # failure is what this leg exists to catch (bug-0167). Coverage floor
+  # is enforced on ubuntu (where it was measured); the Windows leg prints
+  # the number without gating on it.
   test-backend:
-    name: Test Backend
+    name: Test Backend (${{ matrix.os }})
     needs: lint-backend
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v7
@@ -509,14 +522,16 @@ jobs:
 
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run tests with race detector and coverage
         working-directory: backend
         env:
-          # Measured 60.1% statement coverage. The floor sits below it so a
+          # Measured 60.1% statement coverage on ubuntu. The floor sits below it so a
           # single new uncovered file cannot block a PR, while a real erosion of
           # the test suite does. Raise it as tests are added; never lower it
-          # without re-measuring.
+          # without re-measuring. The Windows leg prints its number without
+          # gating on it — the floor was measured on ubuntu.
           COVERAGE_MIN_PERCENT: '55'
         run: |
           set -o pipefail
@@ -527,6 +542,10 @@ jobs:
           if [ -z "$COVERAGE" ]; then
             echo "Could not parse total coverage"
             exit 1
+          fi
+          if [ "${{ matrix.os }}" != "ubuntu-latest" ]; then
+            echo "coverage floor applies to ubuntu; printing only on ${{ matrix.os }}"
+            exit 0
           fi
           if awk "BEGIN { exit !($COVERAGE < $COVERAGE_MIN_PERCENT) }"; then
             echo "Coverage ${COVERAGE}% is below the ${COVERAGE_MIN_PERCENT}% floor"
@@ -556,6 +575,7 @@ jobs:
           ${{ github.workspace }}/.github/scripts/govulncheck.sh ./... || [ "${GOVULNCHECK_ALLOW_FAILURE}" = "1" ]
 
       - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           directory: backend
@@ -583,6 +603,7 @@ jobs:
 
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Build
         working-directory: backend
@@ -605,6 +626,7 @@ jobs:
       # attempts, because a broken stream from the proxy must not be able to
       # fail a job that says nothing about the code.
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
 
       - name: Build backend for scanning
@@ -654,6 +676,7 @@ jobs:
 
 
       - name: Fetch the modules
+        shell: bash
         run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
       - name: Run Go fuzzing (backend)
         working-directory: backend

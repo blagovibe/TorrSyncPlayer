@@ -774,6 +774,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documenting "backend targets Linux" (a DEV.md edit, also the
   owner's call).
 
+
+- **The v0.4.1 release record's "the pipeline is green in full" claim is
+  corrected, not improved (this entry is the correction).** The phrase
+  appears in the released record; the audit this session found it was
+  not true of every line it was written on — the 8b7f741 run reported a
+  red Windows leg through the GitHub API, while e76dad1 came up green,
+  which is also how the audit found the first one: by asking, not by
+  believing the journal's last word. The released text stays, because
+  that is what append-only means: what shipped said what it said, and
+  this line is the record of what it meant in fact. The lesson the
+  way now carries (DEV.md, «Как читать журнал»): «green» in this
+  journal is a claim about a line and a moment, verified by a run — the
+  claim is checkable, and this one was not.
+
+
+- **The way taught Windows developers to build something that does not
+  build — the fix (deviation-0168, closed).** DEV.md said VS Build
+  Tools and "Разработка классических приложений на C++", which no
+  Windows environment in this project's own CI could satisfy: `runtime/cgo`
+  carries `-Wall -Werror`, cl reads them as `cl: error D8021: invalid
+  numeric argument "/Werror"`. The way now teaches what CI itself uses —
+  MinGW-w64 (MSYS2 with `mingw-w64-x86_64-gcc` as the primary path,
+  Chocolatey `mingw` as the alternative), with a PATH example, the
+  reason MSVC cannot work, and CI `windows-latest` named as the
+  reference. A person following the way will now hold the same gcc the
+  pipeline holds.
+- **The journal learned how to be read (idea-0161, closed).** DEV.md
+  gained «Как читать журнал»: three readings — by time, by version,
+  by card — and the rule that binds them: a correction is a new entry,
+  never a rewrite of an old one. It also says, in as many words, that
+  «зелёно» in this journal is a claim about a line and a moment,
+  verified by a run — which is what the false claim that survived two
+  months needed to be. And that claim is corrected right here, next
+  to it: the
+  v0.4.1 record's "the pipeline is green in full" was not true of every
+  line it was written on — the GitHub API showed 8b7f741 red on the
+  Windows leg, e76dad1 green — and this entry is the correction, the
+  released text stays.
+- **The macOS build keeps its ad-hoc signature by decision, not by
+  oversight (idea-0162, closed).** The arm64-only artifact carries an
+  ad-hoc signature, and Apple notarization is a $99/year commitment and an
+  Apple Developer account the owner has not chosen to spend. The README
+  already warns (idea-0162's own minimum: how to open the app despite
+  Gatekeeper, arm64-only). The owner decided explicitly to keep it that
+  way and revisit when there is demand — the card closes with that
+  recorded rather than with a signature added.
+- **Windows is inside the CI contract now (bug-0167, part closed).**
+  The backend test job became a matrix [ubuntu-latest, windows-latest]:
+  the same suite, the same race detector. Coverage floor stays on
+  ubuntu (where it was measured — prints on Windows without gating);
+  Codecov uploads only from ubuntu; and both `fetch-modules` steps
+  now run under `shell: bash` — on Windows the default pwsh dot-sourced
+  the script and it silently did nothing, which is exactly the class
+  of check that lies.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
