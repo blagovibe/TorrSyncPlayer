@@ -579,6 +579,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is the shape the project's checks demand: a release without them cannot
   happen, only a failing job.
 
+- **The long gates learned to finish (bug-0170).** The two jobs that never
+  reached a verdict on main — the k6 load test and the mutation floor — are
+  out of `ci.yml` and into a new `.github/workflows/long-gates.yml`. It runs
+  on pushes to main, on a daily schedule (05:30 UTC) and on
+  `workflow_dispatch`, with a concurrency group of its own whose
+  `cancel-in-progress` is `false`: a push queues the next run instead of
+  interrupting the one in flight. `GO_VERSION` is `1.27.4` like everywhere
+  else. cicontract's mutation-scope test now reads the gate's file instead
+  of ci.yml. The gates themselves are byte-for-byte the ones that used to
+  run in CI. What this buys: a red k6 result, or a mutation score under the
+  floor, can actually be seen by someone — instead of being silently
+  cancelled before it said anything. What this costs: pushes to main now
+  start a k6 run and a mutation run in parallel with the rest of the suite;
+  they write to their own artifacts and their own group, so they do not
+  queue-block each other.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended

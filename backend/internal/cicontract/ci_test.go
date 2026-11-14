@@ -30,6 +30,7 @@ import (
 
 const (
 	workflow   = "../../../.github/workflows/ci.yml"
+	longGates  = "../../../.github/workflows/long-gates.yml"
 	workflows  = "../../../.github/workflows"
 	moduleRoot = "../.."
 )
@@ -76,9 +77,10 @@ func packageOf(pattern string) string {
 // after both were deleted with the room broker: the gate stayed green, the
 // score it printed was not the score its own comment claimed, and nothing in
 // the repository could tell. A package pattern that names nothing is the
-// quietest way to shrink a gate.
+// quietest way to shrink a gate. The mutation job lives in long-gates.yml,
+// which this test reads instead of ci.yml.
 func TestTheMutationScopeNamesOnlyPackagesThatExist(t *testing.T) {
-	body := repoFile(t, workflow)
+	body := repoFile(t, longGates)
 
 	scope := mutationScope(t, body)
 	require.NotEmpty(t, scope, "the workflow must still run mutation testing")
