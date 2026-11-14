@@ -45,3 +45,4 @@
 | 2026-11-14T00:06:10Z | 0.20 | 0.57 | within the promise |
 | 2026-11-14T10:41:21Z | 0.20 | 0.57 | within the promise |
 | 2026-11-14T10:51:45Z | 0.20 | 0.56 | within the promise |
+| 2026-11-14T13:48:56Z | 0.20 | 0.56 | within the promise |
