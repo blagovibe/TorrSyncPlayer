@@ -595,6 +595,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they write to their own artifacts and their own group, so they do not
   queue-block each other.
 
+- **bug-0170 is closed: the gates finish now.** The two jobs that could never
+  reach a verdict on this line — the k6 load test and the mutation floor —
+  live in `.github/workflows/long-gates.yml` with their own concurrency
+  group and `cancel-in-progress: false`, running on pushes to main, on a
+  daily 05:30 UTC schedule and on dispatch. The first run on this exact
+  line: **Load Tests (k6) completed/success, Mutation Testing
+  completed/success** — mutation at its measured 0.66, both in the same
+  window as the rest of CI, all green. The next k6 or mutation failure
+  will be a fact someone has to read, not a job cancelled before it spoke.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
