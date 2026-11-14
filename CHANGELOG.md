@@ -829,6 +829,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the script and it silently did nothing, which is exactly the class
   of check that lies.
 
+
+- **Windows entered the CI contract, and the way stopped teaching a
+  build that cannot run (the Windows-CI batch, this line is its proof).**
+  The backend test job is now a matrix [ubuntu-latest, windows-latest].
+  That exposed three things worth their lines in this journal: the eight
+  `fetch-modules.sh` steps never ran on Windows at all — pwsh dot-sourced
+  the bash and quietly did nothing — and the one step that now runs them
+  must be addressed as `.github/scripts/...` from the repository root,
+  with `shell: bash`, because Git bash eats the backslashes of
+  `${{ github.workspace }}\...` and the file "does not exist". The
+  coverage-and-test step under pwsh died at its first `if [ -z`. And the
+  gosec gate failed on `acceptLoop`/`discoverLoop` reading
+  `context.Background()` while `node.Lifetime()` existed one goroutine
+  over — the exact class the rule exists for; the mesh now lives on the
+  node's lifetime, startRendezvous already did. Verified by hand with a
+  `workflow_dispatch` Security run: green. The Windows backend leg is
+  green on this exact line (race detector and all), which is what
+  bug-0167 was waiting for; the card is closed.
+- **The room's stop learned to wait for its own pause (bug-0173, open,
+  evidence).** The macOS runner failed the buffering tests with mpv alive
+  at 66–72% of the film and `roomStopped=true, pausedForBuffering=false`
+  in the test's own say — syncTheRoomStop fired, the pause simply never
+  reached mpv: the read read nothing, the fire-and-forget send went
+  nowhere, and both facts were swallowed. Both now get three attempts,
+  the resume too, and on total failure the line goes into the log the
+  application keeps. The macOS leg is green on this line — one data point,
+  not a fix proven; the card stays open until the flake stays away.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended
