@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.2] - 2026-11-15
+
 - **The remoting mode had never been run against a real gateway.** It was
   tested only against a stand-in: a hand-written HTTP server that speaks
   exactly what our client expects — the same trap the room's own tests were
