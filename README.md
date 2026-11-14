@@ -49,7 +49,7 @@
 
 ### Сборка из исходников
 
-Нужны Go 1.26+, заголовки OpenGL/X11 (для Fyne) и `mpv` в `PATH`:
+Нужны Go 1.26.11+, заголовки OpenGL/X11 (для Fyne) и `mpv` в `PATH`:
 
 ```bash
 cd frontend
@@ -184,8 +184,8 @@ TorrSyncPlayer/
 
 ## Технологии
 
-- **Бэкенд:** Go 1.26+, anacrolix/torrent v1.61.0, go-chi/chi/v5
-- **Фронтенд:** Go 1.26+, Fyne v2, внешний процесс `mpv`
+- **Бэкенд:** Go 1.26.11+, anacrolix/torrent v1.61.1-0.20260911233437-76452a2c8a2f, go-chi/chi/v5
+- **Фронтенд:** Go 1.26.11+, Fyne v2, внешний процесс `mpv`
 - **Сборка:** `go run ./cmd/build` — пара «клиент + бэкенд»
 - **CI/CD:** GitHub Actions
 

@@ -27,11 +27,11 @@ LDFLAGS=-ldflags "-X github.com/blagovibe/TorrSyncPlayer/backend/internal/versio
 all: check-version build
 
 ## check-version: Проверить версию Go
-GO_MIN_VERSION ?= 1.26
+GO_MIN_VERSION ?= 1.26.11
 check-version:
 	@echo "Проверка версии Go (требуется $(GO_MIN_VERSION)+)..."
 	@go version
-	@$(eval GO_VER := $(shell go version | grep -oP 'go1\.\d+'))
+	@$(eval GO_VER := $(shell go version | grep -oP 'go1\.\d+(\.\d+)?'))
 	@$(eval GO_MIN := $(shell echo $(GO_MIN_VERSION) | sed 's/go//'))
 	@$(eval GO_ACTUAL := $(shell echo $(GO_VER) | sed 's/go//'))
 	@if [ "$$(printf '%s\n' "$(GO_MIN)" "$(GO_ACTUAL)" | sort -V | head -n1)" != "$(GO_MIN)" ]; then \

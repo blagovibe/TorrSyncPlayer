@@ -533,6 +533,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it as they stand: rendezvous 100% within the window (73 recorded runs),
   divergence 95% (20 recorded runs, one historical row outside the promise).
 
+- **The way's Go minimum caught up with the pin it was hiding behind
+  (deviation-0164 closed).** DEV.md said `Go 1.26+` in "Зависимости" and
+  "Технологический стек", README repeated it, both `go.mod` files declared
+  `go 1.26.0`, and the Makefile's `check-version` asked for `go1.26`+ —
+  while the pipeline pinned `1.27.4`, because a stdlib vulnerability had a
+  fix there (GO-2026-6859). A contributor who followed the way and built
+  with Go 1.26 shipped a known-vulnerable net/http while the way claimed
+  the pin was "the single place the version is changed". Every point of the
+  minimum moved to **Go 1.26.11** — the 1.26 line that carries both the
+  net/http fix and the cgo fixes: DEV.md (both sections), README (install
+  and technologies), CONTRIBUTING.md (requirements), both `go.mod` files
+  (the language baseline still 1.26 semantics, the floor is now the fixed
+  point), the Makefile's `GO_MIN_VERSION`, and its version extraction now
+  reads the patch level so a perfectly good toolchain is not refused for
+  it. The install snippet points at go1.26.11. The way also says anacrolix
+  is at v1.61.0; the security bump this session merged it to
+  v1.61.1-0.20260911233437-76452a2c8a2f, and the stack line says so. The
+  pin stays 1.27.4 — the way documents the minimum a contributor needs; the
+  pipeline pins what verifies it. The audit after the edit moved
+  deviation-0168 (the Windows dependency story, the same section
+  "Зависимости") to `needs_review` until its MinGW prescription is written
+  into that section and the section is read against it — that is one of the
+  open items of the way.
+
 ## [v0.4.1] - 2026-10-21
 
 - **The repository itself was defended the way the code is defended

@@ -1,6 +1,6 @@
 module github.com/blagovibe/TorrSyncPlayer/backend
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/anacrolix/torrent v1.61.1-0.20260911233437-76452a2c8a2f
