@@ -9,15 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.2] - 2026-11-15
 
-- **Three dependency updates landed in main after the v0.4.2 tag is cut.**
-  anacrolix/torrent v1.61.1-0.20260911233437-76452a2c8a2f → v1.62.0 (backend;
-  #78), go-libp2p v0.50.0 → v0.51.0 (frontend; #71, the room's transport),
-  otel/trace v1.44.0 → v1.47.0 (frontend; #74), trufflehog v3.99.2 → v3.99.8
-  (actions; #73) and action-gh-release v3.0.3 → v3.0.4 (actions; #77). Each
-  came in through the rebased-dependabot-PR path: stale red bases, rebase onto
-  the current main by hand, full CI green on the merged line. What this does
-  not mean: **v0.4.2 artifacts do not carry these bumps** — the release is a
-  line, and these landed after it was cut; the next release will have them.
+- **The seven Dependabot updates landed in main after the v0.4.2 tag
+  is cut.** anacrolix/torrent v1.61.1-0.20260911233437-76452a2c8a2f →
+  v1.62.0 (backend; #78), go-libp2p v0.50.0 → v0.51.0 (frontend; #71,
+  the room's transport), otel/trace v1.44.0 → v1.47.0 (frontend; #74 and
+  backend; #75), go-libp2p-kad-dht v0.42.2 → v0.43.0 (frontend; #70),
+  trufflehog v3.99.2 → v3.99.8 (actions; #73) and action-gh-release
+  v3.0.3 → v3.0.4 (actions; #77). Each came in through the
+  rebase-by-hand path: stale red bases, merge of main into each branch,
+  go.mod/go.sum union resolved with `go mod tidy`, CI green on the
+  merged line, then `gh pr merge --merge`. The two blocked
+  Windows-frontend legs (hung runner, nothing to do with the bumps)
+  were unblocked by an empty `retrigger CI` commit on each branch.
+  What this does **not** mean: **v0.4.2 artifacts do not carry these
+  bumps** — the release is a line, and these landed after it was cut;
+  the next release will have them.
 
 - **The owner decided not to run the built application on a real
   machine (idea-0159, left open on purpose).** After v0.4.2 shipped,
