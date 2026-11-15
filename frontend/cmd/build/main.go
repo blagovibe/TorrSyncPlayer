@@ -66,9 +66,12 @@ func build(out string, goBuild builder) error {
 		return err
 	}
 
-	// The application.
+	// The application. Windows builds link the MinGW runtime statically: the
+	// user's machine has no libstdc++/libgcc/libwinpthread, and a binary
+	// that fails to start is not a working artifact (bug-0183). Linux and
+	// macOS stay dynamic — system glibc / libSystem are always there.
 	app := filepath.Join(absOut, appName())
-	if err := goBuild(".", app, nil, nil); err != nil {
+	if err := goBuild(".", app, nil, appLdflags(runtime.GOOS)); err != nil {
 		return fmt.Errorf("client: %w", err)
 	}
 
@@ -85,6 +88,20 @@ func build(out string, goBuild builder) error {
 	// what is on disk and what was requested are the same files, and the
 	// request is what the caller recognises.
 	fmt.Printf("%s\n%s\n", filepath.Join(out, appName()), filepath.Join(out, backendName()))
+	return nil
+}
+
+// appLdflags returns the static-link flag on Windows, and only there: the
+// GUI binary is cgo and links the MinGW runtime, and neither your machine
+// nor the user's has libstdc++/libgcc/libwinpthread installed. The release
+// used to ship this dependency silently and every download on a clean
+// Windows system died in a dialog (bug-0183). Linux stays dynamic: the
+// glibc floor is the build platform and the system's, macOS likewise on
+// libSystem.
+func appLdflags(goos string) []string {
+	if goos == "windows" {
+		return []string{"-extldflags=-static"}
+	}
 	return nil
 }
 

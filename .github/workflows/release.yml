@@ -213,6 +213,29 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: go run ./cmd/build -out ../dist
 
+      # The user's machine has no libstdc++/libgcc/libwinpthread. A binary
+      # that imports them does not start — it dies in a dialog on the first
+      # run — and every green CI job is a lie about that (bug-0183). The
+      # client links the runtime statically now, and this gate keeps it so:
+      # if a change ever reintroduces a dynamic dependency, the release dies
+      # here with the exact names of the DLLs. `findstr` sees the import
+      # table's literal strings; a match means the binary fails on a clean
+      # machine.
+      - name: The artifacts must not import the MinGW runtime
+        shell: pwsh
+        run: |
+          $bad = @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')
+          foreach ($exe in @('dist\TorrSyncPlayer.exe','dist\torrsyncplayer.exe')) {
+            foreach ($dll in $bad) {
+              findstr /M /C:$dll $exe | Out-Null
+              if ($LASTEXITCODE -eq 0) {
+                Write-Error "$exe imports $dll — TorrSyncPlayer.exe would not start on a clean Windows machine"
+                exit 1
+              }
+            }
+          }
+          Write-Host 'both artifacts are free of the MinGW runtime'
+
       - name: Assemble the release folder
         shell: pwsh
         run: |

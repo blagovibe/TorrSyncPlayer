@@ -129,8 +129,12 @@ func TestTheBackendIsStampedWithTheReleaseVersion(t *testing.T) {
 	if !strings.Contains(stamped, versionPackage+".Commit=deadbeef") {
 		t.Errorf("the backend was not stamped with the commit: %q", stamped)
 	}
-	if len(clientFlags) != 0 {
-		t.Errorf("the client was stamped with the backend's variables: %v", clientFlags)
+	// The client must not be stamped with the backend's variables; on
+	// Windows it legitimately ships with the static-link flag (bug-0183).
+	for _, f := range clientFlags {
+		if strings.Contains(f, versionPackage) {
+			t.Errorf("the client was stamped with the backend's variables: %v", clientFlags)
+		}
 	}
 }
 
@@ -146,6 +150,22 @@ func TestALocalBuildStaysDev(t *testing.T) {
 	}
 	if !strings.Contains(stamped, versionPackage+".Commit=unknown") {
 		t.Errorf("a local build does not say unknown: %q", stamped)
+	}
+}
+
+// TestTheWindowsClientCarriesTheStaticLinkFlag pins bug-0183: the release
+// shipped a TorrSyncPlayer.exe that imported the MinGW runtime and died on
+// the first dialog on a clean machine. The flag has to win on Windows, and
+// stay off the other two OSes — their system libraries are always there.
+func TestTheWindowsClientCarriesTheStaticLinkFlag(t *testing.T) {
+	windows := strings.Join(appLdflags("windows"), " ")
+	if !strings.Contains(windows, "-extldflags=-static") {
+		t.Errorf("windows client is missing the static link flag: %q", windows)
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		if got := appLdflags(goos); len(got) != 0 {
+			t.Errorf("%s client must not link the MinGW runtime statically: %v", goos, got)
+		}
 	}
 }
 

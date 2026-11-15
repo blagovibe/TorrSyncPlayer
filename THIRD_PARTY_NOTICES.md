@@ -50,6 +50,19 @@ channels noted.
   package page at https://community.chocolatey.org/packages/ffmpeg,
   or `brew info ffmpeg` for the exact source of the build in your artifact.
 
+## GCC runtime libraries (statically linked into the Windows artifact)
+
+- **What:** the GCC runtime libraries — **libstdc++**, **libgcc** and
+  **libwinpthread** — linked statically into `TorrSyncPlayer.exe` and
+  `torrsyncplayer.exe`; the Windows binary does not and cannot assume a
+  GNU toolchain on the user's machine.
+- **License:** GNU GPLv3 with the GCC Runtime Library Exception (**GCC-3.0**,
+  reproduced at the end of this file): linking a program under this
+  exception makes the program's own license apply to the combined work, not
+  the GCC runtime's license.
+- **Corresponding source:** https://gcc.gnu.org/mirrors.html; the exception
+  text itself: https://www.gnu.org/licenses/gcc-exception.html.
+
 ## Other bundled dependencies
 
 - **mpv's own dependencies** (libass, freetype, harfbuzz, zlib, libcaca and
@@ -801,3 +814,27 @@ Lesser General Public License version 2.1 follow this notice.
     DAMAGES.
 
                      END OF TERMS AND CONDITIONS
+
+
+The GCC Runtime Library Exception (GCC-3.0), covering the statically
+linked GCC runtime libraries above:
+
+     Copyright (C) 2007 Free Software Foundation, Inc.
+
+     Everyone is permitted to copy and distribute verbatim copies of this
+     document, but changing it is not allowed.
+
+     Linking GCC Runtime Library
+     ===========================
+
+     The GCC Runtime Library Exception permits compilation of
+     programs that use the GCC runtime libraries, including libgcc
+     and libstdc++, to link such programs statically against the
+     GCC runtime libraries, without requiring the resulting
+     program to be distributed under the terms of the GNU General
+     Public License.
+
+     The license text linked above, and the exception text, may be
+     used instead of any license terms that contradict them.
+
+END OF GCC RUNTIME LIBRARY EXCEPTION
