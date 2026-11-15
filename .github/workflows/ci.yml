@@ -9,9 +9,13 @@ on:
 permissions:
   contents: read
 
+# A push to main or develop never cancels an in-flight run: every push used
+# to kill the previous run minutes in, which is how HEAD lost its green signal
+# and the macOS scale scenario never reached a third measurement (bug-0174).
+# Only a push to a pull request branch cancels the stale run for that PR.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: '1.27.4'
@@ -178,7 +182,9 @@ jobs:
 
       # Chocolatey does not put mpv on PATH for later steps, and the release
       # job already learned that the hard way. The directory is found and pushed
-      # onto PATH here so the suite sees a real mpv and a real ffmpeg.
+      # onto PATH here so the suite sees a real mpv and a real ffmpeg. The
+      # scenario tests still need ffmpeg (subs_endpoint_test.go), and the
+      # living-player tests moved to Long Gates but use the same PATH there.
       - name: Put mpv and ffmpeg on PATH (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -215,35 +221,31 @@ jobs:
       # network and for a cold mpv, and the budget they need on a loaded
       # runner is bigger than Go's default of ten minutes per package. A
       # package killed by the default looks like a failure of the code.
+      # The living-player tests — a real mpv with a 90 s budget — and the
+      # 25-person room assembly used to run here. On a shared runner they
+      # flake for runner reasons, not code reasons, and a push used to kill
+      # the macOS leg before it could say which (bug-0173, bug-0174). They now
+      # run in Long Gates (`.github/workflows/long-gates.yml`, "Living Player
+      # Gates"), which never gets cancelled mid-run. Keep this list and the
+      # one in long-gates.yml identical.
       - name: Run tests
         shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
           CGO_ENABLED: '1'
-        run: go test -race -timeout 20m -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -timeout 20m -coverprofile=coverage.out -covermode=atomic -skip '^(TestRealMpvVolumeRoundTrip|TestRealMpvPlaysWhileTheSourceIsIncomplete|TestRealMpvOpensItsSocket|TestRealMpvPositionBeforePlayingIsZero|TestRealMpvReportsTheFileDuration|TestRealMpvSendsTheHeaderItWasGiven|TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP|TestRealMpvListsAndSwitchesTracks|TestMpvKeepsSayingStalledWhileThePlayerIsPaused|TestTheFollowerObeysTheHostsPause|TestTheFollowerLandsWhereTheHostIs|TestTheFollowerComesBackToTheRoomsPlayState|TestTheRoomStopsForTheOneWhoIsBehind|TestTheRoomIsReleasedWhenTheOneWhoIsBehindIsBack|TestAGuestDoesNotStopTheRoom|TestARoomOfManyIsStillARoom)$' ./...
 
       - name: Report coverage
         shell: bash
         working-directory: frontend
         run: go tool cover -func=coverage.out | tail -1
 
-      # The player tests drive a real mpv over its IPC socket, which on Windows
-      # is a named pipe rather than a unix socket — the one piece of this project
-      # that has never run anywhere but on the machine it was written on. The
-      # no-skip gate is what says so: without it a runner missing mpv would turn
-      # every player claim into a skip and stay green.
-      - name: Re-run player tests without skipping
-        shell: bash
-        working-directory: frontend
-        env:
-          FYNE_DRIVER: offscreen
-          CGO_ENABLED: '1'
-        run: |
-          if go test -run 'TestRealMpv' -v ./internal/player/... | grep -q SKIP; then
-            echo "mpv tests were skipped: mpv is missing or not working on ${{ runner.os }}"
-            exit 1
-          fi
+      # The living-player tests and the no-skip gate moved to Long Gates
+      # ("Living Player Gates"), so a shared runner's 90 s budget is no
+      # longer a per-push flake source here (bug-0173). The gate itself —
+      # "mpv tests were skipped" is red — lives on there and never gets
+      # cancelled mid-run.
 
       - name: Build the application
         shell: bash
@@ -256,13 +258,17 @@ jobs:
       # client against it. They are the gate for retiring the Qt client, and
       # they need the backend module to build — which is why they run here and
       # not as part of the backend job.
+      # The 25-person room assembly moved to Long Gates ("Living Player
+      # Gates"): every push to main used to cancel its macOS leg mid-run, so
+      # the room's scale could not be measured there (bug-0174). The
+      # 10-minute budget below is unchanged for the remaining scenarios.
       - name: Run the end-to-end scenario tests
         shell: bash
         working-directory: frontend
         env:
           FYNE_DRIVER: offscreen
           CGO_ENABLED: '1'
-        run: go test -v -timeout 10m ./internal/integration/...
+        run: go test -v -timeout 10m -skip '^TestARoomOfManyIsStillARoom$' ./internal/integration/...
 
   # The room's promise — "the same moment in the same second" — is measured,
   # not asserted by a test that checks a command arrived. This is that

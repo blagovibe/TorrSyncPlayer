@@ -70,3 +70,14 @@ internal/player). Вывод: гипотеза «раннерный/сетево
 окно 2026-11-14: RoomStops ×2, FollowerObeysTheHostsPause ×1, на Ubuntu —
 RealMpvReportsTheFileDuration ×1). Карточка остаётся open; тест не трогаем —
 следующее падение обязано сказать, какое звено сломалось.
+
+2026-11-15 (решение владельца — класс вынесен из ci.yml): mpv-зависимые тесты
+с 90-секундным бюджетом вынесены из ci.yml в `long-gates.yml`
+(«Living Player Gates», матрица ubuntu-24.04 / macos-latest / windows-latest,
+`cancel-in-progress: false`): `TestRealMpv*` (player), `TestMpvKeepsSayingStalledWhileThePlayerIsPaused`,
+`TestTheFollower*`, `TestTheRoomStopsForTheOneWhoIsBehind`,
+`TestTheRoomIsReleasedWhenTheOneWhoIsBehindIsBack`, `TestAGuestDoesNotStopTheRoom` (ui).
+`ci.yml` «Run tests» идёт с `-skip` того же списка, шаг «Re-run player tests
+without skipping» перенесён следом с тем же именем. Перенос снимает отмену и
+конкуренцию разделяемого раннера; сам класс флейка снимается только зелёными
+прогонами на всех трёх платформах — карточка остаётся open до факта.

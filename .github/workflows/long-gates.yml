@@ -25,6 +25,111 @@ env:
   GO_VERSION: '1.27.4'
 
 jobs:
+  # ── The living-player gates ─────────────────────────────────────
+  # A real mpv under a 90 s budget on a shared runner flakes for
+  # runner reasons, not code reasons, and a push used to kill the
+  # macOS leg mid-run — three 90 s budgets expired in one window and
+  # the 25-person room assembly never finished measuring (bug-0173,
+  # bug-0174). These moved here from ci.yml: they judge the same
+  # build, they never get cancelled, and red here means the room or
+  # the player broke. The list below must stay identical to the
+  # `-skip` list in ci.yml ("Run tests").
+  room-and-player-gates:
+    name: Living Player Gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: frontend/go.sum
+
+      - name: Fetch the modules
+        shell: bash
+        run: .github/scripts/fetch-modules.sh frontend
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev libfontconfig-dev \
+            mpv ffmpeg
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install mpv ffmpeg
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install mpv ffmpeg -y --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "choco install failed with $LASTEXITCODE — trying once more"
+            choco install mpv ffmpeg -y --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "choco install failed with $LASTEXITCODE"
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Put mpv and ffmpeg on PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $chocolatey = "$env:ProgramData\chocolatey\lib"
+          $roots = "$env:ProgramFiles", "$env:ProgramFiles(x86)"
+          foreach ($name in 'mpv', 'ffmpeg') {
+            $found = Get-ChildItem -Path $chocolatey -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
+            if (-not $found) {
+              Write-Host "$name is not under chocolatey, looking wider"
+              $found = Get-ChildItem -Path $roots -Filter "$name.exe" -Recurse -ErrorAction SilentlyContinue
+            }
+            if (-not $found) { Write-Error "$name was installed but cannot be found under: $chocolatey or $roots"; exit 1 }
+            $best = $found |
+              ForEach-Object {
+                [pscustomobject]@{ Path = $_.FullName; Dlls = @(Get-ChildItem (Split-Path $_.FullName) -Filter *.dll -File -ErrorAction SilentlyContinue).Count }
+              } |
+              Sort-Object Dlls -Descending |
+              Select-Object -First 1
+            $dir = Split-Path $best.Path
+            Write-Host "${name}: $dir ($($best.Dlls) DLLs beside it)"
+            "$dir" >> $env:GITHUB_PATH
+          }
+
+      - name: Run the living-player tests
+        shell: bash
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: go test -race -timeout 20m -count=1 -run '^(TestRealMpvVolumeRoundTrip|TestRealMpvPlaysWhileTheSourceIsIncomplete|TestRealMpvOpensItsSocket|TestRealMpvPositionBeforePlayingIsZero|TestRealMpvReportsTheFileDuration|TestRealMpvSendsTheHeaderItWasGiven|TestRealMpvLoadsExternalSubtitlesOverAuthenticatedHTTP|TestRealMpvListsAndSwitchesTracks|TestMpvKeepsSayingStalledWhileThePlayerIsPaused|TestTheFollowerObeysTheHostsPause|TestTheFollowerLandsWhereTheHostIs|TestTheFollowerComesBackToTheRoomsPlayState|TestTheRoomStopsForTheOneWhoIsBehind|TestTheRoomIsReleasedWhenTheOneWhoIsBehindIsBack|TestAGuestDoesNotStopTheRoom|TestARoomOfManyIsStillARoom)$' ./...
+
+      # The player tests drive a real mpv over its IPC socket, which on
+      # Windows is a named pipe rather than a unix socket. Without this
+      # gate, a runner missing mpv would turn every player claim into a
+      # skip and stay green.
+      - name: Re-run player tests without skipping
+        shell: bash
+        working-directory: frontend
+        env:
+          FYNE_DRIVER: offscreen
+          CGO_ENABLED: '1'
+        run: |
+          if go test -run 'TestRealMpv' -v ./internal/player/... | grep -q SKIP; then
+            echo "mpv tests were skipped: mpv is missing or not working on ${{ runner.os }}"
+            exit 1
+          fi
+
   # ── Mutation testing ──────────────────────────────────────────────────────
   mutation-tests:
     name: Mutation Testing
