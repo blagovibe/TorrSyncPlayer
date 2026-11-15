@@ -7,7 +7,7 @@
 .PHONY: all backend frontend test clean build release \
     test-backend test-backend-race test-backend-coverage test-backend-fuzz test-backend-mutation \
     test-frontend test-frontend-race test-frontend-coverage \
-    contract-test contract-test-backend contract-test-frontend pact-ffi \
+    contract-test contract-test-backend contract-test-frontend \
     integration-test \
     load-test chaos-test \
     test-all test-ci test-full
@@ -67,44 +67,13 @@ test-frontend-coverage:
 
 # Contract testing
 #
-# -tags contract обязателен: весь пакет internal/contract закрыт этим тегом.
-# Без него go test сообщает "matched no packages", и цель contract-test-backend
-# (а с ней test-all) падает, ничего не проверяя. CI использует тот же тег.
-#
-# The pact FFI is a native library, and the recipe used to assume CI had already
-# fetched it. Locally that meant `make test-all` — the documented whole — was
-# red on a green tree for a reason that had nothing to do with the code. On
-# linux/amd64 the library is fetched here; elsewhere set PACT_FFI_DIR to a
-# directory that already holds it.
-PACT_FFI_VERSION ?= v0.4.28
-PACT_FFI_DIR ?= $(CURDIR)/backend/.pact-ffi
-
-pact-ffi:
-	@if [ -f "$(PACT_FFI_DIR)/libpact_ffi.so" ]; then exit 0; fi
-	@if [ -f "$(PACT_FFI_DIR)/libpact_ffi.dylib" ]; then exit 0; fi
-	@if [ -f "$(PACT_FFI_DIR)/pact_ffi.dll" ]; then exit 0; fi
-	@mkdir -p "$(PACT_FFI_DIR)"
-	@case "$$(uname -s)/$$(uname -m)" in \
-	  Linux/x86_64) \
-	    echo "Fetching pact FFI $(PACT_FFI_VERSION)..."; \
-	    curl -sSL -o "$(PACT_FFI_DIR)/libpact_ffi.so.gz" \
-	      "https://github.com/pact-foundation/pact-reference/releases/download/libpact_ffi-$(PACT_FFI_VERSION)/libpact_ffi-linux-x86_64.so.gz" \
-	      && gunzip -c "$(PACT_FFI_DIR)/libpact_ffi.so.gz" > "$(PACT_FFI_DIR)/libpact_ffi.so" \
-	      && rm -f "$(PACT_FFI_DIR)/libpact_ffi.so.gz" \
-	      || { echo "Could not download the pact FFI library"; exit 1; };; \
-	  *) \
-	    echo "No prebuilt pact FFI for this platform. Put the library in" >&2; \
-	    echo "$(PACT_FFI_DIR) and re-run, or point PACT_FFI_DIR at it." >&2; \
-	    exit 1;; \
-	esac
-
-contract-test-backend: pact-ffi
-	cd backend && \
-	PACT_FFI_DIR="$(PACT_FFI_DIR)" \
-	CGO_LDFLAGS="-L$(PACT_FFI_DIR) -lpact_ffi" \
-	LD_LIBRARY_PATH="$(PACT_FFI_DIR)" \
-	DYLD_LIBRARY_PATH="$(PACT_FFI_DIR)" \
-	go test -v -tags contract -run TestPactProvider ./internal/contract/...
+# The contract package is an ordinary test package: it replays the fixture in
+# pacts/frontend-backend.json against the real router (status, Content-Type,
+# body shape by matchingRules). No build tag, no cgo, no FFI — `make test-all`
+# runs it through test-backend like any other package; this target exists for
+# convenience and names it explicitly.
+contract-test-backend:
+	cd backend && go test -v ./internal/contract/...
 
 # The Pact consumer for the client does not exist, and this is not a dead
 # recipe pretending otherwise: the contract is verified from the provider side,

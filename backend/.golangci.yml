@@ -18,7 +18,6 @@ linters:
     - unused
   exclusions:
     paths:
-      - internal/contract
       - internal/integration
       - internal/integration/testutil
     rules:

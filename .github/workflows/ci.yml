@@ -53,19 +53,10 @@ jobs:
         working-directory: backend
         run: golangci-lint run --timeout=5m ./...
 
-      # The contract package is behind the `contract` build tag, so neither
-      # plain build, vet nor golangci-lint covers it by default. A constructor
-      # changed in e2fb119 left `sync.NewService()` unfixed
-      # in the pact provider, the Pact job went red, and nothing else in the
-      # pipeline noticed. The guard is a build: it compiles the contract
-      # package and fails when the provider stops wiring together. Vet was the
-      # original guard, but under go1.27.4 it fails inside pact-go's cgo
-      # native package before it ever reaches our code (invalid linker input
-      # file in #cgo LDFLAGS, seen on identical ubuntu-24.04 runners where
-      # 1.27.3 passes), so the build is the early warning vet used to be.
-      - name: Build the contract package
-        working-directory: backend
-        run: go build -tags contract ./...
+      # The contract package (internal/contract) checks the fixture's shape
+      # against the real router. Since go1.27.4 broke pact-go's cgo link it is
+      # an ordinary test package — no build tag, no cgo — so "Run tests"
+      # compiles and runs it on every push; nothing to build separately here.
 
       - name: Check formatting
         working-directory: backend

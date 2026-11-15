@@ -148,14 +148,15 @@ test-mutation:
 		exit 1; \
 	fi
 
-## contract-test: Запустить Pact contract тесты (provider verification)
+## contract-test: Запустить contract-тесты (тонкий слой, без cgo)
 #
-# -tags contract обязателен: весь пакет internal/contract закрыт этим тегом.
-# Без него go test сообщает "matched no packages" и цель не может стать ни
-# зелёной, ни красной по существу — она ничего не проверяет.
+# Пакет internal/contract — обычный тестовый пакет: он воспроизводит фикстуру
+# pacts/frontend-backend.json против реального роутера (статус, Content-Type,
+# форма тела по matchingRules). Тега больше нет — `go test ./...` покрывает его
+# так же, как любые другие тесты.
 contract-test:
-	@echo "Запуск Pact contract тестов (provider)..."
-	go test -v -tags contract -run TestPactProvider ./internal/contract/...
+	@echo "Запуск contract-тестов (тонкий слой)..."
+	go test -v ./internal/contract/...
 
 ## test-integration: Запустить интеграционные тесты (реальный роутер через e2e)
 test-integration:

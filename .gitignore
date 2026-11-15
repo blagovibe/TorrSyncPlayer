@@ -41,10 +41,6 @@ go.work
 backend/coverage
 backend/coverage.html
 
-# The pact FFI library the contract tests link against. CI downloads it per
-# run; `make contract-test-backend` downloads it here. Not source.
-backend/.pact-ffi/
-
 # The Go frontend: the runnable pair `go run ./cmd/build` assembles.
 frontend/dist/
 
