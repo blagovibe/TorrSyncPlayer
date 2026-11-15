@@ -101,6 +101,8 @@ func PickFreePort() (int, error) {
 // application. The .exe names are kept for Windows.
 func CandidatePaths(appDir string) []string {
 	return []string{
+		filepath.Join(appDir, "torrsyncplayer-backend"),
+		filepath.Join(appDir, "torrsyncplayer-backend.exe"),
 		filepath.Join(appDir, "torrsyncplayer"),
 		filepath.Join(appDir, "torrserver", "torrsyncplayer"),
 		filepath.Join(appDir, "..", "torrserver", "torrsyncplayer"),

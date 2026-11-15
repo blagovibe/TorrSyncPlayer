@@ -28,7 +28,7 @@ make build
 
 # Build the client together with its backend (they are one pair)
 cd ../frontend
-go run ./cmd/build          # → ./dist/TorrSyncPlayer + ./dist/torrsyncplayer
+go run ./cmd/build          # → ./dist/TorrSyncPlayer + ./dist/torrsyncplayer-backend
 ./dist/TorrSyncPlayer
 ```
 

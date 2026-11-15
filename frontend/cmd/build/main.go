@@ -147,13 +147,17 @@ func appName() string {
 
 // backendName is the backend executable.
 //
-// The lower case on purpose. internal/backend.FindBackend looks for both
-// spellings, but the server binary is named in lower case everywhere else in
-// the project — backend/build/torrsyncplayer, the CI artifact — and a
-// differently-cased pair on a case-insensitive filesystem is a trap.
+// Distinct from the client on purpose, and on purpose on every platform:
+// case-insensitive filesystems (Windows APFS default is fine too) cannot
+// tell apart "TorrSyncPlayer" and "torrsyncplayer" — the same path, one
+// file. The pair "TorrSyncPlayer" + "torrsyncplayer" looked like two
+// binaries and was one; the client was overwritten by the backend and
+// every release since the first one ever shipped shipped the backend
+// only. The canonical names are therefore distinct everywhere:
+// "TorrSyncPlayer" (client) and "torrsyncplayer-backend" (server).
 func backendName() string {
 	if runtime.GOOS == "windows" {
-		return "torrsyncplayer.exe"
+		return "torrsyncplayer-backend.exe"
 	}
-	return "torrsyncplayer"
+	return "torrsyncplayer-backend"
 }

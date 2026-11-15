@@ -60,7 +60,7 @@ jobs:
           APPDIR="dist/AppDir"
           mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-          cp dist/TorrSyncPlayer dist/torrsyncplayer "$APPDIR/usr/bin/"
+          cp dist/TorrSyncPlayer dist/torrsyncplayer-backend "$APPDIR/usr/bin/"
           cp "$(command -v mpv)" "$APPDIR/usr/bin/mpv"
           cp dist/torrsyncplayer.png "$APPDIR/torrsyncplayer.png"
           cp dist/torrsyncplayer.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png"
@@ -70,7 +70,7 @@ jobs:
           # unreadable icon is an AppImage that appimagetool refuses to
           # build. Public assets travel world-readable.
           chmod 0644 "$APPDIR/torrsyncplayer.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/torrsyncplayer.png"
-          chmod 755 "$APPDIR/usr/bin/torrsyncplayer" "$APPDIR/usr/bin/TorrSyncPlayer" "$APPDIR/usr/bin/mpv"
+          chmod 755 "$APPDIR/usr/bin/torrsyncplayer-backend" "$APPDIR/usr/bin/TorrSyncPlayer" "$APPDIR/usr/bin/mpv"
 
           cat > "$APPDIR/torrsyncplayer.desktop" <<'EOF'
           [Desktop Entry]
@@ -154,7 +154,7 @@ jobs:
           APPIMAGE=$(ls dist/*.AppImage | head -1)
           rm -rf /tmp/squashfs-root
           ( cd /tmp && "$OLDPWD/$APPIMAGE" --appimage-extract >/dev/null )
-          for f in TorrSyncPlayer torrsyncplayer mpv AppRun torrsyncplayer.desktop; do
+          for f in TorrSyncPlayer torrsyncplayer-backend mpv AppRun torrsyncplayer.desktop; do
             test -e "/tmp/squashfs-root/usr/bin/$f" || test -e "/tmp/squashfs-root/$f" || {
               echo "the image is missing $f"; ls -la /tmp/squashfs-root /tmp/squashfs-root/usr/bin; exit 1; }
           done
@@ -282,7 +282,7 @@ jobs:
         shell: pwsh
         run: |
           $dlls = @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')
-          foreach ($exe in @('dist\TorrSyncPlayer.exe','dist\torrsyncplayer.exe')) {
+          foreach ($exe in @('dist\TorrSyncPlayer.exe','dist\torrsyncplayer-backend.exe')) {
             foreach ($dll in $dlls) {
               findstr /M /C:$dll $exe | Out-Null
               if ($LASTEXITCODE -eq 0 -and -not (Test-Path "dist\$dll")) {
@@ -300,7 +300,7 @@ jobs:
           $bundle = 'bundle'
           New-Item -ItemType Directory -Force -Path $bundle | Out-Null
 
-          Copy-Item dist/TorrSyncPlayer.exe,dist/torrsyncplayer.exe $bundle
+          Copy-Item dist/TorrSyncPlayer.exe,dist/torrsyncplayer-backend.exe $bundle
           # The MinGW runtime the artifacts dynamically import (bug-0183).
           # Whatever the zip carries must start from the folder it is
           # unzipped into: the executables and the DLLs that belong to them
@@ -362,7 +362,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $entries = (Expand-Archive TorrSyncPlayer-windows-x64.zip -DestinationPath /tmp/unpacked -PassThru).FullName
-          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer.exe','mpv.exe','THIRD_PARTY_NOTICES.md','libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll') {
+          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer-backend.exe','mpv.exe','THIRD_PARTY_NOTICES.md','libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll') {
             if (-not ($entries | Where-Object { $_ -like "*$f" })) {
               Write-Error "the archive is missing $f"; $entries; exit 1
             }
@@ -418,7 +418,7 @@ jobs:
           APP="dist/TorrSyncPlayer.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-          cp dist/TorrSyncPlayer dist/torrsyncplayer "$APP/Contents/MacOS/"
+          cp dist/TorrSyncPlayer dist/torrsyncplayer-backend "$APP/Contents/MacOS/"
           # Homebrew's mpv is a symlink into the Cellar; the real file is what
           # has to travel, or the bundle points at a prefix the user does not have.
           cp -L "$(command -v mpv)" "$APP/Contents/MacOS/mpv"
@@ -466,7 +466,7 @@ jobs:
         run: |
           set -eu
           hdiutil attach TorrSyncPlayer-macos-arm64.dmg -nobrowse -mountpoint /tmp/torrsync-dmg
-          for f in TorrSyncPlayer torrsyncplayer mpv; do
+          for f in TorrSyncPlayer torrsyncplayer-backend mpv; do
             test -x "/tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/MacOS/$f" || {
               echo "the image is missing $f"; ls -la /tmp/torrsync-dmg/TorrSyncPlayer.app/Contents/MacOS; exit 1; }
           done

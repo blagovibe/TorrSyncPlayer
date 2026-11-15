@@ -70,7 +70,7 @@ xattr -d com.apple.quarantine /Applications/TorrSyncPlayer.app
 
 ```bash
 cd frontend
-go run ./cmd/build     # → dist/TorrSyncPlayer + dist/torrsyncplayer
+go run ./cmd/build     # → dist/TorrSyncPlayer + dist/torrsyncplayer-backend
 ./dist/TorrSyncPlayer
 ```
 

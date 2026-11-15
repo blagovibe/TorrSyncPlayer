@@ -158,7 +158,7 @@ Fyne нужен и на этапе тестов: без дисплея тест�
 
 ```bash
 cd frontend
-go run ./cmd/build              # → ./dist/TorrSyncPlayer + ./dist/torrsyncplayer
+go run ./cmd/build              # → ./dist/TorrSyncPlayer + ./dist/torrsyncplayer-backend
 go run ./cmd/build -out release # или в свой каталог
 ```
 
