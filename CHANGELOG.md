@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The goal named its audience and made its first promise checkable.**
+  The CONCEPT.md grilling (2026-11-15, idea-0179) landed exactly two
+  edits. First, an "### Аудитория" subsection at the top of "Границы
+  проекта": TorrSyncPlayer is for any willing user, README-driven
+  install of the app and mpv, no store, no signing, no auto-update —
+  обновления would be GitHub Releases, by choice. An unsigned macOS
+  build meets the user in Gatekeeper; that is the accepted price of
+  shipping, not a defect. Second, a verifiable clause in «Смотреть, а
+  не скачивать»: the first seconds play against a real mpv while the
+  rest of the file is held back — time-to-first-frame is deliberately
+  not normalized by the goal. Everything else the grilling settled stays
+  unwritten on purpose: "Комната собирается всегда" kept as the
+  goal-ideal by the owner; no room-size number; no invite-lifecycle
+  clause; the auto-update non-goal was rejected by the owner in favor of
+  an open question — idea-0178 (auto-update from GitHub Releases) is on
+  the board as raw material, unsettled and deliberately untackled. The
+  auto-pause-on-buffering non-goal was withdrawn as redundant (the goal
+  already describes it). The mirror card — first person proof that the
+  first sentence of the goal holds — is the real `TestRealMpvPlaysWhileTheSourceIsIncomplete`.
+- **Fresh reconciliation, this line:** zone — CONCEPT.md and its two
+  insertions; no code changed, so the test suite was not re-run (CI on
+  this line kept its green from ee96431 and the release); the insertion
+  "Аудитория" was checked against reality — macOS is shipped unsigned,
+  downloads are GitHub Releases, Gatekeeper warns by default, README
+  warns about it before the user meets it — no divergence found.
+  Audit after the goal edit: the board carries no bug/deviation cards;
+  the only card touching the changed sections, idea-0179, is accepted
+  and deleted with this entry; idea-0178 remains, as raw material.
+  The known tension between "Комната собирается всегда" and the shipped
+  "не соединилось" state is recorded for the future and intentionally
+  unresolved by the owner.
+
 - **The v0.4.3 line closed green on every gate.** Long Gates on the
   released tree (3283fe9): Living Player Gates green on ubuntu (1m13s),
   macOS (3m37s) and windows (4m11s) — the fourth straight green round
