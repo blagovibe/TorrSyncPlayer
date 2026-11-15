@@ -205,9 +205,9 @@ jobs:
 
       # The image carries a MinGW that is convenient for building but opaque
       # about its own layout, and dependency-resolution steps that hunt for it
-      # guess at paths — badly (bug-0183 teaches this again and again). So this
+      # guess at paths - badly (bug-0183 teaches this again and again). So this
       # job installs the exact toolchain it builds with from chocolatey and
-      # locates the gcc it actually produced — the package ends up either
+      # locates the gcc it actually produced - the package ends up either
       # under chocolatey\lib\mingw (the portable layout) or under
       # C:\ProgramData\mingw64\mingw64 (the global layout) depending on the
       # package's own config; scanning both avoids the next surprise.
@@ -221,10 +221,10 @@ jobs:
             "$env:ProgramFiles\mingw64",
             'C:\tools\mingw64'
           )
-          $gcc = foreach ($root in $roots) {
-            Get-ChildItem -Path $root -Filter 'gcc.exe' -Recurse -ErrorAction SilentlyContinue |
+          $gcc = @($roots | ForEach-Object {
+            Get-ChildItem -Path $_ -Filter 'gcc.exe' -Recurse -ErrorAction SilentlyContinue |
               Select-Object -First 1
-          } | Select-Object -First 1
+          }) | Where-Object { $_ } | Select-Object -First 1
           if (-not $gcc) {
             Write-Error "mingw installed but gcc.exe was not found under: $($roots -join ', ')"
             exit 1
@@ -246,7 +246,7 @@ jobs:
       # The user's machine has no libstdc++/libgcc/libwinpthread, and the
       # binary dynamically imports them from the MinGW that just built it.
       # Neither of those facts is negotiable. The DLL names live beside
-      # gcc.exe in the same directory in every MinGW distribution — so the
+      # gcc.exe in the same directory in every MinGW distribution - so the
       # DLLs the compiler used are copied beside the artifact, byte-identical.
       - name: Ship the MinGW runtime the build links against
         shell: pwsh
@@ -257,16 +257,16 @@ jobs:
             "$env:ProgramFiles\mingw64",
             'C:\tools\mingw64'
           )
-          $gcc = foreach ($root in $roots) {
-            Get-ChildItem -Path $root -Filter 'gcc.exe' -Recurse -ErrorAction SilentlyContinue |
+          $gcc = @($roots | ForEach-Object {
+            Get-ChildItem -Path $_ -Filter 'gcc.exe' -Recurse -ErrorAction SilentlyContinue |
               Select-Object -First 1
-          } | Select-Object -First 1
+          }) | Where-Object { $_ } | Select-Object -First 1
           if (-not $gcc) { Write-Error 'could not locate the toolchain that just built the artifacts'; exit 1 }
           $bin = Split-Path -Parent $gcc.FullName
           foreach ($dll in @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')) {
             $path = Join-Path $bin $dll
             if (-not (Test-Path $path)) {
-              Write-Error "$dll is not next to gcc — the toolchain changed layout; this step must be updated before releasing again"
+              Write-Error "$dll is not next to gcc - the toolchain changed layout; this step must be updated before releasing again"
               exit 1
             }
             Copy-Item $path dist\
