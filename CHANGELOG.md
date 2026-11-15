@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.3] - 2026-11-15
+
 - **The pipeline keeps its word.** Pushes to `main` no longer cancel
   in-flight runs — the configuration under which the head of every line
   could lose its green check — and the 90-second-budget living-player
