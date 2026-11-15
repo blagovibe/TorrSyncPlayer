@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **libmpv stayed outside, by decision (idea-0182 closed as rejected).**
+  The owner asked — after the external-mpv pain sting, and after the
+  bundle-resolution fix (bug-0181) — to consider embedding the player in
+  the process. The consideration walked the honest list: libmpv through
+  cgo (a new owner/geometry problem for windows, three platform builds,
+  LGPL/GPL cargo, an invisible change for the user), HTML5 through
+  WebView2/WebKitGTK/WKWebView (codec coverage worse exactly where this
+  player lives — MKV/AC3/DTS/HEVC/AV1), gstreamer (weight over outcome),
+  direct libavcodec (a rewrite of a working player). The verdict is the
+  chosen architecture kept: an external `mpv` process with one-way JSON
+  IPC, a remote `Fyne` window — one transport, no linkage, zero new
+  maintenance, and the actual user need is already met by the shipped
+  bundle. idea-0182 is deleted; the card's history lives here now. CI on
+  the head of this arc is green; Long Gates follow the arc.
+
 - **The shipped mpv is seen now (bug-0181).** The Windows zip and the
   macOS DMG shipped mpv beside the binary since their first days, and
   the application never looked there — the resolution stopped at PATH
