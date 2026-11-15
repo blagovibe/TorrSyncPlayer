@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The Windows and macOS zips now contain the application, and the
+  runtime it needs. Both. Since the first release, they did not.**
+  bug-0183 and bug-0184, together, close the worst defect this project
+  has ever shipped. Verified against the released artifacts
+  (download, mark, launch — v0.4.1 through v0.4.5): every Windows zip
+  and every macOS DMG ever published contained exactly one binary,
+  `TorrSyncPlayer.exe`, and it was the backend — the Fyne client had
+  been silently overwritten at build time because both files shared one
+  path on a case-insensitive filesystem. The zip a person downloaded
+  therefore launched a headless TorrServer; whether the user's report
+  came from a different build of their own or from one of these
+  artifacts is not determined from here, and the journal does not
+  guess. What this line changed: the client is `TorrSyncPlayer`, the
+  backend is `torrsyncplayer-backend` on every platform, `FindBackend`
+  locates the unified name first with the old names as fallbacks, the
+  Windows artifact ships the MinGW runtime DLLs the client imports
+  (resolved from the job's chocolatey-installed MinGW at build time),
+  the artifact gate refuses to ship a binary importing a DLL that is
+  not beside it, and the fresh-download launch test on this Windows
+  machine holds: client starts, spawns the backend off `--token-stdin`,
+  the backend answers `/api/v1/version` with 200, the token chain is
+  unbroken. The macOS DMG was rebuilt the same way but not launched by
+  hand here — it is covered by the naming discipline and the release's
+  own verification, not by a manual run. The Linux AppImage was
+  unaffected for the same filesystem reason and now carries the same
+  backend name for consistency. Both cards are deleted with this entry.
+  The GitHub release notes for v0.4.5 were rewritten to describe the
+  artifact that actually shipped; the previous notes described a
+  static-link build that failed an artifact gate and never shipped.
+
 ## [v0.4.5] - 2026-11-15
 
 - **The Windows build starts where it should — on the user's machine.
