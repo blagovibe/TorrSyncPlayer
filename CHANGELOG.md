@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.4] - 2026-11-15
+
 - **libmpv stayed outside, by decision (idea-0182 closed as rejected).**
   The owner asked — after the external-mpv pain sting, and after the
   bundle-resolution fix (bug-0181) — to consider embedding the player in
