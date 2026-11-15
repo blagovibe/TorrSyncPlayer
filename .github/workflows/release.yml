@@ -203,6 +203,25 @@ jobs:
           $stub = Get-Command mpv -ErrorAction SilentlyContinue
           if ($stub) { Write-Host "on PATH: $($stub.Source) (a stub, not what we ship)" }
 
+      # The image carries a MinGW that is convenient for building but opaque
+      # about its own layout, and dependency-resolution steps that hunt for it
+      # guess at paths — badly (bug-0183 teaches this again and again). So this
+      # job installs the exact toolchain it builds with, plus its runtime
+      # DLLs, from chocolatey: one known distribution, its gcc on PATH, and
+      # its DLLs right beside that gcc.
+      - name: Install the MinGW toolchain this build uses
+        shell: pwsh
+        run: |
+          choco install mingw -y --no-progress
+          $bin = Get-ChildItem -Path "$env:ProgramData\chocolatey\lib\mingw" -Recurse -Filter 'gcc.exe' |
+            Select-Object -First 1 | Split-Path -Parent
+          if (-not $bin) {
+            Write-Error 'the mingw package installed but gcc.exe was not found under chocolatey\lib\mingw'
+            exit 1
+          }
+          Write-Host "mingw bin: $bin"
+          Add-Content $env:GITHUB_PATH $bin
+
       - name: Build the application and the backend
         working-directory: frontend
         shell: pwsh
@@ -214,24 +233,24 @@ jobs:
         run: go run ./cmd/build -out ../dist
 
       # The user's machine has no libstdc++/libgcc/libwinpthread, and the
-      # binary dynamically imports them from whichever MinGW compiled it.
-      # Neither of those facts is negotiable — the release therefore ships
-      # the exact DLLs the compiling gcc would use, resolved by gcc itself
-      # (-print-file-name), byte-identical to the ones in the artifact.
-      # A clean machine unzips and starts: no dialog, no DLL complaint.
+      # binary dynamically imports them from the MinGW that just built it.
+      # Neither of those facts is negotiable. The DLL names live beside
+      # gcc.exe in the same directory in every MinGW distribution — so the
+      # DLLs the compiler used are copied beside the artifact, byte-identical.
       - name: Ship the MinGW runtime the build links against
         shell: pwsh
         run: |
-          $dlls = @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')
-          foreach ($dll in $dlls) {
-            $path = (gcc -print-file-name=$dll).Trim()
-            if ($path -and $path -ne $dll -and (Test-Path $path)) {
-              Copy-Item $path dist\
-              Write-Host "shipped $dll from $path"
-            } else {
-              Write-Error "gcc could not resolve $dll — the toolchain changed; this step must be updated before releasing again"
+          $bin = Get-ChildItem -Path "$env:ProgramData\chocolatey\lib\mingw" -Recurse -Filter 'gcc.exe' |
+            Select-Object -First 1 | Split-Path -Parent
+          if (-not $bin) { Write-Error 'could not locate the toolchain that just built the artifacts'; exit 1 }
+          foreach ($dll in @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')) {
+            $path = Join-Path $bin $dll
+            if (-not (Test-Path $path)) {
+              Write-Error "$dll is not next to gcc — the toolchain changed layout; this step must be updated before releasing again"
               exit 1
             }
+            Copy-Item $path dist\
+            Write-Host "shipped $dll from $path"
           }
 
       # Whatever the artifacts import must be present beside them. A
