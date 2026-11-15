@@ -25,6 +25,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bumps** — the release is a line, and these landed after it was cut;
   the next release will have them.
 
+- **Session closed, and the reconciliation at the close is honest.** The
+  session that ended with this entry published v0.4.2 (AppImage, Windows
+  zip, macOS DMG, SHA256SUMS — each artifact's own job read the GPL
+  notices back out before it was offered for download), closed the
+  cards that were waiting on exactly that line (bug-0158 among them),
+  executed the long overdue reconciliation of the split local/remote
+  histories, deleted the fifty-one threshold cards that asserted a
+  trend the data never showed, and merged seven Dependabot updates
+  with full green CI on the merged line. What remains, at the moment
+  this line is written: bug-0173 and bug-0174 (macOS flakes, observed,
+  unresolved), deviation-0169 (Pact FFI off until go1.27.5), idea-0159
+  (the built application still has not been run on a real machine — the
+  owner's decision, kept open on purpose). No code work is outstanding.
+  The board carries these four and nothing else. The next session
+  starts from here: nothing sweeps under this line that a future reader
+  may take as green.
+
 - **The owner decided not to run the built application on a real
   machine (idea-0159, left open on purpose).** After v0.4.2 shipped,
   the run that its remaining acceptance always demanded was offered
