@@ -38,29 +38,32 @@ func TestBundleCandidatesFor(t *testing.T) {
 // and the bundle is used when there is nothing else to say.
 func TestMpvExecutablePrefersInThisOrder(t *testing.T) {
 	dir := t.TempDir()
-	configured := filepath.Join(dir, "configured-mpv")
-	bundle := filepath.Join(dir, "mpv")
+	name := "mpv"
+	if filepath.Separator == '\\' {
+		name = "mpv.exe"
+	}
+	configured := filepath.Join(dir, "configured-"+name)
+	bundle := filepath.Join(dir, "bundle-mpv")
 	wellKnown := filepath.Join(dir, "wellknown-mpv")
+	// A shebang line, exactly what the PATH test above writes: Windows does
+	// not treat extensionless files as executables without something that
+	// proves it is a script.
 	for _, path := range []string{configured, bundle, wellKnown} {
-		if err := os.WriteFile(path, []byte("fake"), 0o755); err != nil {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// PATH set to an empty directory: configured wins.
+	// The configured binary wins over the bundle when PATH is empty of answers.
 	t.Setenv("PATH", dir)
 	if got, ok := mpvExecutableWithCandidates(configured, nil, []string{bundle}); !ok || got != configured {
 		t.Errorf("configured should win over the bundle: ok=%v got=%q", ok, got)
 	}
 
-	// PATH holds an mpv: PATH wins over the bundle (a system mpv is fine).
+	// A PATH mpv beats the bundle (a system mpv is the better-seated one).
 	pathDir := t.TempDir()
-	name := "mpv"
-	if filepath.Separator == '\\' {
-		name = "mpv.exe"
-	}
 	onPath := filepath.Join(pathDir, name)
-	if err := os.WriteFile(onPath, []byte("fake"), 0o755); err != nil {
+	if err := os.WriteFile(onPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", pathDir)
@@ -69,15 +72,11 @@ func TestMpvExecutablePrefersInThisOrder(t *testing.T) {
 	}
 
 	// PATH empty, bundle present: the bundle is used, the well-known places are not.
-	t.Setenv("PATH", dir)
-	// Remove the on-PATH file so PATH yields nothing.
-	_ = os.Remove(onPath)
-	t.Setenv("PATH", dir)
-	newPath := filepath.Join(dir, "emptypath")
-	if err := os.Mkdir(newPath, 0o755); err != nil {
+	emptyPath := filepath.Join(dir, "emptypath")
+	if err := os.Mkdir(emptyPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", newPath)
+	t.Setenv("PATH", emptyPath)
 	if got, ok := mpvExecutableWithCandidates("", []string{wellKnown}, []string{bundle}); !ok || got != bundle {
 		t.Errorf("the bundle should win over well-known locations: ok=%v got=%q", ok, got)
 	}
