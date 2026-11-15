@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The way stopped naming the dead, part two.** Two follow-ups from
+  the DEV.md grilling, confirmed by the owner: the ADR section now opens
+  with a pointer to where the current truth lives («Рандеву…», «Код
+  приглашения», «Диагностика соединения»), so a fresh reader does not
+  mistake the October decision for the present; and the minimum OS row
+  in «Системные требования» dropped Ubuntu 20.04+ — nothing ever tested
+  it, so the promise now equals the machine CI proves (22.04 builds,
+  24.04 runs), not a theoretical floor. Fresh reconciliation: zone —
+  DEV.md only; no code changed; no tests re-run; claims match the
+  workflows read this session (ci.yml, long-gates.yml, release.yml,
+  rendezvous.yml, security.yml all pin GO_VERSION 1.27.4, ubuntu legs as
+  stated). Board: still just idea-0178, raw material.
+
 - **The way stopped naming the dead.** The DEV.md grilling (2026-11-15,
   idea-0180) fixed six statements that matched neither the code nor the
   document's own history of solutions. "Комнаты встречаются на DHT-рандеву"
