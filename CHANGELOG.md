@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The Windows build starts where it should — on the user's machine.
+  bug-0183.** The released Windows artifact had never once started without
+  the MinGW runtime DLLs (`libstdc++-6.dll`, `libgcc_s_seh-1.dll`,
+  `libwinpthread-1.dll`) already present; a clean machine found out only
+  by failing. Three dialogs, one per DLL. The client now links the
+  runtime statically (`-extldflags=-static`, Windows only), and the release
+  workflow refuses to ship an artifact that still imports any of those
+  DLLs — the gate names them if one comes back. Linux stays dynamic on
+  the build glibc, macOS on libSystem. `THIRD_PARTY_NOTICES.md` now
+  carries the GCC runtime section and the GCC-3.0 exception verbatim.
+  Verified locally: the cmd/build suite is green; the release artifact
+  will be verified by the gate in the release job (this release is its
+  first run), not by trust.
+
 ## [v0.4.4] - 2026-11-15
 
 - **libmpv stayed outside, by decision (idea-0182 closed as rejected).**
