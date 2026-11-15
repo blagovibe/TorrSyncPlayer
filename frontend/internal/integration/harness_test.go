@@ -176,9 +176,8 @@ func startServerWith(t *testing.T, clientID, dataDir string, disk bool, extraArg
 	if disk {
 		args = append(args, "--disk-storage")
 	}
-	// The remoting mode and anything else the backend grows: the flags go on
-	// the same command line, so a scenario drives the real binary and not a
-	// stand-in for it.
+	// Anything else the backend grows: the flags go on the same command
+	// line, so a scenario drives the real binary and not a stand-in for it.
 	args = append(args, extraArgs...)
 
 	cmd := exec.Command(backendBinary(t), args...)

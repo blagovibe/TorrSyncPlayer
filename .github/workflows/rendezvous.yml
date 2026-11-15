@@ -119,7 +119,7 @@ jobs:
           # main may have moved under the measurement; the series files
           # are append-only, so the publisher unions the two sides rather
           # than losing the row (see .github/scripts/publish-series.sh).
-          ${{ github.workspace }}/.github/scripts/publish-series.sh "the room over the public network: one more run [skip ci]"
+          .github/scripts/publish-series.sh "the room over the public network: one more run [skip ci]"
 
       - name: Keep the log
         if: always()

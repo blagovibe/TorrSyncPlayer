@@ -52,15 +52,6 @@ type Settings struct {
 	// answered. The question is asked once per installation.
 	StorageAsked bool `json:"storageAsked,omitempty"`
 
-	// Gateway (remoting) mode: when the URL is set, the backend proxies every
-	// torrent operation to an htorrent gateway instead of using its own
-	// client. The password travels to the child in its environment, never on
-	// the command line.
-	GatewayURL    string `json:"gatewayUrl,omitempty"`
-	GatewayUser   string `json:"gatewayUser,omitempty"`
-	GatewayPass   string `json:"gatewayPass,omitempty"`
-	GatewayCACert string `json:"gatewayCaCert,omitempty"`
-
 	// Bootstrap is DHT rendezvous as comma-separated multiaddrs with /p2p/.
 	// Empty means the public defaults; the --bootstrap flag overrides it for
 	// one launch.
@@ -89,10 +80,6 @@ func (s Settings) NeedsStorageChoice() bool { return !s.StorageAsked }
 func (s Settings) Problem() string {
 	if s.UsesDiskStorage() && strings.TrimSpace(s.DataDir) == "" {
 		return "settings.problem.diskDir"
-	}
-	if strings.TrimSpace(s.GatewayURL) != "" &&
-		(strings.TrimSpace(s.GatewayUser) == "" || s.GatewayPass == "") {
-		return "settings.problem.gatewayLogin"
 	}
 	return ""
 }

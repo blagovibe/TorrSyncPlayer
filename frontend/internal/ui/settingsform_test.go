@@ -17,7 +17,7 @@ import (
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
 )
 
-// The settings dialog is where storage, the gateway and rendezvous became
+// The settings dialog is where storage, rendezvous and the player became
 // reachable without a command line. The mapping from widgets back onto Settings
 // is where a field quietly stops working: the dialog shows a value, apply drops
 // it, and nothing about the file looks wrong — the exact shape of the mpv bug
@@ -52,10 +52,6 @@ func TestTheFormMapsEveryFieldBackOntoTheSettings(t *testing.T) {
 	form.mpv.SetText("~/bin/mpv")
 	form.storage.group.SetSelected(form.storage.disk)
 	form.storage.dir.SetText("~/Pieces")
-	form.gatewayURL.SetText("  https://gateway.example.com  ")
-	form.gatewayUser.SetText("  friend  ")
-	form.gatewayPass.SetText(" a secret with spaces ")
-	form.gatewayCACert.SetText("~/ca.pem")
 	form.bootstrap.SetText("  /dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN  ")
 	form.relays.SetText("  /ip4/203.0.113.7/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN  ")
 
@@ -70,10 +66,6 @@ func TestTheFormMapsEveryFieldBackOntoTheSettings(t *testing.T) {
 	assert.Equal(t, StorageDisk, updated.StorageMode)
 	assert.Equal(t, filepath.Join(home, "Pieces"), updated.DataDir)
 	assert.True(t, updated.StorageAsked, "answering in the dialog answers the first-launch question")
-	assert.Equal(t, "https://gateway.example.com", updated.GatewayURL)
-	assert.Equal(t, "friend", updated.GatewayUser)
-	assert.Equal(t, " a secret with spaces ", updated.GatewayPass, "a password with spaces in it is a password")
-	assert.Equal(t, filepath.Join(home, "ca.pem"), updated.GatewayCACert)
 	assert.Equal(t, "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN", updated.Bootstrap)
 	assert.Equal(t, "/ip4/203.0.113.7/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN", updated.Relays)
 }

@@ -53,3 +53,17 @@
 | 2026-11-14T15:31:57Z | 0.20 | 0.57 | within the promise |
 | 2026-11-14T15:38:04Z | 0.20 | 0.55 | within the promise |
 | 2026-11-14T15:59:16Z | 0.20 | 0.56 | within the promise |
+| 2026-11-14T18:03:51Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T18:14:43Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T18:21:30Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T18:34:35Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T18:50:08Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T18:58:59Z | 0.20 | 0.57 | within the promise |
+| 2026-11-14T19:11:22Z | 0.00 | 0.56 | within the promise |
+| 2026-11-14T19:23:00Z | 0.20 | 0.57 | within the promise |
+| 2026-11-14T19:35:50Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T21:32:42Z | 0.00 | 0.56 | within the promise |
+| 2026-11-14T21:43:25Z | 0.20 | 0.57 | within the promise |
+| 2026-11-14T21:53:12Z | 0.20 | 0.58 | within the promise |
+| 2026-11-14T22:08:03Z | 0.20 | 0.57 | within the promise |
+| 2026-11-14T22:22:11Z | 0.00 | 0.58 | within the promise |

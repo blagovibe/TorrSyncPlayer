@@ -668,7 +668,7 @@ func (m *Mesh) acceptLoop() {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(node.Lifetime())
 	defer cancel()
 	go func() {
 		<-m.closed
@@ -710,7 +710,7 @@ func (m *Mesh) discoverLoop() {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(node.Lifetime())
 	defer cancel()
 	go func() {
 		<-m.closed

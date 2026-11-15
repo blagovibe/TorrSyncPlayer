@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.2] - 2026-11-15
+
+- **The owner decided not to run the built application on a real
+  machine (idea-0159, left open on purpose).** After v0.4.2 shipped,
+  the run that its remaining acceptance always demanded was offered
+  again: this machine could not have shown video anyway (no mpv), and
+  the second-OS option was not taken either. The owner's words: the
+  release — three OS artifacts, their own content checks, and the
+  published notes — is sufficient evidence for this build; idea-0159 is
+  not refused and not closed, it stays on the board as a deliberate,
+  remembered gap until a machine or a user's report names it. Any
+  future smoke run of the artifact (or a user filing "it does not open")
+  is the trigger this card has been waiting for.
+
 - **The remoting mode had never been run against a real gateway.** It was
   tested only against a stand-in: a hand-written HTTP server that speaks
   exactly what our client expects — the same trap the room's own tests were
@@ -643,6 +657,242 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filter in every workflow and fails on one matching no tracked file.
   CI for the line that carries this is in flight; the card closes when
   that run says green, per the house rule for checks.
+
+- **The remoting mode is gone (deviation-0166, owner's decision of
+  2026-10-23).** It was never going to work: the goal says every person
+  in a room runs their own torrent client, and the remoting mode existed
+  for those who could not — a configuration the product never promised,
+  routed through one more process to reach a third-party binary that
+  failed its own uTP (see the journal entry on the real gateway). The
+  owner decided on 2026-10-23 to remove it rather than keep an
+  unverifiable path; this is that removal, whole: `remote_backend.go`
+  and its tests are gone; the
+  `--gateway-url`/`--gateway-user`/`--gateway-pass`/`--gateway-ca-cert`
+  flags and their validation are gone, along with the env names the
+  flags mirrored; the settings fields, the gateway zone of the settings
+  form and the catalogue keys (both languages) are gone; the
+  `TestTheBackendTalksToARealGateway` scenario and the CI steps that
+  installed the hTorrent gateway for it are gone; the fake gateway in
+  the unit tests and the gateway assertions in `launch_test.go` are
+  gone; DEV.md no longer teaches the gateway flag table, its env-var
+  section, or the "шлюз — окружением" bullet — the seam that remains is
+  local-only by design, kept for the tests that drive the Service
+  against a stand-in. What this also removes: the window's last
+  "configured remote" notion — there is no remote anyone's own backend
+  proxies to. mpv, rooms, everything else: untouched. What stays,
+  deliberately: `NewServiceWithBackend`, the seam the
+  service_backend_test.go stand-in drives. The card is deleted with
+  this commit; the remoting mode was never in a release, so nothing is
+  being "taken away" from anyone.
+
+- **bug-0165 is closed: the watches see, on a green line.** The
+  security workflow's trigger now names the files a Go repository
+  actually has (both go.mod/go.sum pairs and the workflow itself)
+  instead of `frontend/**/*.cpp|*.h`, which never matched; the dead
+  CSRF/auth constants are gone from backend/internal/constants and
+  the CORS lists name the headers the API actually sends; paths.go
+  exposes only what the router registers; stale WebRTC mentions became
+  libp2p; and the `paths:` filters of every workflow are now guarded by
+  a cicontract test that fails on any filter matching no tracked file.
+  The line that carries all this — with the window features, the
+  diagnostics, the listen-port walk and the remoting removal — went
+  green on every platform of CI (a0ac9b0), which is the condition this
+  card was opened to wait for.
+
+- **bug-0172 is closed: the Windows leg binds again.** The listen-port
+  walk tried twelve kernel-chosen ephemeral ports; on the windows-latest
+  runner Windows hands them out sequentially, and a reserved UDP window
+  is a run of consecutive refusals — the backend died at startup on the
+  integration test `TestARoomOfThreeIsARoomAndNotAPair`. The walk is now
+  512 attempts, the probe still holds TCP and UDP at once, and the CI
+  line is green on Windows twice over (the listen-port commit and the
+  full merge).
+
+- **idea-0160 is closed: the window took the scope the owner approved,
+  and the line it rides is green.** .torrent from a file picker (posted
+  base64 to the same endpoint a magnet takes); a trash button per row
+  with a confirm, refused while the torrent plays; rows show name,
+  progress and download speed once two ticks measure one, `Seeding` for
+  finished rows; a description dialog (name, size, progress, peers,
+  status, file list); mpv autodetect with a per-OS install dialog on
+  playback failure; and a Leave the room button visible only in a room.
+  The API client learned DELETE — the backed has had it all along, the
+  window just never called it. Every string went into the catalogue;
+  the rows are container rows with trailing icon buttons; speeds are
+  computed between two ticks and never shown before they measured
+  anything. The first CI attempt on this work was red three ways —
+  all three were mine: an untended gosec annotation, an unformatted
+  file, and a fake mpv whose temp file the Unix `exec.LookPath`
+  rejected for missing the execute bit. All fixed; the mpv-missing
+  test no longer gambles on what the host has installed.
+
+- **idea-0163 is closed: the application keeps a log a person can hand
+  over.** `torrsyncplayer.log` beside settings.json; the launch appends
+  startup/shutdown lines, the window mirrors every event line it shows,
+  and the backend's death is recorded with the exit. The settings
+  dialog grew a "Copy diagnostics" button — backend version (commit and
+  build time), OS/arch, mpv resolution, the log's last 16 KB — one
+  paste away from a bug report. The log cannot fail the application
+  and never shadows a startup path. The diagnostics test now pins the
+  no-mpv box deterministically instead of by luck.
+
+
+- **The series publish no longer loses the row when main moves
+  under a run (owner's decision of this session).** The measurement
+  workflow committed its row and rebased onto main; when the other
+  bot (rendezvous) had pushed another measurement in between, the
+  rebase died on the shared file and the row was lost — red gates for
+  a reason that said nothing about the measurements. The owner chose
+  the union resolution over schedule-only publication: both publish
+  steps now call `.github/scripts/publish-series.sh`, which unions
+  only the append-only series files (markers dropped, exact
+  duplicates removed, both sides kept), refuses to union anything
+  else — a board card two runs both created stops loudly for a
+  human — and fails the job if any marker survives. The rendezvous
+  measurement published cleanly on 2026-11-14T18:10Z.
+- **The macOS leg failed twice at ~92s in one hour, then went green
+  twice — recorded, not guessed.** TestTheRoomStopsForTheOneWhoIsBehind
+  timed out on macos-latest (mpv 0.41.0_12, ffmpeg 9.0.2_1, arm64) with
+  mpv still playing at 66% of the film; the same line twice, then the
+  instrumented run passed it (17.2s suite), and so did the merge line.
+  The follower pause tests, which use the same IPC, never failed. The
+  instrumentation added to the test stays: after the report it polls
+  `roomStopped` and names where the chain stopped. bug-0173 is
+  flaky, not systematic — and bug-0174 was opened for the other red
+  the same run produced: TestARoomOfManyIsStillARoom, one guest at 23
+  of 24 peers in a room of 25 (149s, rendezvous-scale mesh, the same
+  class of timing the rendezvous measurement exists to see). Neither
+  check was weakened to make the red go away.
+
+
+- **The backend suite is green on Windows at last — the two red
+  classes were housekeeping, not mystery (bug-0167, open, structural
+  part waits on the owner).** The three `internal/storage` tests never
+  closed the bolt-backed piece-completion index Anacrolix opens at
+  `NewFile` time; on Windows, TempDir removal under an open
+  `.torrent.bolt.db` made anacrolix exit 41 with
+  `unlinkat ... The process cannot access the file because it is being
+  used by another process`. Each test now closes the storage it owns in
+  `t.Cleanup` — close orders itself before the directory is removed, by
+  construction, with no sleeps. `TestAtomicWrites/target file is not
+  left readable by other users` asserted Unix's 0600 on a filesystem
+  that has no 0600 — Windows ACLs map nothing onto the triad, so the
+  Go API reports a writable file as 0666 no matter what mode was asked;
+  the check now asserts what Windows can honestly say (the file is not
+  read-only) and keeps 0600 for Unix. Full backend suite on Windows:
+  green, and `internal/torrent` passed six full runs in a row (the
+  residual real_swarm flake did not reproduce). What stays open, and
+  why: the backend CI job is Ubuntu-only, so Windows stays invisible
+  to the contract — closing the card needs either a Windows leg in the
+  backend CI (a pipeline change, the owner's call) or the way
+  documenting "backend targets Linux" (a DEV.md edit, also the
+  owner's call).
+
+
+- **The v0.4.1 release record's "the pipeline is green in full" claim is
+  corrected, not improved (this entry is the correction).** The phrase
+  appears in the released record; the audit this session found it was
+  not true of every line it was written on — the 8b7f741 run reported a
+  red Windows leg through the GitHub API, while e76dad1 came up green,
+  which is also how the audit found the first one: by asking, not by
+  believing the journal's last word. The released text stays, because
+  that is what append-only means: what shipped said what it said, and
+  this line is the record of what it meant in fact. The lesson the
+  way now carries (DEV.md, «Как читать журнал»): «green» in this
+  journal is a claim about a line and a moment, verified by a run — the
+  claim is checkable, and this one was not.
+
+
+- **The way taught Windows developers to build something that does not
+  build — the fix (deviation-0168, closed).** DEV.md said VS Build
+  Tools and "Разработка классических приложений на C++", which no
+  Windows environment in this project's own CI could satisfy: `runtime/cgo`
+  carries `-Wall -Werror`, cl reads them as `cl: error D8021: invalid
+  numeric argument "/Werror"`. The way now teaches what CI itself uses —
+  MinGW-w64 (MSYS2 with `mingw-w64-x86_64-gcc` as the primary path,
+  Chocolatey `mingw` as the alternative), with a PATH example, the
+  reason MSVC cannot work, and CI `windows-latest` named as the
+  reference. A person following the way will now hold the same gcc the
+  pipeline holds.
+- **The journal learned how to be read (idea-0161, closed).** DEV.md
+  gained «Как читать журнал»: three readings — by time, by version,
+  by card — and the rule that binds them: a correction is a new entry,
+  never a rewrite of an old one. It also says, in as many words, that
+  «зелёно» in this journal is a claim about a line and a moment,
+  verified by a run — which is what the false claim that survived two
+  months needed to be. And that claim is corrected right here, next
+  to it: the
+  v0.4.1 record's "the pipeline is green in full" was not true of every
+  line it was written on — the GitHub API showed 8b7f741 red on the
+  Windows leg, e76dad1 green — and this entry is the correction, the
+  released text stays.
+- **The macOS build keeps its ad-hoc signature by decision, not by
+  oversight (idea-0162, closed).** The arm64-only artifact carries an
+  ad-hoc signature, and Apple notarization is a $99/year commitment and an
+  Apple Developer account the owner has not chosen to spend. The README
+  already warns (idea-0162's own minimum: how to open the app despite
+  Gatekeeper, arm64-only). The owner decided explicitly to keep it that
+  way and revisit when there is demand — the card closes with that
+  recorded rather than with a signature added.
+- **Windows is inside the CI contract now (bug-0167, part closed).**
+  The backend test job became a matrix [ubuntu-latest, windows-latest]:
+  the same suite, the same race detector. Coverage floor stays on
+  ubuntu (where it was measured — prints on Windows without gating);
+  Codecov uploads only from ubuntu; and both `fetch-modules` steps
+  now run under `shell: bash` — on Windows the default pwsh dot-sourced
+  the script and it silently did nothing, which is exactly the class
+  of check that lies.
+
+
+- **Windows entered the CI contract, and the way stopped teaching a
+  build that cannot run (the Windows-CI batch, this line is its proof).**
+  The backend test job is now a matrix [ubuntu-latest, windows-latest].
+  That exposed three things worth their lines in this journal: the eight
+  `fetch-modules.sh` steps never ran on Windows at all — pwsh dot-sourced
+  the bash and quietly did nothing — and the one step that now runs them
+  must be addressed as `.github/scripts/...` from the repository root,
+  with `shell: bash`, because Git bash eats the backslashes of
+  `${{ github.workspace }}\...` and the file "does not exist". The
+  coverage-and-test step under pwsh died at its first `if [ -z`. And the
+  gosec gate failed on `acceptLoop`/`discoverLoop` reading
+  `context.Background()` while `node.Lifetime()` existed one goroutine
+  over — the exact class the rule exists for; the mesh now lives on the
+  node's lifetime, startRendezvous already did. Verified by hand with a
+  `workflow_dispatch` Security run: green. The Windows backend leg is
+  green on this exact line (race detector and all), which is what
+  bug-0167 was waiting for; the card is closed.
+- **The room's stop learned to wait for its own pause (bug-0173, open,
+  evidence).** The macOS runner failed the buffering tests with mpv alive
+  at 66–72% of the film and `roomStopped=true, pausedForBuffering=false`
+  in the test's own say — syncTheRoomStop fired, the pause simply never
+  reached mpv: the read read nothing, the fire-and-forget send went
+  nowhere, and both facts were swallowed. Both now get three attempts,
+  the resume too, and on total failure the line goes into the log the
+  application keeps. The macOS leg is green on this line — one data point,
+  not a fix proven; the card stays open until the flake stays away.
+
+
+- **The v0.4.2 release verified the notices at the tag, end to end
+  (bug-0158, closed).** All three release jobs built, and each job's own
+  gate read the notices back out of the artifact it was about to
+  publish: Linux installed `THIRD_PARTY_NOTICES.md` inside the AppDir
+  **before** linuxdeploy built the image and the AppImage check
+  extracted it and refused to pass without it; Windows copied it into
+  the bundle and the zip check required it before upload; macOS copied
+  it into `Contents/Resources/` and the DMG check required it mounted.
+  `SHA256SUMS` were generated and attached; the release published at
+  2026-11-14T21:46:39Z as a full, non-draft release: `TorrSyncPlayer-x86_64.AppImage` (123 MB), `TorrSyncPlayer-windows-x64.zip`
+  (72 MB), `TorrSyncPlayer-macos-arm64.dmg` (29 MB), `SHA256SUMS`.
+  Two facts worth their own lines: the first tag (4358d4c) could not
+  build its AppImage — the icon generator writes `0600` and the
+  AppDir copied it verbatim, and `appimagetool` refuses an AppImage
+  whose users cannot read their own icon — so the tag was retired
+  before anything was published and re-created on the fixed line;
+  and macOS jobs on the `macos-14` label were cancelled with zero
+  steps on both attempts, so the release now uses `macos-latest`,
+  the same label the frontend CI has been green on for weeks. The
+  release has what it always wanted: a license, a gate that reads
+  its own output, and a tag whose meaning does not change under it.
 
 ## [v0.4.1] - 2026-10-21
 

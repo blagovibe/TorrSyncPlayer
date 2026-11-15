@@ -14,16 +14,9 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// The settings form is four questions a person actually has, and they are
-// not neighbours of one another: how the application looks, where the film
-// data lives, how to reach the room network, and — for the few who host one
-// — where the torrent gateway is.
-//
-// That last one is what the audit found: rendezvous and relays used to sit
-// directly under the gateway block with no heading of their own, so the two
-// most technical fields on the form read as four more gateway fields. Same
-// complaint the window itself drew, and the same answer: name the zones and
-// rule them.
+// The settings form is three questions a person actually has: how the
+// application looks, where the film data lives, and how to reach the room
+// network.
 func (f *settingsForm) content(parent fyne.Window) fyne.CanvasObject {
 	headings := func(key string) fyne.CanvasObject {
 		text := canvasTextBold(f.tr(key))
@@ -55,19 +48,8 @@ func (f *settingsForm) content(parent fyne.Window) fyne.CanvasObject {
 			// follows it: both are what a room needs to find you, and both are
 			// about the room rather than about the network.
 			labelRow(f.tr("settings.name"), f.name),
-			// Rendezvous is where rooms meet, not a gateway setting. Its own
-			// heading is what stops it reading as one.
 			labelRow(f.tr("settings.bootstrap"), f.bootstrap),
 			labelRow(f.tr("settings.relays"), f.relays),
-			zoneGap(),
-		),
-
-		container.NewVBox(headings("settings.gateway"), ruleHere(),
-			labelRow(f.tr("settings.gatewayURL"), f.gatewayURL),
-			labelRow(f.tr("settings.gatewayUser"), f.gatewayUser),
-			labelRow(f.tr("settings.gatewayPass"), f.gatewayPass),
-			labelRow(f.tr("settings.gatewayCACert"), container.NewBorder(nil, nil, nil,
-				chooseFileButton(f.tr, parent, f.gatewayCACert.SetText), f.gatewayCACert)),
 		),
 	)
 	// No scroll container around the form: a VScroll hands its children an

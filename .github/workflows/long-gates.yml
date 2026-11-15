@@ -51,7 +51,7 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Fetch the modules
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
       - name: Install go-mutesting
         run: |
           # Pinned: @latest now requires Go >= 1.27, but CI is on $(GO_VERSION).
@@ -61,7 +61,7 @@ jobs:
           # operation like any other: the checksum database's connection broke
           # mid-tile once, and this job went red for a reason that said
           # nothing about the code it was testing.
-          ${{ github.workspace }}/.github/scripts/install-go-tool.sh github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb
+          .github/scripts/install-go-tool.sh github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20251226130216-48d0401f00fb
 
       - name: Run mutation testing (backend)
         working-directory: backend
@@ -115,7 +115,7 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Fetch the modules
-        run: ${{ github.workspace }}/.github/scripts/fetch-modules.sh backend
+        run: .github/scripts/fetch-modules.sh backend
       - name: Build backend
         working-directory: backend
         run: make build

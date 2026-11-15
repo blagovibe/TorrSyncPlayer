@@ -48,6 +48,12 @@ func TestRemovingATorrentDeletesWhatAnacrolixWrote(t *testing.T) {
 	}
 
 	fs := NewFileStorage(base)
+	// The pieces storage opens a bolt-backed completion index (.torrent.bolt.db)
+	// in the base directory at construction; Close is what releases it. A
+	// TempDir removed under an open database is what made this fail on
+	// Windows: unlinkat ... handle. The test owns the storage, so it closes
+	// it before the directory goes away.
+	t.Cleanup(func() { _ = fs.Close() })
 	if err := fs.RemoveTorrent("film.mkv"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
@@ -64,6 +70,7 @@ func TestRemovingATorrentDeletesWhatAnacrolixWrote(t *testing.T) {
 // never written. There is nothing to delete and nothing to complain about.
 func TestRemovingATorrentThatIsNotThereSucceeds(t *testing.T) {
 	fs := NewFileStorage(t.TempDir())
+	t.Cleanup(func() { _ = fs.Close() })
 	if err := fs.RemoveTorrent("never-written"); err != nil {
 		t.Errorf("removing a torrent with no data on disk should not fail: %v", err)
 	}
@@ -81,6 +88,7 @@ func TestRemovingATorrentWithNoNameDoesNotEmptyTheStorage(t *testing.T) {
 	}
 
 	fs := NewFileStorage(base)
+	t.Cleanup(func() { _ = fs.Close() })
 	if err := fs.RemoveTorrent("-"); err != nil {
 		t.Errorf("remove with the sentinel name: %v", err)
 	}

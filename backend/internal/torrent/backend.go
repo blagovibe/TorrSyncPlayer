@@ -10,15 +10,17 @@ import (
 	"net/http"
 )
 
-// TorrentBackend is the pluggable torrent data plane.
+// TorrentBackend is the torrent data plane behind the Service.
 //
-// Two implementations exist (idea-0023):
-//   - localBackend — in-process anacrolix/torrent client, the default
-//   - remoteBackend — an htorrent gateway reached over HTTPS, for remoting
+// One implementation exists: localBackend, the in-process anacrolix/torrent
+// client. The seam stays because the tests drive the Service's logic against
+// a stand-in that says exactly what a backend can say; it used to have a
+// second implementation (an htorrent gateway for remoting mode), removed
+// with the mode itself (deviation-0166).
 //
-// Everything above this seam is transport-agnostic: the Service validates,
-// records selection, tracks streams and reports progress without knowing which
-// implementation is in use.
+// Everything above this seam is client-agnostic: the Service validates,
+// records selection, tracks streams and reports progress without knowing
+// which implementation is in use.
 type TorrentBackend interface {
 	// AddMagnet registers a magnet link and returns once its metadata is
 	// known. It blocks until metadata arrives or ctx expires.
@@ -42,11 +44,10 @@ type TorrentBackend interface {
 	Close()
 }
 
-// TorrentHandle is a transport-neutral view of one torrent.
+// TorrentHandle is the view of one torrent.
 //
 // It exposes only what the Service actually consumes; the file-reading and
-// piece-priority machinery stays behind SelectForStreaming and ServeStream so
-// that a remote gateway never has to pretend to own a local piece store.
+// piece-priority machinery stays behind SelectForStreaming and ServeStream.
 type TorrentHandle interface {
 	// ID is the infohash as lowercase hex, stable across backends so that
 	// room and playback state stay valid across a restart.
@@ -68,8 +69,7 @@ type TorrentHandle interface {
 	FileName(index int) string
 	FileLength(index int) int64
 
-	// SelectForStreaming narrows piece priority to a single file. A gateway
-	// has no such control and treats this as a no-op.
+	// SelectForStreaming narrows piece priority to a single file.
 	SelectForStreaming(fileIndex int) error
 
 	// BufferTarget returns the piece-priority handle that buffer.Service needs
