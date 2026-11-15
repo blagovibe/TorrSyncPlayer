@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The backend can finally be heard in the diagnostics log (bug-0185,
+  instrumentation half).** The log from the machine showed: two
+  `/api/v1/torrents returned 500: {"error":"Internal server error"}` and,
+  later, `DELETE /api/v1/torrents/<id>: context deadline exceeded`. A 500
+  from the API, spelled exactly like that, is the signature of the
+  `Recovery` middleware catching a panic and swallowing it; the backend
+  child, however, was launched with `cmd.Stdout = os.Stderr` and
+  `cmd.Stderr = os.Stderr` — two sinks that a double-clicked GUI process,
+  with no console, writes to nowhere. The panic was hit twice in the
+  morning on the owner's machine, and the reason for it never reached
+  the one file the diagnostics window offers.
+
+  What changed: the child now has an output hook. `Launch` carries
+  `OnOutput(func(string))`; the process pipes the child's stdout and
+  stderr through `bufio.Scanner` and hands every non-empty line to the
+  hook; `main.go` wires it into the diagnostic log with the `backend:`
+  prefix, the same file the window writes to. With the hook nil, the old
+  behaviour — writing to this process's stderr — is unchanged. The
+  stand-in backends (`TestStartPipesChildOutputToTheLaunchCallback`,
+  `TestStartWithoutOnOutputLeavesTheOutputWhereItAlreadyWent`) build a
+  tiny Go program on the fly and assert both modes on any OS. Next time
+  this machine's log file carries the panic reason, not just its
+  absence: bug-0185 stays open until it does.
+
 - **The status line showed `%!d(string=1)` instead of a count.** `window.go`
   passed `strconv.Itoa(len(out.Torrents))` to a catalog entry that formats
   with `%d`, through a helper `trf` that accepts any string; the format

@@ -16,10 +16,12 @@
 package backend
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -151,6 +153,14 @@ type Launch struct {
 	// Token the backend must accept. It travels on the child's standard input,
 	// never on the command line (deviation-0061).
 	Token string
+
+	// OnOutput receives each line the child prints to its stdout and stderr.
+	// A GUI process launched by double-click has no console to inherit, and the
+	// one place the reason for a backend failure is ever spelled out is the
+	// child's own output; dropping it is how a 500 reports as
+	// "Internal server error" with no further detail. When OnOutput is nil,
+	// the output goes to this process's stderr as it always did.
+	OnOutput func(line string)
 
 	// DiskStorage writes pieces under DataDir instead of keeping them in
 	// memory. DataDir also holds the torrent registry, which is what makes a
@@ -286,10 +296,36 @@ func Start(l Launch) (*Process, error) {
 
 	// The backend's own output is the only place the reason for a failure will
 	// ever appear — a port clash, a bad flag, a storage directory that is not
-	// writable — so it goes to this process's stderr rather than to a buffer
-	// nobody reads.
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
+	// writable, a panic inside a handler. A GUI process launched by double-
+	// click has no console, so when no OnOutput callback is set the output
+	// goes to this process's stderr, which at least the terminal-launched
+	// application still sees.
+	if l.OnOutput != nil {
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("pipe the backend's stdout: %w", err)
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return nil, fmt.Errorf("pipe the backend's stderr: %w", err)
+		}
+		onLine := func(name string, stream io.Reader) {
+			scanner := bufio.NewScanner(stream)
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				l.OnOutput(line)
+			}
+		}
+		go onLine("stdout", stdout)
+		go onLine("stderr", stderr)
+	} else {
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start backend %s: %w", l.Executable, err)
 	}

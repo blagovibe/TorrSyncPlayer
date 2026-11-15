@@ -91,13 +91,19 @@ type runOptions struct {
 // Storage used to be unreachable from the window: the application always
 // started its backend with a port and a token and nothing else, so the one
 // choice a person makes went unmade (idea-0083).
-func backendLaunch(settings ui.Settings, executable string, port int, token string) backend.Launch {
+func backendLaunch(settings ui.Settings, store *ui.SettingsStore, executable string, port int, token string) backend.Launch {
 	return backend.Launch{
 		Executable:  executable,
 		Port:        port,
 		Token:       token,
 		DiskStorage: settings.UsesDiskStorage(),
 		DataDir:     settings.DataDir,
+		// The child's own output is the only place the reason for a failure is
+		// ever spelled out; a GUI launch has no console, so it goes into
+		// the same diagnostic file the window uses, prefixed.
+		OnOutput: func(line string) {
+			_ = ui.WriteDiagnostic(store.Path(), "backend: "+line)
+		},
 	}
 }
 
@@ -148,7 +154,7 @@ func run(opts runOptions) error {
 		return err
 	}
 
-	child, err := backend.Start(backendLaunch(settings, executable, port, token))
+	child, err := backend.Start(backendLaunch(settings, store, executable, port, token))
 	if err != nil {
 		return err
 	}

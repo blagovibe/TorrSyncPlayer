@@ -161,8 +161,10 @@ func stubBackend(t *testing.T, body string) string {
 // description, or the dialog says one thing and the child does another. The
 // mapping is small and silent, which is exactly why it is tested.
 func TestTheLaunchCarriesTheStorageChoice(t *testing.T) {
+	store := ui.NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
 	launch := backendLaunch(
 		ui.Settings{StorageMode: ui.StorageDisk, DataDir: "/tmp/pieces"},
+		store,
 		"/opt/backend", 7777, "tok")
 
 	if launch.Executable != "/opt/backend" || launch.Port != 7777 || launch.Token != "tok" {
@@ -172,13 +174,17 @@ func TestTheLaunchCarriesTheStorageChoice(t *testing.T) {
 		t.Errorf("the storage choice did not reach the child: disk=%v dir=%q",
 			launch.DiskStorage, launch.DataDir)
 	}
+	if launch.OnOutput == nil {
+		t.Error("the launch does not carry the child's voice; the child's stderr disappears on a double-click launch")
+	}
 }
 
 // Memory is the absence of disk storage, and the absence has to travel as an
 // absence: the backend reads DATA_DIR from the environment as a flag default,
 // so a leftover would put the pieces on disk anyway.
 func TestTheLaunchKeepsMemoryOffTheDisk(t *testing.T) {
-	launch := backendLaunch(ui.Settings{StorageMode: ui.StorageMemory}, "/opt/backend", 1, "t")
+	store := ui.NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
+	launch := backendLaunch(ui.Settings{StorageMode: ui.StorageMemory}, store, "/opt/backend", 1, "t")
 
 	if launch.DiskStorage {
 		t.Error("memory storage was described as disk storage")
