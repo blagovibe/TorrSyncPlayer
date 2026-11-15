@@ -28,6 +28,10 @@ type fakeTransport struct {
 	// sent keeps what the room sent, so a test can ask what the room said
 	// and not only what it heard.
 	sent []any
+	// invitedHost is the peer ID the invite code named, empty unless a test
+	// sets it. The room asks the transport because only the transport saw the
+	// invite code (bug-0148).
+	invitedHost string
 }
 
 func newFakeTransport(self string, peers ...string) *fakeTransport {
@@ -88,6 +92,11 @@ func (f *fakeTransport) Close() error {
 func (f *fakeTransport) feed(from string, msg any) {
 	f.incoming <- incomingMessage{from: from, msg: msg}
 }
+
+// InvitedHost is the peer the code named. A test that leaves it empty is a room
+// that knows no invite — the host's own room, and the fallback the room keeps
+// for its own transports (bug-0148).
+func (f *fakeTransport) InvitedHost() string { return f.invitedHost }
 
 // runRoom starts the driver and returns it. The test owns stopping via ctx.
 func runRoom(ctx context.Context, t *testing.T, tr *fakeTransport, selfID, userID string, isHost bool, cb *Callbacks) *Room {
@@ -345,6 +354,111 @@ func TestInviteCodeRefusesGarbage(t *testing.T) {
 	} {
 		if _, err := ParseInviteCode(bad); err == nil {
 			t.Errorf("garbage %q parsed as an invite", bad)
+		}
+	}
+}
+
+// TestAPeerCannotTakeTheRoomByClaimingTheHostRole is the first P0: the greeting
+// carries isHost, and believing it let any admitted guest make the room follow
+// its commands by saying it held the role (bug-0148). The invite names the
+// host's peer ID, so only that peer's claim is believable.
+//
+// The old host has the mirror-image half of the same defect: after a transfer
+// its greeting still said "host", so a newcomer believed the wrong peer. That
+// half is closed where the role moves — the window now tells the mesh
+// (Mesh.SetHostRole).
+func TestAPeerCannotTakeTheRoomByClaimingTheHostRole(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tr := newFakeTransport("guest-id")
+	tr.invitedHost = "host-id"
+	r := runRoom(ctx, t, tr, "guest-id", "guest-user", false, nil)
+
+	tr.feed("intruder-id", NewHello("intruder-id", "intruder-user", "Mallory", true, nil))
+	waitFor(t, 3*time.Second, "the intruder's greeting to be processed", func() bool {
+		for _, p := range r.Peers() {
+			if p.PeerID == "intruder-id" {
+				return true
+			}
+		}
+		return false
+	})
+	if got := r.HostPeer(); got != "" {
+		t.Fatalf("a peer became the host by claiming the role: host is %q", got)
+	}
+	for _, p := range r.Peers() {
+		if p.PeerID == "intruder-id" && p.IsHost {
+			t.Fatalf("the roster marks the peer that claimed the role as the host")
+		}
+	}
+
+	// The peer the code named is believed — and it is the only one.
+	tr.feed("host-id", NewHello("host-id", "host-user", "Host", true, nil))
+	waitFor(t, 3*time.Second, "the invited host to be believed", func() bool {
+		return r.HostPeer() == "host-id"
+	})
+	if r.IsHost() {
+		t.Fatalf("a guest became the host of the room by hearing a greeting")
+	}
+}
+
+// TestAMagnetFromAStrangerDoesNotReplaceTheFilm is the second P0: the room
+// remembered every magnet it heard, and the host then answered newcomers with
+// the stranger's film while believing it was its own (bug-0149).
+func TestAMagnetFromAStrangerDoesNotReplaceTheFilm(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var adopted []Magnet
+	cb := &Callbacks{
+		OnMagnet: func(m Magnet) {
+			mu.Lock()
+			defer mu.Unlock()
+			adopted = append(adopted, m)
+		},
+	}
+
+	tr := newFakeTransport("host-id")
+	r := runRoom(ctx, t, tr, "host-id", "host-user", true, cb)
+	if err := r.AnnounceMagnet(ctx, Magnet{MagnetURI: "magnet:?xt=urn:btih:aaa", InfoHash: "aaa", Name: "Film.mkv"}); err != nil {
+		t.Fatalf("announcing the room's film: %v", err)
+	}
+
+	tr.feed("stranger-id", NewHello("stranger-id", "stranger-user", "", false, nil))
+	tr.feed("stranger-id", NewMagnet(Magnet{MagnetURI: "magnet:?xt=urn:btih:bbb", InfoHash: "bbb", Name: "Other.mkv"}))
+	waitFor(t, 3*time.Second, "the stranger's film to be read and ignored", func() bool {
+		for _, p := range r.Peers() {
+			if p.PeerID == "stranger-id" {
+				return true
+			}
+		}
+		return false
+	})
+
+	// A newcomer arrives, and the host answers with the film it remembers.
+	tr.feed("late-id", NewHello("late-id", "late-user", "", false, nil))
+	waitFor(t, 3*time.Second, "the host to answer the newcomer with the film", func() bool {
+		last := ""
+		for _, msg := range tr.sentMessages() {
+			if m, ok := msg.(Magnet); ok {
+				last = m.InfoHash
+			}
+		}
+		return last == "aaa"
+	})
+
+	for _, msg := range tr.sentMessages() {
+		if m, ok := msg.(Magnet); ok && m.InfoHash == "bbb" {
+			t.Fatalf("the room carried a stranger's film: %+v", m)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, m := range adopted {
+		if m.InfoHash == "bbb" {
+			t.Fatalf("the host adopted a stranger's film: %+v", m)
 		}
 	}
 }

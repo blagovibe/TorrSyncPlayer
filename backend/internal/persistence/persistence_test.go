@@ -4,6 +4,7 @@ package persistence
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,6 +64,16 @@ func TestAtomicWrites(t *testing.T) {
 
 		info, err := os.Stat(filepath.Join(tmpDir, "torrents.json"))
 		require.NoError(t, err)
+		// Windows has no 0600: the Go API reports writable files as 0666
+		// regardless of the mode passed to OpenFile, because the mode is
+		// carried by the ACL, not a permission triad. The honest Windows
+		// assertion is the one Windows can make: the file is not read-only.
+		// On Unix the real promise is asserted as before.
+		if runtime.GOOS == "windows" {
+			assert.True(t, info.Mode().Perm()&0o200 != 0,
+				"the registry must be writable by its owner: %v", info.Mode().Perm())
+			return
+		}
 		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 	})
 }

@@ -391,3 +391,53 @@ func TestPeriodicUpdate_DoesNotPanic(t *testing.T) {
 	s.StopPeriodicUpdate()
 	assert.Nil(t, s.cancelFunc)
 }
+
+// TestTheBufferFollowsTheFileInsideTheTorrent pins bug-0150: the playback
+// position is in bytes of the selected file while piece numbers are torrent-wide.
+// Without the file's offset the priorities of a film that is not the first file
+// in the release landed on the first file, and "watch while it downloads" lost
+// the pieces it was about to need.
+func TestTheBufferFollowsTheFileInsideTheTorrent(t *testing.T) {
+	s := NewService(constants.DefaultMaxBufferSize)
+
+	// Two files of 250 bytes each, 100-byte pieces: the second file starts at
+	// byte 250 — piece 2 — and the torrent has five pieces.
+	pieces := make([]*mockPiece, 5)
+	for i := range pieces {
+		pieces[i] = &mockPiece{}
+	}
+	tr := &mockTorrent{pieceLength: 100, numPieces: 5, pieces: pieces}
+	f := &mockFile{torrent: tr, length: 250}
+
+	s.mu.Lock()
+	s.torrentBuffers["tor-1"] = &TorrentBuffer{
+		TorrentID:      "tor-1",
+		FileIndex:      1,
+		FileOffset:     250,
+		File:           f,
+		BufferPercent:  constants.DefaultBufferPercent,
+		BufferDuration: constants.DefaultBufferDuration,
+		MaxBufferSize:  constants.DefaultMaxBufferSize,
+		PieceSize:      100,
+		TotalPieces:    5,
+		LastUpdate:     time.Now(),
+	}
+	s.mu.Unlock()
+
+	// The buffer is a share of the file: its first bytes are torrent bytes
+	// 250.., which is piece 2 and nothing else.
+	require.NoError(t, s.UpdatePosition(context.Background(), "tor-1", 0))
+
+	assert.Equal(t, torrent.PiecePriorityNone, pieces[0].priority,
+		"the first file's piece was steered instead of the film being watched")
+	assert.Equal(t, torrent.PiecePriorityNow, pieces[2].priority,
+		"the piece under the playback position was not raised")
+
+	// A complete piece that belongs to another file is not the film's buffer.
+	pieces[0].complete = true
+	info, err := s.GetBufferInfo(context.Background(), "tor-1")
+	require.NoError(t, err)
+	assert.Equal(t, 1, info.FileIndex)
+	assert.Equal(t, int64(0), info.BufferedBytes,
+		"a complete piece of the first file was counted as the film's buffer")
+}

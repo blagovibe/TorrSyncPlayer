@@ -10,7 +10,7 @@ run and tested — this file is the short version for someone starting out.
 
 | Component | Minimum |
 |-----------|---------|
-| Go | 1.26+ (pinned as `GO_VERSION` in every workflow) |
+| Go | 1.26.11+ (pinned as `GO_VERSION` in every workflow) |
 | Fyne build headers | `build-essential pkg-config libgl1-mesa-dev libx11-dev libxkbcommon-dev libfontconfig1-dev` |
 | mpv | installed separately — it is an external process, not a library |
 

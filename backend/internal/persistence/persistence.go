@@ -14,9 +14,9 @@ import (
 // PersistenceVersion is the current format version for migration handling
 const PersistenceVersion = 1
 
-// Rooms and playback state are not persisted anymore: rooms meet over WebRTC
-// and no server holds them (idea-0064). What survives a restart is the torrent
-// registry below — whose torrent came from where, and who added it.
+// Rooms and playback state are not persisted anymore: rooms meet over libp2p
+// streams and no server holds them (idea-0064). What survives a restart is
+// the torrent registry below — whose torrent came from where, and who added it.
 
 // TorrentOwnershipData persists torrent ownership (bug-0049).
 // torrentID -> userID mapping so a restart knows who added each torrent.

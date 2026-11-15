@@ -16,6 +16,7 @@
 package cicontract
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,7 @@ import (
 
 const (
 	workflow   = "../../../.github/workflows/ci.yml"
+	longGates  = "../../../.github/workflows/long-gates.yml"
 	workflows  = "../../../.github/workflows"
 	moduleRoot = "../.."
 )
@@ -60,6 +62,44 @@ func repoFile(t *testing.T, path string) string {
 	return string(body)
 }
 
+// copyTree copies every regular file of one directory (flat, not recursive)
+// into another, for the temp copy of the repository that the scripts run
+// against. The scripts read the board by listing it, so the copy must carry
+// the same cards the real board carries, or their numbering disagrees with
+// this suite's own.
+func copyTree(t *testing.T, src, dst string) error {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0o750); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		// ReadDir returns leaf names, but the destination is built from one,
+		// so it is made to stay inside the destination on purpose, not on
+		// hope: no separator, no parent, no absolute path.
+		name := filepath.Clean(entry.Name())
+		if name == "." || name == ".." || strings.ContainsRune(name, os.PathSeparator) || filepath.IsAbs(name) {
+			return fmt.Errorf("card name escapes the board: %q", entry.Name())
+		}
+		srcPath := filepath.Clean(filepath.Join(src, name))
+		dstPath := filepath.Clean(filepath.Join(dst, name))
+		body, err := os.ReadFile(srcPath) // #nosec G304 G703 -- name checked above, stays inside src
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dstPath, body, 0o600); err != nil { // #nosec G306 G703 -- dstPath checked above
+			return err
+		}
+	}
+	return nil
+}
+
 // packageArgRe finds `./internal/...`-style package patterns where a shell
 // command names them, which is where a stale package path hides.
 var packageArgRe = regexp.MustCompile(`\./[A-Za-z0-9_./-]*\.\.\.`)
@@ -76,9 +116,10 @@ func packageOf(pattern string) string {
 // after both were deleted with the room broker: the gate stayed green, the
 // score it printed was not the score its own comment claimed, and nothing in
 // the repository could tell. A package pattern that names nothing is the
-// quietest way to shrink a gate.
+// quietest way to shrink a gate. The mutation job lives in long-gates.yml,
+// which this test reads instead of ci.yml.
 func TestTheMutationScopeNamesOnlyPackagesThatExist(t *testing.T) {
-	body := repoFile(t, workflow)
+	body := repoFile(t, longGates)
 
 	scope := mutationScope(t, body)
 	require.NotEmpty(t, scope, "the workflow must still run mutation testing")

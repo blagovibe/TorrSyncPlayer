@@ -78,10 +78,12 @@ check() {
   local window
   window=$(tail -n "$THRESHOLD_RUNS" "$series")
   good=$(printf '%s\n' "$window" | grep -c '| within the promise |' || true)
-
-  local rate
-  rate=$((100 * good / total))
-  echo "the last $total runs: $good kept the divergence within ${limit}s ($rate%)"
+  # The promise is about the last THRESHOLD_RUNS runs, and the measured
+  # rate has to divide them likewise: a series that already passed its
+  # twentieth row would otherwise never score above good/total again — a
+  # check that cannot say yes anymore.
+  rate=$((100 * good / THRESHOLD_RUNS))
+  echo "the last $THRESHOLD_RUNS of $total runs: $good kept the divergence within ${limit}s ($rate%)"
 
   if [ "$rate" -lt "$THRESHOLD_RATE" ]; then
     write_card "$root" "$total" "$good" "$rate" "$limit"
@@ -114,7 +116,7 @@ write_card() {
 id: bug-$(printf '%04d' "$number")
 type: bug
 status: open
-title: Комната расходилась дальше обещания — $good из $total последних замеров держали секунду
+title: Комната расходилась дальше обещания — из последних $THRESHOLD_RUNS из $total замеров: $good держали секунду
 refs:
   - "CONCEPT.md#Синхронные комнаты — каждый качает из роя сам"
   - "DEV.md#Соглашения по тестам"
@@ -123,16 +125,17 @@ created: $(date -u +%Y-%m-%d)
 
 ## Суть
 
-Ряд измерений расхождения синхронизации показал: из последних $total замеров
-комната держала расхождение в пределах $limit секунды в $good случаях, это
-$rate% при пороге в $THRESHOLD_RATE%. Предел записан в цели, и ниже него
-замер обязан открывать карточку — вот она.
+Ряд измерений расхождения синхронизации показал: из последних
+$THRESHOLD_RUNS из $total замеров комната держала расхождение в пределах
+$limit секунды в $good случаях, это $rate% при пороге в $THRESHOLD_RATE%.
+Предел записан в цели, и ниже него замер обязан открывать карточку — вот она.
 
 ## Обсуждение
 
 $(date -u +%Y-%m-%d): Создано автоматически измерением \`sync-measurement\`. Ряд:
-\`measurements/sync.md\`. Решение — за владельцем: это наш код, или это
-окружение, на котором он бежит.
+\`measurements/sync.md\`. Порог считается по окну из последних $THRESHOLD_RUNS
+замеров, поэтому карточка называет и окно, и полный размер ряда ($total).
+Решение — за владельцем: это наш код, или это окружение, на котором он бежит.
 EOF
 
   echo "the threshold is broken: a card was written to ${file#$root/}"

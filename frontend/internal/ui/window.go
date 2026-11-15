@@ -11,9 +11,12 @@ package ui
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -26,6 +29,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -47,6 +51,16 @@ type Torrent struct {
 	Peers    int     `json:"peers"`
 }
 
+// rateSample is one tick of a torrent's downloaded byte count: what the row
+// shows as speed. Rates appear only after two ticks agree on a torrent — a
+// rate computed from one observation would be a guess, and the row presents
+// it as a measurement.
+type rateSample struct {
+	bytes int64
+	rate  float64
+	at    time.Time
+}
+
 // window is the top-level window.
 type window struct {
 	client   *api.Client
@@ -57,6 +71,9 @@ type window struct {
 	// windows without one; then failures still reach the event line, just
 	// without the modal.
 	parent fyne.Window
+	// onDiagnostic is the optional log sink handed in by the launcher; a
+	// window built without one silently keeps no log.
+	onDiagnostic func(string)
 
 	list     *widget.List
 	fileList *widget.List
@@ -66,10 +83,12 @@ type window struct {
 	// through status alone is gone by the next tick — an error that lives
 	// two seconds is not reported at all. Events persist until the next
 	// event; the poll never touches this line.
-	events    *widget.Label
-	language  string
-	entry     *widget.Entry
-	addButton *widget.Button
+	events          *widget.Label
+	language        string
+	entry           *widget.Entry
+	addButton       *widget.Button
+	addFile         *widget.Button
+	leaveRoomButton *widget.Button
 
 	// socketPath is where mpv's control socket goes. Per process, so two
 	// instances on one machine — which the project's own tests do — cannot
@@ -78,6 +97,7 @@ type window struct {
 
 	mu       sync.RWMutex
 	torrents []Torrent
+	rates    map[string]rateSample
 	current  *Torrent
 	files    []fileEntry
 	mpv      *player.Player
@@ -179,6 +199,11 @@ type window struct {
 	inviteEntry *widget.Entry
 	createRoom  *widget.Button
 
+	// clip is where "Copy code" writes. Injected so a test can hold the code
+	// that actually reached the buffer; the application leaves it nil and the
+	// method below takes the toolkit's own (deviation-0153).
+	clip fyne.Clipboard
+
 	// Track choosers. mpv knows every voice and every subtitle track in the
 	// file; until this existed a person who needed the dub had no way to reach
 	// it from the application (idea-0080).
@@ -219,6 +244,10 @@ type WindowOptions struct {
 	// Parent is the application window dialogs hang off. Empty in tests,
 	// where there is no window to hang one off.
 	Parent fyne.Window
+	// OnDiagnostic receives lines for the log file, if any. The window has
+	// no file of its own; the line that gets a failure in front of a human
+	// is the same line worth keeping for a bug report.
+	OnDiagnostic func(string)
 }
 
 // OpenSettings opens the settings form over the given window.
@@ -272,12 +301,14 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		clientID:        clientID,
 		store:           store,
 		parent:          opts.Parent,
+		onDiagnostic:    opts.OnDiagnostic,
 		bootstrapFlag:   opts.Bootstrap,
 		relaysFlag:      opts.Relays,
 		socketPath:      playerSocketPath(os.Getpid()),
 		status:          widget.NewLabelWithStyle("Starting…", fyne.TextAlignLeading, fyne.TextStyle{}),
 		events:          widget.NewLabel(""),
 		pendingRoomFile: -1,
+		rates:           map[string]rateSample{},
 		selectedFile:    -1,
 	}
 	if store != nil {
@@ -291,6 +322,10 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 
 	w.addButton = widget.NewButtonWithIcon(w.tr("action.add"), theme.ContentAddIcon(), w.addTorrent)
 	w.addButton.Importance = widget.HighImportance
+	w.addFile = widget.NewButtonWithIcon(w.tr("action.addFile"), theme.FolderOpenIcon(), w.addTorrentFile)
+
+	w.leaveRoomButton = widget.NewButtonWithIcon(w.tr("action.leaveRoom"), theme.LogoutIcon(), w.onLeavePressed)
+	w.leaveRoomButton.Hide()
 
 	w.list = widget.NewList(
 		func() int {
@@ -299,16 +334,28 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			return len(w.torrents)
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("")
+			label := widget.NewLabel("")
+			info := widget.NewButtonWithIcon("", theme.InfoIcon(), nil)
+			info.Importance = widget.LowImportance
+			del := widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)
+			del.Importance = widget.LowImportance
+			return container.NewBorder(nil, nil, nil, container.NewHBox(info, del), label, layout.NewSpacer())
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			row := obj.(*fyne.Container)
+			label := row.Objects[0].(*widget.Label)
+			box := row.Objects[2].(*fyne.Container)
+			info := box.Objects[0].(*widget.Button)
+			del := box.Objects[1].(*widget.Button)
+			ii := id
+			info.OnTapped = func() { w.showDescription(w.item(ii)) }
+			del.OnTapped = func() { w.removeTorrent(w.item(ii)) }
 			w.mu.RLock()
 			defer w.mu.RUnlock()
 			if id < 0 || id >= len(w.torrents) {
 				return
 			}
-			label := obj.(*widget.Label)
-			label.SetText(w.torrents[id].Name)
+			label.SetText(w.rowSummary(w.torrents[id]))
 		},
 	)
 	w.list.OnSelected = func(id widget.ListItemID) { w.play(w.item(id)) }
@@ -320,7 +367,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	// panel is handed its minimum width, which clipped the one field
 	// everything starts from down to a few characters.
 	toolbar := container.NewBorder(nil, nil,
-		w.addButton,
+		container.NewHBox(w.addButton, w.addFile),
 		container.NewHBox(
 			widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
 			layout.NewSpacer(),
@@ -409,6 +456,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		container.NewHBox(
 			widget.NewButtonWithIcon(w.tr("action.join"), theme.MediaRecordIcon(), w.onJoinPressed),
 			w.createRoom,
+			w.leaveRoomButton,
 		),
 		container.NewBorder(nil, nil,
 			widget.NewButtonWithIcon(w.tr("action.paste"), theme.ContentPasteIcon(), w.onPasteCodePressed),
@@ -505,7 +553,15 @@ func (w *window) onPasteCodePressed() {
 	w.notify(w.tr("status.codeRead"))
 }
 
-// onCopyCodePressed fills the field with this room's invitation code.
+// onCopyCodePressed puts this room's invitation code on the clipboard.
+//
+// The goal says the host copies the code with one message; the button used to
+// only write it into the field, so the person then had to select it by hand and
+// the "one message" was two steps and a mouse drag (deviation-0153).
+//
+// The field is refilled only when it is empty or already shows this code: a
+// guest who pasted somebody else's invite into it is not silently robbed of it
+// by a button that was called "Copy code".
 func (w *window) onCopyCodePressed() {
 	w.mu.RLock()
 	invite := w.invite
@@ -525,7 +581,41 @@ func (w *window) onCopyCodePressed() {
 		w.invite = invite
 		w.mu.Unlock()
 	}
-	onMain(func() { w.inviteEntry.SetText(invite.Encode()) })
+
+	code := invite.Encode()
+	refill := w.inviteEntry.Text == "" || w.inviteEntry.Text == code
+	onMain(func() {
+		if refill {
+			w.inviteEntry.SetText(code)
+		}
+	})
+
+	err := w.copyToClipboard(code)
+	switch {
+	case err != nil:
+		w.notify(w.trf("status.copyFailed", err.Error()))
+	case refill:
+		w.notify(w.tr("status.codeCopied"))
+	default:
+		w.notify(w.tr("status.codeCopiedKept"))
+	}
+}
+
+// copyToClipboard writes the invitation code where a person can paste it.
+func (w *window) copyToClipboard(code string) error {
+	clip := w.clip
+	if clip == nil {
+		current := fyne.CurrentApp()
+		if current == nil {
+			return errors.New("no application to take the clipboard from")
+		}
+		clip = current.Clipboard()
+	}
+	if clip == nil {
+		return errors.New("the toolkit has no clipboard")
+	}
+	clip.SetContent(code)
+	return nil
 }
 
 // meshAddrs are the addresses the room's node can be reached at. They grow as
@@ -602,6 +692,9 @@ func (w *window) leaveRoom() {
 	onMain(func() {
 		setLine(w.roomLabel, "")
 		setLine(w.connLabel, "")
+		if w.leaveRoomButton != nil {
+			w.leaveRoomButton.Hide()
+		}
 	})
 }
 
@@ -665,6 +758,12 @@ func (w *window) joinMesh(invite rtc.Invite, isHost bool) (*rtc.Room, error) {
 	w.selfPeerID = mesh.SelfID()
 	w.mu.Unlock()
 
+	onMain(func() {
+		if w.leaveRoomButton != nil {
+			w.leaveRoomButton.Show()
+		}
+	})
+
 	return room, nil
 }
 
@@ -700,6 +799,16 @@ func (w *window) roomCallbacks() *rtc.Callbacks {
 			w.syncTheRoomStop()
 		},
 		OnHostChanged: func(hostPeerID string) {
+			// The greeting carries the host role, and it is what a newcomer
+			// believes before it hears any command: a flag set once at Join
+			// kept naming the old host after a transfer, and the newcomer
+			// believed the old one (bug-0148).
+			w.mu.RLock()
+			mesh := w.mesh
+			w.mu.RUnlock()
+			if mesh != nil {
+				mesh.SetHostRole(hostPeerID == mesh.SelfID())
+			}
 			w.showRoster()
 		},
 		OnPeerRefused: func(peerID string, theirVersion int) {
@@ -969,11 +1078,25 @@ func (w *window) pauseTheRoom() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	paused, err := mpv.Paused(ctx)
-	if err != nil {
-		return
+	// The read that decides who owns the pause can fail transiently — an
+	// mpv busy with a first decode on a loaded machine answers slowly, and
+	// a read that never lands hands the room a pause it never made. Retry
+	// the check rather than eating the first failure: the ownership
+	// question is still decided by a definitive answer, and three failed
+	// reads mean the player is left alone, which is the safe half.
+	var paused bool
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var err error
+		paused, err = mpv.Paused(ctx)
+		cancel()
+		if err == nil {
+			break
+		}
+		if attempt >= 2 {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	if paused {
 		// The user had paused it already. The room is stopped, but this
@@ -986,7 +1109,25 @@ func (w *window) pauseTheRoom() {
 	w.mu.Lock()
 	w.pausedForBuffering = true
 	w.mu.Unlock()
-	_ = mpv.Pause(ctx)
+
+	// The fire-and-forget send deserves the same three attempts as the
+	// read: an mpv busy answering a burst of queries on a loaded machine
+	// drops or stalls the socket write, and the room stays playing for
+	// someone who cannot see it. A definitive error is logged — the next
+	// report should say the pause never landed, not leave it a mystery.
+	var pauseErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pauseErr = mpv.Pause(ctx)
+		cancel()
+		if pauseErr == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if w.onDiagnostic != nil {
+		w.onDiagnostic("mpv: the room's pause never landed after three attempts: " + pauseErr.Error())
+	}
 }
 
 // resumeTheRoom lets the room play again, when the one who was behind is
@@ -1003,9 +1144,19 @@ func (w *window) resumeTheRoom() {
 	w.pausedForBuffering = false
 	w.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = mpv.Resume(ctx)
+	var resumeErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resumeErr = mpv.Resume(ctx)
+		cancel()
+		if resumeErr == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if w.onDiagnostic != nil {
+		w.onDiagnostic("mpv: the room never resumed after three attempts: " + resumeErr.Error())
+	}
 }
 
 // adoptRoomTorrent adds the room's torrent to THIS client's backend.
@@ -1413,6 +1564,9 @@ func (w *window) startPlayer() (*player.Player, error) {
 
 	mpv, err := player.Start(context.Background(), w.mpvOptions(), headers)
 	if err != nil {
+		if _, ok := mpvExecutable(w.settings.PlayerBinary); !ok {
+			onMain(w.showMpvMissing)
+		}
 		return nil, err
 	}
 	w.mpv = mpv
@@ -1455,6 +1609,264 @@ func (w *window) addTorrent() {
 		w.notify(w.trf("status.added", out.Name))
 		w.refresh()
 	}()
+}
+
+// onLeavePressed leaves the current room, then says so on the status line.
+func (w *window) onLeavePressed() {
+	w.leaveRoom()
+	w.notify(w.tr("status.left"))
+}
+
+// addTorrentFile opens a file picker for a .torrent and posts it the same
+// way a magnet goes in: the file is just a different key of the same
+// request. The person picks the file once; the backend decides what it
+// becomes.
+func (w *window) addTorrentFile() {
+	parent := w.parentWindow()
+	if parent == nil {
+		return
+	}
+	open := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+		if err != nil || reader == nil {
+			return
+		}
+		data, readErr := io.ReadAll(reader)
+		_ = reader.Close()
+		if readErr != nil {
+			w.fail(w.trf("status.couldNot", readErr.Error()))
+			return
+		}
+		if len(data) == 0 {
+			w.notify(w.tr("status.nothing"))
+			return
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			var out Torrent
+			body := map[string]string{"torrentFile": base64.StdEncoding.EncodeToString(data)}
+			if err := w.client.Post(ctx, "/api/v1/torrents", body, &out); err != nil {
+				w.fail(w.trf("status.couldNot", err.Error()))
+				return
+			}
+			w.notify(w.trf("status.added", out.Name))
+			w.refresh()
+		}()
+	}, parent)
+	open.SetFilter(storage.NewExtensionFileFilter([]string{".torrent"}))
+	open.Show()
+}
+
+// mpvExecutable reports whether an mpv to launch exists: the configured
+// one, one on PATH, or a well-known place it hides on this OS. The first
+// answer wins; a missing one means the install hint, not a bare exit error.
+func mpvExecutable(configured string) (string, bool) {
+	return mpvExecutableWithCandidates(configured, mpvCandidates(runtime.GOOS))
+}
+
+// mpvExecutableWithCandidates is the part tests can drive without an OS
+// full of mpv: the well-known locations are handed in.
+func mpvExecutableWithCandidates(configured string, candidates []string) (string, bool) {
+	if configured != "" {
+		if _, err := exec.LookPath(configured); err == nil {
+			return configured, true
+		}
+	}
+	if _, err := exec.LookPath("mpv"); err == nil {
+		return "mpv", true
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// mpvCandidates are the well-known mpv locations per OS, checked after the
+// configured binary and PATH.
+func mpvCandidates(goos string) []string {
+	switch goos {
+	case "windows":
+		pf := os.Getenv("ProgramFiles")
+		pf86 := os.Getenv("ProgramFiles(x86)")
+		choco := os.Getenv("ProgramData") + `\chocolatey\lib\mpv\tools\mpv.exe`
+		local := os.Getenv("LOCALAPPDATA") + `\mpv\mpv.exe`
+		candidates := []string{pf + `\mpv\mpv.exe`, choco, local}
+		if pf86 != "" {
+			candidates = append([]string{pf86 + `\mpv\mpv.exe`}, candidates...)
+		}
+		return candidates
+	case "darwin":
+		return []string{"/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv"}
+	default:
+		return []string{"/usr/bin/mpv", "/usr/local/bin/mpv", "/snap/bin/mpv", "/var/lib/flatpak/exports/bin/mpv"}
+	}
+}
+
+// mpvInstallHint renders the one answer a missing player has: what it is,
+// why playback is stuck, and how to install it on this OS.
+func mpvInstallHint(tr func(string) string, goos string) string {
+	key := "mpv.missing.linux"
+	switch goos {
+	case "darwin":
+		key = "mpv.missing.macos"
+	case "windows":
+		key = "mpv.missing.windows"
+	}
+	return strings.Join([]string{
+		tr("mpv.missing.body"),
+		tr(key),
+		tr("mpv.missing.note"),
+	}, "\n\n")
+}
+
+// showMpvMissing tells the person their player is not installed and how to
+// fix it on this OS — the one failure they cannot guess their way out of
+// from a raw exec error.
+func (w *window) showMpvMissing() {
+	parent := w.parentWindow()
+	if parent == nil {
+		w.fail(w.tr("mpv.missing.title"))
+		return
+	}
+	dialog.NewInformation(w.tr("mpv.missing.title"), mpvInstallHint(w.tr, runtime.GOOS), parent).Show()
+}
+
+// sampleRates records one tick of every torrent in the list: byte counts in,
+// bytes-per-second out. Only after two ticks agree on the same torrent does
+// the row show a speed — a rate from one observation is a guess, presented
+// as a measurement.
+func (w *window) sampleRates(ts []Torrent) {
+	now := time.Now()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.rates == nil {
+		w.rates = map[string]rateSample{}
+	}
+	for _, t := range ts {
+		bytes := int64(t.Progress * float64(t.Size))
+		sample := w.rates[t.ID]
+		if sample.at.IsZero() {
+			w.rates[t.ID] = rateSample{bytes: bytes, at: now}
+			continue
+		}
+		dt := now.Sub(sample.at).Seconds()
+		rate := computeRate(sample.bytes, bytes, dt)
+		w.rates[t.ID] = rateSample{bytes: bytes, rate: rate, at: now}
+	}
+}
+
+// computeRate is the arithmetic a row's speed is made of: bytes per second
+// between two ticks, or zero when the inputs cannot measure anything.
+func computeRate(prevBytes, nowBytes int64, dtSeconds float64) float64 {
+	if dtSeconds <= 0 {
+		return 0
+	}
+	if nowBytes <= prevBytes {
+		return 0
+	}
+	return float64(nowBytes-prevBytes) / dtSeconds
+}
+
+// rateOf reports the speed the last tick measured for a torrent, or zero
+// before the first comparison of two ticks has happened.
+func (w *window) rateOf(id string) float64 {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.rates[id].rate
+}
+
+// rowSummary renders the one line a torrent gets in the list: what it is,
+// and what it is doing right now.
+func (w *window) rowSummary(t Torrent) string {
+	switch t.Status {
+	case "seeding":
+		return fmt.Sprintf("%s — %s", t.Name, w.tr("torrent.seeding"))
+	default:
+		pct := fmt.Sprintf(w.tr("torrent.progress"), int(t.Progress*100))
+		if rate := w.rateOf(t.ID); rate > 0 {
+			return fmt.Sprintf("%s — %s (%s)", t.Name, pct,
+				fmt.Sprintf(w.tr("torrent.speed"), humanSize(int64(rate))))
+		}
+		return fmt.Sprintf("%s — %s", t.Name, pct)
+	}
+}
+
+// removeTorrent takes a torrent out of the list. The button asks twice —
+// once here and once in the native confirm — because the list is the
+// person's whole library, and the hit area of a row is large.
+func (w *window) removeTorrent(t *Torrent) {
+	if t == nil {
+		return
+	}
+	w.mu.RLock()
+	current := w.current
+	w.mu.RUnlock()
+	if current != nil && current.ID == t.ID {
+		w.notify(w.tr("status.cannotRemove"))
+		return
+	}
+	dialog.ShowConfirm(w.tr("action.remove"), w.trf("status.removeConfirm", t.Name), func(ok bool) {
+		if !ok {
+			return
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := w.client.Delete(ctx, "/api/v1/torrents/"+t.ID); err != nil {
+				w.fail(w.trf("status.couldNot", err.Error()))
+				return
+			}
+			w.notify(w.trf("status.removed", t.Name))
+			w.refresh()
+		}()
+	}, w.parentWindow())
+}
+
+// showDescription answers "what is this" without touching the player: the
+// release, its size, its progress, and the file list on it — the thing a
+// person reads before deciding to spend bandwidth on it.
+func (w *window) showDescription(t *Torrent) {
+	if t == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	files, err := w.roomFiles(ctx, t.ID)
+	if err != nil {
+		w.notify(w.trf("status.torrentReadFail", err.Error()))
+		return
+	}
+	if len(files) == 0 {
+		w.notify(w.tr("status.torrentNoFiles"))
+		return
+	}
+
+	lines := []fyne.CanvasObject{
+		widget.NewLabel(w.trf("description.name", t.Name)),
+		widget.NewLabel(w.trf("description.size", humanSize(t.Size))),
+		widget.NewLabel(w.trfi("description.progress", int(t.Progress*100))),
+		widget.NewLabel(w.trfi("description.peers", t.Peers)),
+		widget.NewLabel(w.trf("description.status", torrentStatusWord(w.tr, t.Status))),
+		rule(),
+		widget.NewLabel(w.trfi("description.files", len(files))),
+	}
+	for _, f := range files {
+		lines = append(lines, widget.NewLabel(fmt.Sprintf("%d. %s (%s)", f.Index, f.Name, humanSize(f.Size))))
+	}
+
+	parent := w.parentWindow()
+	if parent == nil {
+		// No window to hang the dialog off (headless tests build one): the
+		// content exists, but there is nowhere to show it. Skipping the
+		// dialog rather than inventing a window keeps tests honest.
+		return
+	}
+	dlg := dialog.NewCustom(w.tr("description.title"), w.tr("action.ok"), container.NewScroll(container.NewVBox(lines...)), parent)
+	dlg.Resize(fyne.NewSize(520, 480))
+	dlg.Show()
 }
 
 // poll keeps the list current.
@@ -1501,6 +1913,7 @@ func (w *window) refresh() {
 		w.notify(w.trf("status.unreach", err.Error()))
 		return
 	}
+	w.sampleRates(out.Torrents)
 
 	w.mu.Lock()
 	w.torrents = out.Torrents
@@ -1633,6 +2046,9 @@ func (w *window) setStatus(text string) {
 // poll never rewrites. Failures, arrivals and one-shot confirmations go
 // here; the two-second counters stay on status.
 func (w *window) notify(text string) {
+	if w.onDiagnostic != nil {
+		w.onDiagnostic(text)
+	}
 	onMain(func() { w.events.SetText(text) })
 }
 

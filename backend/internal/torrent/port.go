@@ -25,8 +25,17 @@ import (
 // So the number is chosen here instead, and chosen to be bindable on both
 // protocols — the same question asked of the kernel as one question, with both
 // answers held at once (bug-0118).
+//
+// The pool does not hand out ports uniformly at random: Windows assigns
+// ephemeral numbers sequentially from a per-boot base, so a run of reserved
+// UDP numbers is a run of *consecutive* failures, not of independent ones.
+// Twelve tries — the old count — walked 56857..56868 straight through the
+// reserved window 56841-57040 on a windows-latest runner and killed the
+// backend deterministically (bug-0172). The count is 512 so the walk clears
+// every reserved window Windows is known to carve out, while staying two
+// orders of magnitude below any limit on socket churn at startup.
 func pickListenPort() (int, error) {
-	for attempt := 0; attempt < 12; attempt++ {
+	for attempt := 0; attempt < 512; attempt++ {
 		// #nosec G102 -- every interface, on purpose: the torrent client
 		// listens on every interface, because that is how peers reach it. A
 		// probe on loopback would say nothing about the bind the client is
@@ -51,5 +60,5 @@ func pickListenPort() (int, error) {
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("no port was free for both TCP and UDP")
+	return 0, fmt.Errorf("no port was free for both TCP and UDP after 512 tries")
 }

@@ -127,6 +127,22 @@ func TestTheRoomStopsForTheOneWhoIsBehind(t *testing.T) {
 	// A guest reports that it is behind.
 	tr.feed("guest-peer", rtc.NewBuffering(true))
 
+	// Where did the chain stop: nobody acted, or the player said no.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		w.mu.RLock()
+		stopped, owned := w.roomStopped, w.pausedForBuffering
+		w.mu.RUnlock()
+		if stopped {
+			t.Logf("syncTheRoomStop acted: roomStopped=%v pausedForBuffering=%v", stopped, owned)
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Logf("syncTheRoomStop never acted within 5s: roomStopped=false")
+		}
+	}
+
 	waitForPlayer(t, w.mpv, followerWait, "the room to stop", func() bool {
 		paused, err := w.mpv.Paused(ctx)
 		return err == nil && paused

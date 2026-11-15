@@ -41,7 +41,7 @@ env:
   # Pinned in every workflow and checked to be the same number everywhere by
   # backend/internal/cicontract: a workflow that quietly builds with a different
   # Go is a green job about a different compiler.
-  GO_VERSION: '1.27.3'
+  GO_VERSION: '1.27.4'
 
 jobs:
   measure:
@@ -116,32 +116,10 @@ jobs:
       - name: Publish the series
         shell: bash
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # The board is a directory of cards, and an empty board is not in
-          # git at all — so the paths are added wholesale rather than by name.
-          # And only these paths: `git add -A` would sweep in whatever the
-          # run touched.
-          git add measurements .project-board
-          if git diff --cached --quiet; then
-            echo "the series has nothing new"
-            exit 0
-          fi
-          git commit -m "the room over the public network: one more run [skip ci]"
-
-          # The run touched other things, and a rebase refuses to run with a
-          # dirty tree. The commit is already made; what is left is the run's
-          # own dust.
-          git checkout -- .
-
-          # main may have moved under the measurement: the run reads the
-          # repository as it was when it started, and the series goes in on
-          # top of what is there now.
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          # main may have moved under the measurement; the series files
+          # are append-only, so the publisher unions the two sides rather
+          # than losing the row (see .github/scripts/publish-series.sh).
+          .github/scripts/publish-series.sh "the room over the public network: one more run [skip ci]"
 
       - name: Keep the log
         if: always()

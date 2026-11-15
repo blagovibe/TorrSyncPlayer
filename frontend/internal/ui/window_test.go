@@ -451,3 +451,82 @@ func TestTheRosterNamesEveryoneInTheRoom(t *testing.T) {
 		t.Errorf("the row is %d characters long: %q", len(rows[0]), rows[0])
 	}
 }
+
+// fakeClipboard remembers what was written to it. The toolkit's own clipboard
+// cannot be relied on in a headless test, and what this bug is about is whether
+// anything is written at all.
+type fakeClipboard struct{ text string }
+
+func (f *fakeClipboard) Content() string { return f.text }
+func (f *fakeClipboard) SetContent(text string) {
+	f.text = text
+}
+
+// aRoomInWindow attaches a room and an invite to a window without starting a
+// mesh: the copy button only reads them.
+func aRoomInWindow(t *testing.T, w *window) rtc.Invite {
+	t.Helper()
+
+	invite := rtc.Invite{
+		Community: "room-name",
+		Password:  "password",
+		Key:       "key",
+		Addrs:     []string{"/ip4/127.0.0.1/udp/4001/quic-v1"},
+		Version:   rtc.ProtocolVersion,
+	}
+	w.rtcRoom = &rtc.Room{}
+	w.invite = invite
+	return invite
+}
+
+// TestCopyCodePutsTheInvitationOnTheClipboard is the deviation, fixed.
+//
+// The goal says the host copies the invite with one message, and the button did
+// not copy: it only wrote the code into the entry field, so the host then had to
+// select it by hand (deviation-0153). A fake clipboard is enough to prove the
+// code left the application.
+func TestCopyCodePutsTheInvitationOnTheClipboard(t *testing.T) {
+	_ = test.NewApp()
+
+	w, _ := newWindow(api.New("http://127.0.0.1:1", "test-token"), "peer-test", nil, WindowOptions{})
+	invite := aRoomInWindow(t, w)
+	clip := &fakeClipboard{}
+	w.clip = clip
+
+	w.onCopyCodePressed()
+
+	if clip.text == "" {
+		t.Fatal("the copy button wrote nothing to the clipboard")
+	}
+	if clip.text != invite.Encode() {
+		t.Errorf("the clipboard holds %q, not the invitation code %q", clip.text, invite.Encode())
+	}
+	if w.inviteEntry.Text != invite.Encode() {
+		t.Errorf("the field shows %q while the code on the clipboard is %q",
+			w.inviteEntry.Text, clip.text)
+	}
+}
+
+// A code somebody pasted into the field is theirs: pressing "Copy code" must not
+// silently replace it with the host's own code. The clipboard gets this room's
+// invite either way, which is what the button promises.
+func TestCopyCodeLeavesAPastedCodeAlone(t *testing.T) {
+	_ = test.NewApp()
+
+	w, _ := newWindow(api.New("http://127.0.0.1:1", "test-token"), "peer-test", nil, WindowOptions{})
+	invite := aRoomInWindow(t, w)
+	clip := &fakeClipboard{}
+	w.clip = clip
+
+	const guestCode = "v2:someone-else:pw:key:/ip4/10.0.0.1/udp/4001/quic-v1"
+	w.inviteEntry.SetText(guestCode)
+
+	w.onCopyCodePressed()
+
+	if w.inviteEntry.Text != guestCode {
+		t.Errorf("the pasted code was replaced by %q", w.inviteEntry.Text)
+	}
+	if clip.text != invite.Encode() {
+		t.Errorf("the clipboard holds %q instead of this room's code", clip.text)
+	}
+}

@@ -20,8 +20,7 @@ import (
 
 // stubBackend is a TorrentBackend with no torrent machinery behind it. It lets
 // these tests pin the Service's contract with the seam: what the Service must
-// resolve, validate and delegate, independently of whether a real client or a
-// gateway is underneath.
+// resolve, validate and delegate, independently of the client underneath.
 type stubBackend struct {
 	mu sync.Mutex
 
@@ -115,8 +114,9 @@ func (h *stubHandle) SelectForStreaming(fileIndex int) error {
 	return nil
 }
 
-// BufferTarget returns nil by default, which is the gateway case: the buffer
-// service must then be left alone rather than handed a nil file.
+// BufferTarget returns nil by default, which is the "no piece-priority
+// control" case: the buffer service must then be left alone rather than
+// handed a nil file.
 func (h *stubHandle) BufferTarget(int) any { return nil }
 
 func newStubService(t *testing.T, backend TorrentBackend, buf *buffer.Service) *Service {
@@ -345,7 +345,7 @@ func TestNewServiceWithBackend_RejectsNil(t *testing.T) {
 	assert.Error(t, err, "a nil backend would panic on first use")
 }
 
-// The API layer's model must still render through the gateway path unchanged.
+// The API layer's model must still render through the backend path unchanged.
 func TestServiceOverBackend_TorrentInfoShape(t *testing.T) {
 	handle := newStubHandle()
 	svc := newStubService(t, &stubBackend{handle: handle}, nil)

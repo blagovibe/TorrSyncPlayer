@@ -68,6 +68,28 @@ func TestSubtitlesURLEscapesTheFileName(t *testing.T) {
 		c.SubtitlesURL("abc123", 2, "subs/film RU.srt"))
 }
 
+func TestDeleteUsesTheMethodTheServerExpects(t *testing.T) {
+	// DELETE is not a GET with a body: the router routes on the method, and a
+	// client that quietly downgraded the verb would see a 405 or, worse, a
+	// route nobody meant. It carries the token like every other call.
+	var method, path, token string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method = r.Method
+		path = r.URL.Path
+		token = r.Header.Get("X-Access-Token")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "secret")
+
+	require.NoError(t, c.Delete(context.Background(), "/api/v1/torrents/abc123"))
+
+	assert.Equal(t, http.MethodDelete, method)
+	assert.Equal(t, "/api/v1/torrents/abc123", path)
+	assert.Equal(t, "secret", token)
+}
+
 func TestAPIErrorNamesWhatFailed(t *testing.T) {
 	// "the request failed" is not actionable. The path and status are.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

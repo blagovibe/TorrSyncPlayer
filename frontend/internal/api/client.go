@@ -115,6 +115,17 @@ func (c *Client) Post(ctx context.Context, path string, body, out any) error {
 	return c.do(req, out)
 }
 
+// Delete performs a DELETE against the path. The backend answers with the
+// status and no body for the torrent routes today; decoding is left to the
+// caller if that ever changes.
+func (c *Client) Delete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	return c.do(req, nil)
+}
+
 func (c *Client) do(req *http.Request, out any) error {
 	req.Header.Set("Accept", "application/json")
 	if c.token != "" {
