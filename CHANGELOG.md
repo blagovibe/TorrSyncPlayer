@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The way stopped naming the dead.** The DEV.md grilling (2026-11-15,
+  idea-0180) fixed six statements that matched neither the code nor the
+  document's own history of solutions. "Комнаты встречаются на DHT-рандеву"
+  (Архитектура, intro and transport) now reads as the way it lives: the
+  room is built from the address in the invite, DHT is the fallback. The
+  `internal/validation` package row no longer claims room-identifier
+  validation; principle #4 no longer lowercases room identifiers; the
+  persistence paragraph names what actually survives a restart (source
+  and ownership, bug-0053), not a "состав" that never existed. Principle
+  #9 was the point of the exercise, and the owner's decision strengthens
+  it: the document itself can be the stale side of a divergence, and
+  then the document is fixed explicitly, by the change path, never
+  "по факту" — a state this session proved and repaired in one pass.
+  Fresh reconciliation: zone — DEV.md edits only; no code changed; no
+  tests re-run; anchors and cross-references re-read after editing;
+  no contradictions found with ADRs, goal, or measurements. Board: only
+  idea-0178 remains (raw material), untouched by this edit; the entry
+  that named the six fixes deletes its card.
+
 - **The goal named its audience and made its first promise checkable.**
   The CONCEPT.md grilling (2026-11-15, idea-0179) landed exactly two
   edits. First, an "### Аудитория" subsection at the top of "Границы
