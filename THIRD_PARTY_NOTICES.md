@@ -818,8 +818,8 @@ Lesser General Public License version 2.1 follow this notice.
                      END OF TERMS AND CONDITIONS
 
 
-The GCC Runtime Library Exception (GCC-3.0), covering the statically
-linked GCC runtime libraries above:
+The GCC Runtime Library Exception (GCC-3.0), applying to the GCC
+runtime libraries shipped beside the executables:
 
      Copyright (C) 2007 Free Software Foundation, Inc.
 
