@@ -50,16 +50,18 @@ channels noted.
   package page at https://community.chocolatey.org/packages/ffmpeg,
   or `brew info ffmpeg` for the exact source of the build in your artifact.
 
-## GCC runtime libraries (statically linked into the Windows artifact)
+## GCC runtime libraries (shipped beside the Windows executables)
 
 - **What:** the GCC runtime libraries — **libstdc++**, **libgcc** and
-  **libwinpthread** — linked statically into `TorrSyncPlayer.exe` and
-  `torrsyncplayer.exe`; the Windows binary does not and cannot assume a
-  GNU toolchain on the user's machine.
+  **libwinpthread** — copied beside `TorrSyncPlayer.exe` and
+  `torrsyncplayer.exe`, byte-identical to the ones the build used (resolved
+  at release time with `gcc -print-file-name`). The Windows artifact
+  dynamically imports them; the user's machine cannot be assumed to have a
+  GNU toolchain, so they travel with it.
 - **License:** GNU GPLv3 with the GCC Runtime Library Exception (**GCC-3.0**,
-  reproduced at the end of this file): linking a program under this
-  exception makes the program's own license apply to the combined work, not
-  the GCC runtime's license.
+  reproduced at the end of this file): these files may be redistributed with
+  your application as a runtime dependency, and doing so does not put your
+  application under the GPL.
 - **Corresponding source:** https://gcc.gnu.org/mirrors.html; the exception
   text itself: https://www.gnu.org/licenses/gcc-exception.html.
 

@@ -213,28 +213,46 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: go run ./cmd/build -out ../dist
 
-      # The user's machine has no libstdc++/libgcc/libwinpthread. A binary
-      # that imports them does not start — it dies in a dialog on the first
-      # run — and every green CI job is a lie about that (bug-0183). The
-      # client links the runtime statically now, and this gate keeps it so:
-      # if a change ever reintroduces a dynamic dependency, the release dies
-      # here with the exact names of the DLLs. `findstr` sees the import
-      # table's literal strings; a match means the binary fails on a clean
-      # machine.
-      - name: The artifacts must not import the MinGW runtime
+      # The user's machine has no libstdc++/libgcc/libwinpthread, and the
+      # binary dynamically imports them from whichever MinGW compiled it.
+      # Neither of those facts is negotiable — the release therefore ships
+      # the exact DLLs the compiling gcc would use, resolved by gcc itself
+      # (-print-file-name), byte-identical to the ones in the artifact.
+      # A clean machine unzips and starts: no dialog, no DLL complaint.
+      - name: Ship the MinGW runtime the build links against
         shell: pwsh
         run: |
-          $bad = @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')
+          $dlls = @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')
+          foreach ($dll in $dlls) {
+            $path = (gcc -print-file-name=$dll).Trim()
+            if ($path -and $path -ne $dll -and (Test-Path $path)) {
+              Copy-Item $path dist\
+              Write-Host "shipped $dll from $path"
+            } else {
+              Write-Error "gcc could not resolve $dll — the toolchain changed; this step must be updated before releasing again"
+              exit 1
+            }
+          }
+
+      # Whatever the artifacts import must be present beside them. A
+      # machine that downloads a binary that imports a DLL the user does
+      # not have does not start. This is the gate for bug-0183: if an
+      # artifact stops shipping a DLL it still imports, the release dies
+      # with the DLL's name.
+      - name: Every imported MinGW DLL must be shipped beside the artifacts
+        shell: pwsh
+        run: |
+          $dlls = @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')
           foreach ($exe in @('dist\TorrSyncPlayer.exe','dist\torrsyncplayer.exe')) {
-            foreach ($dll in $bad) {
+            foreach ($dll in $dlls) {
               findstr /M /C:$dll $exe | Out-Null
-              if ($LASTEXITCODE -eq 0) {
-                Write-Error "$exe imports $dll — TorrSyncPlayer.exe would not start on a clean Windows machine"
+              if ($LASTEXITCODE -eq 0 -and -not (Test-Path "dist\$dll")) {
+                Write-Error "$exe imports $dll and it is not next to it"
                 exit 1
               }
             }
           }
-          Write-Host 'both artifacts are free of the MinGW runtime'
+          Write-Host 'every imported MinGW runtime DLL is shipped beside the artifacts'
 
       - name: Assemble the release folder
         shell: pwsh
@@ -244,6 +262,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path $bundle | Out-Null
 
           Copy-Item dist/TorrSyncPlayer.exe,dist/torrsyncplayer.exe $bundle
+          # The MinGW runtime the artifacts dynamically import (bug-0183).
+          # Whatever the zip carries must start from the folder it is
+          # unzipped into: the executables and the DLLs that belong to them
+          # travel together.
+          foreach ($dll in @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')) {
+            Copy-Item "dist\$dll" $bundle
+          }
 
           # mpv is chosen by what the directory holds, not by what PATH says:
           # the directory with the player in it has the DLLs beside it, and the
@@ -298,7 +323,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $entries = (Expand-Archive TorrSyncPlayer-windows-x64.zip -DestinationPath /tmp/unpacked -PassThru).FullName
-          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer.exe','mpv.exe','THIRD_PARTY_NOTICES.md') {
+          foreach ($f in 'TorrSyncPlayer.exe','torrsyncplayer.exe','mpv.exe','THIRD_PARTY_NOTICES.md','libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll') {
             if (-not ($entries | Where-Object { $_ -like "*$f" })) {
               Write-Error "the archive is missing $f"; $entries; exit 1
             }
