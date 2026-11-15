@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The v0.4.3 line closed green on every gate.** Long Gates on the
+  released tree (3283fe9): Living Player Gates green on ubuntu (1m13s),
+  macOS (3m37s) and windows (4m11s) — the fourth straight green round
+  for the moved class — Mutation Testing above its 0.64 floor,
+  the k6 load tests clean. With CI, CodeQL, Security and the Release
+  workflow green on the same line, nothing sweeps under this line: the
+  board is empty, both measurement series are within their promises,
+  and the boundary for the next session is this commit.
+
 ## [v0.4.3] - 2026-11-15
 
 - **The pipeline keeps its word.** Pushes to `main` no longer cancel
