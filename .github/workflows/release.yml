@@ -206,19 +206,30 @@ jobs:
       # The image carries a MinGW that is convenient for building but opaque
       # about its own layout, and dependency-resolution steps that hunt for it
       # guess at paths — badly (bug-0183 teaches this again and again). So this
-      # job installs the exact toolchain it builds with, plus its runtime
-      # DLLs, from chocolatey: one known distribution, its gcc on PATH, and
-      # its DLLs right beside that gcc.
+      # job installs the exact toolchain it builds with from chocolatey and
+      # locates the gcc it actually produced — the package ends up either
+      # under chocolatey\lib\mingw (the portable layout) or under
+      # C:\ProgramData\mingw64\mingw64 (the global layout) depending on the
+      # package's own config; scanning both avoids the next surprise.
       - name: Install the MinGW toolchain this build uses
         shell: pwsh
         run: |
           choco install mingw -y --no-progress
-          $bin = Get-ChildItem -Path "$env:ProgramData\chocolatey\lib\mingw" -Recurse -Filter 'gcc.exe' |
-            Select-Object -First 1 | Split-Path -Parent
-          if (-not $bin) {
-            Write-Error 'the mingw package installed but gcc.exe was not found under chocolatey\lib\mingw'
+          $roots = @(
+            "$env:ProgramData\mingw64",
+            "$env:ProgramData\chocolatey\lib\mingw",
+            "$env:ProgramFiles\mingw64",
+            'C:\tools\mingw64'
+          )
+          $gcc = foreach ($root in $roots) {
+            Get-ChildItem -Path $root -Filter 'gcc.exe' -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+          } | Select-Object -First 1
+          if (-not $gcc) {
+            Write-Error "mingw installed but gcc.exe was not found under: $($roots -join ', ')"
             exit 1
           }
+          $bin = Split-Path -Parent $gcc.FullName
           Write-Host "mingw bin: $bin"
           Add-Content $env:GITHUB_PATH $bin
 
@@ -240,9 +251,18 @@ jobs:
       - name: Ship the MinGW runtime the build links against
         shell: pwsh
         run: |
-          $bin = Get-ChildItem -Path "$env:ProgramData\chocolatey\lib\mingw" -Recurse -Filter 'gcc.exe' |
-            Select-Object -First 1 | Split-Path -Parent
-          if (-not $bin) { Write-Error 'could not locate the toolchain that just built the artifacts'; exit 1 }
+          $roots = @(
+            "$env:ProgramData\mingw64",
+            "$env:ProgramData\chocolatey\lib\mingw",
+            "$env:ProgramFiles\mingw64",
+            'C:\tools\mingw64'
+          )
+          $gcc = foreach ($root in $roots) {
+            Get-ChildItem -Path $root -Filter 'gcc.exe' -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+          } | Select-Object -First 1
+          if (-not $gcc) { Write-Error 'could not locate the toolchain that just built the artifacts'; exit 1 }
+          $bin = Split-Path -Parent $gcc.FullName
           foreach ($dll in @('libstdc++-6.dll','libgcc_s_seh-1.dll','libwinpthread-1.dll')) {
             $path = Join-Path $bin $dll
             if (-not (Test-Path $path)) {
