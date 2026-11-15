@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The status line showed `%!d(string=1)` instead of a count.** `window.go`
+  passed `strconv.Itoa(len(out.Torrents))` to a catalog entry that formats
+  with `%d`, through a helper `trf` that accepts any string; the format
+  blew up at run time to `%!d(string=1)` — visible at the bottom of the
+  window exactly as `%ld(string=1)`. The catalog entry is correct for
+  numbers (`status.torrents: "%d torrents"` / `"торрентов: %d"`), and the
+  fix is at the call site: `trfi` is the number-argument helper, and the
+  call now goes through it. No other site passes a string into a `%d`
+  template.
+
+  One datapoint from the same conversation: the screen shows the user
+  watching `Jimmy Neutron Boy Genius 2001 Vekshin.ac3`; `.ac3` is a
+  pure-audio elementary stream and no picture is to be expected at all —
+  the sound comes from the same file played back correctly. What the
+  file contains is what the torrent has; the app is not failing to show
+  the video, it is faithfully playing the first and only file selected.
+  The missing picture, if any, lives on the source torrent, not on this
+  line of work.
+
 - **The Windows and macOS zips now contain the application, and the
   runtime it needs. Both. Since the first release, they did not.**
   bug-0183 and bug-0184, together, close the worst defect this project

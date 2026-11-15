@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1979,7 +1978,7 @@ func (w *window) refresh() {
 	onMain(w.list.Refresh)
 	preparing := preparingText(w.tr, playingTorrent(out.Torrents, playing))
 	onMain(func() { setLine(w.preparing, preparing) })
-	w.setStatus(w.trf("status.torrents", strconv.Itoa(len(out.Torrents))))
+	w.setStatus(w.trfi("status.torrents", len(out.Torrents)))
 
 	w.adoptTheRoomsFile()
 }
