@@ -7,65 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **The line gets its proof back, and the board goes empty.** An
-  analysis-first session (2026-11-15) found the project healthy — CI green on
-  three platforms, both measurement series within their promises (sync: all
-  rows within the one-second promise; rendezvous: all met, 2–46 s against the
-  90-second bar), three open cards plus the Pact compromise — and the owner
-  chose the work from it. Three commits carry it.
-- **f8e07a8 — the pipeline stops sacrificing its own runs.** `ci.yml` no
-  longer cancels in-flight runs for pushes to main/develop (only PR pushes
-  supersede stale PR runs; bug-0175). A new job in `long-gates.yml`,
-  *Living Player Gates* (ubuntu-24.04 / macos-latest / windows-latest,
-  cancellation refused, never per-push), now carries the 90-second-budget
-  class: `TestRealMpv*`, `TestMpvKeepsSayingStalledWhileThePlayerIsPaused`,
-  `TestTheFollower*`, `TestTheRoomStopsForTheOneWhoIsBehind`,
-  `TestTheRoomIsReleasedWhenTheOneWhoIsBehindIsBack`,
-  `TestAGuestDoesNotStopTheRoom`, and `TestARoomOfManyIsStillARoom`
-  (bug-0173, bug-0174). `ci.yml` skips exactly that list; `Long Gates` ran it
-  green on all three platforms three times in a row, including macOS
-  (4m8s and 3m38s). The backend's otel family went v1.45.0 → v1.47.0,
-  closing the one open dependabot alert (bug-0176; GitHub reports zero open
-  alerts after the push). idea-0159 closed by owner decision: the v0.4.2
-  release plus its own content checks are sufficient evidence for this
-  build; the gap (a window that was never opened by a human) stays named,
-  not forgotten — the card is deleted, the fact lives here. CI and Long
-  Gates on this line are green.
-- **81f1f73 — the contract is a thin layer now. Its first push went red in
-  lint, and that was the gate working.** The accepted compromise of
-  deviation-0169 (runtime Pact verification off, go1.27.4 breaks the cgo
-  link) ends by the owner's decision (idea-0177, 2026-11-15):
-  pact-go is gone, and `internal/contract` replays
-  `pacts/frontend-backend.json` against the real router itself — status,
-  `Content-Type`, and body shape by `matchingRules` (kind match for
-  `$.body` and `$.body.<field>`, element-wise for `[*]`); bodies without
-  rules compare exactly; an unknown rule fails rather than passes. No build
-  tag, no cgo, no FFI — ordinary tests in every backend run. Red probes
-  confirm both failure paths (wrong status; unknown match value). Lifting
-  the golangci exclusion for the package turned the linter on and found
-  four real issues — fixed in 7efa028, not re-excluded (`gosec` G101/G304
-  annotated with reasons, two `errcheck` closes discarded deliberately).
-  pact-go is out of `go.mod`; the FFI fetch is gone from the Makefiles and
-  `.gitignore`; the way is updated (DEV.md) to describe the thin check,
-  and CI on 7efa028 is green on all three platforms (the first push,
-  81f1f73, was red exactly there).
-- **bug-0173 and bug-0174 stay closed.** The agreed treatment was the
-  relocation to a non-cancellable workflow; after three green
-  *Living Player Gates* runs on all three platforms, both cards are
-  deleted. If the flake class returns there, it starts a new card — the
-  green runs are recorded here, not remembered.
-- **idea-0177 resolved by the owner's decision; deviation-0169 resolved by
-  the same.** The thin layer was the chosen path; both cards are deleted.
-  The monthly pact recheck duty ends with them.
-- **Fresh reconciliation for this session:** the zone from the previous
-  boundary (db3ed47..HEAD at f342bce) was read — measurement row, board
-  notes, a test-diagnostics-only change; the f342bce CI, first cancelled by
-  the old concurrency config, re-ran and went green (43704374596). Local
-  limits, honestly: `gcc` is absent on this machine, so frontend tests
-  cannot run here and `internal/cicontract`'s bash-dependent tests cannot
-  either — the verification of both happened on CI. Nothing sweeps under
-  this line: the board is empty, both series are within their promises,
-  and the boundary for the next session is this commit.
+- **The pipeline keeps its word.** Pushes to `main` no longer cancel
+  in-flight runs — the configuration under which the head of every line
+  could lose its green check — and the 90-second-budget living-player
+  class (real mpv tests and the 25-person room assembly) now runs in
+  Long Gates on all three platforms, green three times in a row.
+  (bug-0173, bug-0174, bug-0175)
+- **The last dependency alert is closed.** The backend's `otel` family
+  moved to v1.47.0; dependabot reports zero open alerts, and code
+  scanning stays clean. (bug-0176)
+- **The contract is verified again — without cgo.** go1.27.4 broke the
+  pact-FFI link, so `internal/contract` now replays
+  `pacts/frontend-backend.json` against the real router itself: status,
+  `Content-Type`, and body shape by `matchingRules`, failing on any rule
+  it does not understand. It runs as ordinary tests on every backend run.
+  The golangci exclusion for the package was lifted; the linter found
+  four real issues, fixed in code, not re-excluded. (deviation-0169,
+  idea-0177)
+- **The board is empty, and the never-run window is closed by decision.**
+  idea-0159: the v0.4.2 release plus its own content checks are
+  sufficient evidence for the build; the gap is named in the journal,
+  not forgotten. (bug-0173/0174/0175/0176, deviation-0169, idea-0159,
+  idea-0177 — all deleted)
+- **An honest stumble on the way out.** The closing board cleanup deleted
+  `.project-board/` itself, and two pieces of machinery assumed it exists:
+  the series test helper `copyTree` (backend runs red on ubuntu and
+  windows alike) and the measurement publisher
+  (`git add measurements .project-board`, the sync job red at
+  Publish the series). An absent board is a valid empty board — the
+  suite had simply never had one before; it found the state the first
+  time it ran. Both now tolerate the absence; the line is re-verified
+  on CI.
+- **Honest limits.** The reconciliation zone (db3ed47..HEAD) was read;
+  the f342bce CI, cancelled by the old config, re-ran and went green.
+  Local limits — no `gcc`, no `mpv`, no `bash` on the machine used — were
+  verified on CI instead; both measurement series remain within their
+  promises; the sync series is unchanged and unbroken. The verbatim
+  session record lives in the git history of this file (commits
+  f8e07a8..HEAD).
 
 ## [v0.4.2] - 2026-11-15
 

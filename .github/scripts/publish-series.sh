@@ -26,8 +26,12 @@ git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 # all — so the paths are added wholesale rather than by name. Only these
 # paths: `git add -A` would sweep in whatever the run touched, and the
 # run touches go.sum — `go mod download all` writes the sums of modules
-# the build does not need.
-git add measurements .project-board
+# the build does not need. The board may not exist: an absent board is a
+# valid empty board, and a missing path would kill `git add` under set -e.
+git add measurements
+if [ -d .project-board ]; then
+  git add -A -- .project-board
+fi
 if git diff --cached --quiet; then
   echo "the series has nothing new"
   exit 0

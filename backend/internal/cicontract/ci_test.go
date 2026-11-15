@@ -66,9 +66,14 @@ func repoFile(t *testing.T, path string) string {
 // into another, for the temp copy of the repository that the scripts run
 // against. The scripts read the board by listing it, so the copy must carry
 // the same cards the real board carries, or their numbering disagrees with
-// this suite's own.
+// this suite's own. A board that does not exist at all is a board with no
+// cards — the tests' own convention (readCards returns nil for a missing
+// directory) — and copying nothing is the faithful copy of it.
 func copyTree(t *testing.T, src, dst string) error {
 	t.Helper()
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return nil
+	}
 	if err := os.MkdirAll(dst, 0o750); err != nil {
 		return err
 	}
