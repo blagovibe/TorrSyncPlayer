@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.5] - 2026-11-15
+
 - **The Windows build starts where it should — on the user's machine.
   bug-0183.** The released Windows artifact had never once started without
   the MinGW runtime DLLs (`libstdc++-6.dll`, `libgcc_s_seh-1.dll`,
