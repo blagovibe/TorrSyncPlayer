@@ -90,6 +90,12 @@ func hostWindow(t *testing.T, label, media string, isHost bool) (*window, *roomT
 	tr := &roomTransport{self: "self", peers: []string{"guest-peer"}, incoming: make(chan rtcRoomMessage, 16)}
 
 	w := &window{mpv: p, roomLabel: widget.NewLabel("")}
+	// A pause that never landed is silent by design: the sink shows the
+	// person a line, if the launcher wired one. Under test there is no
+	// launcher, so the sink lands in the log that a failing test's failure
+	// output carries — otherwise the reason evaporates exactly when it is
+	// most wanted.
+	w.onDiagnostic = func(line string) { t.Logf("diagnostic: %s", line) }
 	w.rtcRoom = rtc.NewRoom(tr, "self", "self-user", isHost, w.roomCallbacks())
 
 	ctx, cancel := context.WithCancel(context.Background())
