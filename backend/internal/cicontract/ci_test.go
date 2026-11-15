@@ -72,7 +72,10 @@ func repoFile(t *testing.T, path string) string {
 func copyTree(t *testing.T, src, dst string) error {
 	t.Helper()
 	if _, err := os.Stat(src); os.IsNotExist(err) {
-		return nil
+		// An empty board is not in git at all; the faithful copy of it is
+		// an empty directory, created so the repository root around it
+		// exists for the files the caller writes next.
+		return os.MkdirAll(dst, 0o750)
 	}
 	if err := os.MkdirAll(dst, 0o750); err != nil {
 		return err
