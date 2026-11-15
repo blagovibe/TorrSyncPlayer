@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **README stops promising what the server does not do.** The README.md
+  grilling (owner-approved) landed against the code: the HTTP API table
+  now matches the router exactly (`/torrents` list/add, `/{id}` DELETE,
+  `/{id}/files`, `/magnet`, `/{id}/select`, `/{id}/subtitles/{fileIndex}/*`,
+  `/{id}/buffer/position` with its own hourly budget and `X-Access-Token`,
+  `/buffer/info`, `/api/v1/health/detailed`), including the endpoints the
+  old text merged into one line and the subtitles route it missed. The
+  invite diagnostics now describe the five-part v2 wire format
+  (`v2:community:password:key:addrs`, v2 first, the address list carrying
+  colons inside it). Dependency pins in README (Технологии) and DEV
+  (Технологический стек) follow the manifests (anacrolix/torrent v1.62.0,
+  go-libp2p v0.51.0). Two presentational lies gone, too: "instead of
+  passwords on the server" and `:--port`. Docs-only; no tests re-run;
+  verification cross-read: `router.go`, `paths.go`, `constants.go`,
+  `go.mod` of both modules and the workflows pinned this session. Fresh
+  reconciliation: none of the touched claims contradict code, ADRs, or
+  the goal; remaining open item on the board: idea-0178 (auto-update,
+  raw).
+
 - **The way stopped naming the dead, part two.** Two follow-ups from
   the DEV.md grilling, confirmed by the owner: the ADR section now opens
   with a pointer to where the current truth lives («Рандеву…», «Код

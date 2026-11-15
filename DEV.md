@@ -1038,8 +1038,8 @@ weron: сборка дольше, обновления чаще, API churn вы�
 
 | Слой | Технологии и версии |
 |---|---|
-| Бэкенд | Go 1.26.11, anacrolix/torrent v1.61.1-0.20260911233437-76452a2c8a2f, go-chi/chi/v5, swaggo/swag v1.16.6 |
-| Фронтенд | Go 1.26.11, Fyne v2, fyne.io/systray, внешний процесс `mpv`, go-libp2p v0.50.0 |
+| Бэкенд | Go 1.26.11, anacrolix/torrent v1.62.0, go-chi/chi/v5, swaggo/swag v1.16.6 |
+| Фронтенд | Go 1.26.11, Fyne v2, fyne.io/systray, внешний процесс `mpv`, go-libp2p v0.51.0 |
 | Тесты бэкенда | go test, testify, race-детектор, go-mutesting |
 | Тесты фронтенда | go test, testify, `-race`; сценарные тесты против настоящего бинарника бэкенда |
 | Сборка | `go build`; пара «клиент + бэкенд» — `go run ./cmd/build` |
