@@ -46,7 +46,7 @@ import (
 // token. The contract pins the *shape* of an authenticated call, not a
 // specific token value: the verifier mints a real token per run and
 // substitutes it into the request headers before answering.
-const tokenPlaceholder = "${PACT_TOKEN}"
+const tokenPlaceholder = "${PACT_TOKEN}" // #nosec G101 -- a placeholder marker parsed out of the fixture, not a credential
 
 type matchingRule struct {
 	Match string `json:"match"`
@@ -77,7 +77,7 @@ func loadFixture(t *testing.T) fixture {
 	t.Helper()
 
 	src := filepath.Join("..", "..", "..", "pacts", "frontend-backend.json")
-	raw, err := os.ReadFile(src)
+	raw, err := os.ReadFile(src) // #nosec G304 -- the repository's own fixture, derived from this test's location, not from input
 	if err != nil {
 		t.Fatalf("fixture not found at %s: %v", src, err)
 	}
@@ -211,7 +211,7 @@ func TestProviderContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create torrent service: %v", err)
 	}
-	defer torrentSvc.Close()
+	defer func() { _ = torrentSvc.Close() }()
 
 	authService, err := auth.NewAuthService()
 	if err != nil {
@@ -260,7 +260,7 @@ func TestProviderContract(t *testing.T) {
 			if err != nil {
 				t.Fatalf("replay request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != it.Response.Status {
 				t.Fatalf("status %d, expected %d", resp.StatusCode, it.Response.Status)
