@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.6] - 2026-11-16
+
 - **The backend can finally be heard in the diagnostics log (bug-0185,
   instrumentation half).** The log from the machine showed: two
   `/api/v1/torrents returned 500: {"error":"Internal server error"}` and,
