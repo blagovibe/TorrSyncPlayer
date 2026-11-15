@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The shipped mpv is seen now (bug-0181).** The Windows zip and the
+  macOS DMG shipped mpv beside the binary since their first days, and
+  the application never looked there — the resolution stopped at PATH
+  and the well-known places, never the directory the release was built
+  to ship the player from — so the README's own promise — "mpv is
+  already inside, no separate install" — was broken on two of three
+  platforms; Linux worked only because AppRun prepends `usr/bin` to
+  PATH. The resolution is now: the configured mpv (verbatim, never
+  silently swapped), then PATH, then the bundle candidate (next to the
+  binary / `Contents/MacOS/mpv` — exactly where the release puts it),
+  and only then the well-known places; an empty setting launches the
+  bundle when one ships (through the same resolution, via the
+  `defaultPlayerBinary` seam), and keeps the bare `mpv` default with the
+  existing install-hint fallback only when nothing resolves anywhere.
+  The architecture is unchanged — still an external process with JSON
+  IPC, still the window as the remote. The first push turned red on
+  Windows's stricter LookPath semantics (extensionless files rejected);
+  the follow-up commits the same fake shape this suite always used. CI
+  is green on all three platforms. idea-0182 (libmpv in-process) stays
+  on the board as raw material, untouched. Fresh reconciliation: zone —
+  frontend/internal/ui; local cgo unavailable, verified on CI.
+
 - **README stops promising what the server does not do.** The README.md
   grilling (owner-approved) landed against the code: the HTTP API table
   now matches the router exactly (`/torrents` list/add, `/{id}` DELETE,
