@@ -73,14 +73,29 @@ func TestTheConfiguredPlayerIsTheOneLaunched(t *testing.T) {
 	}
 }
 
-// TestAnEmptyPlayerBinaryLeavesTheChoiceToPATH is the other half: an empty
-// setting must mean "the usual mpv", not "no player at all".
-func TestAnEmptyPlayerBinaryLeavesTheChoiceToPATH(t *testing.T) {
-	w := &window{socketPath: "/tmp/torrsync-test.sock"}
+// TestAnEmptyPlayerBinaryLeavesTheChoiceToTheResolver is the other half: an
+// empty setting must mean "the mpv the release ships or the usual one", not
+// "no player at all". The two directions are pinned with the seam, so the
+// test does not depend on whether the ambient machine has an mpv.
+func TestAnEmptyPlayerBinaryLeavesTheChoiceToTheResolver(t *testing.T) {
+	old := defaultPlayerBinary
+	defer func() { defaultPlayerBinary = old }()
 
-	if got := w.mpvOptions().Binary; got != "" {
-		t.Errorf("an unset binary became %q, which asks the launcher for a file called that", got)
-	}
+	t.Run("nothing ships, nothing resolves", func(t *testing.T) {
+		defaultPlayerBinary = func() (string, bool) { return "", false }
+		w := &window{socketPath: "/tmp/torrsync-test.sock"}
+		if got := w.mpvOptions().Binary; got != "" {
+			t.Errorf("an unset binary that resolves nowhere became %q, which asks the launcher for a file called that", got)
+		}
+	})
+
+	t.Run("the bundle ships and is used", func(t *testing.T) {
+		defaultPlayerBinary = func() (string, bool) { return "/bundle/mpv", true }
+		w := &window{socketPath: "/tmp/torrsync-test.sock"}
+		if got := w.mpvOptions().Binary; got != "/bundle/mpv" {
+			t.Errorf("the release-shipped mpv was not chosen: %q", got)
+		}
+	})
 }
 
 // TestTheSocketPathIsPerProcess keeps two instances from sharing a control

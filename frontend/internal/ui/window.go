@@ -1541,12 +1541,32 @@ func mpvHeaders(token, clientID string) ([]string, error) {
 // "no such file" and a setting that looked like it worked.
 func (w *window) mpvOptions() player.Options {
 	return player.Options{
-		// The configured mpv, if there is one. A person whose mpv is not on
-		// PATH — a flatpak, a bundle, a build under /opt — would otherwise get
-		// "no such file" and no way to say which binary to use.
-		Binary:     w.settings.PlayerBinary,
+		// The configured mpv, if there is one. The configured value is
+		// verbatim — a person who pointed at a binary that is missing
+		// meant that binary, and falling back would hide their setting.
+		// When nothing is configured, ask the resolver: it prefers the
+		// mpv shipped inside the release bundle over an ambient one,
+		// because the shipped application promises the player works
+		// out of the box.
+		Binary:     w.playerBinary(),
 		SocketPath: w.socketPath,
 	}
+}
+
+// defaultPlayerBinary resolves the mpv the release bundle ships when the
+// settings do not name one. A package variable so tests can pin both
+// directions without depending on the ambient machine — the same seam
+// mpvLookup uses.
+var defaultPlayerBinary = func() (string, bool) { return mpvExecutable("") }
+
+func (w *window) playerBinary() string {
+	if w.settings.PlayerBinary != "" {
+		return w.settings.PlayerBinary
+	}
+	if mpv, ok := defaultPlayerBinary(); ok {
+		return mpv
+	}
+	return ""
 }
 
 func (w *window) startPlayer() (*player.Player, error) {
@@ -1658,15 +1678,21 @@ func (w *window) addTorrentFile() {
 }
 
 // mpvExecutable reports whether an mpv to launch exists: the configured
-// one, one on PATH, or a well-known place it hides on this OS. The first
-// answer wins; a missing one means the install hint, not a bare exit error.
+// one, one on PATH, the one shipped inside the release bundle, or a
+// well-known place it hides on this OS. The first answer wins; a missing
+// one means the install hint, not a bare exit error.
 func mpvExecutable(configured string) (string, bool) {
-	return mpvExecutableWithCandidates(configured, mpvCandidates(runtime.GOOS))
+	return mpvExecutableWithCandidates(configured, mpvCandidates(runtime.GOOS), bundledMpvCandidates(runtime.GOOS))
 }
 
 // mpvExecutableWithCandidates is the part tests can drive without an OS
-// full of mpv: the well-known locations are handed in.
-func mpvExecutableWithCandidates(configured string, candidates []string) (string, bool) {
+// full of mpv: the well-known locations are handed in, and the locations
+// that belong to the release bundle are handed in as a separate, preferring
+// the bundle over anything installed when the PATH is empty of answers.
+// Order: the configured binary, then PATH, then the bundle, then the
+// well-known locations. The bundle is preferred over the well-known places
+// because the released application says so: "mpv is already inside".
+func mpvExecutableWithCandidates(configured string, candidates []string, bundleCandidates []string) (string, bool) {
 	if configured != "" {
 		if _, err := exec.LookPath(configured); err == nil {
 			return configured, true
@@ -1675,12 +1701,39 @@ func mpvExecutableWithCandidates(configured string, candidates []string) (string
 	if _, err := exec.LookPath("mpv"); err == nil {
 		return "mpv", true
 	}
+	for _, candidate := range bundleCandidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate, true
 		}
 	}
 	return "", false
+}
+
+// bundleCandidatesFor are the locations the release packages put mpv in:
+// beside the binary on Windows, in Contents/MacOS inside the .app on macOS,
+// and next to the binary everywhere else. The AppImage does not need its
+// candidate — its AppRun already prepends usr/bin to PATH — but having it
+// costs nothing and covers a person running the image's contents by hand.
+func bundleCandidatesFor(goos, exeDir string) []string {
+	switch goos {
+	case "windows":
+		return []string{filepath.Join(exeDir, "mpv.exe")}
+	default:
+		return []string{filepath.Join(exeDir, "mpv")}
+	}
+}
+
+func bundledMpvCandidates(goos string) []string {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	return bundleCandidatesFor(goos, filepath.Dir(exe))
 }
 
 // mpvCandidates are the well-known mpv locations per OS, checked after the
