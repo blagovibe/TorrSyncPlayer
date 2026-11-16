@@ -1572,8 +1572,23 @@ func (w *window) startPlayer() (*player.Player, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	// A player that has died stays in this slot forever if it is only
+	// checked for nil — mpv exits at any point, and the memo would keep
+	// returning the dead one: the pipe no longer exists, and every caller
+	// dials a named pipe that was never there. The whole shape of the bug
+	// is "player: open pipe … \nThe system cannot find the file specified."
 	if w.mpv != nil {
-		return w.mpv, nil
+		if w.mpv.Alive() {
+			return w.mpv, nil
+		}
+		// Record why mpv died before throwing the corpse away. Whatever
+		// the last straw was, mpv's own output is the only place it
+		// is spelled out, and it never reaches this process otherwise.
+		if w.onDiagnostic != nil {
+			exit, log := w.mpvExitSample()
+			w.onDiagnostic("mpv: the player exited: " + exit + "; mpv's own log follows:\n" + log)
+		}
+		w.mpv = nil
 	}
 
 	headers, err := mpvHeaders(w.client.Token(), w.clientID)
@@ -1590,6 +1605,28 @@ func (w *window) startPlayer() (*player.Player, error) {
 	}
 	w.mpv = mpv
 	return mpv, nil
+}
+
+// mpvExitSample is the one-line reason for the mpv's exit plus the tail of
+// its own log. The log is what mpv printed during its life; a full buffer
+// is not interesting, the last lines are where the failure was, not the
+// beginning — the beginning of an mpv that played for an hour is noise.
+func (w *window) mpvExitSample() (reason, log string) {
+	p := w.mpv
+	if p == nil {
+		return "exit unknown", ""
+	}
+	if err := p.ExitError(); err != nil {
+		reason = err.Error()
+	} else {
+		reason = "exit, reason not stated"
+	}
+	l := p.Log()
+	if len(l) > 2000 {
+		l = "…tail:\n" + l[len(l)-2000:]
+	}
+	log = l
+	return
 }
 
 // humanSize formats a byte count for the file list.

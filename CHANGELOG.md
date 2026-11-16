@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The window stopped serving a corpse to every caller.** Owner's
+  machine, 2026-11-16T09:09:38 and 09:09:42: selecting a `.avi` reported
+  200 from `/api/v1/torrents/.../select` and then `player: open pipe
+  torrsync-14092: The system cannot find the file specified.` — two
+  attempts, same error, no reason visible anywhere. The code in
+  `window.startPlayer` checked only `w.mpv != nil`, never `Alive()`, so
+  a dead player stayed memoised and every subsequent play dialed the
+  same dead pipe. The fix: the slot is evicted when mpv is not alive;
+  before the corpse is dropped, the exit error and the tail of mpv's
+  own log — everything mpv printed to its stderr/stdout — go into the
+  diagnostics log, so the next session never sees this silence again.
+  The stand-in mpv (`TestDeadPlayerIsRelaunched`) proves the relaunch:
+  the window returns a fresh player with the same options, not the dead
+  one.
+
+  What is NOT settled: *why* mpv exits in the first place. The exit
+  code the stand-in dies with is its own — the reason on the owner's
+  machine is still to be read from the mpv log, which will now reach the
+  diagnostics file. bug-0186 stays open until the next run's log
+  explains it.
+
 ## [v0.4.6] - 2026-11-16
 
 - **The backend can finally be heard in the diagnostics log (bug-0185,
