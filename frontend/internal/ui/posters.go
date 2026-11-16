@@ -84,7 +84,7 @@ func (w *window) rebuildShelf() {
 	torrents := make([]Torrent, len(w.torrents))
 	copy(torrents, w.torrents)
 	playing := ""
-	if w.current != nil {
+	if w.current != nil && w.ctlOn {
 		playing = w.current.ID
 	}
 	w.mu.RUnlock()

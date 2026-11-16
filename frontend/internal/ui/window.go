@@ -1254,6 +1254,17 @@ func (w *window) play(t *Torrent) {
 			return
 		}
 
+		// A tap means "play it", not "ask me a question I have just answered".
+		// One video in the release is the obvious pick and starts playing now.
+		// Several comparable videos are a season: the chips stay, and the tap
+		// settles on the file list instead.
+		if file, ok := obviousFile(listed.Files); ok {
+			w.mu.Lock()
+			w.current = t
+			w.mu.Unlock()
+			w.playFile(file)
+			return
+		}
 		w.presentFiles(t, listed.Files)
 	}()
 }
@@ -1624,10 +1635,17 @@ func (w *window) addTorrent() {
 	}()
 }
 
-// onLeavePressed leaves the current room, then says so on the status line.
+// onLeavePressed leaves the current room, if there is one, and says so only
+// when there was one: announcing "you left" to someone who never entered is a
+// lie about a room that doesn't exist.
 func (w *window) onLeavePressed() {
+	w.mu.RLock()
+	inRoom := w.mesh != nil || w.rtcRoom != nil || w.roomID != ""
+	w.mu.RUnlock()
 	w.leaveRoom()
-	w.notify(w.tr("status.left"))
+	if inRoom {
+		w.notify(w.tr("status.left"))
+	}
 }
 
 // addTorrentFile opens a file picker for a .torrent and posts it the same
@@ -1823,9 +1841,9 @@ func (w *window) removeTorrent(t *Torrent) {
 		return
 	}
 	w.mu.RLock()
-	current := w.current
+	current, playing := w.current, w.ctlOn
 	w.mu.RUnlock()
-	if current != nil && current.ID == t.ID {
+	if current != nil && current.ID == t.ID && playing {
 		w.notify(w.tr("status.cannotRemove"))
 		return
 	}

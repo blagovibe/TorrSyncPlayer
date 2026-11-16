@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.13] - 2026-11-17
+
+- **Tapping a poster plays the film now (bug-0189).** v0.4.12 shipped a
+  regression for single-file torrents: the file list that used to be the one
+  place to pick a file for playback was replaced by chips that hide for
+  single-file torrents, and `play()` still only offered a choice — so a
+  single-file torrent could never start, while delete was refused with
+  "It is playing — stop the playback first" (bug-0189, from the owner's
+  diagnostics). The window picks the obvious file itself: one file is it;
+  one video dominating the rest by 3× is it; comparable videos stay a
+  human's choice (the chips appear, "Choose a file to play" still applies).
+- **Delete guard and the playing-poster ring follow the player, not the
+  file list.** Merely viewing a file list no longer blocks deletion, no
+  longer rings the poster as "playing" — both now key off a live player
+  (bug-0189).
+- **The leave toast is honest (bug-0190).** "You left the room" sounds only
+  when a room actually existed to be left.
+- Regression tests pin both ends of the chain: a standing-in mpv receives
+  `loadfile` after a poster tap on a single-file torrent, and a season
+  stays a season (no auto-select, chips appear instead).
+
 ## [v0.4.12] - 2026-11-16
 
 - **The window is a streaming screen now, drawn, not fetched (idea-0187).**
