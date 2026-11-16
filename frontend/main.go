@@ -199,7 +199,7 @@ func run(opts runOptions) error {
 	})
 	defer stopPlayer()
 	window.SetContent(content)
-	window.Resize(fyne.NewSize(1100, 700))
+	window.Resize(fyne.NewSize(1280, 880))
 
 	// The first-launch storage question goes up with the window. It does
 	// nothing once answered; until then, pieces stay in memory, which is also

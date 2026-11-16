@@ -5,6 +5,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/png"
 	"io"
 	"net/http"
@@ -29,6 +30,10 @@ import (
 // which is what the real screen looks like mid-session.
 func TestTheWindowRendersItsMoods(t *testing.T) {
 	fixture := os.Getenv("TSP_FIXTURE") == "1"
+	debugHeight := float32(800)
+	if h := os.Getenv("TSP_H"); h != "" {
+		fmt.Sscanf(h, "%f", &debugHeight)
+	}
 
 	for _, mood := range []struct {
 		name string
@@ -98,14 +103,13 @@ func TestTheWindowRendersItsMoods(t *testing.T) {
 				w.durationLbl.Refresh()
 				w.volSlider.SetValue(70)
 				w.createRoom.Enable()
-				w.list.Refresh()
-				w.fileList.Refresh()
-				w.libraryEmpty.Hide()
+				w.rebuildShelf()
+				w.rebuildFileChips()
 			}
 
 			canvas := software.NewCanvas()
 			canvas.SetContent(content)
-			canvas.Resize(fyne.NewSize(1200, 760))
+			canvas.Resize(fyne.NewSize(1280, debugHeight))
 
 			img := canvas.Capture()
 			if img == nil || img.Bounds().Dx() <= 0 {

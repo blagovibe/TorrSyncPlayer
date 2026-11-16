@@ -11,9 +11,6 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/player"
@@ -54,62 +51,6 @@ func setSliderValue(s *widget.Slider, onChange func(float64), value float64) {
 	s.OnChanged = nil
 	s.SetValue(value)
 	s.OnChanged = onChange
-}
-
-// buildControls assembles the playback block — the screen this window exists
-// for. The hero: a quiet caption saying what the display line is, the film's
-// own name in display type (or the idle invitation with one big amber
-// button), the file's size and length beneath. Then the transport:
-// play/pause, elapsed, seeker, the file's own length, fullscreen, volume.
-func (w *window) buildControls() fyne.CanvasObject {
-	// The hero is the subject of the window, not a section of it. The display
-	// type is the film's name; while nothing is picked, the empty screen says
-	// so and offers one action — the same action it needs anyway.
-	w.heroCaption = canvas.NewText(w.tr("zone.playback"), theme.Color(theme.ColorNamePlaceHolder))
-	w.heroCaption.TextSize = theme.TextSize() - 1
-	w.heroLbl = widget.NewLabelWithStyle(w.tr("playback.untitled"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	w.heroLbl.SizeName = theme.SizeNameHeadingText
-	w.heroLbl.Wrapping = fyne.TextWrapWord
-	w.heroSubLbl = canvas.NewText(w.tr("playback.idle"), theme.Color(theme.ColorNamePlaceHolder))
-	w.heroSubLbl.TextSize = theme.TextSize() - 1
-	w.heroAdd = widget.NewButtonWithIcon(w.tr("action.add"), torrAddIcon, w.addTorrent)
-	w.heroAdd.Importance = widget.HighImportance
-
-	w.playBtn = widget.NewButtonWithIcon("", torrPlayIcon, w.onPlayPressed)
-	w.playBtn.Importance = widget.HighImportance
-	w.elapsedLbl = canvas.NewText(formatClock(0), theme.Color(theme.ColorNamePlaceHolder))
-	w.elapsedLbl.TextSize = theme.TextSize() - 1
-	w.seekSlider = widget.NewSlider(0, 1)
-	w.seekSlider.Step = 1
-	w.seekSlider.OnChanged = w.onSeekMoved
-	w.durationLbl = canvas.NewText(formatClock(0), theme.Color(theme.ColorNamePlaceHolder))
-	w.durationLbl.TextSize = theme.TextSize() - 1
-	w.fsBtn = widget.NewButtonWithIcon("", torrFullscreenIcon, w.onFullscreenPressed)
-
-	seekRow := container.NewBorder(nil, nil,
-		container.NewHBox(w.playBtn, w.elapsedLbl),
-		container.NewHBox(w.durationLbl, w.fsBtn),
-		w.seekSlider)
-
-	w.volSlider = widget.NewSlider(0, 100)
-	w.volSlider.Step = 1
-	w.volSlider.OnChanged = w.onVolumeMoved
-	volRow := container.NewHBox(
-		widget.NewIcon(torrVolumeUpIcon),
-		w.volSlider,
-	)
-
-	w.setControlsEnabled(false)
-	w.setHeroIdle(true)
-	return container.NewVBox(
-		w.heroCaption,
-		w.heroLbl,
-		w.heroSubLbl,
-		container.NewHBox(w.heroAdd),
-		rule(),
-		seekRow,
-		volRow,
-	)
 }
 
 // setHeroIdle swaps the hero between nothing-yet and this-film: the
@@ -218,8 +159,14 @@ func (w *window) updateControls(mpv *player.Player) {
 
 	w.mu.RLock()
 	name, size := "", int64(0)
+	peers := 0
 	if w.current != nil {
 		name, size = w.current.Name, w.current.Size
+		for _, t := range w.torrents {
+			if t.ID == w.current.ID {
+				peers = t.Peers
+			}
+		}
 	}
 	userHolding := hasSeek
 	w.mu.RUnlock()
@@ -255,7 +202,18 @@ func (w *window) updateControls(mpv *player.Player) {
 			w.setHeroIdle(name == "")
 			if name != "" {
 				w.heroLbl.SetText(name)
+				w.setHeroArt(name)
+			} else {
+				w.setHeroArt(heroArtSeed)
 			}
+		}
+		if duration > 0 {
+			w.ctlDuration = duration
+		}
+		chipKey := fmt.Sprintf("%s|%d|%d|%d", name, size, int(w.ctlDuration), peers)
+		if chipKey != w.ctlChipKey {
+			w.ctlChipKey = chipKey
+			w.rebuildHeroChips()
 		}
 		w.heroSubLbl.Text = heroSubtitle(w.tr, name, size, duration)
 		w.heroSubLbl.Refresh()

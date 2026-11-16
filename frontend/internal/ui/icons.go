@@ -122,6 +122,26 @@ const torrVolumeUpSVG = `<svg xmlns="http://www.w3.org/2000/svg" height="24" vie
 	`<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>` +
 	`<path d="M0 0h24v24H0z" fill="none"/></svg>`
 
+// A horseshoe magnet: the shape the one text field in the window exists for.
+const torrMagnetSVG = `<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">` +
+	`<path d="M6.5 3.5v7a5.5 5.5 0 0 0 11 0v-7h-3.6v7a1.9 1.9 0 0 1-3.8 0v-7H6.5z"/>` +
+	`<path d="M0 0h24v24H0z" fill="none"/></svg>`
+
+// A film strip with punched sprockets — the emblem of the house. Evens on
+// the strip are holes, and `evenodd` keeps them holes for every theme.
+const torrFilmSVG = `<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">` +
+	`<path fill-rule="evenodd" d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z` +
+	` M6.8 8.2h2.4v1.9H6.8z M10.8 8.2h2.4v1.9h-2.4z M14.8 8.2H17.2v1.9h-2.4z` +
+	` M6.8 14h2.4v1.9H6.8z M10.8 14h2.4v1.9h-2.4z M14.8 14H17.2v1.9h-2.4z"/>` +
+	`<path d="M0 0h24v24H0z" fill="none"/></svg>`
+
+// Three quiet dots: the door to an item's own actions, kept off the title.
+const torrDotsSVG = `<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24">` +
+	`<circle cx="4.6" cy="12" r="1.9"/>` +
+	`<circle cx="12" cy="12" r="1.9"/>` +
+	`<circle cx="19.4" cy="12" r="1.9"/>` +
+	`<path d="M0 0h24v24H0z" fill="none"/></svg>`
+
 // torrIcons is every icon in the set, name → source, so the tests can chew
 // through the whole collection without keeping a second list by hand.
 var torrIcons = map[string]string{
@@ -144,6 +164,9 @@ var torrIcons = map[string]string{
 	"paste":           torrPasteSVG,
 	"check":           torrCheckSVG,
 	"volume-up":       torrVolumeUpSVG,
+	"magnet":          torrMagnetSVG,
+	"film":            torrFilmSVG,
+	"dots":            torrDotsSVG,
 }
 
 // themed wraps a raw SVG source in the theme-colourised resource the window
@@ -177,4 +200,7 @@ var (
 	torrPasteIcon          = themed("paste", torrPasteSVG)
 	torrCheckIcon          = themed("check", torrCheckSVG)
 	torrVolumeUpIcon       = themed("volume-up", torrVolumeUpSVG)
+	torrMagnetIcon         = themed("magnet", torrMagnetSVG)
+	torrFilmIcon           = themed("film", torrFilmSVG)
+	torrDotsIcon           = themed("dots", torrDotsSVG)
 )

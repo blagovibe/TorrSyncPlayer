@@ -75,9 +75,7 @@ type window struct {
 	// window built without one silently keeps no log.
 	onDiagnostic func(string)
 
-	list     *widget.List
-	fileList *widget.List
-	status   *widget.Label
+	status *widget.Label
 	// events is what a human must not miss: arrivals, departures, failures.
 	// The poll rewrites status every two seconds, so anything reported
 	// through status alone is gone by the next tick — an error that lives
@@ -163,27 +161,40 @@ type window struct {
 	// drives. Widgets live here; their decisions live in controls.go.
 	playBtn                 *widget.Button
 	elapsedLbl, durationLbl *canvas.Text
+	heroArt                 *canvas.Image
 	heroCaption             *canvas.Text
 	heroLbl                 *widget.Label
 	heroSubLbl              *canvas.Text
 	heroAdd                 *widget.Button
+	heroChips               *fyne.Container
 	seekSlider, volSlider   *widget.Slider
 	fsBtn                   *widget.Button
 	ctlHeroName             string
+	ctlChipBucket           int
+	ctlDuration             float64
+	ctlChipKey              string
 	hasSeek                 bool
 	seekPos                 float64
 	seekAt                  time.Time
 	ctlPaused               bool
 	ctlOn                   bool
 	buffer                  *room.BufferReporter
+	// railBox/railScroll carry the poster shelf: the library, drawn as key
+	// art. The shelf rebuilds on the poll; the art itself is cache-keyed.
+	railBox    *fyne.Container
+	railScroll *container.Scroll
+	// fileChips is the file picker for multi-file torrents: a row of
+	// numbered capsules, one tap each, living in the footer. Hidden for
+	// single-file torrents.
+	fileChips *fyne.Container
+	tracksRow *fyne.Container
 
 	// preparingLine shows the playing torrent's download state: name, percent
 	// and backend status from the 2-second list poll. Playback starts before
 	// the download finishes, so "nothing is ready yet" is a normal state,
 	// not an error — and it deserves its own line rather than the status
 	// line, which carries transient messages.
-	preparing    *widget.Label
-	libraryEmpty *canvas.Text
+	preparing *widget.Label
 
 	// bufferCancel ends the buffer report of the file that was playing before
 	// the current one. One report per file: a switch must stop steering the
@@ -332,102 +343,6 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	w.leaveRoomButton = widget.NewButtonWithIcon(w.tr("action.leaveRoom"), torrLeaveRoomIcon, w.onLeavePressed)
 	w.leaveRoomButton.Hide()
 
-	// The torrent row is a plate, not a table line: the name in body type,
-	// a muted second line carrying what it is doing (and how fast), and an
-	// amber progress bar — the accent's one job in a list is to say how much
-	// of the film is here. Rows breathe: a plate with air beneath it, shelves
-	// of films, not a debug panel.
-	w.list = widget.NewList(
-		func() int {
-			w.mu.RLock()
-			defer w.mu.RUnlock()
-			return len(w.torrents)
-		},
-		func() fyne.CanvasObject { return newTorrentPlate() },
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			name, sub, bar, info, del, ok := torrentPlateParts(obj)
-			if !ok {
-				return
-			}
-			ii := id
-			info.OnTapped = func() { w.showDescription(w.item(ii)) }
-			del.OnTapped = func() { w.removeTorrent(w.item(ii)) }
-			w.mu.RLock()
-			defer w.mu.RUnlock()
-			if id < 0 || id >= len(w.torrents) {
-				return
-			}
-			t := w.torrents[id]
-			name.SetText(t.Name)
-			sub.Text = torrentSubline(w.tr, t, w.rates[t.ID].rate)
-			sub.Refresh()
-			bar.SetValue(t.Progress)
-		},
-	)
-	w.list.OnSelected = func(id widget.ListItemID) { w.play(w.item(id)) }
-
-	// The magnet field takes the room it needs: in a plain row it was
-	// clipped to a few characters, which made the one field everything
-	// starts from look like a leftover.
-	// The magnet field is the border's object, not its left panel: a side
-	// panel is handed its minimum width, which clipped the one field
-	// everything starts from down to a few characters.
-	shortcutsBtn := widget.NewButtonWithIcon("", torrInfoIcon, w.showShortcuts)
-	shortcutsBtn.Importance = widget.LowImportance
-
-	toolbar := container.NewBorder(nil, nil,
-		container.NewHBox(w.addButton, w.addFile),
-		container.NewHBox(
-			widget.NewButtonWithIcon(w.tr("action.refresh"), torrRefreshIcon, w.refresh),
-			layout.NewSpacer(),
-			shortcutsBtn,
-			widget.NewButtonWithIcon(w.tr("action.settings"), torrSettingsIcon, func() { w.ShowSettings(w.parentWindow()) }),
-		),
-		w.entry,
-	)
-
-	// The file list sits next to the torrent list: picking a torrent answers
-	// "which file", and that question is asked every time. Same shelf idea as
-	// its neighbour, a quieter plate.
-	w.fileList = widget.NewList(
-		func() int {
-			w.mu.RLock()
-			defer w.mu.RUnlock()
-			return len(w.files)
-		},
-		func() fyne.CanvasObject { return newFilePlate() },
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			name, sub, ok := filePlateParts(obj)
-			if !ok {
-				return
-			}
-			w.mu.RLock()
-			defer w.mu.RUnlock()
-			if id < 0 || id >= len(w.files) {
-				return
-			}
-			name.SetText(w.files[id].Name)
-			sub.Text = fmt.Sprintf("#%d · %s", w.files[id].Index, humanSize(w.files[id].Size))
-			sub.Refresh()
-		},
-	)
-	w.fileList.OnSelected = func(id widget.ListItemID) {
-		w.mu.RLock()
-		var f fileEntry
-		if id >= 0 && id < len(w.files) {
-			f = w.files[id]
-		}
-		w.mu.RUnlock()
-		w.playFile(f)
-	}
-
-	// The empty shelf says so, instead of staring back with black space:
-	// one quiet line where the list will fill, shown only while there is
-	// nothing in it.
-	w.libraryEmpty = canvas.NewText(w.tr("library.empty"), theme.Color(theme.ColorNamePlaceHolder))
-	w.libraryEmpty.TextSize = theme.TextSize() - 1
-	w.libraryEmpty.Hide()
-
 	// The choosers start hidden: most films have one voice, and a row of
 	// empty selectors teaches a person that the app has nothing to offer.
 	// The choosers get their placeholder from the catalogue, not from Fyne's
@@ -448,17 +363,29 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	w.subFileSelect.OnChanged = func(choice string) { w.chooseSubFile(choice) }
 	w.subFileSelect.Hide()
 
-	// The room line sits above the lists: who is watching with you is a
-	// one-line answer that belongs where it is always visible. The preparing
-	// line sits beside it: what is still downloading while you watch.
-	// All three start hidden: they carry nothing before a room or a film
-	// exists, and an empty label is a gap in a ruled zone (see setLine).
+	// The tracks row appears only when something plays: two quiet choosers
+	// with their names, hidden with the choosers they carry.
+	tracksMuted := func(key string) fyne.CanvasObject {
+		l := canvas.NewText(w.tr(key), theme.Color(theme.ColorNamePlaceHolder))
+		l.TextSize = theme.TextSize() - 1
+		return container.NewCenter(l)
+	}
+	w.tracksRow = container.NewHBox(
+		tracksMuted("track.audio"), w.audioSelect,
+		tracksMuted("track.sub"), w.subSelect,
+		tracksMuted("track.subfile"), w.subFileSelect,
+	)
+	w.tracksRow.Hide()
+
+	// The preparing line sits beneath the hero typography: what is still
+	// downloading while you watch. Hidden until there is something to say.
+	w.preparing = widget.NewLabel("")
+	w.preparing.Hide()
+
 	w.roomLabel = widget.NewLabel("")
 	w.connLabel = widget.NewLabel("")
-	w.preparing = widget.NewLabel("")
 	w.roomLabel.Hide()
 	w.connLabel.Hide()
-	w.preparing.Hide()
 
 	// Joining takes an invite code, not a room id and a password: the room has
 	// no server to ask, so there is nothing to look up. The triple carries the
@@ -466,12 +393,6 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	w.inviteEntry = widget.NewEntry()
 	w.inviteEntry.SetPlaceHolder(w.tr("field.invite"))
 
-	// Opening a room sits next to joining one: they are the same two actions on
-	// the same panel, and before this button existed the panel could do only
-	// half of them. It starts disabled and wakes up when a torrent is picked —
-	// a room is bound to one, and a button that could only fail is worse than a
-	// grey one. It is the panel's one terracotta action: the window's own
-	// verb for "watch this together".
 	w.createRoom = widget.NewButtonWithIcon(w.tr("action.createRoom"), torrRoomIcon, w.onCreatePressed)
 	w.createRoom.Importance = widget.HighImportance
 	w.createRoom.Disable()
@@ -479,67 +400,70 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	joinRoom := widget.NewButtonWithIcon(w.tr("action.join"), torrJoinRoomIcon, w.onJoinPressed)
 	w.leaveRoomButton.Importance = widget.LowImportance
 
+	// The room card, two lines: the caption with the door, the invite row
+	// with the code. Everything else is the lines hanging beneath.
+	roomLine1 := container.NewBorder(nil, nil,
+		zoneCaption(w.tr("zone.room")),
+		nil,
+		container.NewHBox(joinRoom, w.createRoom, w.leaveRoomButton),
+	)
+	roomLine2 := container.NewBorder(nil, nil,
+		widget.NewButtonWithIcon(w.tr("action.paste"), torrPasteIcon, w.onPasteCodePressed),
+		widget.NewButtonWithIcon(w.tr("action.copy"), torrCopyIcon, w.onCopyCodePressed),
+		w.inviteEntry,
+	)
+
 	roomPanel := container.NewVBox(
-		container.NewHBox(
-			joinRoom,
-			w.createRoom,
-			w.leaveRoomButton,
-		),
-		container.NewBorder(nil, nil,
-			widget.NewButtonWithIcon(w.tr("action.paste"), torrPasteIcon, w.onPasteCodePressed),
-			widget.NewButtonWithIcon(w.tr("action.copy"), torrCopyIcon, w.onCopyCodePressed),
-			w.inviteEntry,
-		),
+		roomLine1,
+		gap(6),
+		roomLine2,
+		gap(2),
+		w.roomLabel,
+		w.connLabel,
 	)
 
-	tracksMuted := func(key string) fyne.CanvasObject {
-		l := canvas.NewText(w.tr(key), theme.Color(theme.ColorNamePlaceHolder))
-		l.TextSize = theme.TextSize() - 1
-		return container.NewCenter(l)
-	}
-	tracks := container.NewHBox(
-		tracksMuted("track.audio"), w.audioSelect,
-		tracksMuted("track.sub"), w.subSelect,
-		tracksMuted("track.subfile"), w.subFileSelect,
+	// The files of the chosen torrent, one tap each: numbered capsules the
+	// length of their names. Hidden for a single-file torrent.
+	w.fileChips = container.NewHBox()
+	w.fileChips.Hide()
+
+	hero := w.buildHero()
+	shelf := w.buildRail()
+
+	column := container.NewVBox(
+		hero,
+		gap(6),
+		panel(roomPanel, 14, 4),
+		gap(6),
+		shelf,
+		gap(0),
+		container.NewPadded(w.tracksRow),
 	)
 
-	controls := w.buildControls()
+	// The footer: one quiet line under a hairline — what the room did, the
+	// file capsules when the torrent has more than one file, and how many
+	// films this house holds.
+	footerLeft := w.events
+	footerCenter := container.NewCenter(w.fileChips)
+	footerRight := container.NewHBox(layout.NewSpacer(), w.status)
+	footer := container.NewVBox(
+		rule(),
+		gap(2),
+		container.NewBorder(nil, nil, footerLeft, footerRight, footerCenter),
+	)
+	footerPad := container.NewPadded(footer)
 
-	// The zones, in the order a person meets them: what plays, what it
-	// needs, what it is still fetching, and the room — which is about
-	// several people and therefore its own block. Everything above it is
-	// about one person watching alone.
-	//
-	// The toolbar and the zones share the top row, and the library is the
-	// border's centre: a zone in a VBox row is handed its minimum height
-	// and leaves the window empty below, so the one list that grows grows
-	// here. Its heading goes with it — a heading over an empty strip tells
-	// the reader nothing.
-	body := container.NewBorder(
-		container.NewVBox(toolbar, contentStack(
-			controls,
-			section(w.zoneHeading("zone.tracks"), tracks),
-			w.preparing,
-			section(w.zoneHeading("zone.room"),
-				roomPanel,
-				w.roomLabel,
-				w.connLabel,
-			),
-		)),
-		container.NewVBox(w.events, w.status),
-		nil,
-		nil,
-		// The heading goes in the nested border's top, not in a VBox with the
-		// split: a VBox hands its child the minimum height, which left the two
-		// lists a thin strip with the window empty below them.
+	w.addButton.Importance = widget.HighImportance
+	w.addFile.Importance = widget.LowImportance
+
+	body := container.NewStack(
+		wallpaper(),
 		container.NewBorder(
-			w.zoneHeading("zone.library"),
-			rule(),
-			nil, nil,
-			container.NewStack(
-				container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList)),
-				container.NewCenter(w.libraryEmpty),
-			),
+			w.buildTopBar(),
+			footerPad,
+			nil,
+			nil,
+			container.NewPadded(container.NewVScroll(column)),
 		),
 	)
 
@@ -1279,16 +1203,6 @@ func (w *window) showRoster() {
 	})
 }
 
-func (w *window) item(id widget.ListItemID) *Torrent {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	if id < 0 || id >= len(w.torrents) {
-		return nil
-	}
-	t := w.torrents[id]
-	return &t
-}
-
 // torrentIDs is the guest's own holdings, as the adoption package wants them.
 func torrentIDs(torrents []Torrent) []string {
 	ids := make([]string, 0, len(torrents))
@@ -1354,7 +1268,7 @@ func (w *window) presentFiles(t *Torrent, files []fileEntry) {
 	w.mu.Unlock()
 
 	w.syncCreateRoom()
-	onMain(w.fileList.Refresh)
+	w.rebuildFileChips()
 	w.notify(w.tr("status.choose"))
 }
 
@@ -1383,6 +1297,7 @@ func (w *window) playFile(f fileEntry) {
 		w.mu.Lock()
 		w.selectedFile = f.Index
 		w.mu.Unlock()
+		w.rebuildFileChips()
 
 		p, err := w.startPlayer()
 		if err != nil {
@@ -1539,6 +1454,12 @@ func (w *window) showTracks() {
 			w.subSelect.Refresh()
 		} else {
 			w.subSelect.Hide()
+		}
+		if showTrackChooser(player.TrackAudio, audio) || showTrackChooser(player.TrackSub, subs) {
+			w.tracksRow.Show()
+			w.tracksRow.Refresh()
+		} else {
+			w.tracksRow.Hide()
 		}
 	})
 }
@@ -1894,25 +1815,6 @@ func computeRate(prevBytes, nowBytes int64, dtSeconds float64) float64 {
 	return float64(nowBytes-prevBytes) / dtSeconds
 }
 
-// torrentSubline renders the muted second line of a torrent row: what it
-// is doing, at what speed, how far along — in that order, separated by the
-// catalogue's own triple-dot rhythm. Seeding torrents drop the percentage:
-// they are whole, and the number would only ever say 100%.
-func torrentSubline(tr func(string) string, t Torrent, rate float64) string {
-	status := tr("torrent." + t.Status)
-	if status == "torrent."+t.Status {
-		status = t.Status // an unknown status reads better raw than as a key
-	}
-	parts := []string{status}
-	if t.Status != "seeding" {
-		parts = append(parts, fmt.Sprintf(tr("torrent.progress"), int(t.Progress*100)))
-	}
-	if rate > 0 {
-		parts = append(parts, fmt.Sprintf(tr("torrent.speed"), humanSize(int64(rate))))
-	}
-	return strings.Join(parts, " · ")
-}
-
 // removeTorrent takes a torrent out of the list. The button asks twice —
 // once here and once in the native confirm — because the list is the
 // person's whole library, and the hit area of a row is large.
@@ -2043,14 +1945,7 @@ func (w *window) refresh() {
 	}
 	w.mu.Unlock()
 
-	onMain(func() {
-		w.list.Refresh()
-		if len(out.Torrents) == 0 {
-			w.libraryEmpty.Show()
-		} else {
-			w.libraryEmpty.Hide()
-		}
-	})
+	onMain(w.rebuildShelf)
 	preparing := preparingText(w.tr, playingTorrent(out.Torrents, playing))
 	onMain(func() { setLine(w.preparing, preparing) })
 	w.setStatus(w.trfi("status.torrents", len(out.Torrents)))

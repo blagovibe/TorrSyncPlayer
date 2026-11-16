@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.12] - 2026-11-16
+
+- **The window is a streaming screen now, drawn, not fetched (idea-0187).**
+  Following the owner's references (Apple Vision Pro YouTube; Netflix home):
+  an ambient near-black hall (vertical gradient with a faint marquee glow),
+  frosted glass panels with soft `canvas.Shadow`s, and one marquee amber
+  accent reserved for actions that begin something. The hero key art is
+  generated — a seeded two-hue gradient with a ghost film-strip emblem and a
+  bottom vignette — with the film's title set in display type over it; the
+  film's own name is the feature presentation.
+- **The library is a poster shelf.** TorrSyncPlayer draws its own posters:
+  seeded gradient pairs (deterministic by title), a film-strip emblem, the
+  name in display caps, the delivery state, a thin amber progress line — and
+  an amber ring on the tile that is the one playing. Tap a poster to play.
+  Ghost info/delete glyphs sit on each tile.
+- **Files are chips, not a table**: numbered capsules in the footer, one tap
+  each, the playing one in amber; hidden for single-file torrents.
+- **The room is a two-line glass card** — "Смотрим вместе" caption, door
+  actions (join ghost, "Открыть комнату" marquee amber, leave quiet), and the
+  invite row — instead of a full-width block with equal-weight buttons.
+- **The top bar is a floating frosted capsule**: wordmark with the mark, a
+  magnet capsule (magnet glyph + field) as the one field, amber "Добавить",
+  quiet icon buttons for .torrent/refresh/shortcuts/settings.
+- **The transport is a floating capsule on the art**: play/pause, elapsed, a
+  seekbar with a white thumb, the file's own length, volume, fullscreen.
+- **Default window 1280×880** so the whole screen composes without scrolling.
+- Fixed in passing: scrollbars are neutral (not amber), the empty shelf shows
+  a quiet hint, and the footer carries events, file chips and the torrent
+  count — one hairline, no zones shouting.
+- `screenshot_test.go` renders the real window through the software painter
+  (`TSP_SHOT=<prefix>`, `TSP_FIXTURE=1` for a populated shelf, both moods),
+  which is how this design was reviewed without a display.
+
 ## [v0.4.11] - 2026-11-16
 
 - **The window is a cinema now, not a settings page (idea-0187).** The owner

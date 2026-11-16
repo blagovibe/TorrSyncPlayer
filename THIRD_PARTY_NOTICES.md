@@ -52,11 +52,11 @@ channels noted.
 
 ## Inter (embedded in the application binary)
 
-- **What:** the Inter typeface — `Inter-Regular.ttf` and `Inter-Bold.ttf` —
-  embedded into `TorrSyncPlayer.exe` (and the other platform binaries) as
-  static resources and used for every glyph the window renders. Source
-  files live at `frontend/internal/ui/assets/fonts/`, unmodified, taken
-  straight from the upstream release.
+- **What:** the Inter typeface — `Inter-Regular.ttf`, `Inter-Bold.ttf`, and
+  `Inter-ExtraBold.ttf` — embedded into `TorrSyncPlayer.exe` (and the other
+  platform binaries) as static resources, used for every glyph the window
+  renders. Source files live at `frontend/internal/ui/assets/fonts/`,
+  unmodified, taken straight from the upstream release.
 - **License:** SIL Open Font License, version 1.1 (**OFL-1.1**). The full
   text ships alongside the fonts at
   `frontend/internal/ui/assets/fonts/LICENSE-Inter.txt`.
