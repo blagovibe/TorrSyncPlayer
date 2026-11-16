@@ -97,7 +97,7 @@ func main() {
 		os.Stderr.WriteString("stand-in listen: " + err.Error() + "\n")
 		os.Exit(2)
 	}
-	serveUntilSecondConnection(ln)
+	serveUntilSecondConnection(ln, name)
 }
 
 func argValue(args []string, prefix string) string {
@@ -111,7 +111,7 @@ func argValue(args []string, prefix string) string {
 	return ""
 }
 
-func serveUntilSecondConnection(ln net.Listener) {
+func serveUntilSecondConnection(ln net.Listener, sockPath string) {
 	n := 0
 	for {
 		c, err := ln.Accept()
@@ -123,6 +123,10 @@ func serveUntilSecondConnection(ln net.Listener) {
 		if n == 1 {
 			continue
 		}
+		// The player's own Close removes the Unix socket file on exit;
+		// the stand-in must do the same, or the second launch will not
+		// find the slot free.
+		_ = os.Remove(sockPath)
 		os.Exit(exitOnSignal)
 	}
 }

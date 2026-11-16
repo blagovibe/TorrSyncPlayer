@@ -169,7 +169,7 @@ func wordLiteralsOutsideCatalog(expr ast.Expr) []*ast.BasicLit {
 
 	ast.Inspect(expr, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
-			if name := calledMethod(call); name == "tr" || name == "trf" {
+			if name := calledMethod(call); name == "tr" || name == "trf" || name == "trfi" {
 				return false
 			}
 		}
