@@ -34,9 +34,11 @@ func TestDeadPlayerIsRelaunched(t *testing.T) {
 
 	bin := buildStandInMpv(t)
 
-	socketPath := filepath.Join(t.TempDir(), "torrsync-test.sock")
+	socketPath := filepath.Join(t.TempDir(), fmt.Sprintf("torrsync-test-%d.sock", time.Now().UnixNano()))
 	if runtime.GOOS == "windows" {
 		socketPath = "torrsync-test"
+	} else {
+		socketPath = filepath.Join("/tmp", fmt.Sprintf("torrsync-test-%d.sock", time.Now().UnixNano()))
 	}
 
 	client := api.New("http://127.0.0.1:1", "test-token")
