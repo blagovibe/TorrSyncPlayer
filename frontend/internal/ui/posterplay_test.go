@@ -252,8 +252,9 @@ func socketAndPipe(t *testing.T) (socket, pipe string) {
 		pipe = `\\.\pipe\` + socket
 		return socket, pipe
 	}
-	dir := t.TempDir()
-	socket = filepath.Join(dir, "standin.sock")
+	// Unix sockets keep a short-name limit: the test's own temporary path
+	// blows past it on macOS. The socket lives in the system temp dir.
+	socket = filepath.Join(os.TempDir(), fmt.Sprintf("tsp-%d.sock", time.Now().UnixNano()))
 	return socket, socket
 }
 
