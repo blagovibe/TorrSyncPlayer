@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.8] - 2026-11-16
+
+- **The window has its own palette.** TorrSyncPlayer no longer runs the stock
+  Fyne theme colours blindly inherits from the operating system. A new
+  `TorrTheme` installs a warm dark-house colour map: near-black backdrop
+  (`#171412`), cream text (`#EDE6DD`), muted clay for secondary text, and a
+  single terracotta accent (`#E0764A dark` / `#C95F3B light`) used only for
+  primary actions, focus rings and selection backgrounds. Light paper counterpart
+  (`#FAF7F2` backdrop, `#2A241F` ink) for people who watch in daylight. Zone
+  headings are now small-caps muted rather than bold same-color, the way a
+  streaming service marks the edge of a section. Required because this
+  release is the start of a visual refresh track (idea-0187, still open).
+
 ## [v0.4.7] - 2026-11-16
 
 - **The window recognises a dead mpv and relaunches the player instead of
