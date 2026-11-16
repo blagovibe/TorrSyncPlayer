@@ -141,6 +141,6 @@ func (t torrTheme) Size(name fyne.ThemeSizeName) float32 {
 // and falls back to "default theme" for every looked-up name that is not
 // overridden here, which is the stock Fyne palette plus the Apple-adjacent
 // sizing changes above.
-func installTorrTheme(app fyne.App) {
+func func InstallTorrTheme(app fyne.App) {
 	app.Settings().SetTheme(newTorrTheme())
 }

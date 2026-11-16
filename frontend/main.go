@@ -186,7 +186,7 @@ func run(opts runOptions) error {
 	ui.InstallFyneTranslations()
 
 	a := app.NewWithID("com.blagovibe.torrsyncplayer")
-	installTorrTheme(a)
+	ui.InstallTorrTheme(a)
 	a.Settings().SetTheme(theme.LightTheme())
 	if opts.DarkTheme || settings.DarkTheme {
 		a.Settings().SetTheme(theme.DarkTheme())
