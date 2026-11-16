@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.7] - 2026-11-16
+
+- **The window recognises a dead mpv and relaunches the player instead of
+  reusing its corpse. bug-0186.** mpv can end its run between status
+  commands — a decoder failing, a property it refuses to answer to,
+  anything — and when it does, the window was keeping a dead `Player` in
+  its memo. Every subsequent attempt dialled a pipe that was never
+  there, and the person saw `player: open pipe torrsync-14092: The
+  system cannot find the file specified.` with no hint of the reason. The
+  fix is to check `Alive()`, not just `nil`: the corpse is dropped from
+  the slot, the exit reason and mpv's own stderr lines land in the
+  diagnostics file, and a fresh mpv is launched with the same options. Evidence:
+  `TestDeadPlayerIsRelaunched` stands in for mpv with a Go program that
+  exits on the second connection, and the window returns a live player
+  after the stand-in's exit — not the corpse.
+
+- **The catalogue test suite now accepts the `trfi` helper** as a valid
+  number helper — previously `TestNoWindowTextBypassesTheCatalog` flagged
+  every legitimate use of `trfi`, which is why the count of torrents read
+  as `%!d(string=1)` to users ever since `trfi` was introduced.
+
+- **The stand-in mpv test uses a short Unix socket path** — macOS's
+  deep per-test tempdir pushed the socket over the 104-byte path limit
+  on macOS, and the test wedged in CI before ever reaching the relaunch
+  path. The stand-in now puts its socket in `/tmp` which is short
+  enough on every platform the suite runs on.
+
+  What this release is not: it is not the answer to whatever killed mpv
+  in the first place on the owner's machine. The diagnostics file now
+  carries the mpv's own words — its stderr, its exit code — so the next
+  time this happens, the reason will be readable, not just the absence
+  of the pipe.
+
 - **The window stopped serving a corpse to every caller.** Owner's
   machine, 2026-11-16T09:09:38 and 09:09:42: selecting a `.avi` reported
   200 from `/api/v1/torrents/.../select` and then `player: open pipe
