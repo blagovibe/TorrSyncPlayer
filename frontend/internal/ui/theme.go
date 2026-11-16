@@ -135,12 +135,40 @@ func (t torrTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.base.Size(name)
 }
 
-// The theme is set on the app once, before any widget reads a colour from
-// it. Fyne validates the theme's colours against its own contract — return
-// NRGBA with a full byte for fully-opaque pixels, never alpha-out values —
-// and falls back to "default theme" for every looked-up name that is not
-// overridden here, which is the stock Fyne palette plus the Apple-adjacent
-// sizing changes above.
-func InstallTorrTheme(app fyne.App) {
-	app.Settings().SetTheme(newTorrTheme())
+// torrFixedTheme pins a variant: the user's checkbox decides the mood of the
+// window outright instead of deferring to the desktop, so the palette is the
+// same on a dark laptop in daylight and a light one at night. This is what
+// the stock DarkTheme/LightTheme pair used to do — and what kept the warm
+// palette from ever reaching the person in v0.4.8/v0.4.9 (the checkbox
+// overwrote TorrTheme with the stock theme at startup and after every
+// settings save).
+type torrFixedTheme struct {
+	base    torrTheme
+	variant fyne.ThemeVariant
+}
+
+func (t torrFixedTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
+	return t.base.Color(name, t.variant)
+}
+
+func (t torrFixedTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return t.base.Font(style)
+}
+
+func (t torrFixedTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return t.base.Icon(name)
+}
+
+func (t torrFixedTheme) Size(name fyne.ThemeSizeName) float32 {
+	return t.base.Size(name)
+}
+
+// InstallTorrTheme pins the warm palette to the app in the requested
+// mood. dark=true yields the warm near-black house, false the warm paper.
+func InstallTorrTheme(app fyne.App, dark bool) {
+	variant := theme.VariantLight
+	if dark {
+		variant = theme.VariantDark
+	}
+	app.Settings().SetTheme(torrFixedTheme{base: newTorrTheme(), variant: variant})
 }

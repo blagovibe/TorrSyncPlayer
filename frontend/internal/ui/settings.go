@@ -165,9 +165,10 @@ func (s *SettingsStore) Path() string {
 	return s.path
 }
 
-// DefaultSettings is what an absent or damaged file yields.
+// DefaultSettings is what an absent or damaged file yields. The warm dark
+// house is the designed default (idea-0187) — not the system dice.
 func DefaultSettings() Settings {
-	return Settings{Language: "", DarkTheme: false}
+	return Settings{Language: "", DarkTheme: true}
 }
 
 // Load reads the settings, falling back to defaults on any problem.

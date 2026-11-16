@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.10] - 2026-11-16
+
+- **The warm palette actually reaches the window now (bug-0188).** `main.go`
+  installed `TorrTheme` and then overwrote it with the stock light/dark theme
+  on the very next lines, and the settings save handler did the same on every
+  save — which is why v0.4.8 and v0.4.9 looked pixel-identical to the stock
+  build on the owner's machine (a blue "Добавить" sitting where the terracotta
+  accent was promised). The theme is now pinned in the requested mood
+  (`torrFixedTheme` ignores the caller's variant, like the stock DarkTheme
+  pair), both entry points go through one `InstallTorrTheme(app, dark)`, and
+  fresh installs default to the warm dark house (`DarkTheme: true`) instead of
+  forced light — the owner's chosen default. Saved preferences are untouched.
+
 ## [v0.4.9] - 2026-11-16
 
 - **The window has its own icon set** (idea-0187). Nineteen 24-pixel SVG glyphs —

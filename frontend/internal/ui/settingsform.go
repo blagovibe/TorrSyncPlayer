@@ -11,7 +11,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/catalog"
@@ -41,17 +40,15 @@ func mainWindow() fyne.Window {
 	return windows[0]
 }
 
-// applyTheme switches the application theme now.
+// applyTheme pins the application's warm palette in the requested mood.
+// Calling the stock-theme pair here used to drop the window back to the
+// cold built-in colours on every save (bug note in theme.go).
 func applyTheme(dark bool) {
 	app := fyne.CurrentApp()
 	if app == nil {
 		return
 	}
-	if dark {
-		app.Settings().SetTheme(theme.DarkTheme())
-		return
-	}
-	app.Settings().SetTheme(theme.LightTheme())
+	InstallTorrTheme(app, dark)
 }
 
 // chooseFileButton opens a file chooser and hands the picked path to set.

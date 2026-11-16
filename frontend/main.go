@@ -24,7 +24,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/theme"
 
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/api"
 	"github.com/blagovibe/TorrSyncPlayer/frontend/internal/backend"
@@ -186,11 +185,7 @@ func run(opts runOptions) error {
 	ui.InstallFyneTranslations()
 
 	a := app.NewWithID("com.blagovibe.torrsyncplayer")
-	ui.InstallTorrTheme(a)
-	a.Settings().SetTheme(theme.LightTheme())
-	if opts.DarkTheme || settings.DarkTheme {
-		a.Settings().SetTheme(theme.DarkTheme())
-	}
+	ui.InstallTorrTheme(a, opts.DarkTheme || settings.DarkTheme)
 
 	window := a.NewWindow("TorrSyncPlayer")
 	content, openSettings, stopPlayer := ui.NewWindow(client, clientID, store, ui.WindowOptions{

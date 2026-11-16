@@ -28,6 +28,20 @@ func TestTorrThemeAnswersWithWarmPalette(t *testing.T) {
 	}
 }
 
+// The fixed variant ignores what the caller asks for: the checkbox decides
+// the mood, not the system dice — and asking a fixed dark theme for the
+// light palette must never succeed.
+func TestTorrFixedThemeIgnoresTheCallerVariant(t *testing.T) {
+	dark := torrFixedTheme{base: newTorrTheme(), variant: theme.VariantDark}
+	if c := dark.Color(theme.ColorNameBackground, theme.VariantLight); c != torrBackground {
+		t.Fatalf("a fixed dark theme answered a light-variant query with %v", c)
+	}
+	light := torrFixedTheme{base: newTorrTheme(), variant: theme.VariantLight}
+	if c := light.Color(theme.ColorNameBackground, theme.VariantDark); c != torrBackgroundLight {
+		t.Fatalf("a fixed light theme answered a dark-variant query with %v", c)
+	}
+}
+
 // The theme has to fall through to something for every name it doesn't
 // know. An absent override must not turn zero-value-nowhere choices into a
 // blank window.
