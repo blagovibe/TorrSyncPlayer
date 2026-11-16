@@ -37,8 +37,8 @@ func IconPNG(size int) ([]byte, error) {
 	}
 
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	disc := color.NRGBA{R: 0x1f, G: 0x6f, B: 0xeb, A: 0xff}
-	triangle := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	disc := color.NRGBA{R: 0xc9, G: 0x5f, B: 0x3b, A: 0xff}     // #C95F3B terracotta
+	triangle := color.NRGBA{R: 0xed, G: 0xe6, B: 0xdd, A: 0xff} // #EDE6DD cream
 
 	centre, radius := float64(size)/2, float64(size)/2-1
 	for y := 0; y < size; y++ {

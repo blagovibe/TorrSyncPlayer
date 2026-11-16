@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
@@ -160,17 +161,17 @@ type window struct {
 	connLabel *widget.Label
 	// Playback controls: the window's remote over the same mpv the room
 	// drives. Widgets live here; their decisions live in controls.go.
-	playBtn                  *widget.Button
-	elapsedLbl, remainingLbl *widget.Label
-	mediaLbl                 *widget.Label
-	seekSlider, volSlider    *widget.Slider
-	fsBtn                    *widget.Button
-	hasSeek                  bool
-	seekPos                  float64
-	seekAt                   time.Time
-	ctlPaused                bool
-	ctlOn                    bool
-	buffer                   *room.BufferReporter
+	playBtn                 *widget.Button
+	elapsedLbl, durationLbl *widget.Label
+	heroLbl, heroSubLbl     *canvas.Text
+	seekSlider, volSlider   *widget.Slider
+	fsBtn                   *widget.Button
+	hasSeek                 bool
+	seekPos                 float64
+	seekAt                  time.Time
+	ctlPaused               bool
+	ctlOn                   bool
+	buffer                  *room.BufferReporter
 
 	// preparingLine shows the playing torrent's download state: name, percent
 	// and backend status from the 2-second list poll. Playback starts before
@@ -319,13 +320,17 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	w.entry.SetPlaceHolder("magnet:?xt=urn:btih:…")
 	w.entry.OnSubmitted = func(string) { w.addTorrent() }
 
-	w.addButton = widget.NewButtonWithIcon(w.tr("action.add"), theme.ContentAddIcon(), w.addTorrent)
+	w.addButton = widget.NewButtonWithIcon(w.tr("action.add"), torrAddIcon, w.addTorrent)
 	w.addButton.Importance = widget.HighImportance
-	w.addFile = widget.NewButtonWithIcon(w.tr("action.addFile"), theme.FolderOpenIcon(), w.addTorrentFile)
+	w.addFile = widget.NewButtonWithIcon(w.tr("action.addFile"), torrFolderIcon, w.addTorrentFile)
 
-	w.leaveRoomButton = widget.NewButtonWithIcon(w.tr("action.leaveRoom"), theme.LogoutIcon(), w.onLeavePressed)
+	w.leaveRoomButton = widget.NewButtonWithIcon(w.tr("action.leaveRoom"), torrLeaveRoomIcon, w.onLeavePressed)
 	w.leaveRoomButton.Hide()
 
+	// The torrent row is a small card of its own: the name in body type, a
+	// muted second line carrying what it is doing (and how fast), and a
+	// terracotta hairline progress bar beneath — the accent's only job in a
+	// list is to say how much of the film is here.
 	w.list = widget.NewList(
 		func() int {
 			w.mu.RLock()
@@ -333,17 +338,24 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			return len(w.torrents)
 		},
 		func() fyne.CanvasObject {
-			label := widget.NewLabel("")
-			info := widget.NewButtonWithIcon("", theme.InfoIcon(), nil)
+			name := widget.NewLabel("")
+			sub := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
+			sub.TextSize = theme.TextSize() - 3
+			bar := widget.NewProgressBar()
+			info := widget.NewButtonWithIcon("", torrInfoIcon, nil)
 			info.Importance = widget.LowImportance
-			del := widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)
+			del := widget.NewButtonWithIcon("", torrDeleteIcon, nil)
 			del.Importance = widget.LowImportance
-			return container.NewBorder(nil, nil, nil, container.NewHBox(info, del), label, layout.NewSpacer())
+			body := container.NewVBox(name, sub, bar)
+			return container.NewBorder(nil, nil, nil, container.NewHBox(info, del), body)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			row := obj.(*fyne.Container)
-			label := row.Objects[0].(*widget.Label)
-			box := row.Objects[2].(*fyne.Container)
+			body := row.Objects[0].(*fyne.Container)
+			name := body.Objects[0].(*widget.Label)
+			sub := body.Objects[1].(*canvas.Text)
+			bar := body.Objects[2].(*widget.ProgressBar)
+			box := row.Objects[1].(*fyne.Container)
 			info := box.Objects[0].(*widget.Button)
 			del := box.Objects[1].(*widget.Button)
 			ii := id
@@ -354,7 +366,11 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			if id < 0 || id >= len(w.torrents) {
 				return
 			}
-			label.SetText(w.rowSummary(w.torrents[id]))
+			t := w.torrents[id]
+			name.SetText(t.Name)
+			sub.Text = torrentSubline(w.tr, t, w.rates[t.ID].rate)
+			sub.Refresh()
+			bar.SetValue(t.Progress)
 		},
 	)
 	w.list.OnSelected = func(id widget.ListItemID) { w.play(w.item(id)) }
@@ -368,31 +384,42 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	toolbar := container.NewBorder(nil, nil,
 		container.NewHBox(w.addButton, w.addFile),
 		container.NewHBox(
-			widget.NewButtonWithIcon(w.tr("action.refresh"), theme.ViewRefreshIcon(), w.refresh),
+			widget.NewButtonWithIcon(w.tr("action.refresh"), torrRefreshIcon, w.refresh),
 			layout.NewSpacer(),
-			widget.NewButtonWithIcon(w.tr("action.shortcuts"), theme.InfoIcon(), w.showShortcuts),
-			widget.NewButtonWithIcon(w.tr("action.settings"), theme.SettingsIcon(), func() { w.ShowSettings(w.parentWindow()) }),
+			widget.NewButtonWithIcon(w.tr("action.shortcuts"), torrInfoIcon, w.showShortcuts),
+			widget.NewButtonWithIcon(w.tr("action.settings"), torrSettingsIcon, func() { w.ShowSettings(w.parentWindow()) }),
 		),
 		w.entry,
 	)
 
 	// The file list sits next to the torrent list: picking a torrent answers
-	// "which file", and that question is asked every time.
+	// "which file", and that question is asked every time. Rows carry the
+	// same rhythm as their neighbours — the name in body type, a muted line
+	// beneath with the index and the size.
 	w.fileList = widget.NewList(
 		func() int {
 			w.mu.RLock()
 			defer w.mu.RUnlock()
 			return len(w.files)
 		},
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() fyne.CanvasObject {
+			name := widget.NewLabel("")
+			sub := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
+			sub.TextSize = theme.TextSize() - 3
+			return container.NewVBox(name, sub)
+		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			row := obj.(*fyne.Container)
+			name := row.Objects[0].(*widget.Label)
+			sub := row.Objects[1].(*canvas.Text)
 			w.mu.RLock()
 			defer w.mu.RUnlock()
 			if id < 0 || id >= len(w.files) {
 				return
 			}
-			obj.(*widget.Label).SetText(fmt.Sprintf("%d. %s (%s)",
-				w.files[id].Index, w.files[id].Name, humanSize(w.files[id].Size)))
+			name.SetText(w.files[id].Name)
+			sub.Text = fmt.Sprintf("#%d · %s", w.files[id].Index, humanSize(w.files[id].Size))
+			sub.Refresh()
 		},
 	)
 	w.fileList.OnSelected = func(id widget.ListItemID) {
@@ -447,19 +474,24 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	// the same panel, and before this button existed the panel could do only
 	// half of them. It starts disabled and wakes up when a torrent is picked —
 	// a room is bound to one, and a button that could only fail is worse than a
-	// grey one.
-	w.createRoom = widget.NewButtonWithIcon(w.tr("action.createRoom"), theme.ContentAddIcon(), w.onCreatePressed)
+	// grey one. It is the panel's one terracotta action: the window's own
+	// verb for "watch this together".
+	w.createRoom = widget.NewButtonWithIcon(w.tr("action.createRoom"), torrRoomIcon, w.onCreatePressed)
+	w.createRoom.Importance = widget.HighImportance
 	w.createRoom.Disable()
+
+	joinRoom := widget.NewButtonWithIcon(w.tr("action.join"), torrJoinRoomIcon, w.onJoinPressed)
+	w.leaveRoomButton.Importance = widget.LowImportance
 
 	roomPanel := container.NewVBox(
 		container.NewHBox(
-			widget.NewButtonWithIcon(w.tr("action.join"), theme.MediaRecordIcon(), w.onJoinPressed),
+			joinRoom,
 			w.createRoom,
 			w.leaveRoomButton,
 		),
 		container.NewBorder(nil, nil,
-			widget.NewButtonWithIcon(w.tr("action.paste"), theme.ContentPasteIcon(), w.onPasteCodePressed),
-			widget.NewButtonWithIcon(w.tr("action.copy"), theme.ContentCopyIcon(), w.onCopyCodePressed),
+			widget.NewButtonWithIcon(w.tr("action.paste"), torrPasteIcon, w.onPasteCodePressed),
+			widget.NewButtonWithIcon(w.tr("action.copy"), torrCopyIcon, w.onCopyCodePressed),
 			w.inviteEntry,
 		),
 	)
@@ -484,7 +516,7 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	// the reader nothing.
 	body := container.NewBorder(
 		container.NewVBox(toolbar, contentStack(
-			section(w.zoneHeading("zone.playback"), controls),
+			controls,
 			section(w.zoneHeading("zone.tracks"), tracks),
 			w.preparing,
 			section(w.zoneHeading("zone.room"),
@@ -1858,28 +1890,23 @@ func computeRate(prevBytes, nowBytes int64, dtSeconds float64) float64 {
 	return float64(nowBytes-prevBytes) / dtSeconds
 }
 
-// rateOf reports the speed the last tick measured for a torrent, or zero
-// before the first comparison of two ticks has happened.
-func (w *window) rateOf(id string) float64 {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.rates[id].rate
-}
-
-// rowSummary renders the one line a torrent gets in the list: what it is,
-// and what it is doing right now.
-func (w *window) rowSummary(t Torrent) string {
-	switch t.Status {
-	case "seeding":
-		return fmt.Sprintf("%s — %s", t.Name, w.tr("torrent.seeding"))
-	default:
-		pct := fmt.Sprintf(w.tr("torrent.progress"), int(t.Progress*100))
-		if rate := w.rateOf(t.ID); rate > 0 {
-			return fmt.Sprintf("%s — %s (%s)", t.Name, pct,
-				fmt.Sprintf(w.tr("torrent.speed"), humanSize(int64(rate))))
-		}
-		return fmt.Sprintf("%s — %s", t.Name, pct)
+// torrentSubline renders the muted second line of a torrent row: what it
+// is doing, at what speed, how far along — in that order, separated by the
+// catalogue's own triple-dot rhythm. Seeding torrents drop the percentage:
+// they are whole, and the number would only ever say 100%.
+func torrentSubline(tr func(string) string, t Torrent, rate float64) string {
+	status := tr("torrent." + t.Status)
+	if status == "torrent."+t.Status {
+		status = t.Status // an unknown status reads better raw than as a key
 	}
+	parts := []string{status}
+	if t.Status != "seeding" {
+		parts = append(parts, fmt.Sprintf(tr("torrent.progress"), int(t.Progress*100)))
+	}
+	if rate > 0 {
+		parts = append(parts, fmt.Sprintf(tr("torrent.speed"), humanSize(int64(rate))))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // removeTorrent takes a torrent out of the list. The button asks twice —

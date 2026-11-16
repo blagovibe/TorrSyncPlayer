@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -65,37 +66,47 @@ func setSliderValue(s *widget.Slider, onChange func(float64), value float64) {
 	s.OnChanged = onChange
 }
 
-// buildControls assembles the playback row: play/pause, elapsed, seeker,
-// remaining, fullscreen — and beneath it volume with the media line. The
-// window's remote, after the player window's screen: every one of these
-// commands the same mpv the room drives.
+// buildControls assembles the playback block: the hero line — the zone's
+// own name in display type, the way a streaming service titles the screen —
+// the subtitle naming what is playing (or inviting a link), then the
+// transport: play/pause, elapsed, seeker, the file's own length, fullscreen,
+// and beneath it volume. The window's remote, after the player window's
+// screen: every one of these commands the same mpv the room drives.
 func (w *window) buildControls() fyne.CanvasObject {
-	w.playBtn = widget.NewButtonWithIcon("", theme.MediaPlayIcon(), w.onPlayPressed)
+	// The hero is the subject of the window, not a section of it — nothing
+	// else on the screen earns display type. It is cream on the warm black,
+	// not accent: the accent is for what you press, and the screen is not
+	// something you press.
+	w.heroLbl = canvas.NewText(w.tr("zone.playback"), theme.Color(theme.ColorNameForeground))
+	w.heroLbl.TextStyle = fyne.TextStyle{Bold: true}
+	w.heroLbl.TextSize = theme.TextSize() * 1.6
+	w.heroSubLbl = canvas.NewText(w.tr("playback.idle"), theme.Color(theme.ColorNamePlaceHolder))
+	w.heroSubLbl.TextSize = theme.TextSize() - 2
+
+	w.playBtn = widget.NewButtonWithIcon("", torrPlayIcon, w.onPlayPressed)
+	w.playBtn.Importance = widget.HighImportance
 	w.elapsedLbl = widget.NewLabel(formatClock(0))
 	w.seekSlider = widget.NewSlider(0, 1)
 	w.seekSlider.Step = 1
 	w.seekSlider.OnChanged = w.onSeekMoved
-	w.remainingLbl = widget.NewLabel(formatClock(0))
-	w.fsBtn = widget.NewButtonWithIcon("", theme.ViewFullScreenIcon(), w.onFullscreenPressed)
+	w.durationLbl = widget.NewLabel(formatClock(0))
+	w.fsBtn = widget.NewButtonWithIcon("", torrFullscreenIcon, w.onFullscreenPressed)
 
 	seekRow := container.NewBorder(nil, nil,
 		container.NewHBox(w.playBtn, w.elapsedLbl),
-		container.NewHBox(w.remainingLbl, w.fsBtn),
+		container.NewHBox(w.durationLbl, w.fsBtn),
 		w.seekSlider)
 
 	w.volSlider = widget.NewSlider(0, 100)
 	w.volSlider.Step = 1
 	w.volSlider.OnChanged = w.onVolumeMoved
-	w.mediaLbl = widget.NewLabel("")
-	w.mediaLbl.Hide()
 	volRow := container.NewHBox(
-		widget.NewIcon(theme.VolumeUpIcon()),
+		widget.NewIcon(torrVolumeUpIcon),
 		w.volSlider,
-		w.mediaLbl,
 	)
 
 	w.setControlsEnabled(false)
-	return container.NewVBox(seekRow, volRow)
+	return container.NewVBox(w.heroLbl, w.heroSubLbl, rule(), seekRow, volRow)
 }
 
 // onSeekMoved records where the person dragged, not a seek: the tick commits
@@ -202,9 +213,9 @@ func (w *window) updateControls(mpv *player.Player) {
 			w.ctlPaused = paused
 			w.mu.Unlock()
 			if paused {
-				w.playBtn.SetIcon(theme.MediaPlayIcon())
+				w.playBtn.SetIcon(torrPlayIcon)
 			} else {
-				w.playBtn.SetIcon(theme.MediaPauseIcon())
+				w.playBtn.SetIcon(torrPauseIcon)
 			}
 		}
 		if positionErr == nil && durationErr == nil && duration > 0 {
@@ -215,13 +226,27 @@ func (w *window) updateControls(mpv *player.Player) {
 				setSliderValue(w.seekSlider, w.onSeekMoved, clamp(position, 0, duration))
 			}
 			w.elapsedLbl.SetText(formatClock(position))
-			w.remainingLbl.SetText(formatClock(duration - position))
+			w.durationLbl.SetText(formatClock(duration))
 		}
 		if volumeErr == nil {
 			setSliderValue(w.volSlider, w.onVolumeMoved, clamp(volume, 0, 100))
 		}
-		setLine(w.mediaLbl, mediaInfoText(w.tr, name, size, duration))
+		w.heroSubLbl.Text = heroSubtitle(w.tr, name, size, duration)
+		w.heroSubLbl.Refresh()
 	})
+}
+
+// heroSubtitle is the answer to "what am I watching": the name as soon as
+// the window knows it, the full line once the file's own numbers arrive, or
+// the idle invitation before anything is picked.
+func heroSubtitle(tr func(string) string, name string, size int64, duration float64) string {
+	if name == "" {
+		return tr("playback.idle")
+	}
+	if size > 0 && duration > 0 {
+		return mediaInfoText(tr, name, size, duration)
+	}
+	return name
 }
 
 func clamp(v, lo, hi float64) float64 {

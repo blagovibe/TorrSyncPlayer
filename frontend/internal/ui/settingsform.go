@@ -56,7 +56,7 @@ func applyTheme(dark bool) {
 
 // chooseFileButton opens a file chooser and hands the picked path to set.
 func chooseFileButton(tr func(string) string, parent fyne.Window, set func(string)) *widget.Button {
-	return widget.NewButtonWithIcon(tr("settings.choose"), theme.FolderOpenIcon(), func() {
+	return widget.NewButtonWithIcon(tr("settings.choose"), torrFolderIcon, func() {
 		dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil || reader == nil {
 				return
@@ -69,7 +69,7 @@ func chooseFileButton(tr func(string) string, parent fyne.Window, set func(strin
 
 // chooseFolderButton opens a folder chooser and hands the picked path to set.
 func chooseFolderButton(tr func(string) string, parent fyne.Window, set func(string)) *widget.Button {
-	return widget.NewButtonWithIcon(tr("settings.choose"), theme.FolderOpenIcon(), func() {
+	return widget.NewButtonWithIcon(tr("settings.choose"), torrFolderIcon, func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil || uri == nil {
 				return
@@ -283,7 +283,7 @@ func (w *window) ShowSettings(parent fyne.Window) {
 	d := dialog.NewCustomWithoutButtons(w.tr("settings.title"),
 		container.NewVBox(f.content(parent), problem), parent)
 
-	save := widget.NewButtonWithIcon(w.tr("settings.save"), theme.ConfirmIcon(), func() {
+	save := widget.NewButtonWithIcon(w.tr("settings.save"), torrCheckIcon, func() {
 		updated := f.apply(current)
 		if key := updated.Problem(); key != "" {
 			problem.SetText(w.tr(key))
@@ -310,7 +310,7 @@ func (w *window) ShowSettings(parent fyne.Window) {
 
 	cancel := widget.NewButton(w.tr("settings.cancel"), func() { d.Hide() })
 
-	diag := widget.NewButtonWithIcon(w.tr("settings.diagnostics"), theme.ContentCopyIcon(), func() {
+	diag := widget.NewButtonWithIcon(w.tr("settings.diagnostics"), torrCopyIcon, func() {
 		text := Diagnostics(w.client, w.store.Path(), current)
 		if err := w.copyToClipboard(text); err != nil {
 			problem.SetText(err.Error())
@@ -375,7 +375,7 @@ func newStorageQuestion(store *SettingsStore, settings Settings, parent fyne.Win
 	)
 
 	question.dialog = dialog.NewCustomWithoutButtons(tr("storage.question.title"), body, parent)
-	question.save = widget.NewButtonWithIcon(tr("settings.save"), theme.ConfirmIcon(), func() {
+	question.save = widget.NewButtonWithIcon(tr("settings.save"), torrCheckIcon, func() {
 		updated := question.choice.apply(settings)
 		if key := updated.Problem(); key != "" {
 			problem.SetText(tr(key))

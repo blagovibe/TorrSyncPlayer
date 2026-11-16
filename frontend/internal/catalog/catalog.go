@@ -107,6 +107,7 @@ var catalog = map[string]string{
 	// plays, what it needs, the library, and the room — the last one being
 	// about several people and the rest about one.
 	"zone.playback":       "Now playing",
+	"playback.idle":       "Add a magnet link or a .torrent — the film starts playing",
 	"zone.tracks":         "Audio and subtitles",
 	"zone.library":        "Torrents and files",
 	"zone.room":           "Watch together",
@@ -269,6 +270,7 @@ var Russian = Strings{
 	"media.info":               "%s · %s · %s",
 	"track.none":               "Нет",
 	"zone.playback":            "Сейчас играет",
+	"playback.idle":            "Добавьте магнет-ссылку или .torrent — фильм начнёт играть",
 	"zone.tracks":              "Звук и субтитры",
 	"zone.library":             "Торренты и файлы",
 	"zone.room":                "Смотрим вместе",

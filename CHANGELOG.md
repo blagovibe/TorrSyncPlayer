@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The window has its own icon set** (idea-0187). Nineteen 24-pixel SVG glyphs —
+  play, pause, fullscreen, fullscreen-exit, fast-rewind, fast-forward, add,
+  settings, refresh, folder, room, join-room, leave-room, info, delete, copy,
+  paste, check, volume-up — drawn on one grid with rounded corners and fill-only
+  silhouettes, served through the same theme-colourised resource pipeline as
+  Fyne's built-ins (the glyph takes the foreground colour wherever it is drawn).
+  `icons_test.go` rasterises every glyph through oksvg+rasterx and fails if any
+  of them draws nothing, so a typo in a path is a red test, not a silent blank
+  square in a button.
+- **The playback zone opens with the film, not with a label** (idea-0187).
+  "Сейчас играет" / "Now playing" set in display type, with a subtitle under it
+  carrying the file's name — growing to name · size · length once the backend
+  reports them, or to an invitation to add a link before anything plays. The
+  transport shows elapsed on the left and the file's own length on the right
+  (not the remaining time), the seeker stretches between them, and the play
+  button carries the window's one terracotta accent as its HighImportance fill.
+- **Torrent rows are cards of their own** (idea-0187): the name in body type, a
+  muted second line with what the torrent is doing — state · percentage · speed,
+  in the catalogue's own rhythm — and a terracotta hairline progress bar
+  beneath. File rows carry the same rhythm with the index and size on the
+  muted line.
+- **The room panel has a protagonist** (idea-0187): "Открыть комнату" is its
+  terracotta CTA, join and leave sit quiet beside it, and leave-room drops to
+  LowImportance.
+- **The application mark is terracotta**: tray icon and packaged artwork are
+  now a terracotta disc with a cream play triangle, in step with the window's
+  palette instead of the old blue.
+
 ## [v0.4.8] - 2026-11-16
 
 - **The window has its own palette.** TorrSyncPlayer no longer runs the stock
