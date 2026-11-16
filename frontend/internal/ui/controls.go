@@ -46,16 +46,6 @@ func formatClock(seconds float64) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
-// mediaInfoText renders the line under the seeker: what is playing, how
-// large, how long. Empty until all three are known — a half line that fills
-// in piece by piece looks like the window guessing.
-func mediaInfoText(tr func(string) string, name string, size int64, duration float64) string {
-	if name == "" || size <= 0 || duration <= 0 {
-		return ""
-	}
-	return fmt.Sprintf(tr("media.info"), name, humanSize(size), formatClock(duration))
-}
-
 // setSliderValue moves a slider without firing its handler: the poll redraws
 // positions every tick, and a redraw that fires OnChanged would seek (or
 // re-set the volume) on the poll's behalf. The window already detaches
@@ -66,30 +56,34 @@ func setSliderValue(s *widget.Slider, onChange func(float64), value float64) {
 	s.OnChanged = onChange
 }
 
-// buildControls assembles the playback block: the hero line — the zone's
-// own name in display type, the way a streaming service titles the screen —
-// the subtitle naming what is playing (or inviting a link), then the
-// transport: play/pause, elapsed, seeker, the file's own length, fullscreen,
-// and beneath it volume. The window's remote, after the player window's
-// screen: every one of these commands the same mpv the room drives.
+// buildControls assembles the playback block — the screen this window exists
+// for. The hero: a quiet caption saying what the display line is, the film's
+// own name in display type (or the idle invitation with one big amber
+// button), the file's size and length beneath. Then the transport:
+// play/pause, elapsed, seeker, the file's own length, fullscreen, volume.
 func (w *window) buildControls() fyne.CanvasObject {
-	// The hero is the subject of the window, not a section of it — nothing
-	// else on the screen earns display type. It is cream on the warm black,
-	// not accent: the accent is for what you press, and the screen is not
-	// something you press.
-	w.heroLbl = canvas.NewText(w.tr("zone.playback"), theme.Color(theme.ColorNameForeground))
-	w.heroLbl.TextStyle = fyne.TextStyle{Bold: true}
-	w.heroLbl.TextSize = theme.TextSize() * 1.6
+	// The hero is the subject of the window, not a section of it. The display
+	// type is the film's name; while nothing is picked, the empty screen says
+	// so and offers one action — the same action it needs anyway.
+	w.heroCaption = canvas.NewText(w.tr("zone.playback"), theme.Color(theme.ColorNamePlaceHolder))
+	w.heroCaption.TextSize = theme.TextSize() - 1
+	w.heroLbl = widget.NewLabelWithStyle(w.tr("playback.untitled"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	w.heroLbl.SizeName = theme.SizeNameHeadingText
+	w.heroLbl.Wrapping = fyne.TextWrapWord
 	w.heroSubLbl = canvas.NewText(w.tr("playback.idle"), theme.Color(theme.ColorNamePlaceHolder))
-	w.heroSubLbl.TextSize = theme.TextSize() - 2
+	w.heroSubLbl.TextSize = theme.TextSize() - 1
+	w.heroAdd = widget.NewButtonWithIcon(w.tr("action.add"), torrAddIcon, w.addTorrent)
+	w.heroAdd.Importance = widget.HighImportance
 
 	w.playBtn = widget.NewButtonWithIcon("", torrPlayIcon, w.onPlayPressed)
 	w.playBtn.Importance = widget.HighImportance
-	w.elapsedLbl = widget.NewLabel(formatClock(0))
+	w.elapsedLbl = canvas.NewText(formatClock(0), theme.Color(theme.ColorNamePlaceHolder))
+	w.elapsedLbl.TextSize = theme.TextSize() - 1
 	w.seekSlider = widget.NewSlider(0, 1)
 	w.seekSlider.Step = 1
 	w.seekSlider.OnChanged = w.onSeekMoved
-	w.durationLbl = widget.NewLabel(formatClock(0))
+	w.durationLbl = canvas.NewText(formatClock(0), theme.Color(theme.ColorNamePlaceHolder))
+	w.durationLbl.TextSize = theme.TextSize() - 1
 	w.fsBtn = widget.NewButtonWithIcon("", torrFullscreenIcon, w.onFullscreenPressed)
 
 	seekRow := container.NewBorder(nil, nil,
@@ -106,7 +100,30 @@ func (w *window) buildControls() fyne.CanvasObject {
 	)
 
 	w.setControlsEnabled(false)
-	return container.NewVBox(w.heroLbl, w.heroSubLbl, rule(), seekRow, volRow)
+	w.setHeroIdle(true)
+	return container.NewVBox(
+		w.heroCaption,
+		w.heroLbl,
+		w.heroSubLbl,
+		container.NewHBox(w.heroAdd),
+		rule(),
+		seekRow,
+		volRow,
+	)
+}
+
+// setHeroIdle swaps the hero between nothing-yet and this-film: the
+// invitation appears exactly when there is something to invite into, and the
+// caption only ever sits above a name, never above an empty room.
+func (w *window) setHeroIdle(idle bool) {
+	if idle {
+		w.heroCaption.Hide()
+		w.heroLbl.SetText(w.tr("playback.untitled"))
+		w.heroAdd.Show()
+		return
+	}
+	w.heroCaption.Show()
+	w.heroAdd.Hide()
 }
 
 // onSeekMoved records where the person dragged, not a seek: the tick commits
@@ -225,11 +242,20 @@ func (w *window) updateControls(mpv *player.Player) {
 			if !userHolding {
 				setSliderValue(w.seekSlider, w.onSeekMoved, clamp(position, 0, duration))
 			}
-			w.elapsedLbl.SetText(formatClock(position))
-			w.durationLbl.SetText(formatClock(duration))
+			w.elapsedLbl.Text = formatClock(position)
+			w.elapsedLbl.Refresh()
+			w.durationLbl.Text = formatClock(duration)
+			w.durationLbl.Refresh()
 		}
 		if volumeErr == nil {
 			setSliderValue(w.volSlider, w.onVolumeMoved, clamp(volume, 0, 100))
+		}
+		if name != w.ctlHeroName {
+			w.ctlHeroName = name
+			w.setHeroIdle(name == "")
+			if name != "" {
+				w.heroLbl.SetText(name)
+			}
 		}
 		w.heroSubLbl.Text = heroSubtitle(w.tr, name, size, duration)
 		w.heroSubLbl.Refresh()
@@ -244,9 +270,12 @@ func heroSubtitle(tr func(string) string, name string, size int64, duration floa
 		return tr("playback.idle")
 	}
 	if size > 0 && duration > 0 {
-		return mediaInfoText(tr, name, size, duration)
+		return fmt.Sprintf("%s · %s", humanSize(size), formatClock(duration))
 	}
-	return name
+	if duration > 0 {
+		return formatClock(duration)
+	}
+	return ""
 }
 
 func clamp(v, lo, hi float64) float64 {

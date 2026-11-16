@@ -100,7 +100,6 @@ var catalog = map[string]string{
 	"room.defaultName": "Room",
 	"room.oldVersion":  "older version",
 	"room.refused":     "a participant speaks a newer protocol (version %d) — the room did not admit them",
-	"media.info":       "%s · %s · %s",
 	"track.none":       "None",
 
 	// The zones of the window. Named so the eye knows where it is: what
@@ -108,8 +107,10 @@ var catalog = map[string]string{
 	// about several people and the rest about one.
 	"zone.playback":       "Now playing",
 	"playback.idle":       "Add a magnet link or a .torrent — the film starts playing",
+	"playback.untitled":   "Nothing is playing",
 	"zone.tracks":         "Audio and subtitles",
 	"zone.library":        "Torrents and files",
+	"library.empty":       "Nothing here yet — add a magnet link above",
 	"zone.room":           "Watch together",
 	"torrent.loading":     "Loading",
 	"torrent.downloading": "Downloading",
@@ -267,12 +268,13 @@ var Russian = Strings{
 	"room.defaultName":         "Комната",
 	"room.oldVersion":          "старая версия",
 	"room.refused":             "участник говорит на более новом протоколе (версия %d) — комната его не приняла",
-	"media.info":               "%s · %s · %s",
 	"track.none":               "Нет",
 	"zone.playback":            "Сейчас играет",
 	"playback.idle":            "Добавьте магнет-ссылку или .torrent — фильм начнёт играть",
+	"playback.untitled":        "Ничего не играет",
 	"zone.tracks":              "Звук и субтитры",
 	"zone.library":             "Торренты и файлы",
+	"library.empty":            "Здесь пусто — добавьте магнет-ссылку выше",
 	"zone.room":                "Смотрим вместе",
 	"torrent.loading":          "Загрузка",
 	"torrent.downloading":      "Скачивание",

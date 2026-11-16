@@ -50,6 +50,21 @@ channels noted.
   package page at https://community.chocolatey.org/packages/ffmpeg,
   or `brew info ffmpeg` for the exact source of the build in your artifact.
 
+## Inter (embedded in the application binary)
+
+- **What:** the Inter typeface — `Inter-Regular.ttf` and `Inter-Bold.ttf` —
+  embedded into `TorrSyncPlayer.exe` (and the other platform binaries) as
+  static resources and used for every glyph the window renders. Source
+  files live at `frontend/internal/ui/assets/fonts/`, unmodified, taken
+  straight from the upstream release.
+- **License:** SIL Open Font License, version 1.1 (**OFL-1.1**). The full
+  text ships alongside the fonts at
+  `frontend/internal/ui/assets/fonts/LICENSE-Inter.txt`.
+- **Upstream:** https://rsms.me/inter/ — release 4.1,
+  https://github.com/rsms/inter/releases/tag/v4.1
+- **Corresponding source:** the release archive, or the repository at any
+  tag — fonts are the source here; nothing is generated or modified.
+
 ## GCC runtime libraries (shipped beside the Windows executables)
 
 - **What:** the GCC runtime libraries — **libstdc++**, **libgcc** and

@@ -5,7 +5,7 @@
 package ui
 
 import (
-	"strings"
+	"image/color"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -23,12 +23,11 @@ import (
 // give each part a name and a border, which is what tells the eye where to
 // look first — the alternative, a native-looking toolkit, was refused on
 // purpose (idea-0063: GTK4 would cost macOS and Windows).
-// zoneHeading is a small-caps zone title with a muted colour, the way a
-// streaming service marks the edge of a section: the section is named, not
-// shouted, and the muted grey lets the content dominate.
+// zoneHeading is the quiet name of a zone: sentence case, support grey, one
+// step smaller than body text — a caption, not a shout. A streaming service
+// does not letterpress "AUDIO AND SUBTITLES" onto its shelves.
 func (w *window) zoneHeading(key string) fyne.CanvasObject {
-	text := canvas.NewText(strings.ToUpper(w.tr(key)), theme.Color(theme.ColorNamePlaceHolder))
-	text.TextStyle = fyne.TextStyle{Bold: true}
+	text := canvas.NewText(w.tr(key), theme.Color(theme.ColorNamePlaceHolder))
 	text.TextSize = theme.TextSize() - 1
 	return text
 }
@@ -44,6 +43,14 @@ func rule() fyne.CanvasObject {
 	line := canvas.NewLine(theme.Color(theme.ColorNameSeparator))
 	line.StrokeWidth = 1
 	return line
+}
+
+// gap is the air between shelves: nothing drawn, just room. The height is a
+// parameter because the library breathes deeper than the zones do.
+func gap(height float32) fyne.CanvasObject {
+	space := canvas.NewRectangle(color.Transparent)
+	space.SetMinSize(fyne.NewSize(0, height))
+	return space
 }
 
 // section is one named zone: a heading, a hairline under it, and its

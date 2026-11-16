@@ -162,10 +162,14 @@ type window struct {
 	// Playback controls: the window's remote over the same mpv the room
 	// drives. Widgets live here; their decisions live in controls.go.
 	playBtn                 *widget.Button
-	elapsedLbl, durationLbl *widget.Label
-	heroLbl, heroSubLbl     *canvas.Text
+	elapsedLbl, durationLbl *canvas.Text
+	heroCaption             *canvas.Text
+	heroLbl                 *widget.Label
+	heroSubLbl              *canvas.Text
+	heroAdd                 *widget.Button
 	seekSlider, volSlider   *widget.Slider
 	fsBtn                   *widget.Button
+	ctlHeroName             string
 	hasSeek                 bool
 	seekPos                 float64
 	seekAt                  time.Time
@@ -178,7 +182,8 @@ type window struct {
 	// the download finishes, so "nothing is ready yet" is a normal state,
 	// not an error — and it deserves its own line rather than the status
 	// line, which carries transient messages.
-	preparing *widget.Label
+	preparing    *widget.Label
+	libraryEmpty *canvas.Text
 
 	// bufferCancel ends the buffer report of the file that was playing before
 	// the current one. One report per file: a switch must stop steering the
@@ -327,37 +332,23 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	w.leaveRoomButton = widget.NewButtonWithIcon(w.tr("action.leaveRoom"), torrLeaveRoomIcon, w.onLeavePressed)
 	w.leaveRoomButton.Hide()
 
-	// The torrent row is a small card of its own: the name in body type, a
-	// muted second line carrying what it is doing (and how fast), and a
-	// terracotta hairline progress bar beneath — the accent's only job in a
-	// list is to say how much of the film is here.
+	// The torrent row is a plate, not a table line: the name in body type,
+	// a muted second line carrying what it is doing (and how fast), and an
+	// amber progress bar — the accent's one job in a list is to say how much
+	// of the film is here. Rows breathe: a plate with air beneath it, shelves
+	// of films, not a debug panel.
 	w.list = widget.NewList(
 		func() int {
 			w.mu.RLock()
 			defer w.mu.RUnlock()
 			return len(w.torrents)
 		},
-		func() fyne.CanvasObject {
-			name := widget.NewLabel("")
-			sub := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
-			sub.TextSize = theme.TextSize() - 3
-			bar := widget.NewProgressBar()
-			info := widget.NewButtonWithIcon("", torrInfoIcon, nil)
-			info.Importance = widget.LowImportance
-			del := widget.NewButtonWithIcon("", torrDeleteIcon, nil)
-			del.Importance = widget.LowImportance
-			body := container.NewVBox(name, sub, bar)
-			return container.NewBorder(nil, nil, nil, container.NewHBox(info, del), body)
-		},
+		func() fyne.CanvasObject { return newTorrentPlate() },
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			row := obj.(*fyne.Container)
-			body := row.Objects[0].(*fyne.Container)
-			name := body.Objects[0].(*widget.Label)
-			sub := body.Objects[1].(*canvas.Text)
-			bar := body.Objects[2].(*widget.ProgressBar)
-			box := row.Objects[1].(*fyne.Container)
-			info := box.Objects[0].(*widget.Button)
-			del := box.Objects[1].(*widget.Button)
+			name, sub, bar, info, del, ok := torrentPlateParts(obj)
+			if !ok {
+				return
+			}
 			ii := id
 			info.OnTapped = func() { w.showDescription(w.item(ii)) }
 			del.OnTapped = func() { w.removeTorrent(w.item(ii)) }
@@ -381,37 +372,35 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 	// The magnet field is the border's object, not its left panel: a side
 	// panel is handed its minimum width, which clipped the one field
 	// everything starts from down to a few characters.
+	shortcutsBtn := widget.NewButtonWithIcon("", torrInfoIcon, w.showShortcuts)
+	shortcutsBtn.Importance = widget.LowImportance
+
 	toolbar := container.NewBorder(nil, nil,
 		container.NewHBox(w.addButton, w.addFile),
 		container.NewHBox(
 			widget.NewButtonWithIcon(w.tr("action.refresh"), torrRefreshIcon, w.refresh),
 			layout.NewSpacer(),
-			widget.NewButtonWithIcon(w.tr("action.shortcuts"), torrInfoIcon, w.showShortcuts),
+			shortcutsBtn,
 			widget.NewButtonWithIcon(w.tr("action.settings"), torrSettingsIcon, func() { w.ShowSettings(w.parentWindow()) }),
 		),
 		w.entry,
 	)
 
 	// The file list sits next to the torrent list: picking a torrent answers
-	// "which file", and that question is asked every time. Rows carry the
-	// same rhythm as their neighbours — the name in body type, a muted line
-	// beneath with the index and the size.
+	// "which file", and that question is asked every time. Same shelf idea as
+	// its neighbour, a quieter plate.
 	w.fileList = widget.NewList(
 		func() int {
 			w.mu.RLock()
 			defer w.mu.RUnlock()
 			return len(w.files)
 		},
-		func() fyne.CanvasObject {
-			name := widget.NewLabel("")
-			sub := canvas.NewText("", theme.Color(theme.ColorNamePlaceHolder))
-			sub.TextSize = theme.TextSize() - 3
-			return container.NewVBox(name, sub)
-		},
+		func() fyne.CanvasObject { return newFilePlate() },
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			row := obj.(*fyne.Container)
-			name := row.Objects[0].(*widget.Label)
-			sub := row.Objects[1].(*canvas.Text)
+			name, sub, ok := filePlateParts(obj)
+			if !ok {
+				return
+			}
 			w.mu.RLock()
 			defer w.mu.RUnlock()
 			if id < 0 || id >= len(w.files) {
@@ -431,6 +420,13 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		w.mu.RUnlock()
 		w.playFile(f)
 	}
+
+	// The empty shelf says so, instead of staring back with black space:
+	// one quiet line where the list will fill, shown only while there is
+	// nothing in it.
+	w.libraryEmpty = canvas.NewText(w.tr("library.empty"), theme.Color(theme.ColorNamePlaceHolder))
+	w.libraryEmpty.TextSize = theme.TextSize() - 1
+	w.libraryEmpty.Hide()
 
 	// The choosers start hidden: most films have one voice, and a row of
 	// empty selectors teaches a person that the app has nothing to offer.
@@ -496,10 +492,15 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 		),
 	)
 
+	tracksMuted := func(key string) fyne.CanvasObject {
+		l := canvas.NewText(w.tr(key), theme.Color(theme.ColorNamePlaceHolder))
+		l.TextSize = theme.TextSize() - 1
+		return container.NewCenter(l)
+	}
 	tracks := container.NewHBox(
-		widget.NewLabel(w.tr("track.audio")), w.audioSelect,
-		widget.NewLabel(w.tr("track.sub")), w.subSelect,
-		widget.NewLabel(w.tr("track.subfile")), w.subFileSelect,
+		tracksMuted("track.audio"), w.audioSelect,
+		tracksMuted("track.sub"), w.subSelect,
+		tracksMuted("track.subfile"), w.subFileSelect,
 	)
 
 	controls := w.buildControls()
@@ -535,7 +536,10 @@ func newWindow(client *api.Client, clientID string, store *SettingsStore, opts W
 			w.zoneHeading("zone.library"),
 			rule(),
 			nil, nil,
-			container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList)),
+			container.NewStack(
+				container.NewHSplit(container.NewScroll(w.list), container.NewScroll(w.fileList)),
+				container.NewCenter(w.libraryEmpty),
+			),
 		),
 	)
 
@@ -2039,7 +2043,14 @@ func (w *window) refresh() {
 	}
 	w.mu.Unlock()
 
-	onMain(w.list.Refresh)
+	onMain(func() {
+		w.list.Refresh()
+		if len(out.Torrents) == 0 {
+			w.libraryEmpty.Show()
+		} else {
+			w.libraryEmpty.Hide()
+		}
+	})
 	preparing := preparingText(w.tr, playingTorrent(out.Torrents, playing))
 	onMain(func() { setLine(w.preparing, preparing) })
 	w.setStatus(w.trfi("status.torrents", len(out.Torrents)))

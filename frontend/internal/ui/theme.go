@@ -5,55 +5,61 @@
 package ui
 
 import (
+	_ "embed"
 	"image/color"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
 
-// The window is a screen of a player: what plays is the largest thing on it.
-// The stock Fyne theme inherits every colour from the operating system, which
-// is the safest and the blandest choice — the window looked flat and every
-// strip weighed the same. idea-0187 was filed for this.
+// The look is a home cinema, not a utility: a darkened room, a clean black
+// hall, a projected off-white, and one marquee light for the actions that
+// begin something. idea-0187 was filed for this; the owner picked the
+// «Кинозал» direction over the warm-brown first proposal, on this machine,
+// after seeing it with their own eyes.
 //
-// The palette below is the promise of that card: a warm near-black backdrop
-// with cream text, muted clay figureheads, and a single terracotta accent —
-// the colour of the film kind of red where there is one film kind of red.
-// Nothing else gets to compete for attention; the theme system exists so the
-// two variants (dark warm and light paper) do not fork into two codebases.
+// Rules that keep it coherent:
+//   - there is exactly one accent hue (amber, #E8A33D) and it belongs to
+//     starts: add, play, open a room, progress, the seek. Nothing else is
+//     allowed to shine;
+//   - there are no boxes with shadows: surfaces are quiet plates separated
+//     by hairlines, the way a shelf separates rows of films;
+//   - the film's name is the poster — display type, everything else support.
 
-// Dark warm, per the palette direction the owner signed off on.
+// «Кинозал», the dark room — the default mood.
 var (
-	torrBackground  = color.NRGBA{R: 0x17, G: 0x14, B: 0x12, A: 0xff} // #171412
-	torrSurface     = color.NRGBA{R: 0x20, G: 0x1c, B: 0x19, A: 0xff} // #201C19
-	torrText        = color.NRGBA{R: 0xed, G: 0xe6, B: 0xdd, A: 0xff} // #EDE6DD
-	torrMuted       = color.NRGBA{R: 0xa5, G: 0x9c, B: 0x90, A: 0xff} // #A59C90
-	torrAccent      = color.NRGBA{R: 0xe0, G: 0x76, B: 0x4a, A: 0xff} // #E0764A
-	torrSeparator   = color.NRGBA{R: 0x2e, G: 0x29, B: 0x26, A: 0xff} // #2E2926
-	torrInputBG     = color.NRGBA{R: 0x1d, G: 0x19, B: 0x16, A: 0xff} // #1D1916
-	torrSelection   = color.NRGBA{R: 0xe0, G: 0x76, B: 0x4a, A: 0x2e} // accent @ ~18%
-	torrPressed     = color.NRGBA{R: 0xc8, G: 0x66, B: 0x3f, A: 0xff} // accent pressed darker
-	torrError       = color.NRGBA{R: 0xe0, G: 0x76, B: 0x4a, A: 0xff} // error stays warm
-	torrSuccess     = color.NRGBA{R: 0x8a, G: 0xc9, B: 0x62, A: 0xff}
-	torrWarning     = color.NRGBA{R: 0xe0, G: 0xc5, B: 0x76, A: 0xff}
-	torrScrollBarBG = color.NRGBA{R: 0x24, G: 0x20, B: 0x1d, A: 0xff}
-	torrDisabled    = color.NRGBA{R: 0x6e, G: 0x66, B: 0x5d, A: 0xff}
+	torrBackground  = color.NRGBA{R: 0x0f, G: 0x0f, B: 0x12, A: 0xff} // #0F0F12
+	torrSurface     = color.NRGBA{R: 0x18, G: 0x18, B: 0x1d, A: 0xff} // #18181D
+	torrText        = color.NRGBA{R: 0xf4, G: 0xf2, B: 0xec, A: 0xff} // #F4F2EC
+	torrMuted       = color.NRGBA{R: 0x8b, G: 0x8b, B: 0x93, A: 0xff} // #8B8B93
+	torrAccent      = color.NRGBA{R: 0xe8, G: 0xa3, B: 0x3d, A: 0xff} // #E8A33D
+	torrSeparator   = color.NRGBA{R: 0x23, G: 0x23, B: 0x29, A: 0xff} // #232329
+	torrInputBG     = color.NRGBA{R: 0x13, G: 0x13, B: 0x18, A: 0xff} // #131318
+	torrSelection   = color.NRGBA{R: 0xe8, G: 0xa3, B: 0x3d, A: 0x2e} // accent @ ~18%
+	torrPressed     = color.NRGBA{R: 0xc9, G: 0x85, B: 0x2a, A: 0xff} // accent pressed darker
+	torrError       = color.NRGBA{R: 0xe3, G: 0x5b, B: 0x4f, A: 0xff}
+	torrSuccess     = color.NRGBA{R: 0x7f, G: 0xb0, B: 0x69, A: 0xff}
+	torrWarning     = color.NRGBA{R: 0xe4, G: 0xc4, B: 0x65, A: 0xff}
+	torrScrollBarBG = color.NRGBA{R: 0x1b, G: 0x1b, B: 0x21, A: 0xff}
+	torrScrollBar   = color.NRGBA{R: 0x3a, G: 0x3a, B: 0x44, A: 0xff}
+	torrDisabled    = color.NRGBA{R: 0x56, G: 0x56, B: 0x60, A: 0xff}
 
-	// Light paper, the mirror warm side of the same palette.
-	torrBackgroundLight  = color.NRGBA{R: 0xfa, G: 0xf7, B: 0xf2, A: 0xff} // #FAF7F2
+	// «Дневной зал», the same geometry under daylight.
+	torrBackgroundLight  = color.NRGBA{R: 0xfb, G: 0xfa, B: 0xf7, A: 0xff} // #FBFAF7
 	torrSurfaceLight     = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff} // #FFFFFF
-	torrTextLight        = color.NRGBA{R: 0x2a, G: 0x24, B: 0x1f, A: 0xff} // #2A241F
-	torrMutedLight       = color.NRGBA{R: 0x6b, G: 0x62, B: 0x5a, A: 0xff} // #6B625A
-	torrAccentLight      = color.NRGBA{R: 0xc9, G: 0x5f, B: 0x3b, A: 0xff} // #C95F3B
-	torrSeparatorLight   = color.NRGBA{R: 0xe7, G: 0xe1, B: 0xd8, A: 0xff} // #E7E1D8
-	torrInputBGLight     = color.NRGBA{R: 0xf6, G: 0xf3, B: 0xee, A: 0xff} // #F6F3EE
-	torrSelectionLight   = color.NRGBA{R: 0xc9, G: 0x5f, B: 0x3b, A: 0x2e}
-	torrPressedLight     = color.NRGBA{R: 0xa8, G: 0x4f, B: 0x2f, A: 0xff}
-	torrErrorLight       = color.NRGBA{R: 0xc9, G: 0x5f, B: 0x3b, A: 0xff}
-	torrSuccessLight     = color.NRGBA{R: 0x5e, G: 0xa3, B: 0x3f, A: 0xff}
-	torrWarningLight     = color.NRGBA{R: 0xb3, G: 0x90, B: 0x33, A: 0xff}
-	torrScrollBarBGLight = color.NRGBA{R: 0xef, G: 0xeb, B: 0xe4, A: 0xff}
-	torrDisabledLight    = color.NRGBA{R: 0xa8, G: 0xa2, B: 0x9a, A: 0xff}
+	torrTextLight        = color.NRGBA{R: 0x16, G: 0x15, B: 0x0f, A: 0xff} // #16150F
+	torrMutedLight       = color.NRGBA{R: 0x6f, G: 0x6d, B: 0x64, A: 0xff} // #6F6D64
+	torrAccentLight      = color.NRGBA{R: 0xc0, G: 0x7e, B: 0x22, A: 0xff} // #C07E22
+	torrSeparatorLight   = color.NRGBA{R: 0xe7, G: 0xe4, B: 0xdc, A: 0xff} // #E7E4DC
+	torrInputBGLight     = color.NRGBA{R: 0xf3, G: 0xf1, B: 0xec, A: 0xff} // #F3F1EC
+	torrSelectionLight   = color.NRGBA{R: 0xc0, G: 0x7e, B: 0x22, A: 0x2e}
+	torrPressedLight     = color.NRGBA{R: 0xa6, G: 0x67, B: 0x17, A: 0xff}
+	torrErrorLight       = color.NRGBA{R: 0xb5, G: 0x3d, B: 0x33, A: 0xff}
+	torrSuccessLight     = color.NRGBA{R: 0x4e, G: 0x8a, B: 0x3c, A: 0xff}
+	torrWarningLight     = color.NRGBA{R: 0xb5, G: 0x8f, B: 0x2f, A: 0xff}
+	torrScrollBarBGLight = color.NRGBA{R: 0xee, G: 0xec, B: 0xe6, A: 0xff}
+	torrScrollBarLight   = color.NRGBA{R: 0xd8, G: 0xd5, B: 0xcc, A: 0xff}
+	torrDisabledLight    = color.NRGBA{R: 0xa8, G: 0xa6, B: 0x99, A: 0xff}
 )
 
 var torrPalette = map[fyne.ThemeColorName]map[fyne.ThemeVariant]color.Color{
@@ -64,8 +70,8 @@ var torrPalette = map[fyne.ThemeColorName]map[fyne.ThemeVariant]color.Color{
 	theme.ColorNameError:                     {theme.VariantDark: torrError, theme.VariantLight: torrErrorLight},
 	theme.ColorNameFocus:                     {theme.VariantDark: torrAccent, theme.VariantLight: torrAccentLight},
 	theme.ColorNameForeground:                {theme.VariantDark: torrText, theme.VariantLight: torrTextLight},
-	theme.ColorNameForegroundOnError:         {theme.VariantDark: torrBackground, theme.VariantLight: torrBackgroundLight},
-	theme.ColorNameForegroundOnPrimary:       {theme.VariantDark: torrBackground, theme.VariantLight: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}},
+	theme.ColorNameForegroundOnError:         {theme.VariantDark: torrBackground, theme.VariantLight: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}},
+	theme.ColorNameForegroundOnPrimary:       {theme.VariantDark: color.NRGBA{R: 0x18, G: 0x18, B: 0x1d, A: 0xff}, theme.VariantLight: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}},
 	theme.ColorNameForegroundOnSuccess:       {theme.VariantDark: torrBackground, theme.VariantLight: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}},
 	theme.ColorNameForegroundOnWarning:       {theme.VariantDark: torrBackground, theme.VariantLight: torrTextLight},
 	theme.ColorNameHeaderBackground:          {theme.VariantDark: torrSurface, theme.VariantLight: torrSurfaceLight},
@@ -80,7 +86,7 @@ var torrPalette = map[fyne.ThemeColorName]map[fyne.ThemeVariant]color.Color{
 	theme.ColorNamePlaceHolder:               {theme.VariantDark: torrMuted, theme.VariantLight: torrMutedLight},
 	theme.ColorNamePressed:                   {theme.VariantDark: torrPressed, theme.VariantLight: torrPressedLight},
 	theme.ColorNamePrimary:                   {theme.VariantDark: torrAccent, theme.VariantLight: torrAccentLight},
-	theme.ColorNameScrollBar:                 {theme.VariantDark: torrPressed, theme.VariantLight: torrPressedLight},
+	theme.ColorNameScrollBar:                 {theme.VariantDark: torrScrollBar, theme.VariantLight: torrScrollBarLight},
 	theme.ColorNameScrollBarBackground:       {theme.VariantDark: torrScrollBarBG, theme.VariantLight: torrScrollBarBGLight},
 	theme.ColorNameSelection:                 {theme.VariantDark: torrSelection, theme.VariantLight: torrSelectionLight},
 	theme.ColorNameSeparator:                 {theme.VariantDark: torrSeparator, theme.VariantLight: torrSeparatorLight},
@@ -90,18 +96,34 @@ var torrPalette = map[fyne.ThemeColorName]map[fyne.ThemeVariant]color.Color{
 }
 
 var torrSizes = map[fyne.ThemeSizeName]float32{
-	theme.SizeNameButtonRadius:       9,
+	theme.SizeNameText:               13,
+	theme.SizeNameHeadingText:        26, // the display size: the film's own name
+	theme.SizeNameSubHeadingText:     15,
+	theme.SizeNameCaptionText:        11,
+	theme.SizeNameButtonRadius:       8,
 	theme.SizeNameCardRadius:         10,
 	theme.SizeNamePopupRadius:        10,
 	theme.SizeNameDialogRadius:       12,
 	theme.SizeNameInputRadius:        8,
 	theme.SizeNameSelectionRadius:    6,
-	theme.SizeNameLineSpacing:        1.05,
+	theme.SizeNameLineSpacing:        1.18,
+	theme.SizeNameInlineIcon:         22,
 	theme.SizeNamePadding:            9,
 	theme.SizeNameInnerPadding:       12,
 	theme.SizeNameSeparatorThickness: 1,
 	theme.SizeNameSplitThickness:     3,
 }
+
+//go:embed assets/fonts/Inter-Regular.ttf
+var interRegular []byte
+
+//go:embed assets/fonts/Inter-Bold.ttf
+var interBold []byte
+
+var (
+	interRegularRes = &fyne.StaticResource{StaticName: "Inter-Regular.ttf", StaticContent: interRegular}
+	interBoldRes    = &fyne.StaticResource{StaticName: "Inter-Bold.ttf", StaticContent: interBold}
+)
 
 type torrTheme struct {
 	base fyne.Theme
@@ -120,8 +142,14 @@ func (t torrTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) co
 	return t.base.Color(name, variant)
 }
 
+// The room's own typeface. Fyne embeds Noto Sans; this window speaks Inter,
+// because the difference between a system toolkit and a designed product is
+// felt in the letters before it is seen in the chrome.
 func (t torrTheme) Font(style fyne.TextStyle) fyne.Resource {
-	return t.base.Font(style)
+	if style.Bold {
+		return interBoldRes
+	}
+	return interRegularRes
 }
 
 func (t torrTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
@@ -139,7 +167,7 @@ func (t torrTheme) Size(name fyne.ThemeSizeName) float32 {
 // window outright instead of deferring to the desktop, so the palette is the
 // same on a dark laptop in daylight and a light one at night. This is what
 // the stock DarkTheme/LightTheme pair used to do — and what kept the warm
-// palette from ever reaching the person in v0.4.8/v0.4.9 (the checkbox
+// palette from ever reaching the person in v0.4.8–v0.4.10 (the checkbox
 // overwrote TorrTheme with the stock theme at startup and after every
 // settings save).
 type torrFixedTheme struct {
@@ -164,7 +192,7 @@ func (t torrFixedTheme) Size(name fyne.ThemeSizeName) float32 {
 }
 
 // InstallTorrTheme pins the warm palette to the app in the requested
-// mood. dark=true yields the warm near-black house, false the warm paper.
+// mood. dark=true yields the kino-zal, false the daylight hall.
 func InstallTorrTheme(app fyne.App, dark bool) {
 	variant := theme.VariantLight
 	if dark {

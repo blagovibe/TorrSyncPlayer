@@ -51,22 +51,20 @@ func TestADragLandsOnce(t *testing.T) {
 	}
 }
 
-// The media line reports only what is known: no name, no size or no length
-// reads as no line, not as a half line filling in piece by piece.
-func TestTheMediaLineWaitsForAllThree(t *testing.T) {
+// The hero's second line is the file's own numbers: no name yet reads as the
+// idle invitation, size and length read as the film's weight — and the line
+// never repeats the name, which lives in the display line above it.
+func TestTheHeroLineWaitsForTheFile(t *testing.T) {
 	tr := func(key string) string { return catalog.Lookup(catalog.English, key) }
 
-	if got := mediaInfoText(tr, "", 100, 60); got != "" {
-		t.Errorf("no name must read as no line, got %q", got)
+	if got := heroSubtitle(tr, "", 100, 60); got == "" {
+		t.Error("no film must read as the invitation, not as an empty line")
 	}
-	if got := mediaInfoText(tr, "Film.mkv", 0, 60); got != "" {
-		t.Errorf("no size must read as no line, got %q", got)
+	if got := heroSubtitle(tr, "Film.mkv", 0, 60); got != "1:00" {
+		t.Errorf("no size yet must fall back to the length alone, got %q", got)
 	}
-	if got := mediaInfoText(tr, "Film.mkv", 100, 0); got != "" {
-		t.Errorf("no length must read as no line, got %q", got)
-	}
-	if got, want := mediaInfoText(tr, "Film.mkv", 1500000000, 7542),
-		"Film.mkv · 1.4 GB · 2:05:42"; got != want {
+	if got, want := heroSubtitle(tr, "Film.mkv", 1500000000, 7542),
+		"1.4 GB · 2:05:42"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

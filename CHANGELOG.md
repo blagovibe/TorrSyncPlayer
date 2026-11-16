@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.11] - 2026-11-16
+
+- **The window is a cinema now, not a settings page (idea-0187).** The owner
+  rejected the warm-terracotta look outright and picked the «Кинозал»
+  direction over it: a clean near-black hall (#0F0F12, zero brown), a
+  projector white (#F4F2EC), and a single marquee amber (#E8A33D) reserved
+  for actions that begin something — add, play, open a room, the progress
+  fill, the seek. A daylight paper mirror (#FBFAF7) carries the same
+  geometry for the light mood.
+- **Inter is embedded** (OFL 1.1, unmodified from the upstream release, in
+  THIRD_PARTY_NOTICES.md). The film's own name sets in 26pt Bold — the title
+  is the poster. "Сейчас играет" and the zone headings are quiet 12pt
+  sentence-case captions, not letterpress caps.
+- **The library shelves read as shelves**: each row is a rounded plate on a
+  hairline-separated shelf with air around it; torrent rows carry the name,
+  a muted status line (state · percentage · speed), and an amber progress
+  bar; file rows carry name plus index and size.
+- **The playback hero leads the window**: «Сейчас играет» caption, the
+  film's name in display type, its size and length beneath, elapsed left of
+  the seekbar and the file's own length right, volume under the transport.
+  Idle state invites one action with one amber button; nothing else
+  competes.
+- **A screenshot test renders the whole window** through the software
+  painter (`TSP_SHOT=<prefix>`, `TSP_FIXTURE=1` for a populated shelf), so
+  the design is checked without a display or a GPU.
+
 ## [v0.4.10] - 2026-11-16
 
 - **The warm palette actually reaches the window now (bug-0188).** `main.go`
