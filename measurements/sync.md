@@ -109,3 +109,4 @@
 | 2026-11-16T08:00:37Z | ? | ? | outside the promise |
 | 2026-11-16T08:42:51Z | 0.20 | 0.58 | within the promise |
 | 2026-11-16T09:14:47Z | 0.20 | 0.59 | within the promise |
+| 2026-11-16T09:39:40Z | 0.20 | 0.57 | within the promise |
