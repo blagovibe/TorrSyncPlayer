@@ -324,16 +324,31 @@ func TestTappingASeasonPosterWaitsForAChoice(t *testing.T) {
 
 	w.play(&w.torrents[0])
 
+	// The tap runs on its own goroutine; wait until the file list lands, the
+	// way the person would eventually see it. Shared fields are read under
+	// the same lock the window uses.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		w.mu.RLock()
+		files := len(w.files)
+		current := w.current
+		w.mu.RUnlock()
+		if files == 3 {
+			if current == nil || current.ID != "season1" {
+				t.Fatal("the season is not the current torrent")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("chips came from %d files, want 3", files)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// And nothing must be selected behind the person's back.
 	select {
 	case idx := <-selected:
 		t.Fatalf("a tap on a season auto-selected fileIndex %d — a person must choose", idx)
-	case <-time.After(2 * time.Second):
-	}
-
-	if got := len(w.files); got != 3 {
-		t.Fatalf("chips came from %d files, want 3", got)
-	}
-	if w.current == nil || w.current.ID != "season1" {
-		t.Fatal("the season is not the current torrent")
+	case <-time.After(500 * time.Millisecond):
 	}
 }
