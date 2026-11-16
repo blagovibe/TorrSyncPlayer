@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.9] - 2026-11-16
+
 - **The window has its own icon set** (idea-0187). Nineteen 24-pixel SVG glyphs —
   play, pause, fullscreen, fullscreen-exit, fast-rewind, fast-forward, add,
   settings, refresh, folder, room, join-room, leave-room, info, delete, copy,
