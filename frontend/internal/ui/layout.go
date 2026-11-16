@@ -5,6 +5,8 @@
 package ui
 
 import (
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -21,13 +23,13 @@ import (
 // give each part a name and a border, which is what tells the eye where to
 // look first — the alternative, a native-looking toolkit, was refused on
 // purpose (idea-0063: GTK4 would cost macOS and Windows).
+// zoneHeading is a small-caps zone title with a muted colour, the way a
+// streaming service marks the edge of a section: the section is named, not
+// shouted, and the muted grey lets the content dominate.
 func (w *window) zoneHeading(key string) fyne.CanvasObject {
-	// Bold and a step larger than body text: a heading that is only a
-	// little bigger than what it heads is a heading nobody sees. The size
-	// follows the theme, so the switch restyles it with everything else.
-	text := canvas.NewText(w.tr(key), theme.Color(theme.ColorNameForeground))
+	text := canvas.NewText(strings.ToUpper(w.tr(key)), theme.Color(theme.ColorNamePlaceHolder))
 	text.TextStyle = fyne.TextStyle{Bold: true}
-	text.TextSize = theme.TextSize() + 2
+	text.TextSize = theme.TextSize() - 1
 	return text
 }
 
